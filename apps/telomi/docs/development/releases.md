@@ -74,7 +74,8 @@ Maintainers configure these after creating the repository:
 - Use `dev` as the default branch and ordinary PR target.
 - Require PRs, [passing local checks](testing.md#submission-checks) and resolved review
   comments for `dev` and `main`; prohibit force pushes and deletion of these branches.
-- If Actions is disabled, do not require the `deterministic-checks` status.
+- While Actions is enabled, require the CI jobs `tests (1/3)`, `tests (2/3)`, `tests (3/3)` and
+  `typecheck, build and contracts`; if Actions is disabled, require no status checks.
   Set the review count to match the actual maintainer team.
 - Retain merge commits for the long-lived branch synchronization described above.
 
