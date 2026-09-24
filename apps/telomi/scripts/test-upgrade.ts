@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
 import { resolveBackupDir } from "../server/config/data-dir.js";
+import { dataFingerprint } from "../server/config/data-fingerprint.js";
 import { installationBackupDir, upgradeInProgress, upgradeMarkerPath } from "../server/config/data-format.js";
 import {
 	assertClean,
@@ -19,6 +21,7 @@ import {
 	serviceLabel,
 	dataFormatChanged,
 	listSnapshots,
+	main,
 	parseOptions,
 	pruneSnapshots,
 	resolveTarget,
@@ -279,6 +282,8 @@ test("an uncaught exception after Telomi was stopped starts it again and clears 
 		TELOMI_SERVICE_STOP: "echo stop >> hooks.log",
 		TELOMI_SERVICE_START: "echo start >> hooks.log",
 		HINDSIGHT_API_DATABASE_URL: "postgresql://unused",
+		// Never the default port: that is where a real installation's User Memory answers.
+		HINDSIGHT_URL: "http://127.0.0.1:1/v1/default",
 	};
 	// Like undici's EINVAL: thrown from an I/O callback while the upgrade awaits, so no try/catch sees it.
 	const script = `
@@ -294,4 +299,21 @@ test("an uncaught exception after Telomi was stopped starts it again and clears 
 	assert.equal(existsSync(target.marker), false);
 	assert.equal(existsSync(join(target.backupDir, ".upgrade.lock")), false);
 	assert.equal(listSnapshots(target.backupDir).length, 1);
+});
+
+test("a snapshot-only run with nothing changed since the newest snapshot stops nothing", async (context) => {
+	const root = scratch(context);
+	gitRepo(root);
+	const memory = createServer((_req, res) => res.end(JSON.stringify({ banks: [{ bank_id: "user", fact_count: 4, last_write_at: "w" }] })));
+	await new Promise<void>((done) => memory.listen(0, "127.0.0.1", done));
+	context.after(() => memory.close());
+	const target = install(root);
+	target.env = {
+		HINDSIGHT_URL: `http://127.0.0.1:${(memory.address() as { port: number }).port}/v1/default`,
+		TELOMI_SERVICE_STOP: "echo stop >> hooks.log",
+	};
+	const snapshot = takeSnapshot(target, "daily", "a".repeat(40), new Date("2026-09-01T00:00:00Z"), await dataFingerprint(target.dataDir, target.env));
+	assert.equal(await main(["--snapshot-only"], target), 0);
+	assert.equal(existsSync(join(root, "hooks.log")), false, "Telomi was not stopped");
+	assert.deepEqual(listSnapshots(target.backupDir).map((candidate) => candidate.path), [snapshot.path]);
 });
