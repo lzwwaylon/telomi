@@ -515,6 +515,8 @@ app.get("/api/runtime/idle", async (_req, res) => {
 			hasRunningScheduleReview: () => researchScheduleReviews.hasRunning(),
 			hasExecutingEvolutionRun: () => operations?.evolution.hasExecutingRun() ?? false,
 			userMemoryActiveOperations: () => getHindsightRuntimeManager().activeOperations(),
+			browserLoginOpen: () => browserLoginServer.isOpen(),
+			userControlledBrowserSessions: () => browserObservationServer.userControlled(),
 		}));
 	} catch (err) {
 		res.status(500).json({ error: toErrorMessage(err) });

@@ -13,7 +13,11 @@ export type IdleReason =
 	| { kind: "scheduled-research"; nextScheduledAt?: string }
 	| { kind: "schedule-review" }
 	| { kind: "evolution" }
-	| { kind: "user-memory"; activeOperations: number | null };
+	| { kind: "user-memory"; activeOperations: number | null }
+	/** The user is logging in to a source in the browser login dialog. */
+	| { kind: "browser-login" }
+	/** The user has taken control of Browser Sessions in the Browser Monitor. */
+	| { kind: "browser-control"; sessions: number };
 
 export interface IdleVerdict {
 	idle: boolean;
@@ -33,6 +37,8 @@ export interface IdleSources {
 	hasRunningScheduleReview: () => boolean;
 	hasExecutingEvolutionRun: () => boolean;
 	userMemoryActiveOperations: () => Promise<number | null>;
+	browserLoginOpen: () => boolean;
+	userControlledBrowserSessions: () => number;
 }
 
 /**
@@ -60,6 +66,12 @@ export async function readIdleVerdict(sources: IdleSources, now = Date.now()): P
 	if (sources.hasExecutingEvolutionRun()) reasons.push({ kind: "evolution" });
 	const activeOperations = await sources.userMemoryActiveOperations();
 	if (activeOperations !== 0) reasons.push({ kind: "user-memory", activeOperations });
+	// A restart ends an interactive browser session mid-login or mid-task. Watching an Agent's
+	// browser without control does not count: the Agent's own work already does, and a monitor left
+	// open would otherwise hold maintenance indefinitely.
+	if (sources.browserLoginOpen()) reasons.push({ kind: "browser-login" });
+	const sessions = sources.userControlledBrowserSessions();
+	if (sessions > 0) reasons.push({ kind: "browser-control", sessions });
 	return {
 		idle: reasons.length === 0,
 		reasons,

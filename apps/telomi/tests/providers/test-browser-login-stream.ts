@@ -71,6 +71,7 @@ try {
 	client.on("message", (data) => received.push(JSON.parse(data.toString()) as Record<string, unknown>));
 	await once(client, "open");
 	assert.equal(await rejected(BROWSER_LOGIN_STREAM_PATH), 409, "one login window at a time");
+	assert.equal(login.isOpen(), true, "an open login window is reported to the idle verdict");
 
 	const status = await waitFor((message) => message.type === "status");
 	assert.deepEqual(status, { type: "status", connected: true, screencasting: true, viewportWidth: 880, viewportHeight: 640 });
@@ -115,6 +116,8 @@ try {
 	await waitFor((message) => message.type === "done");
 	assert.deepEqual(received.filter((message) => message.type === "logins").at(-1)?.states, { example: true, youtube: true });
 	assert.equal((await closeEvent)[0], 1000);
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.equal(login.isOpen(), false, "the login window closing ends it");
 	assert.ok(commands.some((command) => command.method === "Page.stopScreencast"));
 	assert.equal(closedTargets, 1, "the login tab is closed once");
 	assert.ok(!JSON.stringify(received).includes("KeyA"), "nothing typed comes back to the page");
