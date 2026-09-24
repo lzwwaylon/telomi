@@ -41,9 +41,12 @@ isolation overrides. It is loaded after the ordinary dotenv files by the shell,
 server and Vite. API, frontend, Operations, Source Service, Audio and managed Chrome
 ports are distinct, including LiveKit HTTP and RTC TCP/UDP ports; Vite fails rather than switching silently to another port.
 Rerunning setup preserves allocated ports and adds any newly required service ports.
-Data, writable credentials, traces and Audio jobs stay inside the worktree. Hindsight
-uses a separately named pg0 database and bank; its database files remain in pg0's
-own storage after worktree removal. Model download caches remain shared. Runtime
+Data, writable credentials, traces and Audio jobs stay inside the worktree's own
+data directory, and its own cache directory holds fetched material. Hindsight uses a
+separately named pg0 database and bank whose files live in that data directory, so
+removing the worktree removes them. Hugging Face downloads are shared by linking into
+the main checkout's cache directory, never its data directory; `doctor` checks that
+both directories belong to the worktree. Runtime
 starts Chrome on the Worktree's own CDP port with a separate profile, so stopping
 the main checkout's browser does not interrupt sibling Worktrees. Setup also writes a
 private agent-browser config naming that port and points `AGENT_BROWSER_CONFIG` at

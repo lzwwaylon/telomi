@@ -35,14 +35,17 @@ test("a missing configured directory is refused without creating anything", asyn
 test("the checkout's default directory is created on first start", async (context) => {
 	const dataDir = join(scratch(context), "data");
 	const format = await prepareDataDirectory(dataDir, { defaultDir: dataDir, log: quiet });
-	assert.equal(format.formatVersion, 1);
+	assert.equal(format.formatVersion, CURRENT_FORMAT_VERSION);
 	assert.deepEqual(readDataFormat(dataDir), format);
 });
 
-test("an existing empty directory is initialized at version 1", async (context) => {
+test("an existing empty directory is a new installation in the current layout", async (context) => {
 	const dataDir = scratch(context);
-	const format = await prepareDataDirectory(dataDir, { defaultDir: join(dataDir, "other"), log: quiet });
-	assert.equal(format.formatVersion, 1);
+	const ran: string[] = [];
+	const migrations: DataMigration[] = [{ name: "never", run: () => void ran.push("never") }];
+	const format = await prepareDataDirectory(dataDir, { defaultDir: join(dataDir, "other"), migrations, log: quiet });
+	assert.equal(format.formatVersion, 2);
+	assert.deepEqual(ran, [], "nothing to migrate in a new directory");
 	assert.match(format.installationId, /^[0-9a-f-]{36}$/u);
 	assert.deepEqual(readdirSync(dataDir), [DATA_FORMAT_FILE]);
 });
@@ -52,12 +55,12 @@ test("an unmarked existing installation is adopted as version 1 without touching
 	mkdirSync(join(dataDir, "goal_x"));
 	writeFileSync(join(dataDir, "goals.json"), "[]\n");
 	const messages: string[] = [];
-	const format = await prepareDataDirectory(dataDir, { log: (message) => messages.push(message) });
+	const format = await prepareDataDirectory(dataDir, { migrations: [], log: (message) => messages.push(message) });
 	assert.equal(format.formatVersion, 1);
 	assert.equal(readFileSync(join(dataDir, "goals.json"), "utf8"), "[]\n");
 	assert.match(messages.join("\n"), /adopted as format version 1/u);
 	// Identity is stable across restarts.
-	assert.deepEqual(await prepareDataDirectory(dataDir, { log: quiet }), format);
+	assert.deepEqual(await prepareDataDirectory(dataDir, { migrations: [], log: quiet }), format);
 });
 
 test("data newer than the code is refused before any migration runs", async (context) => {
@@ -81,7 +84,8 @@ test("an unreadable marker is refused rather than replaced", async (context) => 
 
 test("migrations run in order and the version advances only after each succeeds", async (context) => {
 	const dataDir = scratch(context);
-	await prepareDataDirectory(dataDir, { log: quiet });
+	writeFileSync(join(dataDir, "goals.json"), "[]\n");
+	await prepareDataDirectory(dataDir, { migrations: [], log: quiet });
 	const ran: string[] = [];
 	let failSecond = true;
 	const migrations: DataMigration[] = [

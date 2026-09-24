@@ -180,11 +180,12 @@ def allocated_ports(state, previous):
 def isolation_env(root, source_env, identity, ports):
     api, operations, web, research, audio, chrome, memory, postgres, livekit, rtc_tcp, rtc_udp = ports
     data = root / APP / "data"
+    cache = root / APP / "cache"
     agent = data / ".pi/agent"
     kernel = root / APP / ".prime-kernel"
-    hf = data / ".pi/runtime/research-source-service/huggingface"
+    hf = cache / "huggingface"
     return {
-        "TELOMI_DATA_DIR": str(data), "PI_CODING_AGENT_DIR": str(agent),
+        "TELOMI_DATA_DIR": str(data), "TELOMI_CACHE_DIR": str(cache), "PI_CODING_AGENT_DIR": str(agent),
         "PRIME_AGENT_CODING_AGENT_DIR": str(agent), "HINDSIGHT_BANK_ID": f"telomi-worktree-{identity}",
         "HINDSIGHT_URL": f"http://127.0.0.1:{memory}/v1/default",
         "HINDSIGHT_API_DATABASE_URL": f"pg0://telomi-worktree-{identity}:{postgres}",
@@ -203,8 +204,8 @@ def isolation_env(root, source_env, identity, ports):
         "TELOMI_RESEARCH_SOURCE_PYTHON": str(root / RESEARCH / ".venv/bin/python"), "SOURCE_SERVICE_PORT": str(research),
         "SOURCE_SERVICE_MATERIAL_CACHE_BASE_ROOT": "",
         "SOURCE_SERVICE_WORKSPACE_ROOTS": os.pathsep.join(map(str, [data, root / APP, Path(tempfile.gettempdir())])),
-        "SOURCE_SERVICE_MATERIAL_CACHE_ROOT": str(data / ".pi/runtime/research-source-service/material-cache"),
-        "SOURCE_SERVICE_ARXIV_SQLITE_PATH": str(data / ".pi/runtime/research-sources/arxiv-runtime.sqlite3"),
+        "SOURCE_SERVICE_MATERIAL_CACHE_ROOT": str(cache / "material-cache"),
+        "SOURCE_SERVICE_ARXIV_SQLITE_PATH": str(cache / "research-sources/arxiv-runtime.sqlite3"),
         "SOURCE_SERVICE_HF_HOME": str(hf), "HF_HOME": str(hf), "HF_TOKEN_PATH": str(hf / "token"),
         "HF_HUB_CACHE": str(hf / "hub"), "HUGGINGFACE_HUB_CACHE": str(hf / "hub"), "HF_XET_CACHE": str(hf / "xet"),
         "PRIME_AGENT_KERNEL_VENV": str(kernel), "PRIME_AGENT_KERNEL_PYTHON": str(kernel / "bin/python"),
@@ -452,7 +453,7 @@ def setup(root):
         validate_admission(state, identity)
         if output(["node", "-p", "process.versions.node.split('.')[0]"]) != "24":
             raise RuntimeError("Node.js 24 is required")
-        for path in (root / APP / "data", root / APP / "data/.pi/agent", root / APP / "data/.pi/agent/accounts"):
+        for path in (root / APP / "data", root / APP / "data/.pi/agent", root / APP / "data/.pi/agent/accounts", root / APP / "cache"):
             if not path.resolve().is_relative_to(root):
                 raise RuntimeError(f"Writable data points outside this worktree: {path}")
         metadata = state / f"{identity}.json"
@@ -476,13 +477,17 @@ def setup(root):
             private_copy(source_agent / name, agent / name)
         ports = allocated_ports(state, previous)
         overlay = isolation_env(root, source_env, identity, ports)
-        source_hf = (source / APP / source_env.get("SOURCE_SERVICE_HF_HOME", str(source_data / ".pi/runtime/research-source-service/huggingface"))).resolve()
+        # Downloads are shared through the main checkout's cache directory, never its data directory.
+        source_cache = source / APP / source_env.get("TELOMI_CACHE_DIR", "cache")
+        source_hf = (source / APP / source_env.get("SOURCE_SERVICE_HF_HOME", str(source_cache / "huggingface"))).resolve()
         local_hf = Path(overlay["SOURCE_SERVICE_HF_HOME"])
         local_hf.mkdir(parents=True, exist_ok=True, mode=0o700)
         for name in ("hub", "xet"):
             shared_cache = source_hf / name
             shared_cache.mkdir(parents=True, exist_ok=True)
             destination = local_hf / name
+            if destination.is_symlink() and destination.resolve() != shared_cache.resolve():
+                destination.unlink()
             if not destination.exists() and not destination.is_symlink():
                 destination.symlink_to(shared_cache, target_is_directory=True)
         for name in ("token", "stored_tokens"):
@@ -522,6 +527,8 @@ def doctor(root, live=False):
     expected_data = root / APP / "data"
     if Path(env.get("TELOMI_DATA_DIR", "")).resolve() != expected_data.resolve():
         raise RuntimeError("Data is not isolated; rerun worktree setup")
+    if Path(env.get("TELOMI_CACHE_DIR", "")).resolve() != (root / APP / "cache").resolve():
+        raise RuntimeError("Cache is not isolated; rerun worktree setup")
     for path in (expected_data, expected_data / ".pi/agent", root / "node_modules", root / RESEARCH / ".venv"):
         if path.is_symlink() or not path.exists():
             raise RuntimeError(f"Missing or shared source-dependent path: {path}")
@@ -661,9 +668,11 @@ def stop_processes(root, state, identity):
                     pending = True
     # Only the Runtime's own Chrome record authorizes stopping a detached browser. A deleted checkout
     # takes that record along; its profile path and recorded CDP port are the remaining evidence.
-    flag = f"--user-data-dir={root / APP / '.chrome-debug-profile'}"
-    chrome = root / APP / ".chrome-debug/chrome-debug.json"
-    if chrome.is_file():
+    # The managed profile lives in the data directory; one started before that layout used the checkout's.
+    flags = [f"--user-data-dir={root / APP / path} " for path in ("data/browser-profile", ".chrome-debug-profile")]
+    chrome = next((path for path in (root / APP / "data/.pi/runtime/chrome-debug/chrome-debug.json",
+                                     root / APP / ".chrome-debug/chrome-debug.json") if path.is_file()), None)
+    if chrome:
         pid = json.loads(chrome.read_text()).get("pid", -1)
         browsers = [f"{pid} " + subprocess.run(["ps", "-p", str(pid), "-o", "command="], text=True, capture_output=True).stdout]
         port = "--remote-debugging-port="
@@ -675,7 +684,7 @@ def stop_processes(root, state, identity):
     for line in browsers:
         pid, _, command = line.strip().partition(" ")
         command = command.rstrip() + " "
-        if flag + " " in command and port in command:
+        if any(flag in command for flag in flags) and port in command:
             if not terminate_group({"pid": int(pid), "started": process_stamp(int(pid))}):
                 pending = True
     if pending:

@@ -165,8 +165,11 @@ def main() -> None:
     parser.add_argument("--phase", choices=["estimate", "prepare", "cutover", "abort"], required=True)
     args = parser.parse_args()
     from hindsight_api.pg0 import resolve_database_url
+    from telomi_database import start_managed_database
 
-    database_url = asyncio.run(resolve_database_url(args.database_url))
+    # A database this phase had to start stays running, as Hindsight's own resolution leaves it.
+    database_url, _ = start_managed_database(args.database_url)
+    database_url = asyncio.run(resolve_database_url(database_url))
     emit = lambda event: print(json.dumps(event), flush=True)  # noqa: E731
     migration = EmbeddingMigration(database_url, emit=emit)
     if args.phase == "estimate":
