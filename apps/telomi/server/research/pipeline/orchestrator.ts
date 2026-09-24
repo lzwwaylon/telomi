@@ -344,6 +344,9 @@ export class Run {
 			if (!currentEvidence || !currentEvidenceArtifact) {
 				throw new Error("Research Run has no current Evidence checkpoint");
 			}
+			// A resumed Run hydrates the snapshot a failed gate recorded, skipping the search cycle that
+			// enforces the gate, so it is enforced again on whatever evidence reaches the report.
+			if (!hasUsableEvidence(currentEvidence)) throw new Error(NO_USABLE_EVIDENCE);
 			for (const reference of currentEvidence.source_bundle_refs) {
 				if (!cumulativeBundleRefs.includes(reference)) cumulativeBundleRefs.push(reference);
 			}
@@ -1102,12 +1105,12 @@ export class Run {
 				},
 			});
 		}
-		if (!evidence.notes.some((record) => record.note.sections.length > 0)) {
+		if (!hasUsableEvidence(evidence)) {
 			args.transition(args.state.status, (draft) => {
 				draft.cornell_note_snapshots.push(artifactRef(cornellNotesArtifact));
 			});
 			args.emit("cornell_notes", "succeeded", args.sequence, "0 usable Cornell Notes");
-			throw new Error("Research produced no usable source evidence; report generation was not started");
+			throw new Error(NO_USABLE_EVIDENCE);
 		}
 		args.transition("plan_authoring", (draft) => {
 			if (failures.length > 0) {
@@ -1177,6 +1180,12 @@ export class Run {
 			finalReportPath: join(request.workspaceDirectory, "report", "final.md"),
 		};
 	}
+}
+
+const NO_USABLE_EVIDENCE = "Research produced no usable source evidence; report generation was not started";
+
+function hasUsableEvidence(evidence: Pick<CornellNotesSnapshot, "notes">): boolean {
+	return evidence.notes.some((record) => record.note.sections.length > 0);
 }
 
 function hydrateCheckpoint(
