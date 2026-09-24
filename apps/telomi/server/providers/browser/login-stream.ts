@@ -24,6 +24,8 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 
 export interface BrowserLoginDependencies {
 	cdpUrl: () => string;
+	/** Starts the browser host and holds it while the login is open. */
+	acquireBrowser?: () => Promise<() => void>;
 	/** Whether the source's last verification passed. A login cookie the source rejects is stale. */
 	sourceVerified: (sourceId: string) => boolean;
 	/** The sources to log in to; every descriptor with a `login` unless given. */
@@ -69,7 +71,14 @@ async function runLogin(client: WebSocket, deps: BrowserLoginDependencies): Prom
 	const send = (message: Record<string, unknown>) => {
 		if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(message));
 	};
-	const cdp = await connectCdp(deps.cdpUrl());
+	const releaseBrowser = await deps.acquireBrowser?.();
+	let cdp: Cdp;
+	try {
+		cdp = await connectCdp(deps.cdpUrl());
+	} catch (error) {
+		releaseBrowser?.();
+		throw error;
+	}
 	let targetId: string | undefined;
 	try {
 		targetId = (await cdp.call("Target.createTarget", { url: "about:blank" }) as { targetId: string }).targetId;
@@ -161,6 +170,7 @@ async function runLogin(client: WebSocket, deps: BrowserLoginDependencies): Prom
 	} finally {
 		if (targetId) await cdp.call("Target.closeTarget", { targetId }).catch(() => undefined);
 		cdp.close();
+		releaseBrowser?.();
 	}
 }
 

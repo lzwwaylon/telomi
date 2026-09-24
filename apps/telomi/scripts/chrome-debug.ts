@@ -332,7 +332,7 @@ function resolveDefaultProfileDirectory(sourceDir: string): string {
   return "Default";
 }
 
-function resolveBrowserExecutablePath(options: Options): string {
+export function browserExecutablePath(options: Options): string {
   if (options.executablePath) {
     if (!existsSync(options.executablePath)) {
       throw new Error(`Browser executable not found: ${options.executablePath}`);
@@ -746,7 +746,7 @@ export async function startChrome(options: Options): Promise<void> {
     detachBrowserAccount(path.join(options.profileDir, options.profileDirectory));
   }
 
-  const executablePath = resolveBrowserExecutablePath(options);
+  const executablePath = browserExecutablePath(options);
   const logPath = logFilePath(options.stateDir);
   const stdoutFd = openSync(logPath, "a");
   const stderrFd = openSync(logPath, "a");

@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
 	browserSessionOwns,
+	browserSessionRecorded,
 	discoverLocalProviderEnvironment,
 	refreshBrowserSessions,
 	xCookieHeader,
@@ -59,10 +60,27 @@ try {
 	browserCookies[1] = { domain: ".x.com", name: "auth_token", value: "x-auth-2" };
 	assert.deepEqual(await refreshBrowserSessions(env, { readBrowserCookies: async () => browserCookies }), ["twitter-browser-session", "youtube-browser-session"]);
 	assert.equal(env.SOURCE_SERVICE_TWITTER_COOKIE, "auth_token=x-auth-2; ct0=x-csrf; twid=u=42");
+
+	// The browser runs on demand. While it is stopped (no answer), the saved session stands, including
+	// in a new process that never read the browser; the same session read again rewrites no file.
+	const sessionDir = join(dataDir, ".pi", "runtime", "browser-session");
+	assert.equal(browserSessionRecorded(env), true);
+	const saved = statSync(join(sessionDir, "x-cookie-header.txt")).mtimeMs;
+	assert.deepEqual(await refreshBrowserSessions(env, { readBrowserCookies: async () => browserCookies }), ["twitter-browser-session", "youtube-browser-session"]);
+	assert.equal(statSync(join(sessionDir, "x-cookie-header.txt")).mtimeMs, saved, "an unchanged session is not rewritten");
+	const restarted: NodeJS.ProcessEnv = { TELOMI_DATA_DIR: dataDir };
+	assert.deepEqual(await refreshBrowserSessions(restarted, { readBrowserCookies: async () => undefined }), ["twitter-browser-session", "youtube-browser-session"]);
+	assert.equal(restarted.SOURCE_SERVICE_TWITTER_COOKIE, "auth_token=x-auth-2; ct0=x-csrf; twid=u=42");
+	assert.equal(restarted.PI_YOUTUBE_YTDLP_COOKIE_FILE, join(sessionDir, "youtube-cookies.txt"));
+	assert.equal(browserSessionRecorded({ TELOMI_DATA_DIR: join(root, "fresh-data") }), false, "a new installation has never read its browser");
+
 	assert.deepEqual(await refreshBrowserSessions(env, { readBrowserCookies: async () => [] }), []);
 	assert.equal(env.SOURCE_SERVICE_TWITTER_COOKIE, undefined);
 	assert.equal(env.PI_YOUTUBE_YTDLP_COOKIE_FILE, undefined);
 	assert.equal(browserSessionOwns("SOURCE_SERVICE_TWITTER_COOKIE"), false);
+	// A logout the browser shows is saved too: the next process does not bring the old session back.
+	const afterLogout: NodeJS.ProcessEnv = { TELOMI_DATA_DIR: dataDir };
+	assert.deepEqual(await refreshBrowserSessions(afterLogout, { readBrowserCookies: async () => undefined }), []);
 
 	let browserRead = false;
 	const explicit: NodeJS.ProcessEnv = {

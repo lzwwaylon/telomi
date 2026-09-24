@@ -17,7 +17,7 @@ import { refreshBrowserSessions } from "../config/local-credentials.js";
 import { loadSettings, saveSettings } from "../config/settings.js";
 import { toErrorMessage } from "../lib/values.js";
 import { YouTubeMediaExtractor } from "../research/sources/providers/youtube/media-extractor.js";
-import { probeBrowserHost } from "./browser/startup.js";
+import { browserHostAvailable } from "./browser/startup.js";
 import { captureSearchCredential } from "./search-credentials.js";
 import { SOURCE_DESCRIPTORS, sourceDescriptor, type SourceDescriptor } from "./source-descriptors.js";
 import { getResearchSourceServiceClient } from "./source-service-client.js";
@@ -175,7 +175,7 @@ export class SourceStatusMonitor {
 			case "none":
 				return { state: "ok" };
 			case "browser":
-				return await (this.deps.probeBrowser ?? probeBrowserHost)(this.env)
+				return await (this.deps.probeBrowser ?? browserHostAvailable)(this.env)
 					? { state: "ok" }
 					: { state: "error", code: "browser_unavailable" };
 			case "youtube": {

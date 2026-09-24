@@ -100,8 +100,11 @@ try {
 	assert.deepEqual(entries.map((entry) => entry.args), [["run", "dev"]]);
 	assert.equal(entries[0].port, "8911");
 	assert.equal(entries[0].apiPort, "8911");
-	// start.sh delegates to the same application initializer as direct npm start/dev:server.
-	assert.ok(/await ensureBrowserReady\(/u.test(readFileSync(join(app, "server/app.ts"), "utf8")), "all server entrypoints must await Browser readiness");
+	// start.sh delegates to the same application initializer as direct npm start/dev:server. That
+	// initializer never starts the browser itself: it starts on first use through BrowserHost.
+	const initializer = readFileSync(join(app, "server/app.ts"), "utf8");
+	assert.ok(!/ensureBrowserReady\(/u.test(initializer), "the server start must not start the browser");
+	assert.ok(/new BrowserHost\(/u.test(initializer), "browser uses go through the BrowserHost lifecycle");
 	for (const overrides of [{}, { TELOMI_EVAL_INSTANCE: "1", TELOMI_START_BROWSER: "false" }]) {
 		const config = { ...overrides, TELOMI_BROWSER_HOST_CDP_URL: `http://127.0.0.1:${address.port}`, TELOMI_BROWSER_HEADED: "true" };
 		await ensureBrowserReady(config, async () => { assert.fail("existing CDP must not launch or sync a profile"); });

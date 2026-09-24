@@ -35,8 +35,8 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 			// A graceful stop keeps the server's shutdown open while a repeated signal arrives.
 			`process.on('SIGTERM', () => setTimeout(() => process.exit(0), 1000));\n` +
 			`setInterval(() => {}, 1000);\n`, { mode: 0o755 });
-		// Startup also requires Browser and Source readiness. Keep both local and
-		// deterministic instead of inheriting a worktree's live service endpoints.
+		// Startup also requires Source readiness; the browser starts on first use, never at startup.
+		// Keep both endpoints local and deterministic instead of inheriting a worktree's live services.
 		const readyRequests = new Set<string>();
 		const health = createServer((req, res) => {
 			if (req.url === "/json/version" || req.url === "/v1/health") {
@@ -93,7 +93,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 				assert(server.exitCode === null && server.signalCode === null, output);
 				await delay(25, undefined, { signal: context.signal });
 			}
-			assert.deepEqual([...readyRequests].sort(), ["/json/version", "/v1/health"]);
+			assert.deepEqual([...readyRequests].sort(), ["/v1/health"], "startup does not contact the browser");
 			pids = JSON.parse(readFileSync(marker, "utf8"));
 			server.kill(signal);
 			// node --watch and the process-group signal deliver it again during shutdown.

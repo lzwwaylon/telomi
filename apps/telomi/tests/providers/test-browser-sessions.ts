@@ -323,6 +323,32 @@ assert.equal(stubborn.config.activeWorkspaces, 1);
 await stubborn.endTask("after-stubborn", "completed");
 assert.equal(stubborn.config.activeWorkspaces, 0);
 
+// The browser host is started by the first command and held until the last admitted workspace ends.
+const hostCalls: string[] = [];
+const leased = new BrowserSessionRegistry({
+	namespace: "telomi-lease",
+	daemonHome,
+	cdpUrl: "9222",
+	agentBrowserBin: fakeBin,
+	host: { acquire: async () => { hostCalls.push("acquire"); return () => hostCalls.push("release"); } },
+});
+leased.beginRun("lease-a", "run-a");
+leased.beginRun("lease-b", "run-b");
+assert.deepEqual(hostCalls, [], "beginning a run does not start the browser");
+await leased.execute("lease-a", ["scroll", "down", "100"]);
+await leased.execute("lease-b", ["scroll", "down", "100"]);
+assert.deepEqual(hostCalls, ["acquire"], "workspaces share one lease");
+await leased.endTask("lease-a", "completed");
+assert.deepEqual(hostCalls, ["acquire"], "held while a workspace remains");
+await leased.endTask("lease-b", "completed");
+await new Promise((resolve) => setImmediate(resolve));
+assert.deepEqual(hostCalls, ["acquire", "release"]);
+leased.beginRun("lease-c", "run-c");
+await leased.execute("lease-c", ["scroll", "down", "100"]);
+await leased.endTask("lease-c", "completed");
+await new Promise((resolve) => setImmediate(resolve));
+assert.deepEqual(hostCalls, ["acquire", "release", "acquire", "release"], "a later workspace takes a new lease");
+
 console.log("browser-sessions registry: all assertions passed");
 
 function isAlive(pid: number): boolean {

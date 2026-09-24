@@ -17,7 +17,7 @@ import { resolveDataDir } from "./config/data-dir.js";
 import { resolveAgentDir } from "./config/agent-directory.js";
 import { isAllowedBrowserOrigin, resolveOperationsMode, resolveOperationsPort, resolveServerHost } from "./config/network.js";
 import { startCustomProvidersSync } from "./providers/sync.js";
-import { browserHostEndpoint, ensureBrowserReady } from "./providers/browser/startup.js";
+import { BrowserHost, browserHostEndpoint, resyncBrowserProfile } from "./providers/browser/startup.js";
 import { BrowserSessionRegistry } from "./providers/browser/session-registry.js";
 import { createBrowserToolRouter } from "./providers/browser/tool-router.js";
 import { attachBrowserObservationServer, createBrowserObservationRouter } from "./providers/browser/observation-server.js";
@@ -60,9 +60,9 @@ import {
 	importLegacySearchCredentials,
 } from "./providers/search-credentials.js";
 import { mountSearchCredentialsApi } from "./providers/search-credentials-api.js";
-import { BROWSER_SETTLE_RETRY_MS, mountSourcesApi } from "./providers/sources-api.js";
+import { mountSourcesApi } from "./providers/sources-api.js";
 import { getSourceStatusMonitor, setSourceStatusChangeListener } from "./providers/source-status.js";
-import { discoverLocalProviderEnvironment, waitForBrowserCookies } from "./config/local-credentials.js";
+import { browserSessionRecorded, discoverLocalProviderEnvironment, refreshBrowserSessions, waitForBrowserCookies } from "./config/local-credentials.js";
 import { getResearchSourceServiceClient, getResearchSourceServiceManager } from "./providers/source-service-client.js";
 import { getHindsightRuntimeManager } from "./goals/memory/hindsight-runtime.js";
 import { mountEmbeddingApi, resumeEmbeddingMigration, stopEmbeddingMigration } from "./embedding/configuration.js";
@@ -130,8 +130,13 @@ let shutdownPromise: Promise<void> | undefined;
 // default action would kill the server before it reaps detached services.
 process.on("SIGINT", (signal) => void shutdown(signal));
 process.on("SIGTERM", (signal) => void shutdown(signal));
+// The managed browser starts on first use and stops when idle (BrowserHost); nothing here needs it.
+// Its logins are re-read on each start and before each idle stop, and saved for the time between.
+const browserHost = new BrowserHost({
+	afterStart: () => waitForBrowserCookies(browserHostEndpoint().href).then(() => refreshBrowserSessions(process.env, {}, rootDir)),
+	beforeStop: () => refreshBrowserSessions(process.env, {}, rootDir),
+});
 try {
-	await ensureBrowserReady();
 	await getResearchSourceServiceManager().ensureReady();
 } catch (error) {
 	await getResearchSourceServiceManager().close();
@@ -268,6 +273,7 @@ const researchScheduleScheduler = new ResearchScheduleScheduler(
 
 const browserSessions = new BrowserSessionRegistry({
 	dataRoot: workspaceDir,
+	host: browserHost,
 	// Resolve through the package so a hoisted install (npm workspaces put it in the repository
 	// root, not apps/telomi/node_modules) still finds the executable.
 	agentBrowserBin: fileURLToPath(import.meta.resolve("agent-browser/bin/agent-browser.js")),
@@ -419,7 +425,11 @@ mountAudioConfigApi(app, audioLocalRuntime);
 mountAuthApi(app);
 mountConnectionsApi(app);
 mountSearchCredentialsApi(app, { sourceService: getResearchSourceServiceClient(), statuses: getSourceStatusMonitor() });
-mountSourcesApi(app, { monitor: getSourceStatusMonitor(), liveBrowserSessions: () => browserSessions.liveSessions() });
+mountSourcesApi(app, {
+	monitor: getSourceStatusMonitor(),
+	liveBrowserSessions: () => browserSessions.liveSessions(),
+	resyncBrowserProfile: (env) => browserHost.withLease(() => resyncBrowserProfile(env)),
+});
 mountCustomProvidersApi(app);
 mountOllamaApi(app);
 mountOAuthApi(app);
@@ -870,13 +880,14 @@ const httpServer = app.listen(port, host, () => {
 // Source logins and keys are checked once the server is up and once a day after that; a
 // research run re-checks before it starts, so this is what the settings page shows in between.
 if (!evalInstance) {
-	const verifySources = (options?: { settleRetryMs?: number }) => getSourceStatusMonitor().verifyAll(options).catch((error) => {
+	// Browser logins are checked from the session saved when the browser last ran; the browser is
+	// started for this only while no read of it has ever been saved.
+	const verifySources = () => getSourceStatusMonitor().verifyAll().catch((error) => {
 		console.error(`[telomi] source verification failed: ${toErrorMessage(error)}`);
 	});
-	// A freshly launched browser host answers with a partial cookie set and then rotates its
-	// sessions for a moment; wait for it and allow one late re-check, so the first pass does not
-	// report every login as missing.
-	void waitForBrowserCookies(browserHostEndpoint().href).then(() => verifySources({ settleRetryMs: BROWSER_SETTLE_RETRY_MS }));
+	void (browserSessionRecorded(process.env, rootDir) ? Promise.resolve() : browserHost.withLease(async () => undefined))
+		.catch((error) => console.warn(`[telomi][providers/browser] first browser session read failed: ${toErrorMessage(error)}`))
+		.then(verifySources);
 	setInterval(() => void verifySources(), 24 * 60 * 60_000).unref();
 }
 const browserObservationServer = attachBrowserObservationServer(
@@ -886,6 +897,7 @@ const browserObservationServer = attachBrowserObservationServer(
 );
 const browserLoginServer = attachBrowserLoginServer(httpServer, {
 	cdpUrl: () => browserHostEndpoint().href,
+	acquireBrowser: () => browserHost.acquire(),
 	sourceVerified: (sourceId) => getSourceStatusMonitor().status(sourceId)?.state === "ok",
 });
 // 报告生产链路只由调用方取消和 Runtime Gate 结束。不要在 HTTP 入口重新添加
@@ -906,6 +918,9 @@ async function performShutdown(signal: NodeJS.Signals): Promise<void> {
 	}
 	await browserSessions.shutdownAll("shutdown").catch((error) => {
 		console.error(`[telomi] failed to release browser sessions: ${toErrorMessage(error)}`);
+	});
+	await browserHost.shutdown().catch((error) => {
+		console.error(`[telomi] failed to stop the managed browser: ${toErrorMessage(error)}`);
 	});
 	codexUsageMonitor.stop();
 	researchScheduleScheduler.stop();
