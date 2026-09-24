@@ -30,7 +30,7 @@ export function attachBrowserObservationServer(
 	httpServer: HttpServer,
 	registry: BrowserSessionRegistry,
 	goalExists: (goalId: string) => boolean,
-): { close(): void } {
+): { close(): void; userControlled(): number } {
 	const webSocketServer = new WebSocketServer({
 		noServer: true,
 		maxPayload: MAX_STREAM_MESSAGE_BYTES,
@@ -60,6 +60,8 @@ export function attachBrowserObservationServer(
 	};
 	httpServer.on("upgrade", onUpgrade);
 	return {
+		/** Browser Sessions whose input the user controls from a window. */
+		userControlled: () => controllers.size,
 		close: () => {
 			httpServer.off("upgrade", onUpgrade);
 			for (const client of webSocketServer.clients) client.close(1001, "server shutdown");

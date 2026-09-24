@@ -37,7 +37,7 @@ function browserLogins(): BrowserLogin[] {
 	return SOURCE_DESCRIPTORS.flatMap((source) => source.login ? [{ id: source.id, ...source.login }] : []);
 }
 
-export function attachBrowserLoginServer(httpServer: HttpServer, deps: BrowserLoginDependencies): { close(): void } {
+export function attachBrowserLoginServer(httpServer: HttpServer, deps: BrowserLoginDependencies): { close(): void; isOpen(): boolean } {
 	const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
 	let open = false;
 	const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -54,6 +54,8 @@ export function attachBrowserLoginServer(httpServer: HttpServer, deps: BrowserLo
 	};
 	httpServer.on("upgrade", onUpgrade);
 	return {
+		/** A login window is streaming, so the user is logging in. */
+		isOpen: () => open,
 		close: () => {
 			httpServer.off("upgrade", onUpgrade);
 			for (const client of webSocketServer.clients) client.close(1001, "server shutdown");

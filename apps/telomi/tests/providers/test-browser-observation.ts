@@ -120,6 +120,7 @@ await waitFor(() => received.some((message) => message.type === "control" && mes
 client.send(JSON.stringify({ type: "input_keyboard", eventType: "char", text: "hello", windowsVirtualKeyCode: 0 }));
 await waitFor(() => upstreamMessages.some((message) => message.type === "input_keyboard"));
 assert.equal(upstreamMessages.find((message) => message.type === "input_keyboard")?.text, "hello");
+assert.equal(observation.userControlled(), 1, "a Session under the user's control is reported to the idle verdict");
 
 client.send(JSON.stringify({ type: "control", control: "agent" }));
 await waitFor(() => received.some((message) => message.type === "control" && message.control === "agent"));
@@ -128,6 +129,7 @@ await waitFor(() => received.filter((message) => message.type === "control" && m
 
 client.close();
 await waitFor(() => registry.observe("goal-a")?.control === "agent");
+assert.equal(observation.userControlled(), 0, "closing the window releases control");
 upstream?.close();
 observation.close();
 await closeServer(http);

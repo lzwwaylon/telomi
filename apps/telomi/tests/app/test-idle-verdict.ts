@@ -17,6 +17,8 @@ function sources(overrides: Partial<IdleSources> = {}): IdleSources {
 		hasRunningScheduleReview: () => false,
 		hasExecutingEvolutionRun: () => false,
 		userMemoryActiveOperations: async () => 0,
+		browserLoginOpen: () => false,
+		userControlledBrowserSessions: () => 0,
 		...overrides,
 	};
 }
@@ -61,4 +63,10 @@ test("an overdue occurrence waiting for its Goal keeps the instance busy", async
 	const verdict = await readIdleVerdict(sources({ nextScheduledAt: () => overdue }), NOW);
 	assert.equal(verdict.idle, false);
 	assert.deepEqual(verdict.reasons, [{ kind: "scheduled-research", nextScheduledAt: overdue }]);
+});
+
+test("an open browser login or a Browser Session under the user's control keeps the instance busy", async () => {
+	assert.deepEqual((await readIdleVerdict(sources({ browserLoginOpen: () => true }), NOW)).reasons, [{ kind: "browser-login" }]);
+	assert.deepEqual((await readIdleVerdict(sources({ userControlledBrowserSessions: () => 2 }), NOW)).reasons, [{ kind: "browser-control", sessions: 2 }]);
+	assert.equal((await readIdleVerdict(sources(), NOW)).idle, true, "no open login and no controlled session is idle");
 });

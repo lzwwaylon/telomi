@@ -94,8 +94,9 @@ data format has changed since; otherwise the current data is kept.
 
 With `--if-idle`, the command first asks the running server whether stopping it
 would interrupt work (`GET /api/runtime/idle`). While a Goal is working, an
-Activity is running or queued, or scheduled research is due soon, it prints the
-reasons, changes nothing and exits `0`. After it has skipped for 24 hours in a
+Activity is running or queued, scheduled research is due soon, or you are using
+Telomi's browser (logging in to a source, or controlling a Browser Session), it
+prints the reasons, changes nothing and exits `0`. After it has skipped for 24 hours in a
 row, it prints a warning and exits `3`, so a scheduler can report an instance
 that never becomes idle. `--if-idle` never forces a restart.
 
