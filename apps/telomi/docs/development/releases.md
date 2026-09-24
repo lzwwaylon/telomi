@@ -9,8 +9,8 @@ Feature branch → dev → release acceptance → main → Tag / Release
 | Branch | Origin and purpose | Merge target |
 |---|---|---|
 | `feat/*`, `fix/*`, `chore/*` | Branch from `dev` for one feature, fix or maintenance task | `dev` |
-| `dev` | Daily integration and the repository's default branch | `main` after release acceptance |
-| `main` | Stable code that has passed release acceptance | Tag formal releases |
+| `dev` | Daily integration and the target of ordinary PRs | `main` after release acceptance |
+| `main` | Stable code that has passed release acceptance; the repository's default branch | Tag formal releases |
 | `hotfix/*` | Branch from `main` to fix a released version | `main`, then synchronize back to `dev` |
 
 Feature branches can be committed and pushed continuously. Ordinary PRs target
@@ -71,7 +71,8 @@ synchronization PR so later releases retain the fix.
 
 Maintainers configure these after creating the repository:
 
-- Use `dev` as the default branch and ordinary PR target.
+- Use `main` as the default branch, so the repository page and a plain clone show the released
+  version. Ordinary PRs still target `dev`; choose it as the base when opening one.
 - Require PRs, [passing local checks](testing.md#submission-checks) and resolved review
   comments for `dev` and `main`; prohibit force pushes and deletion of these branches.
 - While Actions is enabled, require the CI jobs `tests (1/3)`, `tests (2/3)`, `tests (3/3)` and
