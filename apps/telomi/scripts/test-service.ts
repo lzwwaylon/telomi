@@ -35,7 +35,7 @@ test("jobs run Node directly, are named after the checkout, and schedule upgrade
 	assert.notEqual(base, serviceLabel(other));
 	assert.deepEqual(server, {
 		Label: `${base}.server`,
-		EnvironmentVariables: { PATH: "/usr/local/bin:/opt/homebrew/bin:/usr/bin" },
+		EnvironmentVariables: { PATH: "/usr/local/bin:/opt/homebrew/bin:/usr/bin", TELOMI_OUTPUT_LOG: `/Users/me/Library/Logs/Telomi/${base}.server.log` },
 		StandardOutPath: `/Users/me/Library/Logs/Telomi/${base}.server.log`,
 		StandardErrorPath: `/Users/me/Library/Logs/Telomi/${base}.server.log`,
 		ProgramArguments: ["/usr/local/bin/node", "--import", "tsx", "server/index.ts"],

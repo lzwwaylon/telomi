@@ -78,7 +78,8 @@ export function jobDefinitions(install: Pick<Installation, "repoRoot">, options:
 	const path = [dirname(options.node), ...(env.PATH ?? "").split(delimiter).filter((entry) => entry && !entry.includes("node_modules"))];
 	const common = (job: Job) => ({
 		Label: `${base}.${job}`,
-		EnvironmentVariables: { PATH: [...new Set(path)].join(delimiter) },
+		// TELOMI_OUTPUT_LOG lets the job's own process keep the log bounded (server/config/output-log.ts).
+		EnvironmentVariables: { PATH: [...new Set(path)].join(delimiter), TELOMI_OUTPUT_LOG: logPath(`${base}.${job}`, home) },
 		StandardOutPath: logPath(`${base}.${job}`, home),
 		StandardErrorPath: logPath(`${base}.${job}`, home),
 	});

@@ -15,6 +15,7 @@ import { applicationRoot, resolveBackupDir, resolveDataDir, upgradeMarkerPath } 
 import { readDataFormat } from "../server/config/data-format.js";
 import { stopManagedBrowser, stopMemoryDatabase } from "../server/config/data-layout.js";
 import { loadProjectEnvironment } from "../server/config/environment.js";
+import { rotateOutputLog } from "../server/config/output-log.js";
 import { runtimeControlRoot } from "../server/workspaces/server-runtime-paths.js";
 import { managedBrowserPaths } from "./chrome-debug.js";
 
@@ -495,6 +496,8 @@ export async function main(argv: string[], install = installation()): Promise<nu
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	// A scheduled job appends a few lines per run to its log; keep it bounded like the server's.
+	rotateOutputLog(process.env.TELOMI_OUTPUT_LOG?.trim());
 	main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (error: unknown) => {
 		console.error(`[upgrade] ${error instanceof Error ? error.message : String(error)}`);
 		process.exitCode = 1;

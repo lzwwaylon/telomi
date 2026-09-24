@@ -109,6 +109,9 @@ npm run service -- status                     # also: stop, start, restart, unin
   with `--node <path>`. Installing again replaces the jobs with the new options.
   Jobs are named after the checkout (`com.telomi.<id>.server`, `.auto-upgrade`,
   `.snapshot`), so every checkout has its own. Logs go to `~/Library/Logs/Telomi/`.
+  When a job's log exceeds 10 MB, the job's own process moves its content to
+  `<log>.1`, replacing the previous one, and continues in the emptied log; the
+  server checks every minute, the scheduled jobs when they start.
 - `--auto-upgrade` runs `npm run upgrade -- --if-idle` every 15 minutes;
   `--auto-upgrade=<ref>` follows that branch, tag or commit with `--require-checks`.
   `--daily-snapshot` runs `npm run upgrade -- --snapshot-only --if-idle` at 04:30,

@@ -94,7 +94,9 @@ npm run service -- status                     # 另有 stop、start、restart、
 - `install` 使用执行这条命令的 Node 运行 Telomi，也可以用 `--node <路径>` 指定。
   再次执行 `install` 会按新的选项替换任务。任务以 checkout 命名
   （`com.telomi.<id>.server`、`.auto-upgrade`、`.snapshot`），每个 checkout 各有
-  一套。日志写在 `~/Library/Logs/Telomi/`。
+  一套。日志写在 `~/Library/Logs/Telomi/`。某个任务的日志超过 10 MB 时，由该任务
+  自己的进程把内容移到 `<日志>.1`（替换上一份），然后在清空后的日志中继续写入；
+  服务每分钟检查一次，定时任务在启动时检查。
 - `--auto-upgrade` 每 15 分钟执行一次 `npm run upgrade -- --if-idle`；
   `--auto-upgrade=<ref>` 以 `--require-checks` 跟随该分支、标签或提交。
   `--daily-snapshot` 在每天 04:30（或 Mac 下次唤醒时）执行
