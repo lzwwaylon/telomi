@@ -1,0 +1,68 @@
+# Main Agent
+
+## Purpose
+
+Main Agent is the only user-facing conversational Agent for each Goal. It understands ongoing conversation, reads the Goal Wiki progressively, and directly chooses replies, research, report generation, or schedule management. [Browser Skill Evolution](../evolution-module-design.md) is triggered by Runtime from execution evidence, not by a direct Main Agent action.
+
+## Interface
+
+External callers manage Goals through `GoalService` and start, steer, abort, and subscribe to Agent executions through `GoalRunner`. Web and voice entry points reuse the same Goal interface.
+
+Preparatory actions:
+
+- `wiki_search`, `wiki_read_page`, `wiki_graph_search`: query the current Goal's authoritative `wiki/knowledge`.
+- `search_user_memory`: recall historical evidence from an independent Hindsight bank as needed, or reflect on memories containing temporal changes and conflicts. While the memory service drains and restarts after a default-model change, the tool reports that memory is temporarily unavailable instead of throwing an error; the current turn continues without relying on memory.
+- `research_history`: page through this Goal's prior search questions and results to avoid repeated research and identify failed or stale searches.
+- `research_schedule`: create, inspect, modify, pause, resume, or archive Research Schedules. Main Agent cannot trigger an occurrence immediately. Only the user can trigger one manually from the schedule panel; otherwise, Runtime starts occurrences when cron makes them due.
+- A baseline must come from a published Research Run whose Goal Topic Plan is confirmed. Only Source revisions with Cornell Notes enter the Schedule's processed set. Sources recorded in the Run's Cornell Note failure list are excluded and persisted as Source gaps. A gap is not an automatic retry queue: it only makes that Source eligible to be read again when a future occurrence rediscovers it. The Schedule's time window and Source filters still determine what is read. A gap closes only when the same identity and revision hash have actually been read; revision hashes have no ordering, so reading another revision does not prove the failed revision was read. Gaps without failure records, and baselines with no successfully read Sources, are rejected at creation with actual counts and the missing Sources. These facts must appear in the Tool's text output: `details` is visible only to the UI, not the model, so the Agent can explain gaps to the user only from that text.
+- `wiki_update`: independently starts a Goal Wiki Update from a Research Run's validated Cornell Notes and immediately returns an Activity ID.
+- `/work/topic-plan.json`: Main Agent maintains the complete semantic draft through the Topic Plan Skill and native file Tools. Only user confirmation causes Runtime to append a JSONL history snapshot and activate it.
+- Read-only Workspace tools: read files explicitly supplied by the user and Goal capabilities.
+
+Terminal actions:
+
+- Ordinary assistant reply: answer directly from the current conversation and already-read knowledge, without a dedicated reply Tool.
+- `research`: start the current Research Runtime, proceeding through planning, Provider search, Source consolidation, Cornell Notes, a report, and an asynchronous Wiki Update.
+- `generate_report`: pin the current Wiki snapshot, have Full Report Writer plan a new structure and generate a report for the current question, then run Citation Compiler and the publication Gate.
+- `generate_podcast`: generate a podcast using one existing Canonical Report as the sole factual boundary. Runtime resolves the Goal's durable Podcast Preferences and freezes them with the current one-time instruction into a Podcast Generation Brief.
+
+The authoritative list is `MAIN_TERMINAL_ACTIONS` in `server/main-agent/tools/terminal-action.ts`. Each Turn allows only one terminal outcome. Wiki, Schedule, and History tools are preparatory actions whose results are returned through an ordinary assistant reply.
+
+## Main capabilities
+
+- Persist Goal sessions, attachments, model selections, thinking levels, and visible messages.
+- Route document attachments deterministically by type before the turn starts: parseable types go to `FileIngestService` and wait for a terminal state, text types are read directly by Main Agent without parsing, other binaries are saved unchanged, and images still enter the model as images. Folder attachments are saved as complete trees, with every file routed by the same rules. Main Agent receives one directory-level notice listing all files and their outcomes. Originals and parsed artifacts are mounted separately as read-only. Guest paths in notices derive from the sandbox specification rather than being duplicated in documentation or Prompts. Parsing status is written back to attachments, and chat file cards show parsed, incomplete, or failed states; attachment parsing does not create an Activity. `/documents` contains only parsed user attachments; Research Provider material stays in its execution Workspace.
+- Attachment notices always include processing status. Parsing failures or timeouts explain the cause and retain the original path without throwing, interrupting the turn, or allowing Main Agent to assemble its own parsing code. Main Agent handles summarization, questions, and citations directly through `read`; research is needed only when content must become evidence in the Wiki or a report. The research path's `user_documents` Provider uses the same type rules.
+- Node Evaluation Cases for attachment turns record only attachment descriptors, not bytes. Candidate Replay writes, routes, parses, and generates notices on the candidate side, allowing notice Prompt changes to be verified through Attestation replay.
+- Create an isolated Main Workspace directory and SRT sandbox for every Turn.
+- User file browsing and Main Agent share business-file mounts: `/work`, `/artifacts`, `/attachments`, `/documents`, and published `/reports`. During execution, reads use the current isolated working directory; while idle, they use published work files. Skills, historical control files, and the execution environment are not business-file listings. Listings, full content, and citation-line previews use the same guest paths and security boundary, without scanning the entire Goal execution tree. Storage keys (attachment IDs and parsing cache keys) serve only as locators: listings provide separate display names, while visible browsing and preview labels and download names use the user's filenames. Original attachment names come from attachment records stored in the Session. If the Goal is not loaded, its own `context.jsonl` is read directly without starting an Agent. Because this reads stored entries rather than model context, Compaction cannot remove names of files still on disk. Parsed artifacts display the source filename recorded at parsing time; when missing, the UI supplies a generic name without inventing a source. Parser-internal artifacts are excluded from listings, while path-based reads and Agent mounts remain available. Relative paths resolve against `/work`, and links inside files resolve against the containing directory. Host absolute paths and legacy Goal-relative paths are not converted into guest paths. Chat and file listings share the same floating preview; Markdown reuses the report reader's table of contents and body.
+- Load the current Turn's read-only Skill snapshot through Pi's native Skill Loader.
+- After every Turn, Server projects persisted Task History into Hindsight without retaining assistant replies. Stable Document IDs and a local Ledger compensate for failed writes during later synchronization.
+- That projection also carries the user's durable decisions: the active Topic Plan and user-rejected Research Schedule Proposals with their rejection reasons. A rejection records a past judgment rather than a prohibition; Main Agent and the next Research Schedule Review use it to understand what the user did not want at that time.
+- Query Wiki first, start Research directly when knowledge is insufficient, and start the Report-only Runtime directly when a report is needed.
+- Project Agent events, Research activities, reports, citations, and execution state to the frontend.
+- Ordinary conversation does not automatically write back Skill changes. Server-bundled Skills ship with the application; Goal Skills are snapshotted again from their complete directory contents on the next execution.
+
+## Sessions and context
+
+- The native Pi Session (`context.jsonl` in the Goal directory) is Main Agent's only conversation record and the complete context seen on every model call. Telomi neither maintains a second conversation history outside the Session nor trims persisted messages before sending them to the model. Pi Compaction handles context growth.
+- On service restart, Pi's `SessionManager` restores messages; Telomi does not reconstruct missing pieces. Models and thinking levels are not restored from the Session. The Runner's owner explicitly applies them before the next turn so old Session records cannot override configuration the user changed later.
+- Chat is a stateless projection of the Session: every assistant message is streamed and retained in full. Reasoning, intermediate output, and Tool calls form the turn's Activity; the final text is the reply. Lifecycle events (`[EVENT:...]` user messages) and the Agent's `[SILENT]` event responses appear only in model context, not chat.
+- Topic Plan generation and pending-confirmation feedback come from Runtime state and drafts. Lifecycle turns during generation appear in Activity, while pending drafts provide a viewing entry in chat. They are not appended to the Session as fabricated Agent replies, and draft titles and change lists do not reuse the user's raw request as a summary.
+- Report cards in chat come from report references Runtime attaches to replies, not from the current turn's Tool calls. When a Research Run resumed through the UI publishes, Runtime records the model's receipt as a lifecycle event and appends the same user reply and report references as the terminal Tool, producing the same visible outcome as Main Agent-initiated research. Resume startup and incomplete results also append user-visible state through the same Session; Activity supplies specific reasons and available actions. Chat delivery failure does not change the Research Run's execution result.
+- Goal lifecycle events enter the Session through `GoalSession.recordEvent`. Event text is its identity, so the same event is not recorded twice. Events arriving during a turn are appended after the turn, never between a Tool call and its result.
+- Every user message enters Task History for Hindsight projection, `research_history`, content search, and Trace reads. Assistant replies do not enter Task History.
+
+## Responsibility boundaries
+
+- Main Agent owns user semantics, ongoing conversation, and high-level tool selection. It does not generate Search Plans.
+- When a Goal is created, its description changes, or Cornell Notes yield a new Discovery, Runtime wakes the same Main Agent Session through an internal event. Main Agent progressively reads the Topic Plan Skill, maintains the semantic draft through native file Tools, and reports new findings to the user. Only when the user confirms does Runtime append a JSONL history snapshot, activate the revision, and trigger a Wiki Curator reframe. Research and Research Schedules cannot start before Topic Plan activation or while a revision awaits confirmation.
+- Prime Search, Source Organizer, Cornell Note, Report Writer, and Wiki Maintainer are Agents inside tools, not user conversation entry points.
+- Runtime owns sessions, isolation, state, validation, caching, publication, and terminal-action constraints. It does not make semantic judgments.
+- Hindsight results are historical data with provenance; the current user message always takes precedence. User memory is neither written into Goal Workspace nor injected into Research Agents.
+- When delegating, Main Agent includes only constraints needed by the current step in the task Prompt. Only two Agents read the User Memory Service: Main Agent and the read-only Research Schedule Reviewer. Search, Source Organizer, Cornell Note, and Wiki Maintainer do not access User Memory Tools.
+- Every Goal has exactly one authoritative Wiki, `wiki/knowledge`. There is no desktop LLM Wiki project or permanent dual write.
+
+## Verification
+
+Start the real user path from Goal Chat, and verify the boundary between tools and internal Agents in Node Trace.

@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 2,
+  "name": "telomi-local-qwen-glossary-provisional-v1",
+  "corpusVersion": "2026-07-21.1",
+  "description": "A glossary integration diagnostic over a synthetic upstream MFlow fixture whose original TTS source text is unavailable. The reference is model-derived and provisional, so this suite must never support a model-accuracy or release claim.",
+  "coverageRequirements": {
+    "requiredSlices": [
+      "common-en",
+      "technical-terms"
+    ],
+    "minimumHumanSpeakers": 0,
+    "minimumMicrophones": 0
+  },
+  "cases": [
+    {
+      "id": "mflow-en-glossary-off",
+      "description": "English MFlow technical passage without glossary hints",
+      "audio": {
+        "path": "docs/m_flow/m_flow/tests/test_data/text_to_speech.mp3",
+        "mime": "audio/mpeg",
+        "sha256": "cb94c515d4d486b7678b4f5f77aa4676a1b0b540b29e352bcc13cd577122e7a0",
+        "durationSec": 14.334966,
+        "source": {
+          "kind": "upstream-project-fixture",
+          "name": "FlowElement-ai/m_flow text_to_speech.mp3",
+          "license": "Apache-2.0",
+          "url": "https://github.com/FlowElement-ai/m_flow/blob/9df82e8499a83b68cebc59d1a2eecd2a302e7796/m_flow/tests/test_data/text_to_speech.mp3"
+        }
+      },
+      "referenceText": "MFlow organizes knowledge into episodic memory bundles. Each episode captures a complete event with its entities and relationships. The bundle search algorithm finds the best matching episode by evaluating multiple graph paths simultaneously.",
+      "referenceProvenance": {
+        "kind": "model-derived-provisional",
+        "note": "The upstream fixture does not include its original TTS source text. This reference was reconstructed from repeated deterministic Qwen3-ASR output and must be source-recovered or independently human-verified before it can support a ship gate."
+      },
+      "language": "en",
+      "metrics": [
+        "wer"
+      ],
+      "slices": [
+        "common-en",
+        "technical-terms"
+      ],
+      "speaker": {
+        "id": "mflow-tts-voice",
+        "kind": "synthetic"
+      },
+      "microphone": {
+        "id": "digital-tts-export",
+        "verification": "synthetic",
+        "note": "This MP3 is a synthetic TTS export and does not represent microphone capture."
+      },
+      "terms": [
+        {
+          "canonical": "MFlow",
+          "expectedOccurrences": 1
+        },
+        {
+          "canonical": "episodic memory bundles",
+          "expectedOccurrences": 1
+        }
+      ],
+      "forbiddenTerms": [],
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "mflow-en-glossary-on",
+      "description": "The same English MFlow passage with production ASR glossary hints enabled",
+      "audio": {
+        "path": "docs/m_flow/m_flow/tests/test_data/text_to_speech.mp3",
+        "mime": "audio/mpeg",
+        "sha256": "cb94c515d4d486b7678b4f5f77aa4676a1b0b540b29e352bcc13cd577122e7a0",
+        "durationSec": 14.334966,
+        "source": {
+          "kind": "upstream-project-fixture",
+          "name": "FlowElement-ai/m_flow text_to_speech.mp3",
+          "license": "Apache-2.0",
+          "url": "https://github.com/FlowElement-ai/m_flow/blob/9df82e8499a83b68cebc59d1a2eecd2a302e7796/m_flow/tests/test_data/text_to_speech.mp3"
+        }
+      },
+      "referenceText": "MFlow organizes knowledge into episodic memory bundles. Each episode captures a complete event with its entities and relationships. The bundle search algorithm finds the best matching episode by evaluating multiple graph paths simultaneously.",
+      "referenceProvenance": {
+        "kind": "model-derived-provisional",
+        "note": "The upstream fixture does not include its original TTS source text. This reference was reconstructed from repeated deterministic Qwen3-ASR output and must be source-recovered or independently human-verified before it can support a ship gate."
+      },
+      "language": "en",
+      "metrics": [
+        "wer"
+      ],
+      "slices": [
+        "common-en",
+        "technical-terms"
+      ],
+      "speaker": {
+        "id": "mflow-tts-voice",
+        "kind": "synthetic"
+      },
+      "microphone": {
+        "id": "digital-tts-export",
+        "verification": "synthetic",
+        "note": "This MP3 is a synthetic TTS export and does not represent microphone capture."
+      },
+      "terms": [
+        {
+          "canonical": "MFlow",
+          "expectedOccurrences": 1
+        },
+        {
+          "canonical": "episodic memory bundles",
+          "expectedOccurrences": 1
+        }
+      ],
+      "forbiddenTerms": [],
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": [
+          {
+            "id": "term_mflow",
+            "canonical": "MFlow",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_episodic_memory_bundles",
+            "canonical": "episodic memory bundles",
+            "enabled": true,
+            "source": "manual"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+Continue as the same root Agent. Every child draft and ledger now exists.
+
+Use IPython to read the complete task, outline, editorial plan, retrieval plan,
+and every child draft and ledger. This is an editorial pass over existing
+drafts, not a second independent report-generation pass. Delete duplication,
+merge overlapping explanations, enforce claim ownership, harmonize terminology,
+and add only short transitions or material needed for a specifically identified
+gap. Do not preserve material merely because a child wrote it.
+
+{% if find_out_mode %}
+The assigned Find Out Notes remain the only factual knowledge interface. Do not access a Wiki,
+raw Sources, previous reports, web search, model memory, filesystem Note files, or unassigned Notes. Reuse the Note results already present in this Root Session and the child ledgers. Do not repeat summary, catalog, search, or bulk retrieval. Call notes_report.get() only for a specifically identified discrepancy, only for refs assigned in the editorial plan, and at most five targeted times.
+{% else %}
+The Wiki remains the only factual knowledge interface. Do not access web search,
+Cornell Notes, raw Sources, previous reports, or filesystem Wiki data. Do not run
+new search or graph-search calls. You may use at most 10 targeted read_page()
+calls to verify important claims.
+{% endif %}
+
+Write one final body-only Markdown file per outline Section at
+writer-output/sections/<section-id>.md. Do not include the report title, level-1
+headings, level-2 headings, or a References Section. Preserve <cite> citations
+exactly as the drafts carry them - <cite>N123</cite> Note refs and <cite>C123</cite>
+Wiki Citation refs are both resolved by Runtime; never rewrite a ref into a URL by hand - and
+state evidence gaps and cross-source comparability limits. Avoid material expansion
+beyond the child drafts, but do not target an exact character count.
+
+{% if use_chinese_lint %}
+Load the writing-skill. The callable is already documented and ready; do not inspect its module,
+source, dir(), exports, or signatures. Build work/final-check.md by prefixing each edited body with its
+materialized outline title as `## <title>`, then run exactly
+`print(await writing_skill("work/final-check.md"))` in IPython, and use the diagnostic to fix real mechanical
+prose problems before writing writer-output. The diagnostic is not a semantic gate.
+{% else %}
+Load the writing-skill for the final editorial pass. This report is not Chinese, so skip its Chinese-specific deterministic lint.
+{% endif %}
+
+Use IPython to validate the Section bodies and citations. Do not write
+manifest.json, schema versions, Section identity fields, or .complete. Runtime creates
+the final manifest and completion marker from the materialized outline after every body exists.

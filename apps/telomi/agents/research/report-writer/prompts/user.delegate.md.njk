@@ -1,0 +1,9 @@
+Continue the same Wiki report task. Runtime validated work/report-outline.json and injected every Section ID.
+
+Read that materialized outline. Write work/editorial-plan.json with each Section's responsibility, in-scope and out-of-scope claims, owned entities, allowed cross-references, and concise character budget. Write work/retrieval-plan.json with the exact Runtime Page refs already assigned to each Section. Assign every repeated entity, benchmark, architecture, or conclusion to one primary Section.
+
+Spawn exactly one child per Section with exact model {{ child_model }}. Give each child the complete report context from /inputs/task.md, including audience, preferences and prior knowledge, exact Runtime Section ID/title/purpose, editorial scope, character budget, and assigned Runtime Page refs. Each child may only call wiki_report.read_page() for its assigned P-number refs and directly linked P-number refs. It must cite only C-number refs returned by read_page, and must not search, graph-search, copy hashes or URLs, read another child's files, access web search, Cornell Notes, raw Sources, or prior reports.
+
+Each child writes work/sections/<section-id>/draft.md containing only the Section body with no level-1 or level-2 heading, plus ledger.md listing claims, exact C-number Citation refs, evidence gaps, and every read Page ref. Children never write writer-output/.
+
+After spawning every child, stop this turn. Runtime will wait for every draft and ask you to perform the final edit.

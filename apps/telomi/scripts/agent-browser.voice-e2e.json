@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-browser.dev/schema.json",
+  "headless": true,
+  "namespace": "telomi-voice-e2e",
+  "session": "telomi-voice-e2e"
+}

@@ -1,0 +1,39 @@
+{
+  "name": "telomi-srt",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.1.0",
+  "description": "Telomi Anthropic Sandbox Runtime integration",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "srt",
+    "sandbox",
+    "telomi"
+  ],
+  "files": [
+    "*.ts",
+    "*.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --ignoreConfig --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck --types node *.ts test/*.ts",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.73",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "shell-quote": "1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@types/shell-quote": "1.7.5",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
+  }
+}

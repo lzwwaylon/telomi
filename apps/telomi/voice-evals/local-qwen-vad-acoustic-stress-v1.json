@@ -1,0 +1,399 @@
+{
+  "schemaVersion": 2,
+  "name": "telomi-local-qwen-vad-acoustic-stress-v1",
+  "corpusVersion": "2026-07-21.2",
+  "description": "Paired VAD diagnostics over versioned deterministic transforms of source-authored human speech. Weak onset, keyboard-like impulses and simulated far-field acoustics are synthetic conditions and never count as real room or hardware-microphone evidence.",
+  "coverageRequirements": {
+    "requiredSlices": [
+      "weak-onset",
+      "short-burst-noise",
+      "keyboard-like-noise",
+      "simulated-far-field",
+      "technical-term-boundary",
+      "traditional-script"
+    ],
+    "minimumHumanSpeakers": 2,
+    "minimumMicrophones": 0
+  },
+  "qualityGate": {
+    "requireCaseAcceptance": true
+  },
+  "cases": [
+    {
+      "id": "librispeech-weak-onset-vad-off",
+      "description": "LibriSpeech control with a versioned 450 ms weak-onset envelope and VAD disabled",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/v1/librispeech-weak-onset-v1.wav",
+        "mime": "audio/wav",
+        "sha256": "5fee63b748420b479781d9a28460911de740e4d6ddef00df8f02f3c50784e00a",
+        "durationSec": 7.855,
+        "source": {
+          "kind": "deterministic-derived-fixture",
+          "name": "LibriSpeech dev-clean 1272-128104-0000 transformed by weak-onset-v1",
+          "license": "CC-BY-4.0",
+          "url": "https://www.openslr.org/12/"
+        }
+      },
+      "referenceText": "MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD TO WELCOME HIS GOSPEL",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The official LibriSpeech transcript is unchanged because the deterministic transform only pads audio and attenuates the first 450 ms after detected speech onset."
+      },
+      "language": "en",
+      "metrics": ["wer"],
+      "slices": ["weak-onset"],
+      "speaker": { "id": "librispeech-1272", "kind": "human" },
+      "microphone": {
+        "id": "librispeech-derived-weak-onset-v1",
+        "verification": "recording-condition-only",
+        "note": "Deterministic amplitude transform over a public human recording without a verified physical microphone model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxWer": 0.1
+      },
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "librispeech-weak-onset-vad-on",
+      "description": "LibriSpeech treatment with the same versioned 450 ms weak-onset envelope and pinned Silero VAD",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/v1/librispeech-weak-onset-v1.wav",
+        "mime": "audio/wav",
+        "sha256": "5fee63b748420b479781d9a28460911de740e4d6ddef00df8f02f3c50784e00a",
+        "durationSec": 7.855,
+        "source": {
+          "kind": "deterministic-derived-fixture",
+          "name": "LibriSpeech dev-clean 1272-128104-0000 transformed by weak-onset-v1",
+          "license": "CC-BY-4.0",
+          "url": "https://www.openslr.org/12/"
+        }
+      },
+      "referenceText": "MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD TO WELCOME HIS GOSPEL",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The official LibriSpeech transcript is unchanged because the deterministic transform only pads audio and attenuates the first 450 ms after detected speech onset."
+      },
+      "language": "en",
+      "metrics": ["wer"],
+      "slices": ["weak-onset"],
+      "speaker": { "id": "librispeech-1272", "kind": "human" },
+      "microphone": {
+        "id": "librispeech-derived-weak-onset-v1",
+        "verification": "recording-condition-only",
+        "note": "Deterministic amplitude transform over a public human recording without a verified physical microphone model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxWer": 0.1
+      },
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "aishell-keyboard-impulses-vad-off",
+      "description": "AISHELL-1 control with five deterministic 14 ms keyboard-like bursts and VAD disabled",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/v1/aishell-keyboard-impulses-v1.wav",
+        "mime": "audio/wav",
+        "sha256": "34fa6b0e8f4a7582a9be9d3831bab7c4d77caaf1f960551d877dcdcd56856ec4",
+        "durationSec": 5.7039375,
+        "source": {
+          "kind": "deterministic-derived-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 transformed by keyboard-impulses-v1",
+          "license": "Apache-2.0",
+          "url": "https://www.openslr.org/33/"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The official AISHELL-1 transcript is unchanged because the deterministic transform only pads audio and overlays seeded 14 ms synthetic impulses."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": ["short-burst-noise", "keyboard-like-noise"],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "aishell-derived-keyboard-impulses-v1",
+        "verification": "recording-condition-only",
+        "note": "Synthetic impulse overlay over a public human recording, not a recording of a physical keyboard or a verified microphone."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxCer": 0.05
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "aishell-keyboard-impulses-vad-on",
+      "description": "AISHELL-1 treatment with the same five deterministic 14 ms keyboard-like bursts and pinned Silero VAD",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/v1/aishell-keyboard-impulses-v1.wav",
+        "mime": "audio/wav",
+        "sha256": "34fa6b0e8f4a7582a9be9d3831bab7c4d77caaf1f960551d877dcdcd56856ec4",
+        "durationSec": 5.7039375,
+        "source": {
+          "kind": "deterministic-derived-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 transformed by keyboard-impulses-v1",
+          "license": "Apache-2.0",
+          "url": "https://www.openslr.org/33/"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The official AISHELL-1 transcript is unchanged because the deterministic transform only pads audio and overlays seeded 14 ms synthetic impulses."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": ["short-burst-noise", "keyboard-like-noise"],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "aishell-derived-keyboard-impulses-v1",
+        "verification": "recording-condition-only",
+        "note": "Synthetic impulse overlay over a public human recording, not a recording of a physical keyboard or a verified microphone."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxCer": 0.05
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "taimecs-001-simulated-far-field-vad-off",
+      "description": "TaiMECS technical sentence with deterministic 12 dB SNR reverberant far-field simulation and VAD disabled",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/v1/taimecs-001-simulated-far-field-v1.wav",
+        "mime": "audio/wav",
+        "sha256": "35d044470dc6209426c061ce913f4640ab4b9235e1c76b0dfee22230a6d47a64",
+        "durationSec": 13.298,
+        "source": {
+          "kind": "deterministic-derived-fixture",
+          "name": "TaiMECS human recording 001 transformed by simulated-far-field-v1",
+          "license": "CC-BY-4.0",
+          "url": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/tree/83f397e41840ba187cc6833e1320bd2e5fa858f1"
+        }
+      },
+      "referenceText": "我們推出新的 base model 與 training data，期待各家企業能自行調校大型語言模型，使其更符合 in house 的需求。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact text from TaiMECS metadata.jsonl at the pinned commit. The deterministic transform adds fixed room taps, 12 dB seeded noise and silence without changing spoken content."
+      },
+      "language": "zh-TW-en",
+      "metrics": ["cer", "content-cer"],
+      "slices": ["simulated-far-field", "technical-term-boundary", "traditional-script"],
+      "speaker": { "id": "taimecs-human-speaker", "kind": "human" },
+      "microphone": {
+        "id": "taimecs-derived-simulated-far-field-v1",
+        "verification": "recording-condition-only",
+        "note": "Deterministic reverb and noise transform over a public human recording, not a real room or verified physical microphone."
+      },
+      "terms": [
+        { "canonical": "base model", "expectedOccurrences": 1 },
+        { "canonical": "training data", "expectedOccurrences": 1 },
+        { "canonical": "調校", "expectedOccurrences": 1 },
+        { "canonical": "in house", "expectedOccurrences": 1 }
+      ],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "canonical",
+        "maxCer": 0.15,
+        "maxContentCer": 0.15,
+        "minTermPrecision": 0.95,
+        "minTermRecall": 0.95,
+        "minExactCanonicalRate": 0.95
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "languagePreference": "zh-TW",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": [
+          {
+            "id": "term_taimecs_tune",
+            "canonical": "調校",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_in_house",
+            "canonical": "in house",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_base_model",
+            "canonical": "base model",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_training_data",
+            "canonical": "training data",
+            "enabled": true,
+            "source": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "id": "taimecs-001-simulated-far-field-vad-on",
+      "description": "TaiMECS technical sentence with the same deterministic 12 dB SNR far-field simulation and pinned Silero VAD",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/v1/taimecs-001-simulated-far-field-v1.wav",
+        "mime": "audio/wav",
+        "sha256": "35d044470dc6209426c061ce913f4640ab4b9235e1c76b0dfee22230a6d47a64",
+        "durationSec": 13.298,
+        "source": {
+          "kind": "deterministic-derived-fixture",
+          "name": "TaiMECS human recording 001 transformed by simulated-far-field-v1",
+          "license": "CC-BY-4.0",
+          "url": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/tree/83f397e41840ba187cc6833e1320bd2e5fa858f1"
+        }
+      },
+      "referenceText": "我們推出新的 base model 與 training data，期待各家企業能自行調校大型語言模型，使其更符合 in house 的需求。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact text from TaiMECS metadata.jsonl at the pinned commit. The deterministic transform adds fixed room taps, 12 dB seeded noise and silence without changing spoken content."
+      },
+      "language": "zh-TW-en",
+      "metrics": ["cer", "content-cer"],
+      "slices": ["simulated-far-field", "technical-term-boundary", "traditional-script"],
+      "speaker": { "id": "taimecs-human-speaker", "kind": "human" },
+      "microphone": {
+        "id": "taimecs-derived-simulated-far-field-v1",
+        "verification": "recording-condition-only",
+        "note": "Deterministic reverb and noise transform over a public human recording, not a real room or verified physical microphone."
+      },
+      "terms": [
+        { "canonical": "base model", "expectedOccurrences": 1 },
+        { "canonical": "training data", "expectedOccurrences": 1 },
+        { "canonical": "調校", "expectedOccurrences": 1 },
+        { "canonical": "in house", "expectedOccurrences": 1 }
+      ],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "canonical",
+        "maxCer": 0.15,
+        "maxContentCer": 0.15,
+        "minTermPrecision": 0.95,
+        "minTermRecall": 0.95,
+        "minExactCanonicalRate": 0.95
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "languagePreference": "zh-TW",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": [
+          {
+            "id": "term_taimecs_tune",
+            "canonical": "調校",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_in_house",
+            "canonical": "in house",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_base_model",
+            "canonical": "base model",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_training_data",
+            "canonical": "training data",
+            "enabled": true,
+            "source": "manual"
+          }
+        ]
+      }
+    }
+  ]
+}

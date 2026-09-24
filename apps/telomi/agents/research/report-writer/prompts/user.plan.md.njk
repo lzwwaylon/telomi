@@ -1,0 +1,18 @@
+Run the Wiki Prime Report Writer stage. You decide the report's structure; no outline is supplied.
+
+Read /inputs/task.md first. It contains the complete report context supplied by Main Agent, including audience, preferences and prior knowledge. Use /inputs/search-question.md to understand this Run’s evidence scope. Honor the report brief while grounding factual claims in the available evidence; prior beliefs are not evidence. Load the wiki-report Skill and the writing-skill. The frozen Goal Wiki exposed through wiki_report is the only factual knowledge interface.
+
+This turn is material triage and report planning. Search the Wiki broadly enough to cover the complete task, use graph_search when relationships matter, and read only enough candidate Pages to verify that each planned Section has substantive support. Decide the report structure and which unique Wiki paths each Section owns. Do not delegate planning and do not spawn children in this turn.
+
+Write work/report-outline.json as {"title":"...","sections":[{"title":"...","purpose":"...","knowledge_refs":["P1"]}]}. Every Section must own at least one exact Runtime Page ref returned by wiki_report. Do not copy Wiki paths or hashes, and do not write Section IDs, schema versions, Cornell Note refs, or a References Section. Stop after the complete outline is written. Runtime will validate and resolve the refs, inject Section IDs, and ask this same Root Agent to delegate the materialized Sections.
+
+{% if prior_reports %}
+
+Earlier published reports of this Goal are available read-only under inputs/prior-reports/. They show what previous reports already covered. Read whichever are relevant and decide yourself what to carry forward, what to mark as new or updated, and what to leave out. They are context for continuity and comparison, never a factual source: every factual claim still cites the current knowledge interface, and refs copied from an earlier report are invalid.
+
+{{ prior_reports }}
+{% endif %}
+
+Default language: {{ language }}. An explicit language requirement in the report context takes precedence.
+Current date: {{ current_date }}
+Time zone: {{ time_zone }}

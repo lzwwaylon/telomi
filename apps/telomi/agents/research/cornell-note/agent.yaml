@@ -1,0 +1,14 @@
+schema_version: 2
+id: cornell-note
+prompts:
+  system-append:
+    default: system.md.njk
+  user:
+    default: user.md.njk
+    prime-execution: user.prime-execution.md.njk
+    repair: user.repair.md.njk
+sandbox:
+  role: report.cornell_note
+  execution_profile: prime_ipython
+  network: deny
+  tools: [ipython]

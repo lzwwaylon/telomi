@@ -1,0 +1,34 @@
+name: Feature request / 功能建议
+description: Describe a public use case and desired outcome. / 描述可公开的使用场景和期望结果。
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Search existing Issues and PRs first. Use SECURITY.md in the repository root to report
+        vulnerabilities privately. Share only redacted excerpts; do not upload credentials, raw
+        research, conversations, databases or full data directories.
+
+
+        请先搜索已有 Issue 和 PR。安全漏洞按仓库根目录 SECURITY.md 私下报告。仅分享脱敏片段，不上传凭据、原始研究资料、会话、数据库或完整数据目录。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case / 问题与使用场景
+      description: What cannot you accomplish today? / 目前有什么需求无法完成？
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome / 期望结果
+      description: Describe observable success, not only an implementation idea. / 描述可验证的成功结果，而不只是实现方案。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / 替代方式
+      description: Existing workarounds and their limitations. / 现有替代方案及局限。
+    validations:
+      required: false

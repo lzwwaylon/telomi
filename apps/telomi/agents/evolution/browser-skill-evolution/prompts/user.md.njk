@@ -1,0 +1,15 @@
+Objective:
+{{ objective }}
+
+Acceptance criteria:
+{{ acceptance_criteria }}
+
+Evidence: read {{ evidence_manifest_path }} first, then the supporting files under {{ evidence_root }}. It pins {{ case_count }} completed Browser Provider child executions, their isolated Provider Child Cases, frozen child tasks, own Traces and final artifacts.
+
+Baseline: {{ baseline_root }}/{{ skill_name }} is the Browser Provider Skill those executions actually loaded.
+
+Candidate: {{ candidate_output_path }}/{{ skill_name }} already holds a copy of that baseline. Edit it in place. It stays one Skill directory with that exact name.
+
+Replay: `run_browser_replay` replays all {{ case_count }} historical Provider Child Cases with your current Candidate, at most {{ max_rounds }} times in this session. Each call returns per-Case hard checks, the Skill hash the replay loaded, trace-located reference reads, Trace and artifact refs, and the Observed/Candidate difference.
+
+Finish by writing {{ candidate_output_path }}/outcome.json and calling submit_stage_output.

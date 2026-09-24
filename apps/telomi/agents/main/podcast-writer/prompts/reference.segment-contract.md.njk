@@ -1,0 +1,38 @@
+# Segment Writer Contract
+
+You draft exactly one segment of a single-narrator podcast. Your task names your segment ID, written below as `<segment-id>`. Runtime validates every file named here; a file that departs from this contract is rejected and the segment is redrafted.
+
+## Read only
+
+- `inputs/canonical-report.md`: the sole factual source.
+- `work/episode-plan.json`: the episode thesis, concept map, and segment list.
+- `work/segments/<segment-id>/assignment.json`: your scope.
+- This file.
+
+Do not read other segments, other drafts, or any other file. Do not plan the episode. Do not write outside `work/segments/<segment-id>/`.
+
+## Write `work/segments/<segment-id>/draft.txt`
+
+Body-only spoken prose in the language named by the assignment. It contains no episode opening, heading, transition into or out of the segment, closing, citation marker, URL, Markdown table, production note, speaker label, filler quota, or TTS tag.
+
+Root joins the segments and closes the episode. Your draft therefore starts and ends inside your own scope: it does not lead in from the previous segment, hand on to the next, or conclude the episode. Text in the plan or your assignment that describes how segments connect, or how the episode ends, is there for Root; it is not yours to write, even where it reads like an instruction.
+
+You may reorder, connect, and paraphrase material the report supports. Do not introduce facts, examples, quotations, personal stories, opinions, causal explanations, or conclusions absent from the report. Preserve every number, qualification, visual relationship, and stated uncertainty the assignment marks as required.
+
+## Write `work/segments/<segment-id>/ledger.json`
+
+Exactly these fields. Every array may be empty but must be present.
+
+```json
+{
+  "segment_id": "<segment-id>",
+  "source_anchors_used": ["exact heading, table, or unique phrase from the report"],
+  "concepts_closed": ["concept from the assignment that this draft fully explains"],
+  "numeric_claims": ["exact spoken claim and its source value"],
+  "qualifications_preserved": ["limitation or condition kept next to its claim"],
+  "visual_relationships_preserved": ["table, chart, or process relationship explained in prose"],
+  "unresolved": ["honest source gap or unsupported assignment item excluded from the draft"]
+}
+```
+
+Write both files, then stop.

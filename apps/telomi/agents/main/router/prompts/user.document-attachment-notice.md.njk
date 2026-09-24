@@ -1,0 +1,16 @@
+[Document attachment: {{ document_name }}.
+Original file, read-only, at {{ document_path }}.
+{% if parse_status == "text" %}
+It is a text file (source code, Markdown, data or plain text). Read it directly; there is no separate parsed copy.
+{% elif parse_status == "binary" %}
+The Runtime does not recognise this file type and stored it untouched. It is binary: do not guess at its bytes. Tell the user which file it is and that it can only be kept as an original, and ask what they want done with it.
+{% elif parse_status == "parsed" %}
+The Runtime already parsed it. The parsed Markdown is read-only at {{ markdown_path }}.
+{% elif parse_status == "pending" %}
+The Runtime is still parsing it and parsing has not finished yet. When it finishes, the parsed Markdown appears at {{ markdown_path }}; read that path before concluding it is missing, and fall back to the original file above.
+{% else %}
+The Runtime could not parse it: {{ parse_error }}. Only the original file above is available, and it may be binary: report the failure and its reason to the user and suggest a different format instead of guessing at the bytes.
+{% endif %}
+Summarising, answering questions about, or quoting this document is direct work: read the file yourself with the read Tool and answer. Do not start research for that.
+Use research only when this document's content has to enter the Wiki or a report as cited evidence.
+Never install, download, or improvise parser code and never shell out to convert the file. The Runtime owns parsing through its internal FastAPI document parsing service; if parsing failed, say so and what the user can do instead.]

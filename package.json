@@ -1,0 +1,46 @@
+{
+  "name": "telomi-workspace",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "workspaces": [
+    "apps/telomi",
+    "apps/extensions/pi-user-memory",
+    "apps/extensions/telomi-srt"
+  ],
+  "scripts": {
+    "setup": "npm run memory:install --workspace=telomi && npm run research:install --workspace=telomi && npm run agent-python:install --workspace=telomi",
+    "setup:audio": "npm run audio:install --workspace=telomi",
+    "dev": "python3 apps/telomi/scripts/worktree.py launch -- apps/telomi/start.sh dev",
+    "start": "python3 apps/telomi/scripts/worktree.py launch -- apps/telomi/start.sh server",
+    "build": "npm run build --workspace=telomi",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test:ci --workspace=telomi",
+    "test:memory": "npm run test:memory-runtime --workspace=telomi",
+    "test:research-api": "npm run test:research-api --workspace=telomi",
+    "test:audio-python": "npm run test:audio-python --workspace=telomi",
+    "worktree": "python3 apps/telomi/scripts/worktree.py"
+  },
+  "allowScripts": {
+    "@google/genai": true,
+    "@livekit/local-inference": true,
+    "agent-browser": false,
+    "esbuild": true,
+    "ffmpeg-static": true,
+    "fsevents": true,
+    "koffi@2.16.3": true,
+    "onnxruntime-node": true,
+    "https://pub-728493de92a943e2a9b2d17b4719f318.r2.dev/releases/v0.9.1/prime-agent-0.9.1.tgz": true,
+    "protobufjs": true
+  },
+  "overrides": {
+    "adm-zip": "0.6.1",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    },
+    "sharp": "0.35.4"
+  }
+}

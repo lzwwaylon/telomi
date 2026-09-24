@@ -1,0 +1,26 @@
+[Unit]
+Description=Telomi Audio vLLM-Omni Higgs TTS 3 4B
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/telomi/apps/telomi-audio-local
+EnvironmentFile=-/opt/telomi/apps/telomi-audio-local/.env.local
+Environment=CUDA_DEVICE_ORDER=PCI_BUS_ID
+Environment=CUDA_VISIBLE_DEVICES=0
+Environment=HF_HOME=%h/.cache/huggingface
+Environment=TELOMI_AUDIO_TTS_HOST=127.0.0.1
+Environment=TELOMI_AUDIO_TTS_PORT=9598
+Environment=HF_XET_CLIENT_ENABLE_ADAPTIVE_CONCURRENCY=0
+Environment=HF_XET_FIXED_DOWNLOAD_CONCURRENCY=4
+Environment=VLLM_USE_DEEP_GEMM=0
+Environment=VLLM_MOE_USE_DEEP_GEMM=0
+Environment=VLLM_USE_FLASHINFER_SAMPLER=0
+ExecStart=/usr/bin/env vllm serve bosonai/higgs-tts-3-4b --served-model-name bosonai/higgs-tts-3-4b --omni --host ${TELOMI_AUDIO_TTS_HOST} --port ${TELOMI_AUDIO_TTS_PORT} --trust-remote-code "--stage-overrides={\"0\":{\"gpu_memory_utilization\":0.42,\"max_num_seqs\":1,\"max_model_len\":8192,\"max_num_batched_tokens\":4096,\"attention_backend\":\"TRITON_ATTN\"},\"1\":{\"gpu_memory_utilization\":0.1,\"max_num_seqs\":1}}"
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+
+[Install]
+WantedBy=default.target

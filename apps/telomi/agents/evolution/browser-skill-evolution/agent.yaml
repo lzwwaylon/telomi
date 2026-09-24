@@ -1,0 +1,13 @@
+schema_version: 2
+id: browser-skill-evolution
+skills: [browser-skill-evolution]
+prompts:
+  system:
+    default: system.md.njk
+  user:
+    default: user.md.njk
+sandbox:
+  role: evolution.candidate_author
+  execution_profile: pi_builtin
+  network: deny
+  tools: [read, write, edit, bash, ls, find, grep, run_browser_replay, submit_stage_output]

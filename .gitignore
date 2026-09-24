@@ -1,0 +1,59 @@
+# Local agent and tool state
+.claude/
+.playwright-mcp/
+/.pi/
+.agents/
+.scratch/
+
+# Local research notes, third-party checkouts and agent output
+/docs/*
+!/docs/agents/
+/research/
+/output/
+dogfood-output/
+
+# Dependencies and package-manager caches
+node_modules/
+.venv
+.prime-kernel
+.npm-cache/
+__pycache__/
+*.pyc
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+
+# Runtime data, credentials and user settings (default TELOMI_DATA_DIR)
+apps/telomi/data/
+apps/telomi/.pi/*
+
+# Managed Chrome state written by scripts/chrome-debug.ts
+apps/telomi/.chrome-debug/
+apps/telomi/.chrome-debug-profile/
+
+# Local run logs, prompt dumps and one-off validation output
+apps/telomi/.run*.log
+apps/telomi/system-prompt-dump-*.md
+apps/telomi/services/research-source-service/artifacts/
+
+# Local screenshots and page snapshots
+/*.png
+/*.jpeg
+/snapshot-*.md
+apps/telomi/*.png
+
+# Voice evaluation fixtures are regenerated on demand by
+# scripts/generate-voice-vad-fixtures.ts and
+# scripts/generate-public-acoustic-fixtures.ts, which pin every source URL and
+# the output bytes by SHA-256. Only the developer running the opt-in *-live
+# suites needs them, so the derived audio stays out of the repository.
+apps/telomi/voice-evals/generated/

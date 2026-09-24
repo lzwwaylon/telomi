@@ -1,0 +1,9 @@
+schema_version: 2
+id: find-out-report-writer
+skills: [find-out-report, report-writer/writing-skill]
+prompts:
+  system-append:
+    default: system.md.njk
+  user:
+    plan: user.plan.md.njk
+    delegate: user.delegate.md.njk

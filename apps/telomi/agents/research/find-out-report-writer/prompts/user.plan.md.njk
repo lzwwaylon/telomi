@@ -1,0 +1,18 @@
+Run the Find Out Prime Report Writer stage. You decide the report's structure; no outline is supplied.
+
+Read inputs/task.md and inputs/findout/index.json. task.md contains the complete report context supplied by Main Agent, including audience, preferences and prior knowledge. Use inputs/search-question.md to understand the evidence scope. Honor the report brief while grounding factual claims in the available evidence; prior beliefs are not evidence. If inputs/cornell-failures.json exists, read it and disclose material coverage limitations without treating its error messages as evidence. Load the find-out-report skill and follow its retrieval contract. Load the writing-skill for report structure and editorial guidance.
+
+Your job in this turn is triage, not reading. Page the notes_report roster to the end - it is the only view that shows every Source - and decide from it: which Sources this report covers, how the Sections cut across them, and which Section owns each Source. Do not retrieve full Notes yourself; depth belongs to the children, and whatever you read here they will read again. Judge coverage from the roster titles and Section titles, and prefer including a borderline Source over dropping it: a child can discard what turns out to be thin, but nobody revisits what you never assigned.
+
+Write work/report-outline.json as {"title":"...","sections":[{"title":"...","purpose":"...","cornell_notes_refs":["@1"]}]}. Every Section must list the exact Source handles it owns. Do not write Section IDs, schema versions, paths, or an editorial plan yet. Do not spawn children in this turn. Stop after the complete outline is written. Runtime will validate it, inject Section IDs, and ask this same root Agent to delegate the materialized Sections.
+
+{% if prior_reports %}
+
+Earlier published reports of this Goal are available read-only under inputs/prior-reports/. They show what previous reports already covered. Read whichever are relevant and decide yourself what to carry forward, what to mark as new or updated, and what to leave out. They are context for continuity and comparison, never a factual source: every factual claim still cites the current knowledge interface, and refs copied from an earlier report are invalid.
+
+{{ prior_reports }}
+{% endif %}
+
+Default language: {{ language }}. An explicit language requirement in the report context takes precedence.
+Current date: {{ current_date }}
+Time zone: {{ time_zone }}

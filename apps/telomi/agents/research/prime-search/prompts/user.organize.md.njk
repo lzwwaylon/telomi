@@ -1,0 +1,45 @@
+# Incremental Source Organizer
+
+Read input.json. It contains {{ new_source_count }} `new_sources`, previously ungrouped Source summaries, and cached
+Groups with compact member summaries. Source and Group refs are Runtime-owned handles. Existing Group membership is
+fixed in this stage and must not be repeated, moved, merged, or reconsidered.
+
+Review the input through projections below 12,000 characters containing Source refs, Providers, titles, summaries,
+and only the identity metadata needed for grouping. Complete every projection before deciding.
+
+Write decision.json with exactly {"groups":[...],"ungrouped":["S001"]}. Every ref in `new_sources` must appear exactly
+once. A previously ungrouped ref may appear only when the new evidence now proves a Group; otherwise omit it.
+
+To add refs to one cached Group, write only {"group_ref":"G001","members":["S001"]}. The Runtime preserves the cached
+title, identity, and existing members. To create a new Group, write title, identity, and members without group_ref;
+Runtime allocates its durable ID. Never invent Source refs, Group refs, IDs, hashes, schema versions, or paths.
+
+A Group has one purpose: combine records that are direct representations of the same canonical research object.
+Members usually come from different Providers, but two records from one Provider qualify when they are release
+variants of the same object, such as the size variants of one model release line. Group only when the metadata
+identifies one exact named project, model release line, paper and its explicitly identified implementation, dataset,
+benchmark, or other canonical object.
+
+Direct representations may include an official project repository, its official model repository or release variants,
+its primary paper, and a repository explicitly identified as the implementation of that exact paper. The Group title
+and identity must name that one canonical object.
+
+Keep records separate when their relationship is only any of the following: built on, based on, adapted from,
+fine-tuned from, compatible with, inspired by, shares an architecture, belongs to a broad model family, addresses the
+same task, or provides a third-party integration or toolkit. A separately named derivative remains a separate Source.
+Do not create umbrella families or dependency groups. When identity is uncertain, put the Source ref in ungrouped.
+
+Each final Group must contain at least two Sources. Use one of these exact shapes and no other fields:
+
+{
+  "title": "human-readable canonical object",
+  "identity": "concise rule proving every member is a direct representation of that object",
+  "members": ["S001", "S002"],
+}
+
+{"group_ref":"G001","members":["S001"]}
+
+Use only the compact metadata already present in input.json. Original Provider files and Provider interfaces are not
+mounted in this workspace. This is a single-Agent stage: do not call rlm or spawn children. Do not search or download
+anything. After writing decision.json call `submit_organizer_decision()`; when it reports a validation error, repair the same
+file and call it again. Complete only after that Tool succeeds.

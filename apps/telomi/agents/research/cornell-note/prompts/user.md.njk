@@ -1,0 +1,60 @@
+## User question
+
+{{ question }}
+
+## User Goal
+
+Title: {{ goal_title }}
+{% if goal_description %}
+Description: {{ goal_description }}
+{% endif %}
+
+{% if topic_plan_context %}
+## Active Goal Topic Plan
+
+{{ topic_plan_context }}
+{% endif %}
+
+{% if source_update_context %}
+## Source update
+
+{{ source_update_context }}
+
+This Logical Source contains previously retained members plus the paths changed by the current Search. Start with the
+listed paths, then consult other Source paths only when needed to interpret or reconcile the new evidence. The paths
+are navigation hints, not evidence and not permission to ignore relevant conflicts in the retained material.
+{% endif %}
+
+## Cornell Note contract
+
+{% if discovery_enabled %}
+## Discovery
+
+Discovery is enabled only for this Cornell Note stage. It must not broaden the question, select more Sources, or change how the supplied Source is read.
+
+For every Cue Note, include `discovery` with exactly one `finding` string. Leave `finding` empty unless this Cue Note and its cited evidence reveal a well-supported finding that can materially advance the User Goal but is not adequately represented by the current Topic Plan. A finding may be unrelated to the current Topic, but it must be relevant to the User Goal. Do not classify it, suggest a related Topic, or invent a finding from model knowledge.
+{% endif %}
+
+{% if topic_plan_context and discovery_enabled %}
+Write JSON with exactly:
+
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","topic_refs":["T1"],"discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+
+`topic_refs` must use exact short Topic references shown in the Active Goal Topic Plan and may contain multiple references or be empty. `discovery` is required on every Cue Note, but its `finding` may be empty. A non-empty finding creates only an Inbox candidate, never a Topic.
+{% elif topic_plan_context %}
+Write JSON with exactly:
+
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","topic_refs":["T1"],"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+
+`topic_refs` must use exact short Topic references shown in the Active Goal Topic Plan and may contain multiple references or be empty.
+{% elif discovery_enabled %}
+Write JSON with exactly:
+
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+{% else %}
+Write JSON with exactly:
+
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+{% endif %}
+
+Use no extra fields. Sections may be empty only when this Source contains nothing relevant to the supplied question. Every section needs at least one cue note. Evidence paths must be declared by the Source. Runtime adds the schema version, Source identity, and content hashes.

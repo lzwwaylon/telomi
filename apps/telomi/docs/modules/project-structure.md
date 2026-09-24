@@ -1,0 +1,54 @@
+# Project Structure
+
+The directory structure is the module map. Add code to existing capability directories instead of adding more loose files at the roots of `server/`, `web/src/`, or `scripts/`.
+
+## Top level
+
+- `server/`: Node Runtime. `index.ts` only starts it; `app.ts` only composes modules.
+- `web/src/app/`: frontend entry points, page shells, and overlays.
+- `web/src/features/`: product capabilities such as Chat, Goals, Wiki, Voice, Settings, and Media. `features/goals/pulse-text.ts` owns Goal-specific state presentation rules, currently consumed by the Goal Pulse Band in TopBar to unify copy, tone, and state dots.
+- `web/src/shared/`: UI, Markdown, and frontend utilities without business ownership. It does not import `features/`; `tests/web/test-module-boundaries.ts` resolves aliases and relative imports and fails on any reverse dependency.
+- `web/src/shared/artifact-preview/`: the single authoritative Artifact preview implementation. `artifact-type.ts` classifies filenames and supplies rendering language, icons, and user-facing type labels; cards and lists do not maintain separate type wording. `artifact-content.ts` owns content loading, failure feedback, and discarding stale results when switching files. `ArtifactPreview.tsx` owns format dispatch and reuses `shared/artifact-renderers/`. Audio connects to [Media Playback](media-playback.md) through the caller's `renderAudio`; shared preview does not own playback sessions. Chat Dock and Goal Artifacts Overlay supply only their own blob URLs, Markdown UI, line positioning, and layout, without separate loading and dispatch implementations.
+- `agents/`: Agent Bundles managed by the Prompt Registry. Each Bundle keeps `agent.yaml`, `prompts/`, and `skills/` together.
+- `tests/`: test directories named after Server modules. Filenames use `test-*.ts`, `test-*.live.ts`, or `test-*.e2e.mjs`.
+- `scripts/`: operations, generation, migration, and manual evaluation entry points only, not tests.
+
+## Server modules
+
+- `agent-runtime/`: Prompts, Skills, model calls and policy, Stage execution, Worker and credential isolation, deterministic structural validation, Published Artifact Store, SRT sandboxes, Node Evaluation capture, recorded stage replay, and Prime path helpers. It owns no business-domain contracts.
+- `main-agent/`: Goal Main Agent, tools, and Workspace sessions.
+- `research/`: Search, Cornell Notes, Reports, Sources, Schedules, and pipeline orchestration. Research Run state and recovery contracts live in `research/run-state.ts`; the Executable Report Plan contract lives in `research/pipeline/report-plan.ts`. Research Run admission, Run directory reservation, resume-request persistence, the Final Runtime Gate, and result recording are centralized in the execution and recovery interface in `research/execute-run.ts`. Main Agent Tools, scheduled Research, and user-requested resume all call it.
+- `cornell/`: Cornell Evidence Corpus contracts. Research produces Cornell Notes and Wiki curates Editions from them, so neither owns the contract; both import it directly from here.
+- `wiki/`: Wiki models, compilation, Curator, publication, and reads.
+- `goals/`: Goal state and lifecycle, Topic Plans, Avatars, and user memory. `GoalService` receives a session factory and Research Run execution, Research Run recovery, and Wiki Update recovery entry points through constructor arguments; it does not import `main-agent/`. `app.ts` composes Main Agent and podcast dispatch. Research Run liveness is read from durable checkpoints by `research/run-state.ts`; Goals maintains no separate Run-liveness Set.
+- `workspaces/`: Goal Workspace layout, execution paths, publication locks, and Logical Source Evidence reads.
+- `providers/`: shared Provider types, Search Execution Records and Prime Search output contracts, call records, Source Service Client, and Browser Runtime. `ollama-api.ts` uses Ollama's native API to discover local models by capability and track downloads; OpenAI-compatible endpoints do not inherently describe model purpose.
+- `events/`: Event Bus, SSE, Activity store, and business-independent Activity Projection reducer registration, aggregation, and pagination.
+- `observability/`: Run Records, Trace, Task History, and Agent Activity Step / Output projections.
+- `evaluation/`: Node Backtest, Case Capture, and the Operations Interface.
+- `evolution/`: triggers, inner loop, and automatic application of Goal-scoped Browser Skill evolution.
+- `config/`: data directories, environment, network policy, and settings resolution.
+- `lib/`: pure utilities without domain ownership, the sole source for path guards, atomic writes, JSON/JSONL I/O, hashing, error-to-text conversion, and environment-variable parsing. Pre-commit rejects same-named local declarations in server code based on `SHARED_HELPERS` in `scripts/pre-commit-plan.ts`. The only exception is `research/pipeline/prime-cornell-note-worker.mjs`, which is copied into Run Workspaces and executed by bare Node. It may reference only `node:` built-ins, as asserted by `test-prime-agent-auto-refine`.
+- `media/`, `voice/`, `audio/`, `citations/`, `accounts/`, `ingestion/`, `search/`, `tool-icons/`: the corresponding product capabilities.
+
+Research's `pipeline/` owns Search Batches, Cornell Notes, Reports, Sources, Citations, and pipeline orchestration. Cross-module calls reference the owning module directly rather than forwarding through Research. `tests/agent-runtime/test-module-boundaries.ts` asserts dependency direction: `agent-runtime/` imports no business modules; `wiki/`, `media/`, and `evolution/` do not import `research/`; `cornell/` imports neither `research/` nor `wiki/`. The test keeps one explicit exception: Evolution counts Browser Provider evidence only from terminal Research Runs, so `evolution/browser-trigger.ts` reads the terminal-state contract in `research/run-state.ts`. Any new exception is an explicit ownership decision.
+
+Activity Projection is composed in `server/app/activity-projection.ts`: Research, Wiki, Topic Plan, and Main Agent each declare reducers registered through `registerProjection`. Document reading, webpage fetching, and format conversion during Agent execution are Tool calls, not registered Activities. Observability supplies shared Node / Agent Activity projections and Goal-isolated Output reads. The composition layer preserves historical-entry order and freshness order; Events does not import business modules. Top-level Activity summaries appear directly on home-page activity cards and must derive only from known facts such as state and Stage kind. A model Provider's HTTP error counts as one: `shared/provider-error.ts` reads its status and the Provider's own explanation from the error text, never showing the raw response body, and chat renders the same copy. Raw Runtime error text, potentially including stack traces with host paths, stays in Activity Steps, Node Trace, and server logs rather than summaries. A failed Stage's Step shows the error it recorded; Stages the same failure was relayed to show only that they failed. Fixed copy projects as message IDs under [Localization](localization.md#ui-locale), not as finished text assembled on the server.
+
+Elapsed time for running entries is calculated at read time, not as last-update time minus start time, so a Stage that stops reporting continues to accumulate time. Queued, waiting, and finished entries retain their recorded duration; the whole tree beneath a finished Activity also stops accumulating. `updatedAt` always means the last recorded activity. Each Agent's last activity is determined only by its own execution, Stage, and session evidence, including the sessions of native RLM children it delegated to, which its replay also reads; progress from other Workers in the same batch cannot establish it. A running Activity's last activity is the latest recorded anywhere in its Steps, because its own record may change only between Stages. Change events cover Stage transitions only, so the Goal Activity panel re-reads the projection while an Activity is running; a run that records nothing for five minutes still reads as quiet. Projection revisions cover only recorded facts, not clock-derived durations, so continued timing alone is not treated as a change.
+
+## Data paths
+
+`resolveDataDir()` in `config/data-dir.ts` centrally resolves the data directory, preserving precedence of `TELOMI_DATA_DIR` over the application's default `data/`. Independent Source Service and credential-discovery callers may pass an existing environment and application root, while the same resolver still selects the data directory. `resolveAgentDir()` in `config/agent-directory.ts` resolves the Agent Directory, preserving isolation when an explicit data root is provided and otherwise using configured `PI_CODING_AGENT_DIR`.
+
+Product modules obtain Runtime, Voice, Citation, and Goal credential paths through `workspaces/server-runtime-paths.ts` and `workspaces/goal-runtime-paths.ts`, then append module-internal filenames. Existing directories are not migrated, and old data continues to be read in place. Explicit Source Service cache-path overrides and the default host-shared arXiv scheduling database retain their existing precedence, as does worktree isolation configuration.
+
+See [Agent Execution's storage layout](agent-execution.md#storage-layout) for the responsibilities of the two Goal runtime trees and their mapping to the four Storage Zones.
+
+## Naming constraints
+
+- When the path already expresses the domain, do not repeat it in filenames, for example `wiki/publication.ts`.
+- Use `runtime` only for real execution engines, and `index.ts` only for startup or a module's public interface.
+- Do not keep version numbers in source filenames. Git and archived documentation retain historical versions.
+- Use `@/` within the frontend and `@shared/` for types shared between frontend and backend, without adding deeply nested `../../../` imports. Import shared contracts directly from `@shared/types`; `features/goals/data/types.ts` declares frontend-owned types only and does not re-export them.
+- Update callers directly after moving modules; do not leave forwarding files at old paths.

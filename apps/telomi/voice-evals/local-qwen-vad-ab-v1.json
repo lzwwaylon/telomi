@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 2,
+  "name": "telomi-local-qwen-vad-ab-v1",
+  "corpusVersion": "2026-07-21.2",
+  "description": "A paired warm-run diagnostic for the pinned Silero VAD against source-authored Mandarin and English human recordings. This manifest proves ordinary clean-speech non-regression only. The release corpus still owns long-pause, background-noise and hardware-microphone gates.",
+  "coverageRequirements": {
+    "requiredSlices": ["common-zh", "common-en"],
+    "minimumHumanSpeakers": 2,
+    "minimumMicrophones": 0
+  },
+  "qualityGate": {
+    "requireCaseAcceptance": true
+  },
+  "cases": [
+    {
+      "id": "aishell-zh-vad-off",
+      "description": "AISHELL-1 Mandarin control with local neural VAD disabled",
+      "audio": {
+        "path": "voice-evals/external/qwen3-asr/asr_zh.wav",
+        "mime": "audio/wav",
+        "sha256": "46dbc998c9d1d48111267c40741dd3200f2e5bcf4075f8c4c97f4451160dce50",
+        "durationSec": 4.2039375,
+        "downloadUrl": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-ASR-Repo/asr_zh.wav",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 via the official Qwen3-ASR example",
+          "license": "Apache-2.0",
+          "url": "https://www.openslr.org/33/"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact source text and byte identity were verified against the official Qwen3-ASR example and FunASR AISHELL-1 fixture."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": ["common-zh"],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "aishell-clean-indoor-high-fidelity",
+        "verification": "recording-condition-only",
+        "note": "Clean high-fidelity corpus recording without a verified physical microphone model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxCer": 0.05
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "aishell-zh-vad-on",
+      "description": "AISHELL-1 Mandarin treatment with pinned Silero VAD enabled",
+      "audio": {
+        "path": "voice-evals/external/qwen3-asr/asr_zh.wav",
+        "mime": "audio/wav",
+        "sha256": "46dbc998c9d1d48111267c40741dd3200f2e5bcf4075f8c4c97f4451160dce50",
+        "durationSec": 4.2039375,
+        "downloadUrl": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-ASR-Repo/asr_zh.wav",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 via the official Qwen3-ASR example",
+          "license": "Apache-2.0",
+          "url": "https://www.openslr.org/33/"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact source text and byte identity were verified against the official Qwen3-ASR example and FunASR AISHELL-1 fixture."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": ["common-zh"],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "aishell-clean-indoor-high-fidelity",
+        "verification": "recording-condition-only",
+        "note": "Clean high-fidelity corpus recording without a verified physical microphone model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxCer": 0.05
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "librispeech-en-vad-off",
+      "description": "LibriSpeech English control with local neural VAD disabled",
+      "audio": {
+        "path": "voice-evals/external/librispeech/1272-128104-0000.flac",
+        "mime": "audio/flac",
+        "sha256": "4e25e22555cd16e90edb0a3b49fdcf1fe652b2a1250ab643634db33895c75b41",
+        "durationSec": 5.855,
+        "downloadUrl": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/1272-128104-0000.flac",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "LibriSpeech dev-clean 1272-128104-0000 via the official Qwen2-Audio example mirror",
+          "license": "CC-BY-4.0",
+          "url": "https://www.openslr.org/12/"
+        }
+      },
+      "referenceText": "MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD TO WELCOME HIS GOSPEL",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact transcript and byte identity were verified against the official OpenSLR dev-clean archive."
+      },
+      "language": "en",
+      "metrics": ["wer"],
+      "slices": ["common-en"],
+      "speaker": { "id": "librispeech-1272", "kind": "human" },
+      "microphone": {
+        "id": "librispeech-dev-clean-recording-chain",
+        "verification": "recording-condition-only",
+        "note": "Dev-clean corpus recording without a verified physical microphone model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxWer": 0.1
+      },
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "librispeech-en-vad-on",
+      "description": "LibriSpeech English treatment with pinned Silero VAD enabled",
+      "audio": {
+        "path": "voice-evals/external/librispeech/1272-128104-0000.flac",
+        "mime": "audio/flac",
+        "sha256": "4e25e22555cd16e90edb0a3b49fdcf1fe652b2a1250ab643634db33895c75b41",
+        "durationSec": 5.855,
+        "downloadUrl": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/1272-128104-0000.flac",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "LibriSpeech dev-clean 1272-128104-0000 via the official Qwen2-Audio example mirror",
+          "license": "CC-BY-4.0",
+          "url": "https://www.openslr.org/12/"
+        }
+      },
+      "referenceText": "MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD TO WELCOME HIS GOSPEL",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact transcript and byte identity were verified against the official OpenSLR dev-clean archive."
+      },
+      "language": "en",
+      "metrics": ["wer"],
+      "slices": ["common-en"],
+      "speaker": { "id": "librispeech-1272", "kind": "human" },
+      "microphone": {
+        "id": "librispeech-dev-clean-recording-chain",
+        "verification": "recording-condition-only",
+        "note": "Dev-clean corpus recording without a verified physical microphone model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxWer": 0.1
+      },
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    }
+  ]
+}

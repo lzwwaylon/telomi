@@ -1,0 +1,51 @@
+name: Bug report / 缺陷报告
+description: Report incorrect behavior with reproduction steps. / 提交可复现的功能缺陷。
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Search existing Issues and PRs first. Use SECURITY.md in the repository root to report
+        vulnerabilities privately. Share only redacted excerpts; do not upload credentials, raw
+        research, conversations, databases or full data directories.
+
+
+        请先搜索已有 Issue 和 PR。安全漏洞按仓库根目录 SECURITY.md 私下报告。仅分享脱敏片段，不上传凭据、原始研究资料、会话、数据库或完整数据目录。
+  - type: textarea
+    id: version
+    attributes:
+      label: Version / 版本
+      description: Release tag or `git rev-parse HEAD`; for a failed install, give the selected version. /
+        填写发布 Tag 或提交 SHA；安装失败时填写尝试安装的版本。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / 环境
+      description: OS and architecture, Node/npm/uv versions, browser if relevant; say fresh install or
+        upgrade. No secrets. / 系统及架构、Node/npm/uv 版本，相关时附浏览器版本；说明全新安装还是升级，不填写密钥。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce / 复现步骤
+      description: Use the smallest example with non-sensitive sample data. / 使用不含敏感内容的最小示例。
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior / 预期与实际行为
+      description: Describe both, including how often the problem occurs. / 描述预期和实际结果，以及发生频率。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence / 脱敏证据
+      description: Optional short logs or screenshots. Preview locally and remove private content before
+        sharing. / 可选：简短日志或截图，先在本地预览并删除私人内容。
+    validations:
+      required: false

@@ -1,0 +1,13 @@
+schema_version: 2
+id: wiki-curator
+skills: [wiki-curator]
+prompts:
+  system-append:
+    default: system.md.njk
+  user:
+    plan: user.plan.md.njk
+    plan-repair: user.plan-repair.md.njk
+    delegate: user.delegate.md.njk
+    workset-repair: user.workset-repair.md.njk
+    relation: user.relation.md.njk
+    relation-repair: user.relation-repair.md.njk

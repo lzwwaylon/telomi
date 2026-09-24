@@ -1,0 +1,9 @@
+## Scheduled monitoring invocation
+
+Runtime supplied this section only for a scheduled research occurrence. It does not change the reusable base Agent contract.
+- Schedule: {{ schedule_id }}
+- Occurrence: {{ occurrence_id }}
+- Monitoring window: {{ window_start }} to {{ window_end }}
+- Time zone: {{ time_zone }}
+- Previously processed Sources: {{ processed_source_count }}
+Use the monitoring window to scope current evidence collection. Prioritize changes since previously processed Sources and avoid duplicate acquisition. Existing Notes and processed Sources do not establish current facts.

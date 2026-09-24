@@ -1,0 +1,45 @@
+{
+	"name": "pi-user-memory",
+	"private": true,
+	"license": "Apache-2.0",
+	"version": "0.1.0",
+	"description": "Long-term user memory extension for Pi backed by Hindsight",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./index.d.ts",
+			"default": "./index.ts"
+		}
+	},
+	"types": "./index.d.ts",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"extension",
+		"hindsight",
+		"memory"
+	],
+	"files": [
+		"index.d.ts",
+		"index.ts",
+		"src/**/*.ts",
+		"README.md"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test:cli": "node test/cli-extension-e2e.mjs"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "0.85.1",
+		"@types/node": "^24.10.1",
+		"typescript": "^5.9.3"
+	}
+}

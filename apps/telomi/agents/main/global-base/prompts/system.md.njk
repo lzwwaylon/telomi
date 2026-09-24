@@ -1,0 +1,10 @@
+{% if tools %}
+Available tools:
+{{ tools }}
+
+{% endif %}
+Guidelines:
+{% if concise_responses %}- Be concise in your responses
+{% endif %}{% if show_file_paths %}- Show file paths clearly when working with files
+{% endif %}
+{{ guidelines }}

@@ -1,0 +1,623 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* =============================================================================
+   PAPER THEME BRIDGE
+
+   Tailwind v4 reads these semantic tokens. `theme.css` owns the actual
+   light/dark paper values through body[data-theme].
+============================================================================= */
+
+@property --background { syntax: "<color>"; inherits: true; initial-value: oklch(0.98 0.003 265); }
+@property --foreground { syntax: "<color>"; inherits: true; initial-value: oklch(0.185 0.01 270); }
+@property --accent { syntax: "<color>"; inherits: true; initial-value: oklch(0.58 0.22 293); }
+@property --info { syntax: "<color>"; inherits: true; initial-value: oklch(0.75 0.16 70); }
+@property --success { syntax: "<color>"; inherits: true; initial-value: oklch(0.55 0.17 145); }
+@property --destructive { syntax: "<color>"; inherits: true; initial-value: oklch(0.58 0.24 28); }
+
+/* =============================================================================
+   LIGHT MODE (default)
+============================================================================= */
+
+:root {
+	color-scheme: light;
+
+	/* === PAPER FALLBACK COLORS === */
+	--background: var(--paper);
+	--foreground: var(--ink);
+	--foreground-rgb: var(--ink-rgb);
+	--accent: var(--warm);
+	--accent-rgb: var(--warm-rgb);
+	--info: var(--warm);
+	--info-rgb: var(--warm-rgb);
+	--success: #6F8E53;
+	--success-rgb: 111, 142, 83;
+	--destructive: #B55C48;
+	--destructive-rgb: 181, 92, 72;
+
+	/* === TEXT VARIANTS (mixed toward foreground for better contrast) === */
+	--success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
+	--destructive-text: color-mix(in oklab, var(--destructive) 50%, var(--foreground));
+	--info-text: color-mix(in oklab, var(--info) 50%, var(--foreground));
+
+	/* === SHADOW OPACITY === */
+	--shadow-border-opacity: 0.08;
+	--shadow-blur-opacity: 0.06;
+
+	/* === SHADOW VALUES (reusable across utility classes and component overrides) === */
+	--shadow-minimal:
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0px 1px 1px -0.5px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0px 3px 3px -1.5px;
+
+	--shadow-minimal-flat:
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px;
+
+	--shadow-modal-small:
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+		rgba(0, 0, 0, calc(var(--shadow-blur-opacity) * 0.67)) 0px 1px 1px -0.5px,
+		rgba(0, 0, 0, calc(var(--shadow-blur-opacity) * 0.67)) 0px 3px 3px 0px,
+		rgba(0, 0, 0, calc(var(--shadow-blur-opacity) * 0.33)) 0px 6px 6px 0px,
+		rgba(0, 0, 0, calc(var(--shadow-blur-opacity) * 0.33)) 0px 12px 12px 0px,
+		rgba(0, 0, 0, calc(var(--shadow-blur-opacity) * 0.33)) 0px 24px 24px 0px;
+
+	/* === Z-INDEX SCALE === */
+	--z-base: 0;
+	--z-local: 10;
+	--z-sticky: 20;
+	--z-titlebar: 40;
+	--z-panel: 50;
+	--z-dropdown: 100;
+	--z-tooltip: 150;
+	--z-modal: 200;
+	--z-overlay: 300;
+	--z-fullscreen: 350;
+	--z-floating-backdrop: 390;
+	--z-floating-menu: 400;
+	--z-island-overlay: 390;
+	--z-island: 400;
+	--z-island-popover: 410;
+	--z-splash: 600;
+
+	/* === MIX VARIANTS (oklch interpolation toward background) === */
+	--foreground-2: color-mix(in oklch, var(--foreground) 2%, var(--background));
+	--foreground-3: color-mix(in oklch, var(--foreground) 3%, var(--background));
+	--foreground-5: color-mix(in oklch, var(--foreground) 5%, var(--background));
+	--foreground-10: color-mix(in oklch, var(--foreground) 10%, var(--background));
+	--foreground-20: color-mix(in oklch, var(--foreground) 20%, var(--background));
+	--foreground-30: color-mix(in oklch, var(--foreground) 30%, var(--background));
+	--foreground-40: color-mix(in oklch, var(--foreground) 40%, var(--background));
+	--foreground-50: color-mix(in oklch, var(--foreground) 50%, var(--background));
+	--foreground-60: color-mix(in oklch, var(--foreground) 60%, var(--background));
+	--foreground-70: color-mix(in oklch, var(--foreground) 70%, var(--background));
+	--foreground-80: color-mix(in oklch, var(--foreground) 80%, var(--background));
+	--foreground-90: color-mix(in oklch, var(--foreground) 90%, var(--background));
+	--foreground-95: color-mix(in oklch, var(--foreground) 95%, var(--background));
+
+	/* === SHADCN COMPATIBILITY (derived from 6 base colors) === */
+	--secondary: oklch(from var(--foreground) l c h / 0.05);
+	--secondary-foreground: var(--foreground);
+	--muted: oklch(from var(--foreground) l c h / 0.05);
+	--muted-foreground: var(--foreground-50);
+	--card: var(--background);
+	--card-foreground: var(--foreground);
+	--popover: var(--background);
+	--popover-foreground: var(--foreground);
+	--primary: var(--foreground);
+	--primary-foreground: var(--background);
+	--accent-foreground: var(--background);
+	--destructive-foreground: var(--background);
+	--border: oklch(from var(--foreground) l c h / 0.05);
+	--input: oklch(from var(--foreground) l c h / 0.1);
+	--ring: oklch(from var(--foreground) l c h / 0.25);
+	--ring-width: 1px;
+	--ring-offset: 0px;
+
+	/* === COMPONENT TOKENS === */
+	--user-message-bubble: oklch(from var(--foreground) l c h / 0.05);
+
+	/* Markdown list markers */
+	--md-bullets: var(--foreground-50);
+	--md-counters: var(--foreground-50);
+
+	/* Fonts — system stack first, but Settings/Appearance can inject user vars */
+	--font-sans: var(
+		--font-sans-user,
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		"Segoe UI",
+		Roboto,
+		"Helvetica Neue",
+		Arial,
+		sans-serif
+	);
+	--font-mono: var(
+		--font-mono-user,
+		"JetBrains Mono",
+		ui-monospace,
+		SFMono-Regular,
+		"SF Mono",
+		Menlo,
+		Consolas,
+		monospace
+	);
+	--font-serif: var(--font-mono);
+	--font-default: var(--font-sans);
+
+	/* Layout */
+	--font-size-base: 15px;
+	--radius: 0rem;
+	--spacing: 0.25rem;
+	--tracking-normal: 0em;
+}
+
+/* =============================================================================
+   TAILWIND V4 THEME INTEGRATION
+============================================================================= */
+
+@theme inline {
+	/* === 6 BASE COLORS === */
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-accent: var(--accent);
+	--color-info: var(--info);
+	--color-success: var(--success);
+	--color-destructive: var(--destructive);
+
+	/* === MIX VARIANTS === */
+	--color-foreground-2: var(--foreground-2);
+	--color-foreground-3: var(--foreground-3);
+	--color-foreground-5: var(--foreground-5);
+	--color-foreground-10: var(--foreground-10);
+	--color-foreground-20: var(--foreground-20);
+	--color-foreground-30: var(--foreground-30);
+	--color-foreground-40: var(--foreground-40);
+	--color-foreground-50: var(--foreground-50);
+	--color-foreground-60: var(--foreground-60);
+	--color-foreground-70: var(--foreground-70);
+	--color-foreground-80: var(--foreground-80);
+	--color-foreground-90: var(--foreground-90);
+	--color-foreground-95: var(--foreground-95);
+
+	/* === SEMANTIC THEME TOKENS === */
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-destructive-foreground: var(--background);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-md-bullets: var(--md-bullets);
+	--color-md-counters: var(--md-counters);
+	--color-user-message-bubble: var(--user-message-bubble);
+
+	--font-sans: var(--font-sans);
+	--font-mono: var(--font-mono);
+	--font-serif: var(--font-serif);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+
+	--z-index-base: var(--z-base);
+	--z-index-local: var(--z-local);
+	--z-index-sticky: var(--z-sticky);
+	--z-index-titlebar: var(--z-titlebar);
+	--z-index-panel: var(--z-panel);
+	--z-index-dropdown: var(--z-dropdown);
+	--z-index-tooltip: var(--z-tooltip);
+	--z-index-modal: var(--z-modal);
+	--z-index-overlay: var(--z-overlay);
+	--z-index-fullscreen: var(--z-fullscreen);
+	--z-index-floating-backdrop: var(--z-floating-backdrop);
+	--z-index-floating-menu: var(--z-floating-menu);
+	--z-index-island-overlay: var(--z-island-overlay);
+	--z-index-island: var(--z-island);
+	--z-index-island-popover: var(--z-island-popover);
+	--z-index-splash: var(--z-splash);
+}
+
+/* =============================================================================
+   BASE STYLES
+============================================================================= */
+
+@layer base {
+	* {
+		box-sizing: border-box;
+		border-color: var(--border);
+	}
+
+	html {
+		font-size: var(--font-size-base);
+	}
+
+	html,
+	body {
+		margin: 0;
+		height: 100%;
+		min-height: 100%;
+		background: var(--background);
+		color: var(--foreground);
+		font-family: var(--font-default);
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		overflow: hidden;
+	}
+
+	#root {
+		height: 100vh;
+	}
+
+	@media (max-width: 960px) {
+		html,
+		body {
+			overflow: auto;
+			height: auto;
+			min-height: 100%;
+		}
+
+		#root {
+			height: auto;
+			min-height: 100vh;
+		}
+	}
+
+	/* Scrollbar styling */
+	::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: var(--border);
+		border-radius: 4px;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--muted-foreground);
+	}
+
+	/* Focus ring */
+	*:focus-visible {
+		outline: none;
+		--tw-ring-offset-width: var(--ring-offset);
+		--tw-ring-width: var(--ring-width);
+		--tw-ring-color: var(--ring);
+	}
+}
+
+/* =============================================================================
+   UTILITY CLASSES (shadows, scrollbars, smooth corners, popover)
+============================================================================= */
+
+@layer utilities {
+	.scrollbar-hide {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
+	}
+
+	.scrollbar-hover::-webkit-scrollbar {
+		width: 4px;
+	}
+	.scrollbar-hover::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.scrollbar-hover::-webkit-scrollbar-thumb {
+		background: transparent;
+		border-radius: 4px;
+	}
+	.group:hover .scrollbar-hover::-webkit-scrollbar-thumb {
+		background: var(--border);
+	}
+	.group:hover .scrollbar-hover::-webkit-scrollbar-thumb:hover {
+		background: var(--muted-foreground);
+	}
+
+	.smooth-corners {
+		corner-shape: superellipse;
+		-webkit-corner-shape: superellipse;
+	}
+
+	.popover-styled {
+		background: var(--background);
+		color: var(--foreground);
+		border-radius: 8px;
+		border: none;
+		box-shadow:
+			rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+			rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+			rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+			rgba(0, 0, 0, 0.04) 0px 1px 1px -0.5px,
+			rgba(0, 0, 0, 0.04) 0px 3px 3px 0px,
+			rgba(0, 0, 0, 0.02) 0px 6px 6px 0px,
+			rgba(0, 0, 0, 0.02) 0px 12px 12px 0px,
+			rgba(0, 0, 0, 0.02) 0px 24px 24px 0px;
+	}
+}
+
+/* === Tailwind v4 @utility shadow tokens (used as Tailwind classes) === */
+
+@utility shadow-thin {
+	box-shadow:
+		rgba(0, 0, 0, 0) 0 0 0 0,
+		rgba(0, 0, 0, 0) 0 0 0 0,
+		rgba(var(--foreground-rgb), 0.06) 0 0 0 1px;
+}
+
+@utility shadow-minimal {
+	box-shadow: var(--shadow-minimal);
+}
+
+@utility shadow-middle {
+	box-shadow:
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+		rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+		rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+		rgba(0, 0, 0, 0.06) 0px 6px 6px -3px;
+}
+
+@utility shadow-medium {
+	box-shadow:
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+		rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+		rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+		rgba(0, 0, 0, 0.06) 0px 6px 6px -3px,
+		rgba(0, 0, 0, 0.04) 0px 12px 12px -6px;
+}
+
+@utility shadow-hero {
+	box-shadow:
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+		rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+		rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+		rgba(0, 0, 0, 0.06) 0px 6px 6px -3px,
+		rgba(0, 0, 0, 0.04) 0px 12px 12px -6px,
+		rgba(0, 0, 0, 0.03) 0px 24px 32px -12px,
+		rgba(0, 0, 0, 0.02) 0px 48px 64px -24px;
+}
+
+@utility shadow-strong {
+	box-shadow:
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(0, 0, 0, 0) 0px 0px 0px 0px,
+		rgba(var(--foreground-rgb), 0.06) 0px 0px 0px 1px,
+		rgba(0, 0, 0, 0.06) 0px 1px 1px -0.5px,
+		rgba(0, 0, 0, 0.06) 0px 3px 3px -1.5px,
+		rgba(0, 0, 0, 0.06) 0px 6px 6px -3px,
+		rgba(0, 0, 0, 0.04) 0px 12px 12px -6px,
+		rgba(0, 0, 0, 0.04) 0px 24px 24px -12px;
+}
+
+@utility shadow-tinted {
+	--shadow-color: 0, 0, 0;
+	box-shadow:
+		rgba(var(--shadow-color), 0) 0px 0px 0px 0px,
+		rgba(var(--shadow-color), 0) 0px 0px 0px 0px,
+		rgba(var(--shadow-color), calc(var(--shadow-border-opacity) * 1.5)) 0px 0px 0px 1px,
+		rgba(var(--shadow-color), var(--shadow-border-opacity)) 0px 1px 1px -0.5px,
+		rgba(var(--shadow-color), var(--shadow-blur-opacity)) 0px 3px 3px -1.5px,
+		rgba(var(--shadow-color), calc(var(--shadow-blur-opacity) * 0.67)) 0px 6px 6px -3px;
+}
+
+@utility shadow-modal-small {
+	box-shadow: var(--shadow-modal-small);
+}
+
+/* === Paper-aligned shadow utilities (color-mix border ring + tokenized blur) === */
+
+.shadow-minimal {
+	box-shadow:
+		color-mix(in oklch, var(--foreground) 6%, transparent) 0 0 0 1px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 1px 1px -0.5px;
+}
+
+.shadow-middle {
+	box-shadow:
+		color-mix(in oklch, var(--foreground) 6%, transparent) 0 0 0 1px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 1px 1px -0.5px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 3px 3px -1.5px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 6px 6px -3px;
+}
+
+[data-paper-dark="true"] .shadow-minimal {
+	box-shadow:
+		color-mix(in oklch, var(--foreground) 15%, transparent) 0 0 0 1px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 1px 1px -0.5px;
+}
+
+[data-paper-dark="true"] .shadow-middle {
+	box-shadow:
+		color-mix(in oklch, var(--foreground) 15%, transparent) 0 0 0 1px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 1px 1px -0.5px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 3px 3px -1.5px,
+		rgba(0, 0, 0, var(--shadow-blur-opacity)) 0 6px 6px -3px;
+}
+
+/* Paper dark shadow-tinted: outline-only border, no blur glow */
+[data-paper-dark="true"] .shadow-tinted {
+	box-shadow:
+		rgba(var(--shadow-color), 0) 0px 0px 0px 0px,
+		rgba(var(--shadow-color), 0) 0px 0px 0px 0px,
+		rgba(var(--shadow-color), calc(var(--shadow-border-opacity) * 3)) 0px 0px 0px 1px,
+		rgba(var(--shadow-color), 0) 0px 1px 1px -0.5px,
+		rgba(var(--shadow-color), 0) 0px 3px 3px -1.5px,
+		rgba(var(--shadow-color), 0) 0px 6px 6px -3px;
+}
+
+/* Pulse keyframe used by Tailwind arbitrary `animate-[...]` utilities */
+
+@keyframes momPulse {
+	0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 55%, transparent); }
+	70% { box-shadow: 0 0 0 6px color-mix(in oklch, var(--accent) 0%, transparent); }
+	100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes overlay-fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+
+@keyframes overlay-pop-in {
+	from { opacity: 0; transform: scale(0.97) translateY(8px); }
+	to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* =============================================================================
+   SPINNER - 3x3 grid
+============================================================================= */
+
+.spinner {
+	display: inline-grid;
+	grid-template-columns: repeat(3, 1fr);
+	width: 1em;
+	height: 1em;
+	gap: 0.08em;
+}
+
+.spinner-cube {
+	background-color: currentColor;
+	animation: spinner-grid 1.3s infinite ease-in-out;
+	transform: scale3d(0.5, 0.5, 1);
+}
+
+.spinner-cube:nth-child(1) { animation-delay: 0.2s; }
+.spinner-cube:nth-child(2) { animation-delay: 0.3s; }
+.spinner-cube:nth-child(3) { animation-delay: 0.4s; }
+.spinner-cube:nth-child(4) { animation-delay: 0.1s; }
+.spinner-cube:nth-child(5) { animation-delay: 0.2s; }
+.spinner-cube:nth-child(6) { animation-delay: 0.3s; }
+.spinner-cube:nth-child(7) { animation-delay: 0s; }
+.spinner-cube:nth-child(8) { animation-delay: 0.1s; }
+.spinner-cube:nth-child(9) { animation-delay: 0.2s; }
+
+@keyframes spinner-grid {
+	0%, 70%, 100% { transform: scale3d(0.5, 0.5, 1); }
+	35% { transform: scale3d(0, 0, 1); }
+}
+
+/* =============================================================================
+   STREAMING CARET (typewriter cursor)
+   Renders a blinking caret at the end of the last block in a streaming
+   response. Activated via [data-streaming-active] on the ResponseCard root.
+============================================================================= */
+
+@keyframes mom-caret-blink {
+	0%, 50% { opacity: 1; }
+	51%, 100% { opacity: 0; }
+}
+
+[data-streaming-active] [data-search-root="response"] > div > :last-child::after {
+	content: "";
+	display: inline-block;
+	width: 0.55ch;
+	height: 1em;
+	margin-left: 2px;
+	vertical-align: -0.12em;
+	background-color: currentColor;
+	border-radius: 1px;
+	animation: mom-caret-blink 1s steps(1, end) infinite;
+}
+
+/* =============================================================================
+   MARKDOWN LINE FLASH
+   citations/validation chip → 右栏/popover 跳转后短暂高亮目标块。
+   block 由 MarkdownView.wrapBlock 输出,带 data-md-block-path="line:N-M";
+   定位由 components/MarkdownLineLocator.tsx 完成,这里只管视觉。
+============================================================================= */
+
+@keyframes md-line-flash-bg {
+	0%   { background-color: color-mix(in oklch, var(--accent) 22%, transparent); }
+	60%  { background-color: color-mix(in oklch, var(--accent) 14%, transparent); }
+	100% { background-color: transparent; }
+}
+
+.md-line-flash {
+	border-radius: 6px;
+	animation: md-line-flash-bg 1.6s ease-out;
+	scroll-margin-top: 2rem;
+	scroll-margin-bottom: 2rem;
+}
+
+/* =============================================================================
+   REDUCED MOTION SUPPORT
+   Respect users who request reduced motion (system accessibility setting).
+============================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+
+	[data-streaming-active] [data-search-root="response"] > div > :last-child::after {
+		animation: none !important;
+		opacity: 0.6 !important;
+	}
+
+	.md-line-flash {
+		animation: none !important;
+		background-color: color-mix(in oklch, var(--accent) 12%, transparent) !important;
+	}
+}
+
+/* =============================================================================
+   PAPER STAGE SURFACE
+   Main surfaces stay transparent so body[data-theme] is the only page backdrop.
+============================================================================= */
+
+main {
+	background-color: transparent;
+	border-radius: 0;
+}
+
+/* Shared floating-surface shadow. */
+
+@utility shadow-floating {
+	box-shadow:
+		color-mix(in oklch, var(--foreground) 8%, transparent) 0 0 0 1px,
+		rgba(0, 0, 0, 0.10) 0 4px 8px -2px,
+		rgba(0, 0, 0, 0.10) 0 12px 24px -8px,
+		rgba(0, 0, 0, 0.08) 0 24px 48px -12px;
+}
+
+[data-paper-dark="true"] .shadow-floating {
+	box-shadow:
+		color-mix(in oklch, var(--foreground) 18%, transparent) 0 0 0 1px,
+		rgba(0, 0, 0, 0.40) 0 4px 8px -2px,
+		rgba(0, 0, 0, 0.40) 0 12px 24px -8px,
+		rgba(0, 0, 0, 0.30) 0 24px 48px -12px;
+}

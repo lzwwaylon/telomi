@@ -1,0 +1,9 @@
+[Folder attachment: {{ folder_name }} ({{ file_count }} files).
+The whole folder is stored read-only at {{ folder_path }}. Every file is listed below with how the Runtime handled it; the list is complete, so do not search the folder for more.
+{% for file in files %}
+- {{ file.path }}{% if file.parse_status == "text" %} — text, read it directly.{% elif file.parse_status == "binary" %} — unrecognised binary, stored untouched; do not guess at its bytes.{% elif file.parse_status == "parsed" %} — parsed; Markdown at {{ file.markdown_path }}.{% elif file.parse_status == "pending" %} — still parsing; Markdown will appear at {{ file.markdown_path }}.{% else %} — parsing failed: {{ file.parse_error }}; only the original is available.{% endif %}
+
+{% endfor %}
+Summarising, answering questions about, or quoting these files is direct work: read them yourself with the read Tool and answer. Do not start research for that.
+Use research only when this folder's content has to enter the Wiki or a report as cited evidence.
+Never install, download, or improvise parser code and never shell out to convert files. The Runtime owns parsing through its internal FastAPI document parsing service; if parsing failed, say so and what the user can do instead.]

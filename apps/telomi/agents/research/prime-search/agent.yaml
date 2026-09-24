@@ -1,0 +1,9 @@
+schema_version: 2
+id: prime-search
+prompts:
+  system-append:
+    scheduled: system-append.scheduled.md.njk
+  user:
+    scheduled-context: user.scheduled-context.md.njk
+    acquire: user.acquire.md.njk
+    organize: user.organize.md.njk

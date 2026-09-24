@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "tests/lib/**/*.ts",
+    "tests/research/**/*.ts",
+    "tests/evaluation/test-node-backtest-agents.ts",
+    "tests/evaluation/test-case-bundle.ts",
+    "tests/observability/test-trace-reader.ts",
+    "scripts/*research*.ts",
+    "scripts/*search*.ts",
+    "scripts/*source*.ts",
+    "scripts/*provider*.ts",
+    "scripts/*report*.ts",
+    "scripts/*cornell*.ts",
+    "scripts/*evidence*.ts",
+    "scripts/run-tests.ts",
+    "scripts/test-*.ts",
+    "scripts/pre-commit-plan.ts"
+  ]
+}

@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 2,
+  "name": "telomi-local-qwen-domain-v1",
+  "corpusVersion": "2026-07-21.3",
+  "description": "A source-authored human-speech diagnostic for Mandarin-English code switching, technical glossary hints, glossary negative control, and a spoken ratio. TaiMECS is pinned to one CC BY 4.0 dataset commit and its metadata explicitly marks these clips as human recordings.",
+  "coverageRequirements": {
+    "requiredSlices": [
+      "mixed-zh-en",
+      "structured-values",
+      "technical-terms",
+      "glossary-negative-control",
+      "traditional-script"
+    ],
+    "minimumHumanSpeakers": 1,
+    "minimumMicrophones": 0
+  },
+  "qualityGate": {
+    "requireCaseAcceptance": true
+  },
+  "cases": [
+    {
+      "id": "taimecs-001-technical-glossary-off",
+      "description": "Taiwan Mandarin-English technical sentence without glossary hints",
+      "audio": {
+        "path": "voice-evals/external/taimecs/001.mp3",
+        "mime": "audio/mpeg",
+        "sha256": "fb2b2c7f72e1d9536a9755140977ad848fb0dd5dcc330d8e1e55f257bb432fae",
+        "durationSec": 11.16,
+        "downloadUrl": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/resolve/83f397e41840ba187cc6833e1320bd2e5fa858f1/001.mp3?download=true",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "TaiMECS human recording 001 at commit 83f397e41840ba187cc6833e1320bd2e5fa858f1",
+          "license": "CC-BY-4.0",
+          "url": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/tree/83f397e41840ba187cc6833e1320bd2e5fa858f1"
+        }
+      },
+      "referenceText": "我們推出新的 base model 與 training data，期待各家企業能自行調校大型語言模型，使其更符合 in house 的需求。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact text from TaiMECS metadata.jsonl at the pinned commit. The same row explicitly sets source to human."
+      },
+      "language": "zh-TW-en",
+      "metrics": ["cer", "content-cer"],
+      "slices": ["mixed-zh-en", "technical-terms", "traditional-script"],
+      "speaker": { "id": "taimecs-human-speaker", "kind": "human" },
+      "microphone": {
+        "id": "taimecs-human-recording-chain",
+        "verification": "recording-condition-only",
+        "note": "TaiMECS documents a human recording, 48 kHz mono MP3 and loudness normalization, but not a physical microphone model."
+      },
+      "terms": [
+        { "canonical": "base model", "expectedOccurrences": 1 },
+        { "canonical": "training data", "expectedOccurrences": 1 },
+        { "canonical": "調校", "expectedOccurrences": 1 },
+        { "canonical": "in house", "expectedOccurrences": 1 }
+      ],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxContentCer": 0.15,
+        "minTermRecall": 0.5,
+        "minExactCanonicalRate": 0.5
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "languagePreference": "zh-TW",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "taimecs-001-technical-glossary-on",
+      "description": "The same source-authored sentence with technical terms supplied only as ASR glossary hints",
+      "audio": {
+        "path": "voice-evals/external/taimecs/001.mp3",
+        "mime": "audio/mpeg",
+        "sha256": "fb2b2c7f72e1d9536a9755140977ad848fb0dd5dcc330d8e1e55f257bb432fae",
+        "durationSec": 11.16,
+        "downloadUrl": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/resolve/83f397e41840ba187cc6833e1320bd2e5fa858f1/001.mp3?download=true",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "TaiMECS human recording 001 at commit 83f397e41840ba187cc6833e1320bd2e5fa858f1",
+          "license": "CC-BY-4.0",
+          "url": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/tree/83f397e41840ba187cc6833e1320bd2e5fa858f1"
+        }
+      },
+      "referenceText": "我們推出新的 base model 與 training data，期待各家企業能自行調校大型語言模型，使其更符合 in house 的需求。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact text from TaiMECS metadata.jsonl at the pinned commit. The same row explicitly sets source to human."
+      },
+      "language": "zh-TW-en",
+      "metrics": ["cer", "content-cer"],
+      "slices": ["mixed-zh-en", "technical-terms", "traditional-script"],
+      "speaker": { "id": "taimecs-human-speaker", "kind": "human" },
+      "microphone": {
+        "id": "taimecs-human-recording-chain",
+        "verification": "recording-condition-only",
+        "note": "TaiMECS documents a human recording, 48 kHz mono MP3 and loudness normalization, but not a physical microphone model."
+      },
+      "terms": [
+        { "canonical": "base model", "expectedOccurrences": 1 },
+        { "canonical": "training data", "expectedOccurrences": 1 },
+        { "canonical": "調校", "expectedOccurrences": 1 },
+        { "canonical": "in house", "expectedOccurrences": 1 }
+      ],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "canonical",
+        "maxCer": 0.1,
+        "maxContentCer": 0.1,
+        "minTermPrecision": 0.95,
+        "minTermRecall": 0.95,
+        "minExactCanonicalRate": 0.95
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "languagePreference": "zh-TW",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": [
+          {
+            "id": "term_taimecs_tune",
+            "canonical": "調校",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_in_house",
+            "canonical": "in house",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_base_model",
+            "canonical": "base model",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_taimecs_training_data",
+            "canonical": "training data",
+            "enabled": true,
+            "source": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "id": "taimecs-001-glossary-negative-control",
+      "description": "The same human sentence with unrelated dictionary entries that must never leak into the transcript",
+      "audio": {
+        "path": "voice-evals/external/taimecs/001.mp3",
+        "mime": "audio/mpeg",
+        "sha256": "fb2b2c7f72e1d9536a9755140977ad848fb0dd5dcc330d8e1e55f257bb432fae",
+        "durationSec": 11.16,
+        "downloadUrl": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/resolve/83f397e41840ba187cc6833e1320bd2e5fa858f1/001.mp3?download=true",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "TaiMECS human recording 001 at commit 83f397e41840ba187cc6833e1320bd2e5fa858f1",
+          "license": "CC-BY-4.0",
+          "url": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/tree/83f397e41840ba187cc6833e1320bd2e5fa858f1"
+        }
+      },
+      "referenceText": "我們推出新的 base model 與 training data，期待各家企業能自行調校大型語言模型，使其更符合 in house 的需求。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact text from TaiMECS metadata.jsonl at the pinned commit. The same row explicitly sets source to human."
+      },
+      "language": "zh-TW-en",
+      "metrics": ["cer", "content-cer"],
+      "slices": ["glossary-negative-control", "traditional-script"],
+      "speaker": { "id": "taimecs-human-speaker", "kind": "human" },
+      "microphone": {
+        "id": "taimecs-human-recording-chain",
+        "verification": "recording-condition-only",
+        "note": "TaiMECS documents a human recording, 48 kHz mono MP3 and loudness normalization, but not a physical microphone model."
+      },
+      "terms": [
+        { "canonical": "base model", "expectedOccurrences": 1 },
+        { "canonical": "training data", "expectedOccurrences": 1 }
+      ],
+      "forbiddenTerms": ["Kubernetes", "PostgreSQL"],
+      "acceptance": {
+        "stage": "canonical",
+        "maxCer": 0.15,
+        "maxContentCer": 0.15,
+        "minTermRecall": 0.95,
+        "minExactCanonicalRate": 0.95,
+        "maxFalseReplacementRate": 0
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "languagePreference": "zh-TW",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": [
+          {
+            "id": "term_negative_kubernetes",
+            "canonical": "Kubernetes",
+            "enabled": true,
+            "source": "manual"
+          },
+          {
+            "id": "term_negative_postgresql",
+            "canonical": "PostgreSQL",
+            "enabled": true,
+            "source": "manual"
+          }
+        ]
+      }
+    },
+    {
+      "id": "taimecs-020-spoken-ratio",
+      "description": "Taiwan Mandarin-English business sentence preserving the spoken ratio 六成 and its surrounding target semantics",
+      "audio": {
+        "path": "voice-evals/external/taimecs/020.mp3",
+        "mime": "audio/mpeg",
+        "sha256": "a9543d19ff0d0b97ca2bf76f37b66117cd518fe4931e95fee820f7cb67fe7b72",
+        "durationSec": 8.616,
+        "downloadUrl": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/resolve/83f397e41840ba187cc6833e1320bd2e5fa858f1/020.mp3?download=true",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "TaiMECS human recording 020 at commit 83f397e41840ba187cc6833e1320bd2e5fa858f1",
+          "license": "CC-BY-4.0",
+          "url": "https://huggingface.co/datasets/JacobLinCool/TaiMECS/tree/83f397e41840ba187cc6833e1320bd2e5fa858f1"
+        }
+      },
+      "referenceText": "業務團隊這個月的 target 達成率只有六成，老闆在週會上 review 了一輪，大家的士氣大受打擊。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact text from TaiMECS metadata.jsonl at the pinned commit. The same row explicitly sets source to human."
+      },
+      "language": "zh-TW-en",
+      "metrics": ["cer", "content-cer"],
+      "slices": ["structured-values", "traditional-script"],
+      "speaker": { "id": "taimecs-human-speaker", "kind": "human" },
+      "microphone": {
+        "id": "taimecs-human-recording-chain",
+        "verification": "recording-condition-only",
+        "note": "TaiMECS documents a human recording, 48 kHz mono MP3 and loudness normalization, but not a physical microphone model."
+      },
+      "terms": [
+        { "canonical": "六成", "expectedOccurrences": 1 }
+      ],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "canonical",
+        "maxCer": 0.3,
+        "maxContentCer": 0.3,
+        "minTermRecall": 0.95,
+        "minExactCanonicalRate": 0.95
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "languagePreference": "zh-TW",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    }
+  ]
+}

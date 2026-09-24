@@ -1,0 +1,17 @@
+schema_version: 2
+id: podcast-writer
+skills: [podcast-writing]
+prompts:
+  system-append:
+    default: system.md.njk
+  reference:
+    segment-contract: reference.segment-contract.md.njk
+  user:
+    preference-query: user.preference-query.md.njk
+    plan: user.plan.md.njk
+    segment-repair: user.segment-repair.md.njk
+    initial-review: user.initial-review.md.njk
+    final-edit: user.final-edit.md.njk
+    final-audit-repair: user.final-audit-repair.md.njk
+    review: user.review.md.njk
+    output-repair: user.output-repair.md.njk

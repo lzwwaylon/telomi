@@ -1,0 +1,20 @@
+#!/bin/sh
+# Deterministic checks only. Never runs an Agent, Browser, model, or live Provider.
+set -eu
+
+app_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+# npm hoists any dependency shared by two workspaces to the repo root, so tsx is
+# not guaranteed to sit in apps/telomi/node_modules. Walk up like Node resolution.
+tsx=
+dir=$app_root
+while :; do
+	if [ -f "$dir/node_modules/tsx/dist/loader.mjs" ]; then tsx="$dir/node_modules/tsx/dist/loader.mjs"; break; fi
+	[ "$dir" = "/" ] && break
+	dir=$(dirname -- "$dir")
+done
+[ -n "$tsx" ] || { echo "pre-commit: tsx not found; run npm install" >&2; exit 1; }
+
+# Load tsx into node rather than through its CLI: the CLI SIGKILLs a child that has not
+# acknowledged a signal within 60ms, so a cancelled commit would leak its staged checkout.
+git diff --cached --name-status -z --diff-filter=ACDMRT | node --import "$tsx" "$app_root/scripts/pre-commit-plan.ts" --stdin0

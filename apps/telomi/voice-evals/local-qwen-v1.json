@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 2,
+  "name": "telomi-local-qwen-stt-v1",
+  "corpusVersion": "2026-07-24.8",
+  "description": "Local Qwen3-ASR ordinary-dictation release corpus. Source-authored public human speech covers Mandarin, English, Mandarin-English code switching, structured values and technical terms. Versioned deterministic derivatives cover long pauses, 5 dB white noise, weak onset, keyboard-like short bursts and simulated far-field professional-term boundaries. Public real acoustic recordings add DEMAND living-room noise, Sony pantograph keyboard sounds and direct AMI table-top microphone-array speech without being counted as local hardware evidence. Included diagnostic suites keep each case definition single-sourced. The remaining hardware coverage blockers are five real acoustic-condition recordings across the two verified microphones: room noise and keyboard noise for each device, plus one fixed-microphone far-field capture.",
+  "coverageRequirements": {
+    "requiredSlices": [
+      "common-zh",
+      "common-en",
+      "mixed-zh-en",
+      "long-pause",
+      "structured-values",
+      "technical-terms",
+      "glossary-negative-control",
+      "background-noise",
+      "weak-onset",
+      "short-burst-noise",
+      "keyboard-like-noise",
+      "simulated-far-field",
+      "public-real-room-noise",
+      "public-real-keyboard-noise",
+      "public-real-far-field",
+      "technical-term-boundary",
+      "traditional-script"
+    ],
+    "minimumHumanSpeakers": 2,
+    "minimumMicrophones": 2
+  },
+  "qualityGate": {
+    "requireCaseAcceptance": true
+  },
+  "cases": [
+    {
+      "id": "aishell-zh-common",
+      "description": "Source-authored human Mandarin utterance used by the official Qwen3-ASR example and AISHELL-1 test set",
+      "audio": {
+        "path": "voice-evals/external/qwen3-asr/asr_zh.wav",
+        "mime": "audio/wav",
+        "sha256": "46dbc998c9d1d48111267c40741dd3200f2e5bcf4075f8c4c97f4451160dce50",
+        "durationSec": 4.2039375,
+        "speechOnset": {
+          "startMs": 520,
+          "method": "waveform-spectrogram-reviewed",
+          "note": "Reviewed on the pinned 4.2039375 s fixture using its waveform and spectrogram. First sustained speech begins near 0.52 s; ffmpeg silence detection placed the boundary at 0.504938 s with a -40 dB threshold and 0.531188 s with a -35 dB threshold. Estimated boundary uncertainty is 20 ms."
+        },
+        "downloadUrl": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-ASR-Repo/asr_zh.wav",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 via the official Qwen3-ASR example",
+          "license": "Apache-2.0",
+          "url": "https://www.openslr.org/33/"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Qwen3-ASR commit 7c6daf77a2421100f5fb066495372c00129d39ff uses this exact audio in its forced-aligner example with this text. The SHA-256 is also identical to FunASR's BAC009S0764W0121.wav, whose AISHELL-1 transcript carries the same source text."
+      },
+      "language": "zh",
+      "metrics": [
+        "cer"
+      ],
+      "slices": [
+        "common-zh"
+      ],
+      "speaker": {
+        "id": "aishell-S0764",
+        "kind": "human"
+      },
+      "microphone": {
+        "id": "aishell-clean-indoor-high-fidelity",
+        "verification": "recording-condition-only",
+        "note": "AISHELL identifies this as clean high-fidelity speech but this fixture does not prove a physical microphone make and model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxCer": 0.05
+      },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "librispeech-en-common",
+      "description": "Source-authored human English utterance from the LibriSpeech dev-clean corpus",
+      "audio": {
+        "path": "voice-evals/external/librispeech/1272-128104-0000.flac",
+        "mime": "audio/flac",
+        "sha256": "4e25e22555cd16e90edb0a3b49fdcf1fe652b2a1250ab643634db33895c75b41",
+        "durationSec": 5.855,
+        "downloadUrl": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/1272-128104-0000.flac",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "LibriSpeech dev-clean 1272-128104-0000 via the official Qwen2-Audio example mirror",
+          "license": "CC-BY-4.0",
+          "url": "https://www.openslr.org/12/"
+        }
+      },
+      "referenceText": "MISTER QUILTER IS THE APOSTLE OF THE MIDDLE CLASSES AND WE ARE GLAD TO WELCOME HIS GOSPEL",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The reference is copied from LibriSpeech/dev-clean/1272/128104/1272-128104.trans.txt in the official OpenSLR dev-clean archive. The mirrored FLAC SHA-256 is byte-identical to LibriSpeech/dev-clean/1272/128104/1272-128104-0000.flac in that archive."
+      },
+      "language": "en",
+      "metrics": [
+        "wer"
+      ],
+      "slices": [
+        "common-en"
+      ],
+      "speaker": {
+        "id": "librispeech-1272",
+        "kind": "human"
+      },
+      "microphone": {
+        "id": "librispeech-dev-clean-recording-chain",
+        "verification": "recording-condition-only",
+        "note": "LibriSpeech identifies the utterance as dev-clean but this fixture does not prove a physical microphone make and model."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": {
+        "stage": "raw",
+        "maxWer": 0.1
+      },
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    }
+  ],
+  "includes": [
+    "local-qwen-domain-v1.json",
+    "local-qwen-vad-stress-v1.json",
+    "local-qwen-public-acoustic-v1.json"
+  ]
+}

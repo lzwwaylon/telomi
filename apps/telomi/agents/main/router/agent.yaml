@@ -1,0 +1,22 @@
+schema_version: 2
+id: router
+skills: [wiki-knowledge, report-products, research-monitoring, topic-plan, user-memory]
+prompts:
+  system:
+    default: system.md.njk
+  system-append:
+    topic-guard-unconfirmed: system-append.topic-guard-unconfirmed.md.njk
+    topic-guard-pending: system-append.topic-guard-pending.md.njk
+    topic-guard-confirmed: system-append.topic-guard-confirmed.md.njk
+    topic-focus: system-append.topic-focus.md.njk
+    discovery-context: system-append.discovery-context.md.njk
+  user:
+    document-attachment-notice: user.document-attachment-notice.md.njk
+    folder-attachment-notice: user.folder-attachment-notice.md.njk
+    topic-confirmed-event: user.topic-confirmed-event.md.njk
+    goal-created-event: user.goal-created-event.md.njk
+    goal-updated-event: user.goal-updated-event.md.njk
+sandbox:
+  role: main.router
+  network: deny
+  tools: [research, generate_report, generate_podcast, wiki_search, wiki_read_page, wiki_graph_search, wiki_update, research_schedule, read, write, edit, bash, ls, find, grep]

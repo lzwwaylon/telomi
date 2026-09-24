@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+# `github.ref` is `refs/pull/<number>/merge` for a PR run and `refs/heads/<branch>` for a push,
+# so only a newer run of the same PR or the same branch cancels an in-progress one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests (${{ matrix.shard }}/3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/prepare
+      - name: Runner resources
+        run: df -h / && free -m
+      - name: Deterministic tests, shard ${{ matrix.shard }} of 3
+        # A hung test file stalls node --test; bound it and name the test processes still alive.
+        run: |
+          timeout --signal=INT 600 npm test --workspace=telomi -- --shard ${{ matrix.shard }}/3 || {
+            status=$?
+            ps -eo pid,ppid,etime,rss,args | grep -E 'tests/|scripts/|node --test' | grep -v grep
+            exit $status
+          }
+  contracts:
+    name: typecheck, build and contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/prepare
+      - run: npm run typecheck
+      - run: npm run build
+      - name: OpenAPI freshness
+        run: npm run test:operations-openapi --workspace=telomi
+      - name: Writing scanner contracts
+        run: npm run test:writing-skill --workspace=telomi
+      - name: Provider Python contracts
+        run: npm run test:provider-python-sdk --workspace=telomi
+      - name: Research Source API contracts
+        run: npm run test:research-api
+      - name: Sandbox extension contracts
+        run: npm test --workspace=telomi-srt

@@ -1,0 +1,16 @@
+schema_version: 2
+id: stage-runtime
+prompts:
+  system:
+    default: system.md.njk
+  user:
+    repair: user.repair.md.njk
+  tool:
+    submit-accepted: tool.submit-accepted.md.njk
+    submit-already-accepted: tool.submit-already-accepted.md.njk
+    submit-custom-snippet: tool.submit-custom-snippet.md.njk
+    submit-description: tool.submit-description.md.njk
+    submit-exhausted: tool.submit-exhausted.md.njk
+    submit-fatal: tool.submit-fatal.md.njk
+    submit-rejected: tool.submit-rejected.md.njk
+    submit-snippet: tool.submit-snippet.md.njk

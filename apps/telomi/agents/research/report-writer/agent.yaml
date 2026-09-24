@@ -1,0 +1,20 @@
+schema_version: 2
+id: report-writer
+skills: [wiki-report, writing-skill]
+prompts:
+  system-append:
+    default: system.md.njk
+  user:
+    plan: user.plan.md.njk
+    delegate: user.delegate.md.njk
+    final: user.final.md.njk
+    final-repair: user.final-repair.md.njk
+    resume-context: user.resume-context.md.njk
+    completed-sections: user.completed-sections.md.njk
+# Production is intercepted by PrimeReportWriterStageRunner. This SRT policy is
+# retained only for recorded Stage replay and generic Stage contract tests.
+sandbox:
+  role: report.report_writer
+  execution_profile: pi_builtin
+  network: allow
+  tools: [read, write, edit, bash, ls, find, grep, wiki_search, wiki_read_page, wiki_graph_search, submit_stage_output]

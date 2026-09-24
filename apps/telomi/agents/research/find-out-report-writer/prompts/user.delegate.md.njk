@@ -1,0 +1,13 @@
+Continue the same Find Out report task. Runtime validated work/report-outline.json and injected every Section ID.
+
+Read that materialized outline. Record its ownership in work/editorial-plan.json, assigning every repeated model, benchmark, architecture, or conclusion to one primary Section.
+
+Spawn exactly one child per Section with exact model {{ child_model }}. Give each child the complete report context from /inputs/task.md, including audience, preferences and prior knowledge, its exact Runtime Section ID/title/purpose, editorial scope, and exact Source handles. Each child reads its own Sources deeply through notes_report using source=[...] filters, and cites Notes as <cite>N123</cite>.
+
+Prime already provides the notes_report callable and exact Skill paths. Tell every child to read each needed Skill once, call the documented interfaces directly, and never search for Skill locations, inspect Python module source or signatures, scan unrelated filesystem paths, or start subprocesses to rediscover an available interface.
+
+Tell every child to retrieve and read one bounded page at a time. Each notes_report.get() batch must be the final expression of its own IPython cell so the child consumes it immediately; children must not fetch pages silently in a loop and then combine or reprint them as one large result.
+
+Each child writes work/sections/<section-id>/draft.md containing only the Section body with no level-1 or level-2 heading, plus ledger.md listing claims, Note refs cited, gaps, and every Note ref retrieved. Children never write writer-output/. After both files are complete, they stop; Runtime reads the files, so children must not inspect or call RLM emit/reply APIs.
+
+After spawning every child, stop this turn. Runtime will wait for every draft and ask you to perform the final edit.

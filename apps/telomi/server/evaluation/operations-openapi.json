@@ -1,0 +1,4063 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Telomi Operations HTTP",
+		"version": "3.0.0",
+		"description": "Loopback-only Evaluation Interface. Generated from server/evaluation/operations-contract.ts; do not edit by hand.",
+		"x-protocol-version": 3,
+		"x-schema-hash": "76122afea6c0c01b4bb9958235d8d4bff6624f6a7dd4f0152f6304ef5bb5469c"
+	},
+	"servers": [
+		{
+			"url": "http://127.0.0.1:8788",
+			"description": "Operations Listener (loopback only)"
+		}
+	],
+	"paths": {
+		"/operations/v1/status": {
+			"get": {
+				"operationId": "getStatus",
+				"summary": "Protocol handshake and Replay queue status",
+				"tags": [
+					"capture"
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/OperationsStatus"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/cases": {
+			"get": {
+				"operationId": "listCases",
+				"summary": "List captured Cases for a Goal",
+				"tags": [
+					"capture"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "agentId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "limit",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/CaseListResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/cases/{sourceRunId}/{caseId}": {
+			"get": {
+				"operationId": "readCase",
+				"summary": "Read one Case manifest",
+				"tags": [
+					"capture"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "sourceRunId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "caseId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/CaseResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/cases/{sourceRunId}/{caseId}/files": {
+			"get": {
+				"operationId": "listCaseFiles",
+				"summary": "List the Evidence files of one Case",
+				"tags": [
+					"capture"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "sourceRunId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "caseId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/CaseFileListResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/cases/{sourceRunId}/{caseId}/file": {
+			"get": {
+				"operationId": "readCaseFile",
+				"summary": "Read one Evidence file of a Case by ref",
+				"tags": [
+					"capture"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "sourceRunId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "caseId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "ref",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "File stream",
+						"content": {
+							"application/octet-stream": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/cases/{sourceRunId}/{caseId}/bundle": {
+			"get": {
+				"operationId": "exportCaseBundle",
+				"summary": "Export a Case Bundle tar",
+				"tags": [
+					"capture"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "sourceRunId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "caseId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "File stream",
+						"content": {
+							"application/octet-stream": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/cases/{sourceRunId}/{caseId}/provider-children/{executionId}/bundle": {
+			"get": {
+				"operationId": "exportProviderChildCaseBundle",
+				"summary": "Export one Provider Child as a self-contained Case Bundle",
+				"tags": [
+					"capture"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "sourceRunId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "caseId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "executionId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "File stream",
+						"content": {
+							"application/octet-stream": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/bundles/import": {
+			"post": {
+				"operationId": "importBundle",
+				"summary": "Import a Case Bundle tar from the configured Exchange Root",
+				"tags": [
+					"eval-instance"
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/BundleImportRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BundleImportResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/capability-snapshots/{snapshotId}": {
+			"get": {
+				"operationId": "readCapabilitySnapshot",
+				"summary": "Read a Capability Snapshot manifest",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "snapshotId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/CapabilitySnapshotResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/replays": {
+			"post": {
+				"operationId": "startReplay",
+				"summary": "Queue a Candidate Replay",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/ReplayRequest"
+							}
+						}
+					}
+				},
+				"responses": {
+					"202": {
+						"description": "Accepted",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ReplayRunResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/replays/{runId}": {
+			"get": {
+				"operationId": "readReplay",
+				"summary": "Read a Replay Run",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "runId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ReplayRunResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/replays/{runId}/files": {
+			"get": {
+				"operationId": "readReplayFile",
+				"summary": "Read one Trace or Artifact file of a Replay Run",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "runId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "ref",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "File stream",
+						"content": {
+							"application/octet-stream": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/replays/{runId}/evaluation-batch": {
+			"get": {
+				"operationId": "readEvaluationBatch",
+				"summary": "Read the blind A/B batch of a Replay Run",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "runId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/EvaluationBatchResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/replays/{runId}/evaluation-batch/{pairId}/outputs/{label}/artifact": {
+			"get": {
+				"operationId": "readEvaluationOutputArtifact",
+				"summary": "Read one blind A/B output artifact",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "runId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "pairId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "label",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "file",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "File stream",
+						"content": {
+							"application/octet-stream": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/replays/{runId}/executions/{executionId}/artifact": {
+			"get": {
+				"operationId": "readExecutionArtifact",
+				"summary": "Read one execution artifact of a Replay Run",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "runId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "executionId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "file",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "File stream",
+						"content": {
+							"application/octet-stream": {
+								"schema": {
+									"type": "string",
+									"format": "binary"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/operations/v1/goals/{goalId}/replays/{runId}/cancel": {
+			"post": {
+				"operationId": "cancelReplay",
+				"summary": "Cancel a Replay Run",
+				"tags": [
+					"eval-instance"
+				],
+				"parameters": [
+					{
+						"name": "goalId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "runId",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ReplayRunResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"CaseRef": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"sourceRunId",
+					"caseId"
+				],
+				"properties": {
+					"sourceRunId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"caseId": {
+						"minLength": 1,
+						"type": "string"
+					}
+				}
+			},
+			"EvaluationCase": {
+				"additionalProperties": true,
+				"type": "object",
+				"required": [
+					"schemaVersion",
+					"caseId",
+					"runId",
+					"nodeId",
+					"attemptId",
+					"agentId",
+					"role",
+					"status",
+					"capturedAt"
+				],
+				"properties": {
+					"schemaVersion": {
+						"const": 1,
+						"type": "number"
+					},
+					"caseId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"runId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"nodeId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"attemptId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"agentId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"role": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"status": {
+						"anyOf": [
+							{
+								"const": "succeeded",
+								"type": "string"
+							},
+							{
+								"const": "failed",
+								"type": "string"
+							},
+							{
+								"const": "cancelled",
+								"type": "string"
+							}
+						]
+					},
+					"capturedAt": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"capabilitySnapshotId": {
+						"type": "string"
+					}
+				}
+			},
+			"ExecutionRefs": {
+				"additionalProperties": {
+					"minLength": 1,
+					"type": "string"
+				},
+				"type": "object",
+				"properties": {
+					"agentTrace": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"activityTrace": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"acquisitionTrace": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"organizerTrace": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"runtimeTrace": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"providerLog": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"organizerDecision": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"organizerIndex": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"sourceIndex": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"systemPrompt": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"userPrompt": {
+						"minLength": 1,
+						"type": "string"
+					}
+				}
+			},
+			"ExecutionArtifact": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ref",
+					"sha256",
+					"byteLength",
+					"directory"
+				],
+				"properties": {
+					"ref": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"sha256": {
+						"pattern": "^[0-9a-f]{64}$",
+						"type": "string"
+					},
+					"byteLength": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"directory": {
+						"type": "boolean"
+					}
+				}
+			},
+			"ExecutionMetrics": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"inputTokens",
+					"outputTokens",
+					"costUsd",
+					"calls",
+					"turns",
+					"toolCalls",
+					"durationMs"
+				],
+				"properties": {
+					"inputTokens": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"outputTokens": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"costUsd": {
+						"minimum": 0,
+						"type": "number"
+					},
+					"calls": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"turns": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"toolCalls": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"durationMs": {
+						"minimum": 0,
+						"type": "number"
+					}
+				}
+			},
+			"Execution": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"id",
+					"caseRef",
+					"repetition",
+					"variant",
+					"artifact",
+					"metrics"
+				],
+				"properties": {
+					"id": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"caseRef": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"sourceRunId",
+							"caseId"
+						],
+						"properties": {
+							"sourceRunId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"caseId": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					},
+					"repetition": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"variant": {
+						"const": "candidate",
+						"type": "string"
+					},
+					"status": {
+						"anyOf": [
+							{
+								"const": "completed",
+								"type": "string"
+							},
+							{
+								"const": "failed",
+								"type": "string"
+							},
+							{
+								"const": "cancelled",
+								"type": "string"
+							}
+						]
+					},
+					"candidateCaseRef": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"sourceRunId",
+							"caseId"
+						],
+						"properties": {
+							"sourceRunId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"caseId": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					},
+					"error": {
+						"type": "string"
+					},
+					"artifact": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"ref",
+							"sha256",
+							"byteLength",
+							"directory"
+						],
+						"properties": {
+							"ref": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"sha256": {
+								"pattern": "^[0-9a-f]{64}$",
+								"type": "string"
+							},
+							"byteLength": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"directory": {
+								"type": "boolean"
+							}
+						}
+					},
+					"metrics": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"inputTokens",
+							"outputTokens",
+							"costUsd",
+							"calls",
+							"turns",
+							"toolCalls",
+							"durationMs"
+						],
+						"properties": {
+							"inputTokens": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"outputTokens": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"costUsd": {
+								"minimum": 0,
+								"type": "number"
+							},
+							"calls": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"turns": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"toolCalls": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"durationMs": {
+								"minimum": 0,
+								"type": "number"
+							}
+						}
+					},
+					"refs": {
+						"additionalProperties": {
+							"minLength": 1,
+							"type": "string"
+						},
+						"type": "object",
+						"properties": {
+							"agentTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"activityTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"acquisitionTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"organizerTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"runtimeTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"providerLog": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"organizerDecision": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"organizerIndex": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"sourceIndex": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"systemPrompt": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"userPrompt": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					}
+				}
+			},
+			"ActiveExecution": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"id",
+					"caseRef",
+					"repetition",
+					"variant",
+					"status",
+					"refs"
+				],
+				"properties": {
+					"id": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"caseRef": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"sourceRunId",
+							"caseId"
+						],
+						"properties": {
+							"sourceRunId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"caseId": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					},
+					"repetition": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"variant": {
+						"const": "candidate",
+						"type": "string"
+					},
+					"status": {
+						"const": "running",
+						"type": "string"
+					},
+					"refs": {
+						"additionalProperties": {
+							"minLength": 1,
+							"type": "string"
+						},
+						"type": "object",
+						"properties": {
+							"agentTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"activityTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"acquisitionTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"organizerTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"runtimeTrace": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"providerLog": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"organizerDecision": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"organizerIndex": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"sourceIndex": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"systemPrompt": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"userPrompt": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					}
+				}
+			},
+			"Pair": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"id",
+					"caseRef",
+					"repetition",
+					"a",
+					"b",
+					"candidateExecutionId"
+				],
+				"properties": {
+					"id": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"caseRef": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"sourceRunId",
+							"caseId"
+						],
+						"properties": {
+							"sourceRunId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"caseId": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					},
+					"repetition": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"a": {
+						"anyOf": [
+							{
+								"const": "observed",
+								"type": "string"
+							},
+							{
+								"const": "candidate",
+								"type": "string"
+							}
+						]
+					},
+					"b": {
+						"anyOf": [
+							{
+								"const": "observed",
+								"type": "string"
+							},
+							{
+								"const": "candidate",
+								"type": "string"
+							}
+						]
+					},
+					"candidateExecutionId": {
+						"minLength": 1,
+						"type": "string"
+					}
+				}
+			},
+			"AggregateMetrics": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"executions",
+					"inputTokens",
+					"outputTokens",
+					"costUsd",
+					"calls",
+					"turns",
+					"toolCalls",
+					"durationMs"
+				],
+				"properties": {
+					"executions": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"inputTokens": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"outputTokens": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"costUsd": {
+						"minimum": 0,
+						"type": "number"
+					},
+					"calls": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"turns": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"toolCalls": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"durationMs": {
+						"minimum": 0,
+						"type": "number"
+					}
+				}
+			},
+			"ResolvedCandidate": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"capabilitySnapshotId",
+					"workspaceContentHash",
+					"capabilityBundleHash"
+				],
+				"properties": {
+					"capabilitySnapshotId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"workspaceContentHash": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"capabilityBundleHash": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"promptMode": {
+						"anyOf": [
+							{
+								"const": "observed",
+								"type": "string"
+							},
+							{
+								"const": "override",
+								"type": "string"
+							}
+						]
+					},
+					"promptOverride": {
+						"additionalProperties": false,
+						"type": "object",
+						"properties": {
+							"systemPrompt": {
+								"type": "string"
+							},
+							"userPrompt": {
+								"type": "string"
+							}
+						}
+					},
+					"promptBundle": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"schemaVersion",
+							"source",
+							"sha256",
+							"cases"
+						],
+						"properties": {
+							"schemaVersion": {
+								"const": 1,
+								"type": "number"
+							},
+							"source": {
+								"anyOf": [
+									{
+										"const": "observed",
+										"type": "string"
+									},
+									{
+										"const": "override",
+										"type": "string"
+									}
+								]
+							},
+							"sha256": {
+								"pattern": "^[0-9a-f]{64}$",
+								"type": "string"
+							},
+							"cases": {
+								"type": "array",
+								"items": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"caseRef",
+										"systemPrompt",
+										"userPrompt",
+										"systemSha256",
+										"userSha256"
+									],
+									"properties": {
+										"caseRef": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"sourceRunId",
+												"caseId"
+											],
+											"properties": {
+												"sourceRunId": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"caseId": {
+													"minLength": 1,
+													"type": "string"
+												}
+											}
+										},
+										"systemPrompt": {
+											"type": "string"
+										},
+										"userPrompt": {
+											"type": "string"
+										},
+										"systemSha256": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string"
+										},
+										"userSha256": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string"
+										}
+									}
+								}
+							}
+						}
+					},
+					"expectedRuntimeBuild": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"expectedAgentBundleSha256": {
+						"minLength": 1,
+						"type": "string"
+					}
+				}
+			},
+			"CandidateReplayRun": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"schemaVersion",
+					"mode",
+					"kind",
+					"id",
+					"goalId",
+					"status",
+					"agentId",
+					"cases",
+					"candidate",
+					"observedMetrics",
+					"repetitions",
+					"rubricId",
+					"createdAt",
+					"updatedAt",
+					"executions",
+					"pairs"
+				],
+				"properties": {
+					"schemaVersion": {
+						"const": 4,
+						"type": "number"
+					},
+					"mode": {
+						"const": "candidate-replay",
+						"type": "string"
+					},
+					"kind": {
+						"anyOf": [
+							{
+								"const": "quality",
+								"type": "string"
+							},
+							{
+								"const": "recovery",
+								"type": "string"
+							}
+						]
+					},
+					"id": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"goalId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"status": {
+						"anyOf": [
+							{
+								"const": "queued",
+								"type": "string"
+							},
+							{
+								"const": "running",
+								"type": "string"
+							},
+							{
+								"const": "awaiting_evaluation",
+								"type": "string"
+							},
+							{
+								"const": "completed",
+								"type": "string"
+							},
+							{
+								"const": "failed",
+								"type": "string"
+							},
+							{
+								"const": "cancelled",
+								"type": "string"
+							}
+						]
+					},
+					"agentId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"cases": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"sourceRunId",
+								"caseId"
+							],
+							"properties": {
+								"sourceRunId": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"caseId": {
+									"minLength": 1,
+									"type": "string"
+								}
+							}
+						}
+					},
+					"candidate": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"capabilitySnapshotId",
+							"workspaceContentHash",
+							"capabilityBundleHash"
+						],
+						"properties": {
+							"capabilitySnapshotId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"workspaceContentHash": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"capabilityBundleHash": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"promptMode": {
+								"anyOf": [
+									{
+										"const": "observed",
+										"type": "string"
+									},
+									{
+										"const": "override",
+										"type": "string"
+									}
+								]
+							},
+							"promptOverride": {
+								"additionalProperties": false,
+								"type": "object",
+								"properties": {
+									"systemPrompt": {
+										"type": "string"
+									},
+									"userPrompt": {
+										"type": "string"
+									}
+								}
+							},
+							"promptBundle": {
+								"additionalProperties": false,
+								"type": "object",
+								"required": [
+									"schemaVersion",
+									"source",
+									"sha256",
+									"cases"
+								],
+								"properties": {
+									"schemaVersion": {
+										"const": 1,
+										"type": "number"
+									},
+									"source": {
+										"anyOf": [
+											{
+												"const": "observed",
+												"type": "string"
+											},
+											{
+												"const": "override",
+												"type": "string"
+											}
+										]
+									},
+									"sha256": {
+										"pattern": "^[0-9a-f]{64}$",
+										"type": "string"
+									},
+									"cases": {
+										"type": "array",
+										"items": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"caseRef",
+												"systemPrompt",
+												"userPrompt",
+												"systemSha256",
+												"userSha256"
+											],
+											"properties": {
+												"caseRef": {
+													"additionalProperties": false,
+													"type": "object",
+													"required": [
+														"sourceRunId",
+														"caseId"
+													],
+													"properties": {
+														"sourceRunId": {
+															"minLength": 1,
+															"type": "string"
+														},
+														"caseId": {
+															"minLength": 1,
+															"type": "string"
+														}
+													}
+												},
+												"systemPrompt": {
+													"type": "string"
+												},
+												"userPrompt": {
+													"type": "string"
+												},
+												"systemSha256": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string"
+												},
+												"userSha256": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string"
+												}
+											}
+										}
+									}
+								}
+							},
+							"expectedRuntimeBuild": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"expectedAgentBundleSha256": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					},
+					"observedMetrics": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"executions",
+							"inputTokens",
+							"outputTokens",
+							"costUsd",
+							"calls",
+							"turns",
+							"toolCalls",
+							"durationMs"
+						],
+						"properties": {
+							"executions": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"inputTokens": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"outputTokens": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"costUsd": {
+								"minimum": 0,
+								"type": "number"
+							},
+							"calls": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"turns": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"toolCalls": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"durationMs": {
+								"minimum": 0,
+								"type": "number"
+							}
+						}
+					},
+					"repetitions": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"rubricId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"runtimeBuild": {
+						"type": "string"
+					},
+					"agentBundleSha256": {
+						"type": "string"
+					},
+					"createdAt": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"updatedAt": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"startedAt": {
+						"type": "string"
+					},
+					"finishedAt": {
+						"type": "string"
+					},
+					"executions": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"id",
+								"caseRef",
+								"repetition",
+								"variant",
+								"artifact",
+								"metrics"
+							],
+							"properties": {
+								"id": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"caseRef": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"sourceRunId",
+										"caseId"
+									],
+									"properties": {
+										"sourceRunId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseId": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								},
+								"repetition": {
+									"minimum": 1,
+									"type": "integer"
+								},
+								"variant": {
+									"const": "candidate",
+									"type": "string"
+								},
+								"status": {
+									"anyOf": [
+										{
+											"const": "completed",
+											"type": "string"
+										},
+										{
+											"const": "failed",
+											"type": "string"
+										},
+										{
+											"const": "cancelled",
+											"type": "string"
+										}
+									]
+								},
+								"candidateCaseRef": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"sourceRunId",
+										"caseId"
+									],
+									"properties": {
+										"sourceRunId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseId": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								},
+								"error": {
+									"type": "string"
+								},
+								"artifact": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"ref",
+										"sha256",
+										"byteLength",
+										"directory"
+									],
+									"properties": {
+										"ref": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"sha256": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string"
+										},
+										"byteLength": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"directory": {
+											"type": "boolean"
+										}
+									}
+								},
+								"metrics": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"inputTokens",
+										"outputTokens",
+										"costUsd",
+										"calls",
+										"turns",
+										"toolCalls",
+										"durationMs"
+									],
+									"properties": {
+										"inputTokens": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"outputTokens": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"costUsd": {
+											"minimum": 0,
+											"type": "number"
+										},
+										"calls": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"turns": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"toolCalls": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"durationMs": {
+											"minimum": 0,
+											"type": "number"
+										}
+									}
+								},
+								"refs": {
+									"additionalProperties": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"type": "object",
+									"properties": {
+										"agentTrace": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"activityTrace": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"acquisitionTrace": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"organizerTrace": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"runtimeTrace": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"providerLog": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"organizerDecision": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"organizerIndex": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"sourceIndex": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"systemPrompt": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"userPrompt": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								}
+							}
+						}
+					},
+					"activeExecution": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"id",
+							"caseRef",
+							"repetition",
+							"variant",
+							"status",
+							"refs"
+						],
+						"properties": {
+							"id": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"caseRef": {
+								"additionalProperties": false,
+								"type": "object",
+								"required": [
+									"sourceRunId",
+									"caseId"
+								],
+								"properties": {
+									"sourceRunId": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"caseId": {
+										"minLength": 1,
+										"type": "string"
+									}
+								}
+							},
+							"repetition": {
+								"minimum": 1,
+								"type": "integer"
+							},
+							"variant": {
+								"const": "candidate",
+								"type": "string"
+							},
+							"status": {
+								"const": "running",
+								"type": "string"
+							},
+							"refs": {
+								"additionalProperties": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"type": "object",
+								"properties": {
+									"agentTrace": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"activityTrace": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"acquisitionTrace": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"organizerTrace": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"runtimeTrace": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"providerLog": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"organizerDecision": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"organizerIndex": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"sourceIndex": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"systemPrompt": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"userPrompt": {
+										"minLength": 1,
+										"type": "string"
+									}
+								}
+							}
+						}
+					},
+					"pairs": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"id",
+								"caseRef",
+								"repetition",
+								"a",
+								"b",
+								"candidateExecutionId"
+							],
+							"properties": {
+								"id": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"caseRef": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"sourceRunId",
+										"caseId"
+									],
+									"properties": {
+										"sourceRunId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseId": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								},
+								"repetition": {
+									"minimum": 1,
+									"type": "integer"
+								},
+								"a": {
+									"anyOf": [
+										{
+											"const": "observed",
+											"type": "string"
+										},
+										{
+											"const": "candidate",
+											"type": "string"
+										}
+									]
+								},
+								"b": {
+									"anyOf": [
+										{
+											"const": "observed",
+											"type": "string"
+										},
+										{
+											"const": "candidate",
+											"type": "string"
+										}
+									]
+								},
+								"candidateExecutionId": {
+									"minLength": 1,
+									"type": "string"
+								}
+							}
+						}
+					},
+					"error": {
+						"type": "string"
+					}
+				}
+			},
+			"EvaluationInput": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"userPrompt",
+					"sha256",
+					"byteLength",
+					"files"
+				],
+				"properties": {
+					"userPrompt": {
+						"type": "string"
+					},
+					"sha256": {
+						"pattern": "^[0-9a-f]{64}$",
+						"type": "string"
+					},
+					"byteLength": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"files": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"relativePath",
+								"sha256",
+								"byteLength"
+							],
+							"properties": {
+								"relativePath": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"sha256": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string"
+								},
+								"byteLength": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"content": {
+									"type": "string"
+								}
+							}
+						}
+					}
+				}
+			},
+			"EvaluationArtifact": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"sha256",
+					"byteLength",
+					"directory"
+				],
+				"properties": {
+					"sha256": {
+						"pattern": "^[0-9a-f]{64}$",
+						"type": "string"
+					},
+					"byteLength": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"directory": {
+						"type": "boolean"
+					},
+					"content": {
+						"type": "string"
+					},
+					"files": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"relativePath",
+								"sha256",
+								"byteLength"
+							],
+							"properties": {
+								"relativePath": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"sha256": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string"
+								},
+								"byteLength": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							}
+						}
+					}
+				}
+			},
+			"OperationsStatus": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"protocolVersion",
+					"schemaHash",
+					"mode",
+					"writable",
+					"active",
+					"queued",
+					"concurrency",
+					"recipes",
+					"runtimeBuild",
+					"runtimeBuildMatchesDisk",
+					"agentBundleSha256",
+					"capture"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"protocolVersion": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"schemaHash": {
+						"pattern": "^[0-9a-f]{64}$",
+						"type": "string"
+					},
+					"mode": {
+						"anyOf": [
+							{
+								"const": "capture",
+								"type": "string"
+							},
+							{
+								"const": "eval",
+								"type": "string"
+							}
+						]
+					},
+					"writable": {
+						"type": "boolean"
+					},
+					"active": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"queued": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"concurrency": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"recipes": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					},
+					"runtimeBuild": {
+						"type": "string"
+					},
+					"runtimeBuildMatchesDisk": {
+						"type": "boolean"
+					},
+					"agentBundleSha256": {
+						"type": "string"
+					},
+					"capture": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"enabled",
+							"failures",
+							"recent",
+							"retention"
+						],
+						"properties": {
+							"enabled": {
+								"type": "boolean"
+							},
+							"failures": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"recent": {
+								"type": "array",
+								"items": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"node",
+										"reason",
+										"at"
+									],
+									"properties": {
+										"node": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"reason": {
+											"type": "string"
+										},
+										"at": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								}
+							},
+							"retention": {
+								"additionalProperties": false,
+								"type": "object",
+								"required": [
+									"enabled",
+									"maxAgeDays",
+									"maxBytes",
+									"cases",
+									"bytes",
+									"deletedByAge",
+									"deletedBySize",
+									"protectedActive",
+									"protectedExporting",
+									"warnings"
+								],
+								"properties": {
+									"enabled": {
+										"type": "boolean"
+									},
+									"maxAgeDays": {
+										"minimum": 0,
+										"type": "number"
+									},
+									"maxBytes": {
+										"minimum": 0,
+										"type": "number"
+									},
+									"lastSweepAt": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"cases": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"bytes": {
+										"minimum": 0,
+										"type": "number"
+									},
+									"deletedByAge": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"deletedBySize": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"protectedActive": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"protectedExporting": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"warnings": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			},
+			"ReplayRequest": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"agentId",
+					"cases",
+					"candidate",
+					"rubricId"
+				],
+				"properties": {
+					"agentId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"cases": {
+						"minItems": 1,
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"sourceRunId",
+								"caseId"
+							],
+							"properties": {
+								"sourceRunId": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"caseId": {
+									"minLength": 1,
+									"type": "string"
+								}
+							}
+						}
+					},
+					"candidate": {
+						"additionalProperties": false,
+						"type": "object",
+						"properties": {
+							"promptMode": {
+								"anyOf": [
+									{
+										"const": "observed",
+										"type": "string"
+									},
+									{
+										"const": "override",
+										"type": "string"
+									}
+								]
+							},
+							"promptOverride": {
+								"additionalProperties": false,
+								"type": "object",
+								"properties": {
+									"systemPrompt": {
+										"type": "string"
+									},
+									"userPrompt": {
+										"type": "string"
+									}
+								}
+							},
+							"capabilitySnapshotId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"expectedRuntimeBuild": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"expectedAgentBundleSha256": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					},
+					"repetitions": {
+						"minimum": 1,
+						"type": "integer"
+					},
+					"rubricId": {
+						"minLength": 1,
+						"type": "string"
+					}
+				}
+			},
+			"BundleImportRequest": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"path"
+				],
+				"properties": {
+					"path": {
+						"minLength": 1,
+						"type": "string"
+					}
+				}
+			},
+			"CaseListResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"cases"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"cases": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"ref",
+								"value"
+							],
+							"properties": {
+								"ref": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"sourceRunId",
+										"caseId"
+									],
+									"properties": {
+										"sourceRunId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseId": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								},
+								"value": {
+									"additionalProperties": true,
+									"type": "object",
+									"required": [
+										"schemaVersion",
+										"caseId",
+										"runId",
+										"nodeId",
+										"attemptId",
+										"agentId",
+										"role",
+										"status",
+										"capturedAt"
+									],
+									"properties": {
+										"schemaVersion": {
+											"const": 1,
+											"type": "number"
+										},
+										"caseId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"runId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"nodeId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"attemptId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"agentId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"role": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"status": {
+											"anyOf": [
+												{
+													"const": "succeeded",
+													"type": "string"
+												},
+												{
+													"const": "failed",
+													"type": "string"
+												},
+												{
+													"const": "cancelled",
+													"type": "string"
+												}
+											]
+										},
+										"capturedAt": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"capabilitySnapshotId": {
+											"type": "string"
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			},
+			"CaseResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"case"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"case": {
+						"additionalProperties": true,
+						"type": "object",
+						"required": [
+							"schemaVersion",
+							"caseId",
+							"runId",
+							"nodeId",
+							"attemptId",
+							"agentId",
+							"role",
+							"status",
+							"capturedAt"
+						],
+						"properties": {
+							"schemaVersion": {
+								"const": 1,
+								"type": "number"
+							},
+							"caseId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"runId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"nodeId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"attemptId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"agentId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"role": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"status": {
+								"anyOf": [
+									{
+										"const": "succeeded",
+										"type": "string"
+									},
+									{
+										"const": "failed",
+										"type": "string"
+									},
+									{
+										"const": "cancelled",
+										"type": "string"
+									}
+								]
+							},
+							"capturedAt": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"capabilitySnapshotId": {
+								"type": "string"
+							}
+						}
+					}
+				}
+			},
+			"CaseFileListResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"files"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"files": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"ref",
+								"kind",
+								"sha256",
+								"byteLength"
+							],
+							"properties": {
+								"ref": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"kind": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"sha256": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string"
+								},
+								"byteLength": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							}
+						}
+					}
+				}
+			},
+			"CapabilitySnapshotResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"snapshot"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"snapshot": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"schemaVersion",
+							"id",
+							"goalId",
+							"workspaceContentHash",
+							"createdAt",
+							"ref"
+						],
+						"properties": {
+							"schemaVersion": {
+								"const": 1,
+								"type": "number"
+							},
+							"id": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"goalId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"workspaceContentHash": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"createdAt": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"ref": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					}
+				}
+			},
+			"ReplayRunResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"run"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"run": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"schemaVersion",
+							"mode",
+							"kind",
+							"id",
+							"goalId",
+							"status",
+							"agentId",
+							"cases",
+							"candidate",
+							"observedMetrics",
+							"repetitions",
+							"rubricId",
+							"createdAt",
+							"updatedAt",
+							"executions",
+							"pairs"
+						],
+						"properties": {
+							"schemaVersion": {
+								"const": 4,
+								"type": "number"
+							},
+							"mode": {
+								"const": "candidate-replay",
+								"type": "string"
+							},
+							"kind": {
+								"anyOf": [
+									{
+										"const": "quality",
+										"type": "string"
+									},
+									{
+										"const": "recovery",
+										"type": "string"
+									}
+								]
+							},
+							"id": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"goalId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"status": {
+								"anyOf": [
+									{
+										"const": "queued",
+										"type": "string"
+									},
+									{
+										"const": "running",
+										"type": "string"
+									},
+									{
+										"const": "awaiting_evaluation",
+										"type": "string"
+									},
+									{
+										"const": "completed",
+										"type": "string"
+									},
+									{
+										"const": "failed",
+										"type": "string"
+									},
+									{
+										"const": "cancelled",
+										"type": "string"
+									}
+								]
+							},
+							"agentId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"cases": {
+								"type": "array",
+								"items": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"sourceRunId",
+										"caseId"
+									],
+									"properties": {
+										"sourceRunId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseId": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								}
+							},
+							"candidate": {
+								"additionalProperties": false,
+								"type": "object",
+								"required": [
+									"capabilitySnapshotId",
+									"workspaceContentHash",
+									"capabilityBundleHash"
+								],
+								"properties": {
+									"capabilitySnapshotId": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"workspaceContentHash": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"capabilityBundleHash": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"promptMode": {
+										"anyOf": [
+											{
+												"const": "observed",
+												"type": "string"
+											},
+											{
+												"const": "override",
+												"type": "string"
+											}
+										]
+									},
+									"promptOverride": {
+										"additionalProperties": false,
+										"type": "object",
+										"properties": {
+											"systemPrompt": {
+												"type": "string"
+											},
+											"userPrompt": {
+												"type": "string"
+											}
+										}
+									},
+									"promptBundle": {
+										"additionalProperties": false,
+										"type": "object",
+										"required": [
+											"schemaVersion",
+											"source",
+											"sha256",
+											"cases"
+										],
+										"properties": {
+											"schemaVersion": {
+												"const": 1,
+												"type": "number"
+											},
+											"source": {
+												"anyOf": [
+													{
+														"const": "observed",
+														"type": "string"
+													},
+													{
+														"const": "override",
+														"type": "string"
+													}
+												]
+											},
+											"sha256": {
+												"pattern": "^[0-9a-f]{64}$",
+												"type": "string"
+											},
+											"cases": {
+												"type": "array",
+												"items": {
+													"additionalProperties": false,
+													"type": "object",
+													"required": [
+														"caseRef",
+														"systemPrompt",
+														"userPrompt",
+														"systemSha256",
+														"userSha256"
+													],
+													"properties": {
+														"caseRef": {
+															"additionalProperties": false,
+															"type": "object",
+															"required": [
+																"sourceRunId",
+																"caseId"
+															],
+															"properties": {
+																"sourceRunId": {
+																	"minLength": 1,
+																	"type": "string"
+																},
+																"caseId": {
+																	"minLength": 1,
+																	"type": "string"
+																}
+															}
+														},
+														"systemPrompt": {
+															"type": "string"
+														},
+														"userPrompt": {
+															"type": "string"
+														},
+														"systemSha256": {
+															"pattern": "^[0-9a-f]{64}$",
+															"type": "string"
+														},
+														"userSha256": {
+															"pattern": "^[0-9a-f]{64}$",
+															"type": "string"
+														}
+													}
+												}
+											}
+										}
+									},
+									"expectedRuntimeBuild": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"expectedAgentBundleSha256": {
+										"minLength": 1,
+										"type": "string"
+									}
+								}
+							},
+							"observedMetrics": {
+								"additionalProperties": false,
+								"type": "object",
+								"required": [
+									"executions",
+									"inputTokens",
+									"outputTokens",
+									"costUsd",
+									"calls",
+									"turns",
+									"toolCalls",
+									"durationMs"
+								],
+								"properties": {
+									"executions": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"inputTokens": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"outputTokens": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"costUsd": {
+										"minimum": 0,
+										"type": "number"
+									},
+									"calls": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"turns": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"toolCalls": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"durationMs": {
+										"minimum": 0,
+										"type": "number"
+									}
+								}
+							},
+							"repetitions": {
+								"minimum": 1,
+								"type": "integer"
+							},
+							"rubricId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"runtimeBuild": {
+								"type": "string"
+							},
+							"agentBundleSha256": {
+								"type": "string"
+							},
+							"createdAt": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"updatedAt": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"startedAt": {
+								"type": "string"
+							},
+							"finishedAt": {
+								"type": "string"
+							},
+							"executions": {
+								"type": "array",
+								"items": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"id",
+										"caseRef",
+										"repetition",
+										"variant",
+										"artifact",
+										"metrics"
+									],
+									"properties": {
+										"id": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseRef": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"sourceRunId",
+												"caseId"
+											],
+											"properties": {
+												"sourceRunId": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"caseId": {
+													"minLength": 1,
+													"type": "string"
+												}
+											}
+										},
+										"repetition": {
+											"minimum": 1,
+											"type": "integer"
+										},
+										"variant": {
+											"const": "candidate",
+											"type": "string"
+										},
+										"status": {
+											"anyOf": [
+												{
+													"const": "completed",
+													"type": "string"
+												},
+												{
+													"const": "failed",
+													"type": "string"
+												},
+												{
+													"const": "cancelled",
+													"type": "string"
+												}
+											]
+										},
+										"candidateCaseRef": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"sourceRunId",
+												"caseId"
+											],
+											"properties": {
+												"sourceRunId": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"caseId": {
+													"minLength": 1,
+													"type": "string"
+												}
+											}
+										},
+										"error": {
+											"type": "string"
+										},
+										"artifact": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"ref",
+												"sha256",
+												"byteLength",
+												"directory"
+											],
+											"properties": {
+												"ref": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"sha256": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string"
+												},
+												"byteLength": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"directory": {
+													"type": "boolean"
+												}
+											}
+										},
+										"metrics": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"inputTokens",
+												"outputTokens",
+												"costUsd",
+												"calls",
+												"turns",
+												"toolCalls",
+												"durationMs"
+											],
+											"properties": {
+												"inputTokens": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"outputTokens": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"costUsd": {
+													"minimum": 0,
+													"type": "number"
+												},
+												"calls": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"turns": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"toolCalls": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"durationMs": {
+													"minimum": 0,
+													"type": "number"
+												}
+											}
+										},
+										"refs": {
+											"additionalProperties": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"type": "object",
+											"properties": {
+												"agentTrace": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"activityTrace": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"acquisitionTrace": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"organizerTrace": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"runtimeTrace": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"providerLog": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"organizerDecision": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"organizerIndex": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"sourceIndex": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"systemPrompt": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"userPrompt": {
+													"minLength": 1,
+													"type": "string"
+												}
+											}
+										}
+									}
+								}
+							},
+							"activeExecution": {
+								"additionalProperties": false,
+								"type": "object",
+								"required": [
+									"id",
+									"caseRef",
+									"repetition",
+									"variant",
+									"status",
+									"refs"
+								],
+								"properties": {
+									"id": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"caseRef": {
+										"additionalProperties": false,
+										"type": "object",
+										"required": [
+											"sourceRunId",
+											"caseId"
+										],
+										"properties": {
+											"sourceRunId": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"caseId": {
+												"minLength": 1,
+												"type": "string"
+											}
+										}
+									},
+									"repetition": {
+										"minimum": 1,
+										"type": "integer"
+									},
+									"variant": {
+										"const": "candidate",
+										"type": "string"
+									},
+									"status": {
+										"const": "running",
+										"type": "string"
+									},
+									"refs": {
+										"additionalProperties": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"type": "object",
+										"properties": {
+											"agentTrace": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"activityTrace": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"acquisitionTrace": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"organizerTrace": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"runtimeTrace": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"providerLog": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"organizerDecision": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"organizerIndex": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"sourceIndex": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"systemPrompt": {
+												"minLength": 1,
+												"type": "string"
+											},
+											"userPrompt": {
+												"minLength": 1,
+												"type": "string"
+											}
+										}
+									}
+								}
+							},
+							"pairs": {
+								"type": "array",
+								"items": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"id",
+										"caseRef",
+										"repetition",
+										"a",
+										"b",
+										"candidateExecutionId"
+									],
+									"properties": {
+										"id": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseRef": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"sourceRunId",
+												"caseId"
+											],
+											"properties": {
+												"sourceRunId": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"caseId": {
+													"minLength": 1,
+													"type": "string"
+												}
+											}
+										},
+										"repetition": {
+											"minimum": 1,
+											"type": "integer"
+										},
+										"a": {
+											"anyOf": [
+												{
+													"const": "observed",
+													"type": "string"
+												},
+												{
+													"const": "candidate",
+													"type": "string"
+												}
+											]
+										},
+										"b": {
+											"anyOf": [
+												{
+													"const": "observed",
+													"type": "string"
+												},
+												{
+													"const": "candidate",
+													"type": "string"
+												}
+											]
+										},
+										"candidateExecutionId": {
+											"minLength": 1,
+											"type": "string"
+										}
+									}
+								}
+							},
+							"error": {
+								"type": "string"
+							}
+						}
+					}
+				}
+			},
+			"BundleImportResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"goalId",
+					"caseRef",
+					"bundleSha256",
+					"capabilitySnapshotId"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"goalId": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"caseRef": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"sourceRunId",
+							"caseId"
+						],
+						"properties": {
+							"sourceRunId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"caseId": {
+								"minLength": 1,
+								"type": "string"
+							}
+						}
+					},
+					"bundleSha256": {
+						"pattern": "^[0-9a-f]{64}$",
+						"type": "string"
+					},
+					"capabilitySnapshotId": {
+						"anyOf": [
+							{
+								"minLength": 1,
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				}
+			},
+			"EvaluationBatchResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"batch"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"batch": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"runId",
+							"agentId",
+							"rubricId",
+							"pairs"
+						],
+						"properties": {
+							"runId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"agentId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"rubricId": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"pairs": {
+								"type": "array",
+								"items": {
+									"additionalProperties": false,
+									"type": "object",
+									"required": [
+										"pairId",
+										"caseRef",
+										"repetition",
+										"input",
+										"outputs"
+									],
+									"properties": {
+										"pairId": {
+											"minLength": 1,
+											"type": "string"
+										},
+										"caseRef": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"sourceRunId",
+												"caseId"
+											],
+											"properties": {
+												"sourceRunId": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"caseId": {
+													"minLength": 1,
+													"type": "string"
+												}
+											}
+										},
+										"repetition": {
+											"minimum": 1,
+											"type": "integer"
+										},
+										"input": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"userPrompt",
+												"sha256",
+												"byteLength",
+												"files"
+											],
+											"properties": {
+												"userPrompt": {
+													"type": "string"
+												},
+												"sha256": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string"
+												},
+												"byteLength": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"files": {
+													"type": "array",
+													"items": {
+														"additionalProperties": false,
+														"type": "object",
+														"required": [
+															"relativePath",
+															"sha256",
+															"byteLength"
+														],
+														"properties": {
+															"relativePath": {
+																"minLength": 1,
+																"type": "string"
+															},
+															"sha256": {
+																"pattern": "^[0-9a-f]{64}$",
+																"type": "string"
+															},
+															"byteLength": {
+																"minimum": 0,
+																"type": "integer"
+															},
+															"content": {
+																"type": "string"
+															}
+														}
+													}
+												}
+											}
+										},
+										"outputs": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"A",
+												"B"
+											],
+											"properties": {
+												"A": {
+													"additionalProperties": false,
+													"type": "object",
+													"required": [
+														"sha256",
+														"byteLength",
+														"directory"
+													],
+													"properties": {
+														"sha256": {
+															"pattern": "^[0-9a-f]{64}$",
+															"type": "string"
+														},
+														"byteLength": {
+															"minimum": 0,
+															"type": "integer"
+														},
+														"directory": {
+															"type": "boolean"
+														},
+														"content": {
+															"type": "string"
+														},
+														"files": {
+															"type": "array",
+															"items": {
+																"additionalProperties": false,
+																"type": "object",
+																"required": [
+																	"relativePath",
+																	"sha256",
+																	"byteLength"
+																],
+																"properties": {
+																	"relativePath": {
+																		"minLength": 1,
+																		"type": "string"
+																	},
+																	"sha256": {
+																		"pattern": "^[0-9a-f]{64}$",
+																		"type": "string"
+																	},
+																	"byteLength": {
+																		"minimum": 0,
+																		"type": "integer"
+																	}
+																}
+															}
+														}
+													}
+												},
+												"B": {
+													"additionalProperties": false,
+													"type": "object",
+													"required": [
+														"sha256",
+														"byteLength",
+														"directory"
+													],
+													"properties": {
+														"sha256": {
+															"pattern": "^[0-9a-f]{64}$",
+															"type": "string"
+														},
+														"byteLength": {
+															"minimum": 0,
+															"type": "integer"
+														},
+														"directory": {
+															"type": "boolean"
+														},
+														"content": {
+															"type": "string"
+														},
+														"files": {
+															"type": "array",
+															"items": {
+																"additionalProperties": false,
+																"type": "object",
+																"required": [
+																	"relativePath",
+																	"sha256",
+																	"byteLength"
+																],
+																"properties": {
+																	"relativePath": {
+																		"minLength": 1,
+																		"type": "string"
+																	},
+																	"sha256": {
+																		"pattern": "^[0-9a-f]{64}$",
+																		"type": "string"
+																	},
+																	"byteLength": {
+																		"minimum": 0,
+																		"type": "integer"
+																	}
+																}
+															}
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			},
+			"ErrorResponse": {
+				"additionalProperties": true,
+				"type": "object",
+				"required": [
+					"error"
+				],
+				"properties": {
+					"error": {
+						"type": "string"
+					}
+				}
+			}
+		}
+	}
+}

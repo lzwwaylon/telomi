@@ -1,0 +1,12 @@
+# Python virtualenv created by uv
+.venv
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+
+# Local model snapshots / HF cache spillover (if ever placed here)
+models/
+
+# nohup log emitted by telomi/start.sh when it launches us in background
+.run.log

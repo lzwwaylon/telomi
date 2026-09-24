@@ -1,0 +1,318 @@
+{
+  "schemaVersion": 2,
+  "name": "telomi-local-qwen-public-acoustic-v1",
+  "corpusVersion": "2026-07-24.1",
+  "description": "Paired VAD diagnostics over public real-world acoustic recordings. DEMAND living-room noise and Sony pantograph keyboard recordings are deterministically mixed with source-authored AISHELL-1 speech. The AMI case is directly recorded table-top microphone-array speech with official word annotations. These cases strengthen public acoustic coverage but never count as the two locally verified microphone identities or their missing physical-condition captures.",
+  "coverageRequirements": {
+    "requiredSlices": [
+      "public-real-room-noise",
+      "public-real-keyboard-noise",
+      "public-real-far-field"
+    ],
+    "minimumHumanSpeakers": 2,
+    "minimumMicrophones": 0
+  },
+  "qualityGate": {
+    "requireCaseAcceptance": true
+  },
+  "cases": [
+    {
+      "id": "aishell-demand-living-vad-off",
+      "description": "AISHELL-1 speech mixed at 8 dB SNR with a real DEMAND domestic living-room recording, VAD disabled",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/public-acoustic-v1/aishell-demand-living-8db.wav",
+        "mime": "audio/wav",
+        "sha256": "16c0b953c8a30e42baac59eafedf2e22c6b850b85cf96d4c10f408217a496cec",
+        "durationSec": 6.2039375,
+        "source": {
+          "kind": "public-real-noise-derived-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 mixed with DEMAND DLIVING channel 01 from 60 seconds",
+          "license": "CC-BY-SA-3.0",
+          "url": "https://zenodo.org/records/1227121"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The exact AISHELL-1 transcript is unchanged. The deterministic generator pads the source speech and overlays a pinned real living-room noise segment at 8 dB SNR."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": ["background-noise", "public-real-room-noise"],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "demand-dliving-array-derived",
+        "verification": "recording-condition-only",
+        "note": "Real DEMAND living-room noise mixed with separate human speech. This is not a direct capture from either locally verified microphone."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": { "stage": "raw", "maxCer": 0.05 },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "aishell-demand-living-vad-on",
+      "description": "AISHELL-1 speech mixed at 8 dB SNR with the same real DEMAND domestic living-room recording, pinned Silero VAD",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/public-acoustic-v1/aishell-demand-living-8db.wav",
+        "mime": "audio/wav",
+        "sha256": "16c0b953c8a30e42baac59eafedf2e22c6b850b85cf96d4c10f408217a496cec",
+        "durationSec": 6.2039375,
+        "source": {
+          "kind": "public-real-noise-derived-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 mixed with DEMAND DLIVING channel 01 from 60 seconds",
+          "license": "CC-BY-SA-3.0",
+          "url": "https://zenodo.org/records/1227121"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The exact AISHELL-1 transcript is unchanged. The deterministic generator pads the source speech and overlays a pinned real living-room noise segment at 8 dB SNR."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": ["background-noise", "public-real-room-noise"],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "demand-dliving-array-derived",
+        "verification": "recording-condition-only",
+        "note": "Real DEMAND living-room noise mixed with separate human speech. This is not a direct capture from either locally verified microphone."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": { "stage": "raw", "maxCer": 0.05 },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "aishell-sony-keyboard-vad-off",
+      "description": "AISHELL-1 speech mixed at 8 dB SNR with twelve real Sony pantograph keyboard recordings, VAD disabled",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/public-acoustic-v1/aishell-sony-keyboard-8db.wav",
+        "mime": "audio/wav",
+        "sha256": "4e44fa5d5bcf96e4adacbe6bb922918a128a1d0cb05287b8c7f3d17d43097ecc",
+        "durationSec": 6.2039375,
+        "source": {
+          "kind": "public-real-noise-derived-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 mixed with twelve Sony Keyboard Sound Dataset pantograph recordings",
+          "license": "MIT AND Apache-2.0",
+          "url": "https://zenodo.org/records/16564409"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The exact AISHELL-1 transcript is unchanged. The deterministic generator overlays twelve pinned real pantograph key recordings at 8 dB aggregate SNR."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": [
+        "short-burst-noise",
+        "keyboard-like-noise",
+        "public-real-keyboard-noise"
+      ],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "sony-pantograph-derived",
+        "verification": "recording-condition-only",
+        "note": "Real keyboard sounds mixed with separate human speech. This is not a direct keyboard-noise capture from either locally verified microphone."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": { "stage": "raw", "maxCer": 0.05 },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "aishell-sony-keyboard-vad-on",
+      "description": "AISHELL-1 speech mixed at 8 dB SNR with the same twelve real Sony pantograph keyboard recordings, pinned Silero VAD",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/public-acoustic-v1/aishell-sony-keyboard-8db.wav",
+        "mime": "audio/wav",
+        "sha256": "4e44fa5d5bcf96e4adacbe6bb922918a128a1d0cb05287b8c7f3d17d43097ecc",
+        "durationSec": 6.2039375,
+        "source": {
+          "kind": "public-real-noise-derived-fixture",
+          "name": "AISHELL-1 BAC009S0764W0121 mixed with twelve Sony Keyboard Sound Dataset pantograph recordings",
+          "license": "MIT AND Apache-2.0",
+          "url": "https://zenodo.org/records/16564409"
+        }
+      },
+      "referenceText": "甚至出现交易几乎停滞的情况。",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "The exact AISHELL-1 transcript is unchanged. The deterministic generator overlays twelve pinned real pantograph key recordings at 8 dB aggregate SNR."
+      },
+      "language": "zh",
+      "metrics": ["cer"],
+      "slices": [
+        "short-burst-noise",
+        "keyboard-like-noise",
+        "public-real-keyboard-noise"
+      ],
+      "speaker": { "id": "aishell-S0764", "kind": "human" },
+      "microphone": {
+        "id": "sony-pantograph-derived",
+        "verification": "recording-condition-only",
+        "note": "Real keyboard sounds mixed with separate human speech. This is not a direct keyboard-noise capture from either locally verified microphone."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": { "stage": "raw", "maxCer": 0.05 },
+      "pipeline": {
+        "languageHint": "zh",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "ami-es2008a-array-far-field-vad-off",
+      "description": "Direct AMI ES2008a table-top microphone-array segment with official word annotations, VAD disabled",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/public-acoustic-v1/ami-es2008a-array1-01-segment.wav",
+        "mime": "audio/wav",
+        "sha256": "afd733b75f1ce83ad255c0e712960c0d06898b6a6ef8ce596b3ccd144150070b",
+        "durationSec": 12.711,
+        "downloadUrl": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2008a/audio/ES2008a.Array1-01.wav",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "AMI Meeting Corpus ES2008a Array1 channel 01, 32.265 to 44.976 seconds",
+          "license": "CC-BY-4.0",
+          "url": "https://groups.inf.ed.ac.uk/ami/download/"
+        }
+      },
+      "referenceText": "Okay. Good morning everybody. Um I'm glad you could all come. I'm really excited to start this team. Um I'm just gonna have a little PowerPoint presentation for us, for our kick-off meeting. My name is Rose Lindgren. I I'll be the Project Manager.",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact words and punctuation from AMI manual annotations v1.6.2, segment ES2008a.sync.5 and word IDs ES2008a.A.words1 through ES2008a.A.words52."
+      },
+      "language": "en",
+      "metrics": ["wer"],
+      "slices": ["public-real-far-field"],
+      "speaker": { "id": "ami-ES2008a-A", "kind": "human" },
+      "microphone": {
+        "id": "ami-ES2008a-array1-channel01",
+        "verification": "recording-condition-only",
+        "note": "Direct table-top microphone-array recording documented by AMI, without a locally observed browser device fingerprint."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": { "stage": "raw", "maxWer": 0.3 },
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    },
+    {
+      "id": "ami-es2008a-array-far-field-vad-on",
+      "description": "Direct AMI ES2008a table-top microphone-array segment with the same official word annotations, pinned Silero VAD",
+      "audio": {
+        "path": "apps/telomi/voice-evals/generated/public-acoustic-v1/ami-es2008a-array1-01-segment.wav",
+        "mime": "audio/wav",
+        "sha256": "afd733b75f1ce83ad255c0e712960c0d06898b6a6ef8ce596b3ccd144150070b",
+        "durationSec": 12.711,
+        "downloadUrl": "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2008a/audio/ES2008a.Array1-01.wav",
+        "source": {
+          "kind": "public-corpus-fixture",
+          "name": "AMI Meeting Corpus ES2008a Array1 channel 01, 32.265 to 44.976 seconds",
+          "license": "CC-BY-4.0",
+          "url": "https://groups.inf.ed.ac.uk/ami/download/"
+        }
+      },
+      "referenceText": "Okay. Good morning everybody. Um I'm glad you could all come. I'm really excited to start this team. Um I'm just gonna have a little PowerPoint presentation for us, for our kick-off meeting. My name is Rose Lindgren. I I'll be the Project Manager.",
+      "referenceProvenance": {
+        "kind": "source-authored",
+        "note": "Exact words and punctuation from AMI manual annotations v1.6.2, segment ES2008a.sync.5 and word IDs ES2008a.A.words1 through ES2008a.A.words52."
+      },
+      "language": "en",
+      "metrics": ["wer"],
+      "slices": ["public-real-far-field"],
+      "speaker": { "id": "ami-ES2008a-A", "kind": "human" },
+      "microphone": {
+        "id": "ami-ES2008a-array1-channel01",
+        "verification": "recording-condition-only",
+        "note": "Direct table-top microphone-array recording documented by AMI, without a locally observed browser device fingerprint."
+      },
+      "terms": [],
+      "forbiddenTerms": [],
+      "acceptance": { "stage": "raw", "maxWer": 0.3 },
+      "pipeline": {
+        "languageHint": "en",
+        "provider": "telomi-audio",
+        "cleanupRequested": false,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.5,
+          "minSpeechDurationMs": 250,
+          "minSilenceDurationMs": 200,
+          "maxSpeechDurationS": 30,
+          "speechPadMs": 100,
+          "samplesOverlap": 0.5
+        },
+        "glossary": []
+      }
+    }
+  ]
+}

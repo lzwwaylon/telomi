@@ -1,0 +1,22 @@
+[project]
+name = "telomi-audio-local"
+version = "0.1.0"
+license = "Apache-2.0"
+requires-python = "==3.12.*"
+dependencies = [
+  "mlx-audio==0.4.3",
+  "mlx-lm==0.31.3",
+  "transformers==5.8.1",
+  "huggingface-hub==1.15.0",
+  "einops==0.8.2",
+  "scipy==1.17.1",
+  "fastapi==0.136.1",
+  "uvicorn[standard]==0.47.0",
+  "python-multipart==0.0.29",
+  "soundfile==0.13.1",
+  "numpy==2.4.5",
+  "onnxruntime==1.27.0",
+]
+
+[tool.uv]
+package = false

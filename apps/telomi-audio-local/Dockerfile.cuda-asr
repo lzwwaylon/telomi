@@ -1,0 +1,7 @@
+FROM vllm/vllm-openai:nightly
+
+# The base vLLM image does not include its optional audio decoders.
+# SoundFile handles the fixed PCM fixtures; PyAV covers LiveKit's WAV payloads.
+RUN /usr/bin/python3 -m pip install --no-cache-dir \
+    "av==18.0.0" \
+    "soundfile==0.13.1"

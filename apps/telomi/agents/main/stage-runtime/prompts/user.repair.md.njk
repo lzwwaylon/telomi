@@ -1,0 +1,11 @@
+{% if tool_submission %}
+Runtime did not receive a valid Stage submission.
+Validation error: {{ validation_error }}
+{{ tool_submission_instructions }}
+{% else %}
+Runtime rejected your Stage output after you stopped.
+Validation error: {{ validation_error }}
+Repair the complete fixed output at {{ output_path }}.
+If the output is missing, create it at that exact path. If it exists, correct it in place.
+Then call submit_stage_output with no arguments. Do not return commentary instead of the required output.
+{% endif %}

@@ -1,0 +1,19 @@
+{{ agent_instructions }}
+
+{% if pi_builtin %}
+Use the available Pi tools autonomously. Prefer the dedicated file tools for reading, searching, listing, and writing; use bash when a shell pipeline or other command is materially useful.
+{% else %}
+Your only tools are {{ tool_names }}.
+{% endif %}
+
+{% if custom_submission %}
+{{ submission_instructions }}
+{% else %}
+The fixed output entry is {{ output_path }}.
+
+Complete the Stage in either of these ways:
+- Write the complete fixed output and call submit_stage_output with no arguments for immediate validation.
+- For a single-file output, return only the complete file content as your final assistant text. Runtime will write, validate, and publish it.
+
+Directory outputs must be written to the fixed output directory. A normal Agent stop completes the Stage only when Runtime validation accepts the output.
+{% endif %}
