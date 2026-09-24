@@ -152,10 +152,10 @@ try {
 	const runControl = join(root, "degraded-run", "control");
 	const bundleDirectory = join(root, "degraded-run", "bundle");
 	const findOutDirectory = join(root, "degraded-run", "find-out");
-	for (const directory of [bundleDirectory, findOutDirectory]) {
-		mkdirSync(directory, { recursive: true });
-		writeFileSync(join(directory, "manifest.json"), "{}\n");
-	}
+	for (const directory of [bundleDirectory, findOutDirectory]) mkdirSync(directory, { recursive: true });
+	writeFileSync(join(bundleDirectory, "manifest.json"), "{}\n");
+	// A valid (empty) Find Out manifest, so a resumed Run can hydrate its Search checkpoint.
+	writeFileSync(join(findOutDirectory, "manifest.json"), `${JSON.stringify({ schema_version: 3, sequence: 1, sources: [] })}\n`);
 	const runSources = [
 		source("source:run-a", "https://example.test/run-a", "1".repeat(64)),
 		source("source:run-b", "https://example.test/run-b", "2".repeat(64)),
@@ -218,7 +218,8 @@ try {
 				const bundle = searchRequest.artifactStore.publishDirectory(bundleDirectory, "artifacts/source-bundles/test");
 				return {
 					logicalSources: searchRequest.runId === "run:no-results" ? [] : runSources,
-					sourceBundles: [bundle],
+					// The empty Run is resumed below; with no Bundle its Search checkpoint hydrates trivially.
+					sourceBundles: searchRequest.runId === "run:no-results" ? [] : [bundle],
 					findOutSources: searchRequest.artifactStore.publishDirectory(
 						findOutDirectory, "artifacts/find-out-sources/sequence-1",
 					),
@@ -359,6 +360,17 @@ try {
 	const emptyState = new RunStateStore(emptyControl).load()!;
 	assert.equal(emptyState.failure?.failed_stage, "evidence_materializing");
 	assert.equal(emptyState.cornell_note_snapshots.length, 1, "retain the empty evidence snapshot for diagnosis");
+	// Resuming hydrates that empty snapshot instead of searching again; the gate must still hold.
+	new RunStateStore(emptyControl).resume();
+	await assert.rejects(degradedRun.run({
+		...degradedRequest,
+		runId: "run:no-results", goalId: "goal:no-results",
+		workspaceDirectory: join(root, "empty-run", "workspace"),
+		controlDirectory: emptyControl,
+		goalWorkspaceDirectory: join(root, "empty-run", "goal"),
+	} as never), /no usable source evidence/);
+	assert.equal(writerCalls, beforeEmpty, "a resumed Run without usable evidence must not start Writer");
+	assert.equal(new RunStateStore(emptyControl).load()!.failure?.failed_stage, "evidence_materializing");
 	console.log("Cornell Note materialization tests passed");
 } finally {
 	rmSync(root, { recursive: true, force: true });
