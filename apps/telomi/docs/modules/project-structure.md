@@ -41,6 +41,12 @@ Elapsed time for running entries is calculated at read time, not as last-update 
 
 `resolveDataDir()` in `config/data-dir.ts` centrally resolves the data directory, preserving precedence of `TELOMI_DATA_DIR` over the application's default `data/`. Independent Source Service and credential-discovery callers may pass an existing environment and application root, while the same resolver still selects the data directory. `resolveAgentDir()` in `config/agent-directory.ts` resolves the Agent Directory, preserving isolation when an explicit data root is provided and otherwise using configured `PI_CODING_AGENT_DIR`.
 
+`prepareDataDirectory()` in `config/data-format.ts` runs in `server/index.ts` before `app.ts` or any managed service loads. `format.json` at the root of the data directory holds the directory's `installationId` and one integer `formatVersion`. Per-store `schemaVersion` fields remain with their stores; upgrade and rollback decisions depend only on the directory version.
+
+- A missing directory is refused, unless it is the checkout's default `data/`, which is created on first start. This prevents a path on an unmounted volume from being recreated on the system disk. An existing empty directory is initialized, and an unmarked non-empty one is adopted as version 1.
+- A version newer than `CURRENT_FORMAT_VERSION` is refused before anything opens. Older code must never write data that newer code has migrated.
+- An older version is brought forward through `MIGRATIONS`. This is the one ordered, forward-only registry for changes to the directory's layout. The stored version advances after each step, so every step must be safe to re-run after a crash. Changes that restructure the directory belong here, not in per-store code.
+
 Product modules obtain Runtime, Voice, Citation, and Goal credential paths through `workspaces/server-runtime-paths.ts` and `workspaces/goal-runtime-paths.ts`, then append module-internal filenames. Existing directories are not migrated, and old data continues to be read in place. Explicit Source Service cache-path overrides and the default host-shared arXiv scheduling database retain their existing precedence, as does worktree isolation configuration.
 
 See [Agent Execution's storage layout](agent-execution.md#storage-layout) for the responsibilities of the two Goal runtime trees and their mapping to the four Storage Zones.

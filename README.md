@@ -62,7 +62,7 @@ npm start
 
 Once startup completes, open <http://127.0.0.1:8787>. Keep Telomi running while using it or waiting for scheduled research.
 
-Telomi keeps what it creates, including Goals, reports, the Wiki, settings and saved credentials, under `apps/telomi/data` by default; set `TELOMI_DATA_DIR` to use another directory. Long-term memory is stored in a separate local PostgreSQL (pg0) database. See [upgrade, backup and recovery](apps/telomi/docs/upgrading.md) for what to back up.
+Telomi keeps what it creates, including Goals, reports, the Wiki, settings and saved credentials, under `apps/telomi/data` by default; set `TELOMI_DATA_DIR` to use another directory. Telomi creates only the default directory itself; create any other directory before the first start, so that an unmounted drive is reported instead of silently starting an empty installation. Long-term memory is stored in a separate local PostgreSQL (pg0) database. See [upgrade, backup and recovery](apps/telomi/docs/upgrading.md) for what to back up.
 
 For voice features, connect a cloud audio service in Settings, or follow the [optional local audio setup](apps/telomi-audio-local/README.md) on Apple Silicon macOS.
 
