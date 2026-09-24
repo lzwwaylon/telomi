@@ -9,8 +9,9 @@ the target Release before changing an existing installation.
 
 ## Before changing code
 
-1. Record the current Release and `git rev-parse HEAD`, the target Release, and
-   the configuration files you use. Run `git status --short`; resolve local code
+1. Record the current Release and `git rev-parse HEAD`, the target Release,
+   the configuration files you use, and `formatVersion` from `format.json` in
+   the data directory. Run `git status --short`; resolve local code
    changes before switching versions. Do not discard them with a hard reset.
 2. Finish or cancel active research, Wiki updates and audio jobs through the
    application, then stop Telomi. For commands managed by this checkout, use
@@ -64,7 +65,19 @@ host. Stop at the first failed step and keep its redacted error output.
 Compare the new `.env.example` with your settings and the Release instructions.
 Keep your existing `.env.local`, credentials, bank identity and data paths; do
 not overwrite them with the example file. Dependency installation does not
-prove a database migration is reversible. Startup may apply migrations.
+prove a database migration is reversible.
+
+The data directory records its format in `format.json` (`formatVersion` and
+`installationId`). On startup, Telomi migrates an older format forward and logs
+each step, and it records the new version only after that step succeeds. A data
+directory from before format versioning is adopted as version 1 unchanged.
+Startup refuses to run in two cases, and changes nothing when it refuses:
+
+- The configured data directory does not exist. For example, its external
+  volume is not mounted. Telomi creates only the checkout's default `data/`
+  directory on its own.
+- `formatVersion` is newer than the running code supports, which means a newer
+  Telomi has already migrated the data.
 
 ## Verify before resuming normal work
 
@@ -82,8 +95,17 @@ alone does not establish that the upgrade preserved working data and integration
 ## Recover from a failed upgrade
 
 Stop the new version and preserve its logs and modified data separately for
-investigation. Do not repeatedly launch an old version against data that the new
-version may already have migrated.
+investigation. Compare `formatVersion` in the data directory's `format.json`
+with the value recorded before the upgrade:
+
+- **Unchanged**: the new version did not migrate the data directory, so
+  restoring the previous code and its dependencies is enough.
+- **Increased**: the old code will refuse to start against this data. Restore
+  the complete recovery point as described below.
+
+The format version covers the data directory only. Restore the Hindsight
+database from the same recovery point whenever the new version's release notes
+say that it changed memory storage.
 
 Restore **matching code, configuration, product data and Hindsight database**
 from the same pre-upgrade recovery point, using empty restore destinations rather
