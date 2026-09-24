@@ -669,8 +669,9 @@ def stop_processes(root, state, identity):
     # Only the Runtime's own Chrome record authorizes stopping a detached browser. A deleted checkout
     # takes that record along; its profile path and recorded CDP port are the remaining evidence.
     # The managed profile lives in the data directory; one started before that layout used the checkout's.
-    flags = [f"--user-data-dir={root / APP / path} " for path in ("data/browser-profile", ".chrome-debug-profile")]
-    chrome = next((path for path in (root / APP / "data/.pi/runtime/chrome-debug/chrome-debug.json",
+    data = data_dir(root)
+    flags = [f"--user-data-dir={path} " for path in (data / "browser-profile", root / APP / ".chrome-debug-profile")]
+    chrome = next((path for path in (data / ".pi/runtime/chrome-debug/chrome-debug.json",
                                      root / APP / ".chrome-debug/chrome-debug.json") if path.is_file()), None)
     if chrome:
         pid = json.loads(chrome.read_text()).get("pid", -1)
@@ -701,17 +702,40 @@ def stop_processes(root, state, identity):
             except FileNotFoundError:
                 continue
         if not alive:
-            # pg0 detaches PostgreSQL from the service process group.
-            name = f"telomi-worktree-{identity}"
-            if (Path.home() / ".pg0/instances" / name).exists():
+            # pg0 detaches PostgreSQL from the service process group. A Worktree's instance is named after
+            # it; any other checkout's is found by its files, which live in the checkout's data directory.
+            names = {f"telomi-worktree-{identity}", *memory_instances(data)}
+            for name in sorted(name for name in names if (Path.home() / ".pg0/instances" / name).exists()):
                 # A deleted checkout took its Hindsight environment; the main checkout provides the same pg0.
-                checkout = root if checked_out(root) else Path(recorded["source"])
-                subprocess.run([str(checkout / HINDSIGHT / ".venv/bin/python"), "-c",
-                                "import sys; from pg0 import Pg0; p=Pg0(name=sys.argv[1]); p.stop(); assert not p.running",
-                                name], check=True)
+                stop_memory_database(root if checked_out(root) else Path(recorded["source"]), name)
             return
         time.sleep(.1)
     raise RuntimeError("Command supervisors are still shutting down; retry stop")
+
+
+def data_dir(root):
+    """The checkout's data directory as the server resolves it: TELOMI_DATA_DIR from its env files, or the default."""
+    configured = read_env(root).get("TELOMI_DATA_DIR", "").strip() if checked_out(root) else ""
+    return root / APP / configured if configured else root / APP / "data"
+
+
+def memory_instances(data):
+    """pg0 instances whose files are in `data`; an instance serving another installation never matches."""
+    names = []
+    for metadata in (Path.home() / ".pg0/instances").glob("*/instance.json"):
+        try:
+            recorded = json.loads(metadata.read_text()).get("data_dir")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if recorded and Path(recorded).resolve().is_relative_to(data.resolve()):
+            names.append(metadata.parent.name)
+    return names
+
+
+def stop_memory_database(checkout, name):
+    subprocess.run([str(checkout / HINDSIGHT / ".venv/bin/python"), "-c",
+                    "import sys; from pg0 import Pg0; p=Pg0(name=sys.argv[1]); p.stop(); assert not p.running",
+                    name], check=True)
 
 
 def seed(root, goal):

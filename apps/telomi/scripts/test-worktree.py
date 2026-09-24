@@ -210,6 +210,30 @@ class WorktreeTest(unittest.TestCase):
                     service.kill()
                     service.wait()
 
+    def test_stop_in_a_checkout_with_a_configured_data_directory_stops_its_browser_and_memory(self):
+        # The data directory may live anywhere; the browser and memory database it holds must stop with the server.
+        home = Path(self.temporary.name).resolve() / "home"
+        data = Path(self.temporary.name).resolve() / "custom data"
+        other = Path(self.temporary.name).resolve() / "another installation"
+        (self.main / wt.APP / ".env.local").write_text(f'TELOMI_DATA_DIR="{data}"\n')
+        _, _, state, identity = wt.context(self.main)
+        chrome_port, = wt.unused_ports(1)
+        sleep = [sys.executable, "-c", "import time; time.sleep(60)"]
+        chrome = subprocess.Popen([*sleep, f"--remote-debugging-port={chrome_port}", f"--user-data-dir={data / 'browser-profile'}"],
+                                  start_new_session=True)
+        stranger = subprocess.Popen([*sleep, f"--remote-debugging-port={chrome_port}", f"--user-data-dir={other / 'browser-profile'}"],
+                                    start_new_session=True)
+        for process in (chrome, stranger):
+            self.addCleanup(lambda process=process: process.poll() is None and process.kill())
+        wt.save(data / ".pi/runtime/chrome-debug/chrome-debug.json", {"pid": chrome.pid, "port": chrome_port})
+        for name, files in (("telomi-0123456789ab", data / "user-memory/postgres"), ("telomi-ba9876543210", other / "user-memory/postgres")):
+            wt.save(home / ".pg0/instances" / name / "instance.json", {"data_dir": str(files)})
+        with patch.dict(os.environ, {"HOME": str(home)}), patch.object(wt, "stop_memory_database") as stop_memory:
+            wt.stop_processes(self.main, state, identity)
+        self.assertEqual(chrome.wait(timeout=10), -15)
+        self.assertIsNone(stranger.poll())
+        stop_memory.assert_called_once_with(self.main, "telomi-0123456789ab")
+
     def test_terminal_hangup_stops_owned_command_gracefully(self):
         # A closed terminal hangs up only the supervisor; its own-session command must still stop gracefully.
         started, stopped = self.root / "started.txt", self.root / "stopped.txt"
