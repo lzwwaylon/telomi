@@ -167,7 +167,7 @@ def main() -> None:
     from hindsight_api.pg0 import resolve_database_url
     from telomi_database import start_managed_database
 
-    # A database this phase had to start stays running, as Hindsight's own resolution leaves it.
+    # A database this phase had to start stays running; the restarted service takes it over and stops it.
     database_url, _ = start_managed_database(args.database_url)
     database_url = asyncio.run(resolve_database_url(database_url))
     emit = lambda event: print(json.dumps(event), flush=True)  # noqa: E731
