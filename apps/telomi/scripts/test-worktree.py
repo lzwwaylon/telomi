@@ -280,6 +280,33 @@ class WorktreeTest(unittest.TestCase):
             wt.check_agent_browser_config({**env, "AGENT_BROWSER_CONFIG": ""})
         self.assertIn("rerun worktree setup", printed.call_args.args[0])
 
+    def test_setup_copies_credentials_from_explicit_source_read_only(self):
+        (self.main / wt.APP / "data/.pi/agent").mkdir(parents=True)
+        (self.main / wt.APP / "data/.pi/agent/auth.json").write_text("main-data")
+        explicit = Path(self.temporary.name).resolve() / "login"
+        (explicit / "accounts").mkdir(parents=True)
+        (explicit / "auth.json").write_text("explicit")
+        (explicit / "accounts/codex.json").write_text("account")
+        before = sorted((path.relative_to(explicit), path.stat().st_mtime_ns) for path in explicit.rglob("*"))
+        (self.main / wt.APP / ".env.local").write_text(f"TELOMI_CREDENTIALS_SOURCE={explicit}\n")
+        kernel = self.root / wt.APP / ".prime-kernel"
+        kernel.mkdir()
+        (kernel / ".bootstrap-version").write_text("{}")
+        with ExitStack() as stack:
+            for name in ("checked", "prepare_venv", "prepare_prime", "doctor"):
+                stack.enter_context(patch.object(wt, name))
+            stack.enter_context(patch.object(wt, "prime_info", return_value={"file": str(kernel / ".bootstrap-version")}))
+            stack.enter_context(patch.object(wt.urllib.request, "urlopen", side_effect=OSError))
+            wt.setup(self.root)
+        agent = self.root / wt.APP / "data/.pi/agent"
+        self.assertEqual((agent / "auth.json").read_text(), "explicit")
+        self.assertEqual((agent / "accounts/codex.json").read_text(), "account")
+        self.assertEqual(sorted((path.relative_to(explicit), path.stat().st_mtime_ns) for path in explicit.rglob("*")), before)
+        # A source without any credential file is a misconfiguration, not an empty login.
+        (self.main / wt.APP / ".env.local").write_text(f"TELOMI_CREDENTIALS_SOURCE={explicit / 'missing'}\n")
+        with self.assertRaisesRegex(RuntimeError, "TELOMI_CREDENTIALS_SOURCE has no credential files"):
+            wt.setup(self.root)
+
     def test_incompatible_shared_environment_detaches_only_link(self):
         source = self.main / wt.HINDSIGHT / ".venv"
         source.mkdir(parents=True)

@@ -30,7 +30,13 @@ instead of running pip/uv installs directly inside a shared environment. Keep th
 main checkout available while its environments are shared.
 
 The initial `.env`, `.env.local`, account configuration and settings are private
-copies; rerunning setup preserves local edits. `.env.worktree` contains managed
+copies; rerunning setup preserves local edits. Account configuration and settings
+come from the main checkout's resolved agent directory by default. When the main
+checkout runs against its own development data while logins live with an
+installation elsewhere, set `TELOMI_CREDENTIALS_SOURCE` in the main checkout's
+`.env.local` to that agent directory: every new Worktree copies credentials from
+it, and setup only reads it. Setup fails if the path contains no credential files.
+Goal data still arrives only through `seed`. `.env.worktree` contains managed
 isolation overrides. It is loaded after the ordinary dotenv files by the shell,
 server and Vite. API, frontend, Operations, Source Service, Audio and managed Chrome
 ports are distinct, including LiveKit HTTP and RTC TCP/UDP ports; Vite fails rather than switching silently to another port.
