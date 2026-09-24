@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { copyTree, moveInstallationStateIntoDataDirectory, moveTree, pg0InstanceName } from "../../server/config/data-layout.js";
+import { copyTree, moveInstallationState, moveTree, pg0InstanceName } from "../../server/config/data-layout.js";
 import { memoryDatabaseDir, memoryDatabaseUrl } from "../../server/goals/memory/hindsight-runtime.js";
 
 function scratch(context: { after(fn: () => void): void }): string {
@@ -60,52 +60,78 @@ test("a copy across file systems keeps permissions and links, and replaces an un
 	assert.equal(readFileSync(join(source, "base/1"), "utf8"), "page", "the original is kept");
 });
 
-test("format version 2 moves memory and caches of the configured installation, and is safe to re-run", async (context) => {
+function installation(context: { after(fn: () => void): void }) {
 	const root = scratch(context);
 	const dataDir = join(root, "data");
-	const cacheDir = join(root, "cache");
-	const home = join(root, "home");
 	const python = join(root, "bin/python");
+	const stops = join(root, "stops");
 	mkdirSync(join(root, "bin"), { recursive: true });
-	writeFileSync(python, "#!/bin/sh\nexit 0\n");
+	// Records each pg0 stop; exit 0 means the instance is stopped.
+	writeFileSync(python, `#!/bin/sh\necho "$3" >> ${stops}\nexit 0\n`);
 	chmodSync(python, 0o755);
-	const saved = { ...process.env };
-	context.after(() => { process.env = saved; });
-	Object.assign(process.env, {
-		TELOMI_DATA_DIR: dataDir, TELOMI_CACHE_DIR: cacheDir, HOME: home, TELOMI_HINDSIGHT_EXECUTABLE: python,
-		// Keeps the checkout's own managed browser out of this scratch installation.
-		TELOMI_EVAL_INSTANCE: "1",
-	});
-	for (const name of ["HINDSIGHT_API_DATABASE_URL", "SOURCE_SERVICE_HF_HOME", "SOURCE_SERVICE_MATERIAL_CACHE_ROOT"]) delete process.env[name];
+	const env: NodeJS.ProcessEnv = {
+		TELOMI_DATA_DIR: dataDir, TELOMI_CACHE_DIR: join(root, "cache"), HOME: join(root, "home"), TELOMI_HINDSIGHT_EXECUTABLE: python,
+	};
+	const legacyBrowser = { profileDir: join(root, "checkout/.chrome-debug-profile"), stateDir: join(root, "checkout/.chrome-debug") };
+	const pg0 = (url?: string) => join(env.HOME!, ".pg0/instances", pg0InstanceName(memoryDatabaseUrl({ ...env, HINDSIGHT_API_DATABASE_URL: url }))!);
+	const stopped = () => existsSync(stops) ? readFileSync(stops, "utf8").trim().split("\n") : [];
+	mkdirSync(dataDir, { recursive: true });
+	writeFileSync(join(dataDir, "goals.json"), "[]\n");
+	return { root, dataDir, env, legacyBrowser, pg0, stopped };
+}
 
-	const instance = join(home, ".pg0/instances", pg0InstanceName(memoryDatabaseUrl())!);
-	mkdirSync(join(instance, "data"), { recursive: true });
-	writeFileSync(join(instance, "data/PG_VERSION"), "18\n");
+test("format version 2 moves the checkout's memory, browser and caches into place, and is safe to re-run", async (context) => {
+	const { root, dataDir, env, legacyBrowser, pg0, stopped } = installation(context);
+	mkdirSync(join(pg0(), "data"), { recursive: true });
+	writeFileSync(join(pg0(), "data/PG_VERSION"), "18\n");
+	mkdirSync(join(legacyBrowser.profileDir, "Default"), { recursive: true });
+	writeFileSync(join(legacyBrowser.profileDir, "Default/Cookies"), "logins");
 	const legacyCaches = join(dataDir, ".pi/runtime/research-source-service");
 	mkdirSync(join(legacyCaches, "huggingface/hub"), { recursive: true });
 	writeFileSync(join(legacyCaches, "huggingface/hub/model"), "weights");
 	mkdirSync(join(legacyCaches, "material-cache"), { recursive: true });
 	writeFileSync(join(legacyCaches, "material-cache/entry"), "material");
-	writeFileSync(join(dataDir, "goals.json"), "[]\n");
 
-	await moveInstallationStateIntoDataDirectory.run(dataDir);
+	const checkout = { TELOMI_DATA_DIR: dataDir };
+	await moveInstallationState(dataDir, env, checkout, legacyBrowser);
 	assert.equal(readFileSync(join(memoryDatabaseDir(dataDir), "PG_VERSION"), "utf8"), "18\n");
-	assert.equal(readFileSync(join(cacheDir, "huggingface/hub/model"), "utf8"), "weights");
-	assert.equal(readFileSync(join(cacheDir, "material-cache/entry"), "utf8"), "material");
+	assert.deepEqual(stopped(), [pg0InstanceName(memoryDatabaseUrl(env))], "the cluster is stopped before its files move");
+	assert.equal(readFileSync(join(dataDir, "browser-profile/Default/Cookies"), "utf8"), "logins");
+	assert.equal(readFileSync(join(root, "cache/huggingface/hub/model"), "utf8"), "weights");
+	assert.equal(readFileSync(join(root, "cache/material-cache/entry"), "utf8"), "material");
 	assert.equal(readFileSync(join(dataDir, "goals.json"), "utf8"), "[]\n");
 
 	// A crash before the version is recorded runs the step again; everything is already in place.
-	await moveInstallationStateIntoDataDirectory.run(dataDir);
+	await moveInstallationState(dataDir, env, checkout, legacyBrowser);
 	assert.equal(readFileSync(join(memoryDatabaseDir(dataDir), "PG_VERSION"), "utf8"), "18\n");
+	assert.equal(stopped().length, 1);
+});
+
+test("a process pointed at another data directory never takes the checkout's state", async (context) => {
+	const { dataDir, env, legacyBrowser, pg0, stopped } = installation(context);
+	// The checkout's own configuration names its data directory and its memory instance.
+	const url = "pg0://telomi-worktree-other:5433";
+	mkdirSync(join(pg0(url), "data"), { recursive: true });
+	mkdirSync(legacyBrowser.profileDir, { recursive: true });
+	await moveInstallationState(dataDir, { ...env, HINDSIGHT_API_DATABASE_URL: url }, { TELOMI_DATA_DIR: "/checkout/data" }, legacyBrowser);
+	assert.deepEqual(stopped(), [], "another installation's database is not even stopped");
+	assert.equal(existsSync(memoryDatabaseDir(dataDir)), false);
+	assert.equal(existsSync(legacyBrowser.profileDir), true);
+});
+
+test("memory already recorded elsewhere belongs to that installation", async (context) => {
+	const { dataDir, env, pg0, stopped } = installation(context);
+	mkdirSync(join(pg0(), "data"), { recursive: true });
+	writeFileSync(join(pg0(), "instance.json"), JSON.stringify({ data_dir: "/elsewhere/user-memory/postgres" }));
+	await moveInstallationState(dataDir, env, { TELOMI_DATA_DIR: dataDir });
+	assert.deepEqual(stopped(), []);
+	assert.equal(existsSync(memoryDatabaseDir(dataDir)), false);
 });
 
 test("format version 2 leaves any directory other than the configured one untouched", async (context) => {
-	const root = scratch(context);
-	const saved = { ...process.env };
-	context.after(() => { process.env = saved; });
-	process.env.TELOMI_DATA_DIR = join(root, "configured");
+	const { root, env } = installation(context);
 	const other = join(root, "other");
 	mkdirSync(join(other, ".pi/runtime/research-source-service/material-cache"), { recursive: true });
-	await moveInstallationStateIntoDataDirectory.run(other);
+	await moveInstallationState(other, env, { TELOMI_DATA_DIR: other });
 	assert.equal(existsSync(join(other, ".pi/runtime/research-source-service/material-cache")), true);
 });

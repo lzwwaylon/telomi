@@ -11,6 +11,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, "../..");
+/** The application directory of this checkout, where its `.env` files and default directories live. */
+export const applicationRoot = appRoot;
 
 export function resolveDataDir(env: NodeJS.ProcessEnv = process.env, root = appRoot): string {
 	const configured = env.TELOMI_DATA_DIR?.trim();
