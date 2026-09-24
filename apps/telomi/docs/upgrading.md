@@ -38,7 +38,8 @@ If any step fails, it returns to the previous version:
 - **The data format changed**: the code and the snapshot are restored. The
   command reports the time of the snapshot; anything written after it is not in
   the restored data. The replaced data directory is kept next to it as
-  `<data directory>.replaced-<time>`; delete it once you no longer need it.
+  `<data directory>.replaced-<time>`, as evidence of the failed migration. The
+  next successful run keeps only the most recent one and deletes older ones.
 
 Exit status: `0` done or nothing to do, `1` failed and returned to the previous
 version, `2` failed and could not return (recover with the

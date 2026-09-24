@@ -88,15 +88,20 @@ test("a snapshot is a complete, private copy that records its code and data form
 	assert.equal(snapshot.formatVersion, 2);
 });
 
-test("pruning keeps the newest snapshots of each kind and removes unfinished copies", (context) => {
+test("pruning keeps the newest snapshots of each kind and replaced data directory, and removes unfinished copies", (context) => {
 	const target = install(scratch(context));
 	const at = (minute: number) => new Date(Date.UTC(2026, 8, 24, 0, minute));
 	for (let minute = 0; minute < SNAPSHOT_LIMITS.upgrade + 2; minute++) takeSnapshot(target, "upgrade", `u${String(minute).padStart(2, "0")}`, at(minute));
 	for (let minute = 0; minute < SNAPSHOT_LIMITS.daily + 2; minute++) takeSnapshot(target, "daily", `d${String(minute).padStart(2, "0")}`, at(30 + minute));
 	mkdirSync(join(target.backupDir, "upgrade-crashed.partial"));
 	writeFileSync(join(target.backupDir, "upgrade-crashed.partial", "snapshot.json"), "{}");
+	for (const time of ["20260901T000000Z", "20260910T000000Z", "20260920T000000Z"]) mkdirSync(`${target.dataDir}.replaced-${time}`);
 
-	assert.equal(pruneSnapshots(target.backupDir).length, 5);
+	const removed = pruneSnapshots(target);
+	assert.equal(removed.length, 7);
+	assert.ok(removed.includes(`${target.dataDir}.replaced-20260901T000000Z`) && removed.includes(`${target.dataDir}.replaced-20260910T000000Z`));
+	assert.ok(existsSync(`${target.dataDir}.replaced-20260920T000000Z`), "the newest replaced data directory is kept as evidence");
+	assert.ok(existsSync(target.dataDir));
 	const left = listSnapshots(target.backupDir);
 	assert.equal(left.filter((snapshot) => snapshot.kind === "upgrade").length, SNAPSHOT_LIMITS.upgrade);
 	assert.equal(left.filter((snapshot) => snapshot.kind === "daily").length, SNAPSHOT_LIMITS.daily);

@@ -6,7 +6,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { applicationRoot, resolveBackupDir, resolveDataDir, upgradeMarkerPath } from "../server/config/data-dir.js";
@@ -135,13 +135,21 @@ export function listSnapshots(backupDir: string): Snapshot[] {
 		.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-/** Keeps SNAPSHOT_LIMITS per kind and drops copies a crash left unfinished. Returns what was removed. */
-export function pruneSnapshots(backupDir: string): string[] {
+/**
+ * Keeps SNAPSHOT_LIMITS per kind, drops copies a crash left unfinished, and keeps only the newest
+ * data directory a rollback replaced (the evidence of the latest failed migration). Returns what was removed.
+ */
+export function pruneSnapshots(install: Pick<Installation, "backupDir" | "dataDir">): string[] {
+	const { backupDir, dataDir } = install;
 	const snapshots = listSnapshots(backupDir);
+	const replacedPrefix = `${basename(dataDir)}.replaced-`;
 	const removed = [
 		...readdirSync(backupDir).filter((name) => name.endsWith(".partial")).map((name) => join(backupDir, name)),
 		...(Object.keys(SNAPSHOT_LIMITS) as SnapshotKind[])
 			.flatMap((kind) => snapshots.filter((snapshot) => snapshot.kind === kind).slice(SNAPSHOT_LIMITS[kind]).map((snapshot) => snapshot.path)),
+		// The timestamp suffix sorts chronologically.
+		...readdirSync(dirname(dataDir)).filter((name) => name.startsWith(replacedPrefix)).sort().reverse().slice(1)
+			.map((name) => join(dirname(dataDir), name)),
 	];
 	for (const path of removed) rmSync(path, { recursive: true, force: true });
 	return removed;
@@ -395,7 +403,7 @@ export async function main(argv: string[], install = installation()): Promise<nu
 			}
 			return 1;
 		}
-		for (const path of pruneSnapshots(install.backupDir)) log(`removed old snapshot ${path}`);
+		for (const path of pruneSnapshots(install)) log(`removed ${path}`);
 		log(target ? `running ${target.label} (${target.commit.slice(0, 12)})` : "snapshot taken; Telomi is running again");
 		return 0;
 	} finally {
