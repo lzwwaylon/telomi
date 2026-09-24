@@ -54,7 +54,7 @@ try {
 	mkdirSync(join(isolatedApp, "node_modules"));
 	symlinkSync(dirname(fileURLToPath(import.meta.resolve("ws/package.json"))), join(isolatedApp, "node_modules/ws"), "dir");
 	copyFileSync(join(app, "scripts/chrome-debug.ts"), join(isolatedApp, "scripts/chrome-debug.ts"));
-	for (const module of ["config/environment.ts", "config/data-dir.ts", "workspaces/server-runtime-paths.ts", "workspaces/goal-runtime-paths.ts"]) {
+	for (const module of ["config/socket-tos.ts", "config/environment.ts", "config/data-dir.ts", "workspaces/server-runtime-paths.ts", "workspaces/goal-runtime-paths.ts"]) {
 		copyFileSync(join(app, "server", module), join(isolatedApp, "server", module));
 	}
 	writeFileSync(join(isolatedApp, "package.json"), '{"type":"module"}');

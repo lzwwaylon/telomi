@@ -1,3 +1,4 @@
+import "../server/config/socket-tos.js";
 import {
   closeSync,
   cpSync,

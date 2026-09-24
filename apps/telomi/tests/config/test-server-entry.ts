@@ -6,10 +6,10 @@ import test from "node:test";
 // Static imports are evaluated before its first statement, and many modules freeze data paths into
 // constants when they load, so a static import that reaches one of them silently uses the default
 // data directory under a supervisor that starts `server/index.ts` directly.
-const BOOTSTRAP_MODULES = ["./config/environment.js", "./config/output-log.js"];
+const BOOTSTRAP_MODULES = ["./config/socket-tos.js", "./config/environment.js", "./config/output-log.js"];
 
 function staticImports(path: URL): string[] {
-	return [...readFileSync(path, "utf8").matchAll(/^import\s[^;]*?from\s+"([^"]+)";/gmu)].map((match) => match[1]!);
+	return [...readFileSync(path, "utf8").matchAll(/^import\s(?:[^;]*?from\s+)?"([^"]+)";/gmu)].map((match) => match[1]!);
 }
 
 test("the server entry point statically imports only modules that read no configuration", () => {

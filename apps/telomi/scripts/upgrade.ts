@@ -4,6 +4,7 @@
 // later step fails, the installation returns to the previous code, and also to the snapshot when the
 // failed version already migrated the data (`format.json` changed). See docs/upgrading.md.
 
+import "../server/config/socket-tos.js";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -314,26 +315,48 @@ async function stopAll(install: Installation): Promise<void> {
 }
 
 async function startService(install: Installation): Promise<void> {
-	rmSync(install.marker, { force: true });
-	const hook = install.env.TELOMI_SERVICE_START?.trim();
-	let exited = false;
-	let logPath = "the supervisor's log";
-	if (hook) {
-		run("/bin/sh", ["-c", hook], install.repoRoot);
-	} else {
-		logPath = join(runtimeControlRoot(install.dataDir), "logs", "server.log");
-		mkdirSync(dirname(logPath), { recursive: true });
-		const output = openSync(logPath, "a");
-		const child = spawn("npm", ["start"], { cwd: install.repoRoot, detached: true, stdio: ["ignore", output, output] });
-		closeSync(output);
-		child.once("exit", () => { exited = true; });
-		child.unref();
-	}
+	const launched = launch(install);
 	const started = Date.now();
-	if (!(await waitFor(() => healthy(install), HEALTH_TIMEOUT_MS, () => exited))) {
-		throw new UpgradeError(`Telomi did not become healthy on ${install.baseUrl} (waited ${seconds(started)}); see ${logPath}`);
+	if (!(await waitFor(() => healthy(install), HEALTH_TIMEOUT_MS, launched.exited))) {
+		throw new UpgradeError(`Telomi did not become healthy on ${install.baseUrl} (waited ${seconds(started)}); see ${launched.logPath}`);
 	}
 	log(`Telomi is healthy after ${seconds(started)}`);
+}
+
+/** Clears the marker and starts the server, without waiting for it to become healthy. */
+function launch(install: Installation): { logPath: string; exited: () => boolean } {
+	rmSync(install.marker, { force: true });
+	const hook = install.env.TELOMI_SERVICE_START?.trim();
+	if (hook) {
+		run("/bin/sh", ["-c", hook], install.repoRoot);
+		return { logPath: "the supervisor's log", exited: () => false };
+	}
+	const logPath = join(runtimeControlRoot(install.dataDir), "logs", "server.log");
+	mkdirSync(dirname(logPath), { recursive: true });
+	const output = openSync(logPath, "a");
+	const child = spawn("npm", ["start"], { cwd: install.repoRoot, detached: true, stdio: ["ignore", output, output] });
+	closeSync(output);
+	let exited = false;
+	child.once("exit", () => { exited = true; });
+	child.unref();
+	return { logPath, exited: () => exited };
+}
+
+/**
+ * Last resort for an uncaught exception or rejection once Telomi was stopped. It runs synchronously
+ * and the process exits right after, so nothing left over from the crashed flow can interleave:
+ * the previous code (and, when the new version already migrated the data, the snapshot) is put
+ * back and started again.
+ */
+export function recoverAfterCrash(install: Installation, previous: string, snapshot: Snapshot | undefined): void {
+	if (git(install.repoRoot, "rev-parse", "HEAD") !== previous) {
+		const hook = install.env.TELOMI_SERVICE_STOP?.trim();
+		spawnSync(hook ? "/bin/sh" : "python3", hook ? ["-c", hook] : ["apps/telomi/scripts/worktree.py", "stop"], { cwd: install.repoRoot, stdio: "inherit" });
+		stopMemoryDatabase(install.env);
+		if (snapshot && dataFormatChanged(install, snapshot)) log(`restored the snapshot taken ${snapshot.createdAt}; the replaced data is kept at ${restoreSnapshot(install, snapshot)}`);
+		installCode(install, previous);
+	}
+	launch(install);
 }
 
 function installCode(install: Installation, commit: string): void {
@@ -494,19 +517,41 @@ export async function main(argv: string[], install = installation()): Promise<nu
 			if (code !== undefined) return code;
 		}
 		log("stopping Telomi");
-		await stopService(install);
-		trackBusy(busyStatePath(install), false);
-		const started = Date.now();
-		const snapshot = takeSnapshot(install, target ? "upgrade" : "daily", current);
-		log(`snapshot ${snapshot.path} took ${Date.now() - started} ms`);
+		let snapshot: Snapshot | undefined;
+		// From here on, Telomi is never left stopped: not after a thrown error, and not after an
+		// uncaught one, which would otherwise end the process before any recovery ran.
+		const crashed = (error: unknown) => {
+			console.error(`[upgrade] crashed after stopping Telomi: ${error instanceof Error ? error.stack : String(error)}`);
+			let code = 1;
+			try {
+				recoverAfterCrash(install, current, snapshot);
+				console.error("[upgrade] the previous version was started again; check it with `npm run service -- status` or its health endpoint");
+			} catch (recoveryError) {
+				console.error(`[upgrade] recovery failed: ${(recoveryError as Error).message}; see docs/upgrading.md`);
+				code = 2;
+			}
+			release();
+			process.exit(code);
+		};
+		process.on("uncaughtException", crashed);
+		process.on("unhandledRejection", crashed);
 		try {
+			await stopService(install);
+			trackBusy(busyStatePath(install), false);
+			const started = Date.now();
+			snapshot = takeSnapshot(install, target ? "upgrade" : "daily", current);
+			log(`snapshot ${snapshot.path} took ${Date.now() - started} ms`);
 			if (target) {
 				log(`installing ${target.label} (${target.commit.slice(0, 12)})`);
 				installCode(install, target.commit);
 			}
 			await startService(install);
 		} catch (error) {
-			if (!target) throw error;
+			// Still the previous code: start it again (stopService already did if the stop itself failed).
+			if (!target || !snapshot || git(install.repoRoot, "rev-parse", "HEAD") === current) {
+				if (!(await responding(install))) await startService(install).catch(() => undefined);
+				throw error;
+			}
 			try {
 				await rollBack(install, snapshot, (error as Error).message);
 			} catch (rollbackError) {
@@ -515,6 +560,9 @@ export async function main(argv: string[], install = installation()): Promise<nu
 				return 2;
 			}
 			return 1;
+		} finally {
+			process.off("uncaughtException", crashed);
+			process.off("unhandledRejection", crashed);
 		}
 		for (const path of pruneSnapshots(install)) log(`removed ${path}`);
 		log(target ? `running ${target.label} (${target.commit.slice(0, 12)})` : "snapshot taken; Telomi is running again");
