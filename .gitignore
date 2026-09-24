@@ -32,8 +32,11 @@ dist/
 # OS/editor files
 .DS_Store
 
-# Runtime data, credentials and user settings (default TELOMI_DATA_DIR)
+# Runtime data, credentials and user settings (default TELOMI_DATA_DIR), its upgrade snapshots
+# (default TELOMI_BACKUP_DIR) and data directories an upgrade rollback moved aside
 apps/telomi/data/
+apps/telomi/backups/
+apps/telomi/data.replaced-*/
 apps/telomi/.pi/*
 
 # Re-downloadable caches (default TELOMI_CACHE_DIR)

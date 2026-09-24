@@ -2,11 +2,130 @@
 
 [English](upgrading.md) | 简体中文
 
-普通安装使用已发布的 Release，贡献者使用 `dev`。本文说明手动升级流程；
-Telomi 当前没有一键更新器或通用数据库降级命令。修改已有安装前，先阅读目标
-Release 的补充说明。
+普通安装使用已发布的 Release，贡献者使用 `dev`。升级使用 `npm run upgrade`：
+它先为数据目录建立快照，任何一步失败都会自动回到之前的版本。
+[手动流程](#手动升级)保留给还没有这条命令的安装（例如 0.0.1），以及命令自身
+无法恢复的情况。修改已有安装前，先阅读目标 Release 的补充说明。
 
-## 修改代码之前
+## 使用 `npm run upgrade` 升级
+
+在安装所在仓库的根目录执行：
+
+```bash
+npm run upgrade                  # 最新发布的 Release
+npm run upgrade -- --ref dev     # 贡献者：分支、Tag 或提交
+```
+
+已跟踪文件有本地改动时，命令拒绝执行；安装已经是目标版本时，什么也不做。
+否则它会：
+
+1. 停止 Telomi、它托管的浏览器和内嵌的长期记忆数据库，确保没有进程在写数据目录。
+2. 为数据目录建立快照（见[快照](#快照)）。
+3. 安装目标版本：`git switch --detach`、`npm ci`、`npm run setup` 和
+   `npm run build`。使用本地音频时，之后再执行 `npm run setup:audio`。
+4. 启动 Telomi。新版本需要时，启动过程会迁移数据格式。
+5. 最多等待 10 分钟，直到 Telomi 针对这个数据目录正常响应并能列出 Goal。
+
+任何一步失败，都会回到之前的版本：
+
+- **数据格式没有变化**（数据目录中 `format.json` 的 `formatVersion`）：只恢复
+  代码，期间写入的数据保留。
+- **数据格式已变化**：同时恢复代码和快照。命令会报告快照时间，此后写入的数据
+  不在恢复后的数据中。被替换的数据目录保留在旁边，名为
+  `<数据目录>.replaced-<时间>`，确认不再需要后自行删除。
+
+退出码：`0` 完成或无需操作；`1` 失败并已回到之前的版本；`2` 失败且无法自动
+回退，请按[手动流程](#升级失败后恢复)从命令给出的快照恢复；`3` 见
+[`--if-idle`](#空闲时自动升级)。
+
+### 快照
+
+快照存放在 `TELOMI_BACKUP_DIR`，默认是数据目录旁边的 `backups`（例如
+`apps/telomi/backups`）。每个快照包含停止状态下数据目录的副本 `data/`，以及
+记录时间、所属提交和 `formatVersion` 的 `snapshot.json`。在 APFS 上，与数据目录
+位于同一卷的快照是写时复制克隆：几秒完成，数据变化前几乎不占额外空间；
+其他情况下为完整复制。快照包含凭据和私人研究资料，请保持目录私有；需要在
+磁盘损坏后仍然可用的备份时，把快照另外复制到其他位置。
+
+`npm run upgrade -- --snapshot-only` 只建立快照、不改变代码：它会停止 Telomi
+几秒，再以同一版本启动。命令保留最近 10 个升级前快照和最近 7 个
+`--snapshot-only` 快照。
+
+手动恢复快照：停止 Telomi，把数据目录移到别处，把快照中的 `data/` 复制回原
+位置（macOS 用 `cp -cpR`，其他系统用 `cp -pR`），检出 `snapshot.json` 中记录的
+提交，执行 `npm ci`、`npm run setup` 和 `npm run build`，再启动 Telomi。
+
+### 回滚
+
+`npm run upgrade -- --rollback` 回到最近一个属于更早版本的快照所对应的代码。
+只有数据格式在此之后变化过，才会恢复该快照的数据；否则保留当前数据。
+
+### 空闲时自动升级
+
+加上 `--if-idle` 时，命令会先询问正在运行的服务停止它是否会打断工作
+（`GET /api/runtime/idle`）。有 Goal 正在工作、有 Activity 在运行或排队，或定时
+调研即将开始时，它输出原因、不做任何改动并以 `0` 退出。连续跳过满 24 小时后，
+它输出警告并以 `3` 退出，便于调度器发现始终无法空闲的实例。`--if-idle` 从不
+强制重启。
+
+可以定时执行，例如每 15 分钟执行 `npm run upgrade -- --if-idle` 跟随 Release，
+或执行 `npm run upgrade -- --ref dev --if-idle` 跟随 `dev`；每天执行一次
+`npm run upgrade -- --snapshot-only --if-idle`。
+
+### 在进程守护下运行
+
+默认情况下，命令会停止本 checkout 通过 `npm start`、`npm run dev` 或
+`npm run worktree -- run` 启动的进程，结束后在后台执行 `npm start`，输出写入
+数据目录中的 `.pi/runtime/logs/server.log`。
+
+由 launchd、systemd 等守护进程运行 Telomi 时，只停止进程不够：守护进程会在
+升级中途重新启动旧版本。在 `apps/telomi/.env.local` 中告诉命令如何停止和启动
+服务，两条命令都在仓库根目录通过 `/bin/sh` 执行：
+
+```bash
+# launchd
+TELOMI_SERVICE_STOP=launchctl bootout gui/$(id -u)/com.example.telomi
+TELOMI_SERVICE_START=launchctl bootstrap gui/$(id -u) /Users/you/Library/LaunchAgents/com.example.telomi.plist
+# systemd（用户单元）
+TELOMI_SERVICE_STOP=systemctl --user stop telomi
+TELOMI_SERVICE_START=systemctl --user start telomi
+```
+
+停止命令必须让服务不被重新拉起：`launchctl bootout` 会卸载任务，`Restart=`
+也不会撤销 `systemctl stop`。作为保险，升级正在修改安装时 Telomi 拒绝启动，
+因此即使守护进程仍然重启它，也无法写入正在复制或替换的数据。在守护进程下，
+命令看不到服务进程，始终无法正常响应的版本要等 10 分钟等待结束才会被发现。
+
+用于 Telomi 的 launchd 任务：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.example.telomi</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/zsh</string><string>-lc</string><string>cd /path/to/telomi &amp;&amp; exec npm start</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/path/to/telomi.log</string>
+  <key>StandardErrorPath</key><string>/path/to/telomi.log</string>
+</dict>
+</plist>
+```
+
+`zsh -lc` 让任务使用登录 shell 的 `PATH`，其中包含 `node` 和 `npm`。如果
+checkout 或数据目录在外接卷上，macOS 必须先允许任务访问它：在此之前，任务会以
+"Operation not permitted" 失败，或者没有任何输出地一直等待。请允许访问可移除
+的宗卷（系统设置 > 隐私与安全性 > 文件和文件夹），或为任务运行的 `node` 授予
+完全磁盘访问权限。目前只验证过 macOS 上的 launchd。
+
+## 手动升级
+
+以下步骤用于版本中还没有 `npm run upgrade` 的安装（例如 0.0.1），以及命令以
+状态 `2` 退出后的恢复。
+
+### 修改代码之前
 
 1. 记录当前 Release、`git rev-parse HEAD`、目标 Release、使用的配置文件，以及
    数据目录中 `format.json` 的 `formatVersion`。
@@ -18,7 +137,7 @@ Release 的补充说明。
    包含凭据和私人研究资料。确认备份文件可读，并记录对应代码版本。
    Git Tag 或源代码副本不等于数据备份。
 
-## 备份范围
+### 备份范围
 
 在 Telomi 停止运行时备份：
 
@@ -32,7 +151,7 @@ Release 的补充说明。
 不需要备份。如果 `HINDSIGHT_API_DATABASE_URL` 指向外部的 `postgresql://` 数据库，
 请使用该数据库支持的流程备份；无法备份时，这份备份不能视为完整恢复点。
 
-### 格式版本 2 之前的安装
+#### 格式版本 2 之前的安装
 
 数据目录中没有 `format.json`，或其中记录的 `formatVersion` 为 1（例如
 Telomi 0.0.1）时，有两部分状态存放在别处，升级前也要一并备份：
@@ -45,7 +164,7 @@ Telomi 0.0.1）时，有两部分状态存放在别处，升级前也要一并�
 新版本首次启动时会把两者移入数据目录。数据目录位于另一个卷时会复制过去并保留
 原件，下面的检查通过后可以删除原件。
 
-## 安装选定的 Release
+### 安装选定的 Release
 
 完成备份、确认工作区干净后，在原 checkout 中执行：
 
@@ -75,7 +194,7 @@ Bank 身份及数据路径，不用示例文件覆盖。依赖安装成功不能
 - `formatVersion` 高于当前代码支持的版本，说明数据已经被更新版本的 Telomi
   迁移过。
 
-## 恢复日常使用前验证
+### 恢复日常使用前验证
 
 通过 `npm run dev` 或已有部署说明中的命令启动，然后检查：
 
@@ -88,7 +207,7 @@ Bank 身份及数据路径，不用示例文件覆盖。依赖安装成功不能
 检查通过前保留备份。仅页面可打开或构建成功，不足以证明升级保留了可用的数据
 和集成能力。
 
-## 升级失败后恢复
+### 升级失败后恢复
 
 停止新版本，另行保留其日志和已修改的数据以便调查。把数据目录 `format.json`
 中的 `formatVersion` 与升级前记录的值对比：

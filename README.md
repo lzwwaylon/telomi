@@ -66,7 +66,7 @@ Telomi keeps what it creates, including Goals, reports, the Wiki, settings and s
 
 For voice features, connect a cloud audio service in Settings, or follow the [optional local audio setup](apps/telomi-audio-local/README.md) on Apple Silicon macOS.
 
-For an existing installation, follow [upgrade, backup and recovery](apps/telomi/docs/upgrading.md) before changing versions; keep your existing configuration and data.
+To upgrade an existing installation, run `npm run upgrade`: it snapshots the data directory and returns to the previous version if anything fails. See [upgrade, backup and recovery](apps/telomi/docs/upgrading.md), which also covers installations that predate the command.
 
 ## Getting started
 

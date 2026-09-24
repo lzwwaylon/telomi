@@ -17,6 +17,7 @@
     "dev": "python3 apps/telomi/scripts/worktree.py launch -- apps/telomi/start.sh dev",
     "start": "python3 apps/telomi/scripts/worktree.py launch -- apps/telomi/start.sh server",
     "build": "npm run build --workspace=telomi",
+    "upgrade": "node --import tsx apps/telomi/scripts/upgrade.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test:ci --workspace=telomi",
     "test:memory": "npm run test:memory-runtime --workspace=telomi",
