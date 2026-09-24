@@ -129,6 +129,23 @@ function launchctl(...args: string[]): { ok: boolean; output: string } {
 	return { ok: result.status === 0, output: `${result.stdout}${result.stderr}`.trim() };
 }
 
+/** How long a job may take to exit after `launchctl bootout`; the server stops its managed services first. */
+const BOOTOUT_TIMEOUT_MS = 60_000;
+
+/**
+ * `launchctl bootout` returns before the job has exited: launchd keeps it loaded, and its processes
+ * running, while the server shuts down. Bootstrapping it again in that window fails, and anything
+ * that reads the data directory then races the exiting server. Returns once launchd no longer lists the job.
+ */
+export function bootout(label: string, timeoutMs = BOOTOUT_TIMEOUT_MS): void {
+	launchctl("bootout", target(label));
+	const deadline = Date.now() + timeoutMs;
+	while (launchctl("print", target(label)).ok) {
+		if (Date.now() > deadline) throw new UpgradeError(`${label} is still running ${timeoutMs / 1000} s after launchctl bootout`);
+		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+	}
+}
+
 function labels(install: Checkout): Record<Job, string> {
 	const base = serviceLabel(install.repoRoot);
 	return Object.fromEntries(JOBS.map((job) => [job, `${base}.${job}`])) as Record<Job, string>;
@@ -191,7 +208,7 @@ async function install(inst: Checkout, options: InstallOptions): Promise<void> {
 async function uninstall(inst: Checkout, { quiet = false } = {}): Promise<void> {
 	const wasInstalled = installedJobs(inst).includes("server");
 	for (const label of Object.values(labels(inst))) {
-		launchctl("bootout", target(label));
+		bootout(label);
 		launchctl("enable", target(label));
 		const plist = launchAgentPath(label);
 		if (!existsSync(plist)) continue;
@@ -205,7 +222,7 @@ async function uninstall(inst: Checkout, { quiet = false } = {}): Promise<void> 
 async function stop(inst: Checkout): Promise<void> {
 	for (const job of installedJobs(inst)) {
 		const label = labels(inst)[job];
-		launchctl("bootout", target(label));
+		bootout(label);
 		launchctl("disable", target(label));
 		console.log(`[service] stopped ${label}`);
 	}

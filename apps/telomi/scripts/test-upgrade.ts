@@ -85,7 +85,7 @@ test("an installed service becomes the supervisor unless stop and start are conf
 	mkdirSync(appRoot, { recursive: true });
 	const home = join(root, "home");
 	const hooks = launchdHooks(root, 501, home);
-	assert.match(hooks.stop, /^launchctl bootout gui\/501\/com\.telomi\.[0-9a-f]{12}\.server$/u);
+	assert.match(hooks.stop, /^launchctl bootout gui\/501\/com\.telomi\.[0-9a-f]{12}\.server; /u);
 	assert.match(hooks.start, /^launchctl enable .+ && launchctl bootstrap gui\/501 '.+\.server\.plist'$/u);
 	assert.notEqual(serviceLabel(root), serviceLabel(appRoot));
 	assert.equal(checkout(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP, undefined);
@@ -94,6 +94,23 @@ test("an installed service becomes the supervisor unless stop and start are conf
 	writeFileSync(plist, "");
 	assert.equal(checkout(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP?.startsWith("launchctl bootout"), true);
 	assert.equal(checkout(appRoot, { HOME: home, TELOMI_SERVICE_STOP: "custom" }).env.TELOMI_SERVICE_STOP, "custom");
+});
+
+test("the launchd stop hook returns only once launchd no longer lists the job", (context) => {
+	const root = scratch(context);
+	const bin = join(root, "bin");
+	mkdirSync(bin);
+	// Stays listed for three polls after bootout, like a server that is still shutting down.
+	writeFileSync(join(bin, "launchctl"), `#!/bin/sh
+echo "$@" >> "${join(root, "calls.log")}"
+[ "$1" = print ] || exit 0
+n=$(grep -c '^print' "${join(root, "calls.log")}")
+[ "$n" -le 3 ]
+`, { mode: 0o755 });
+	const result = spawnSync("/bin/sh", ["-c", launchdHooks(root, 501, join(root, "home")).stop], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, encoding: "utf8" });
+	assert.equal(result.status, 0, result.stderr);
+	const calls = readFileSync(join(root, "calls.log"), "utf8").trim().split("\n").map((line) => line.split(" ")[0]);
+	assert.deepEqual(calls, ["bootout", "print", "print", "print", "print"]);
 });
 
 test("the default target is the highest published Release tag, not a prerelease", (context) => {

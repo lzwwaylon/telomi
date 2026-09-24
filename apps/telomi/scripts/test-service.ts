@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { AUTO_UPGRADE_INTERVAL_S, jobDefinitions, parseCommand, signedByDeveloper, SNAPSHOT_TIME } from "./service.js";
+import { AUTO_UPGRADE_INTERVAL_S, bootout, jobDefinitions, parseCommand, signedByDeveloper, SNAPSHOT_TIME } from "./service.js";
 import { serviceLabel, UpgradeError } from "./upgrade.js";
 
 function scratch(context: { after(fn: () => void): void }): string {
@@ -58,4 +58,24 @@ test("only a Developer ID signature keeps a stable identity for privacy grants",
 	assert.equal(signedByDeveloper("Signature size=9044\nAuthority=Developer ID Application: Node.js Foundation (HX7739G8FX)\nTeamIdentifier=HX7739G8FX\n"), true);
 	assert.equal(signedByDeveloper("CodeDirectory v=20400 flags=0x2(adhoc)\nSignature=adhoc\nTeamIdentifier=not set\n"), false);
 	assert.equal(signedByDeveloper("/opt/x/node: code object is not signed at all\n"), false);
+});
+
+test("bootout waits until launchd no longer lists the job, and gives up on one that never exits", (context) => {
+	const root = mkdtempSync(join(tmpdir(), "telomi-bootout-"));
+	context.after(() => rmSync(root, { recursive: true, force: true }));
+	const calls = join(root, "calls.log");
+	writeFileSync(join(root, "launchctl"), `#!/bin/sh
+echo "$@" >> "${calls}"
+[ "$1" = print ] || exit 0
+[ "$(grep -c '^print' "${calls}")" -le "$(cat "${join(root, "listed")}")" ]
+`, { mode: 0o755 });
+	const path = process.env.PATH;
+	process.env.PATH = `${root}:${path}`;
+	context.after(() => { process.env.PATH = path; });
+	writeFileSync(join(root, "listed"), "3");
+	bootout("com.telomi.test.server");
+	assert.deepEqual(readFileSync(calls, "utf8").trim().split("\n").map((line) => line.split(" ")[0]), ["bootout", "print", "print", "print", "print"]);
+	writeFileSync(calls, "");
+	writeFileSync(join(root, "listed"), "1000000");
+	assert.throws(() => bootout("com.telomi.test.server", 500), (error) => error instanceof UpgradeError && /still running/u.test(error.message));
 });
