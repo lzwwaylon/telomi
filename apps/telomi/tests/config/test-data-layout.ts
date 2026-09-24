@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { moveInstallationStateIntoDataDirectory, moveTree, pg0InstanceName } from "../../server/config/data-layout.js";
+import { copyTree, moveInstallationStateIntoDataDirectory, moveTree, pg0InstanceName } from "../../server/config/data-layout.js";
 import { memoryDatabaseDir, memoryDatabaseUrl } from "../../server/goals/memory/hindsight-runtime.js";
 
 function scratch(context: { after(fn: () => void): void }): string {
@@ -40,6 +40,24 @@ test("a move never overwrites an existing target, and replaces only an empty one
 	mkdirSync(join(root, "again"));
 	moveTree(join(root, "again"), join(root, "linked"), "copy");
 	assert.equal(existsSync(join(root, "again")), true, "a symbolic link counts as content");
+});
+
+test("a copy across file systems keeps permissions and links, and replaces an unfinished one", (context) => {
+	const root = scratch(context);
+	const source = join(root, "postgres");
+	mkdirSync(join(source, "base"), { recursive: true, mode: 0o700 });
+	chmodSync(source, 0o700);
+	writeFileSync(join(source, "base/1"), "page");
+	symlinkSync("base", join(source, "link"));
+	mkdirSync(join(root, "copy.partial"));
+	writeFileSync(join(root, "copy.partial/stale"), "crashed copy");
+	copyTree(source, join(root, "copy"));
+	assert.equal(statSync(join(root, "copy")).mode & 0o777, 0o700, "PostgreSQL refuses a data directory others can read");
+	assert.equal(readFileSync(join(root, "copy/base/1"), "utf8"), "page");
+	assert.equal(lstatSync(join(root, "copy/link")).isSymbolicLink() && readlinkSync(join(root, "copy/link")), "base");
+	assert.equal(existsSync(join(root, "copy/stale")), false);
+	assert.equal(existsSync(join(root, "copy.partial")), false);
+	assert.equal(readFileSync(join(source, "base/1"), "utf8"), "page", "the original is kept");
 });
 
 test("format version 2 moves memory and caches of the configured installation, and is safe to re-run", async (context) => {

@@ -6,7 +6,7 @@
 // is deleted except an unfinished `.partial` copy and empty directories standing in a target.
 
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -114,11 +114,19 @@ export function moveTree(source: string, target: string, acrossFileSystems: "cop
 		log(`left ${source} in place (another file system); it is no longer used and can be deleted`);
 		return;
 	}
+	copyTree(source, target);
+	log(`copied ${source} to ${target}; the original is kept and can be deleted once Telomi works`);
+}
+
+/** Copies into `<target>.partial`, then renames it into place, so `target` only ever appears complete. */
+export function copyTree(source: string, target: string): void {
 	const partial = `${target}.partial`;
 	rmSync(partial, { recursive: true, force: true });
-	cpSync(source, partial, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
+	// `cp -p` keeps directory permissions, which fs.cpSync does not: PostgreSQL refuses a data
+	// directory that is not private to its owner.
+	const copied = spawnSync("cp", ["-pR", source, partial], { encoding: "utf8" });
+	if (copied.status !== 0) throw new DataDirectoryError(`Could not copy ${source} to ${partial}: ${copied.stderr.trim() || copied.status}`);
 	renameSync(partial, target);
-	log(`copied ${source} to ${target}; the original is kept and can be deleted once Telomi works`);
 }
 
 function isEmptyTree(path: string): boolean {
