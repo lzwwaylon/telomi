@@ -54,7 +54,7 @@
 
 - 默认分支为 `dev`，普通 PR 面向 `dev`。
 - `dev`、`main` 均要求通过 PR 合并、[本地检查通过](testing.md#submission-checks)并解决审阅意见；禁止强制推送和删除长期分支。
-- 云端 Actions 停用期间，不将 `deterministic-checks` 设为必需检查；审查人数按实际维护团队设置。
+- 云端 Actions 启用时，将 CI 任务 `tests (1/3)`、`tests (2/3)`、`tests (3/3)` 和 `typecheck, build and contracts` 设为必需检查；停用期间不设必需检查。审查人数按实际维护团队设置。
 - 保留 merge commit 合并方式，与上述长期分支同步约定一致。
 
 这些远端设置独立于仓库文件，CI 配置本身不等于分支保护已启用。私有仓库可用的强制保护功能取决于 GitHub 套餐。
