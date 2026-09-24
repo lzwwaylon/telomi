@@ -24,6 +24,12 @@ cdpSockets.on("connection", (socket) => socket.on("message", (data) => {
 	const result = message.method === "Target.createTarget" ? { targetId: "t1" }
 		: message.method === "Target.attachToTarget" ? { sessionId: "s1" }
 		: message.method === "Storage.getCookies" ? { cookies }
+		// As Chrome does: only the cookies that would be sent to one of the URLs.
+		: message.method === "Network.getCookies" ? { cookies: cookies.filter((cookie) => (message.params.urls as string[]).some((url) => {
+			const host = new URL(url).hostname;
+			const domain = cookie.domain.replace(/^\./u, "");
+			return host === domain || host.endsWith(`.${domain}`);
+		})) }
 		: {};
 	if (message.method === "Target.closeTarget") closedTargets += 1;
 	if (message.method === "Network.deleteCookies") cookies = cookies.filter((cookie) => !(cookie.name === message.params.name && cookie.domain === message.params.domain));
@@ -118,6 +124,12 @@ try {
 	assert.ok(commands.some((command) => command.method === "Page.stopScreencast"));
 	assert.equal(closedTargets, 1, "the login tab is closed once");
 	assert.ok(!JSON.stringify(received).includes("KeyA"), "nothing typed comes back to the page");
+	// The once-a-second login check asks only for the login sites' cookies; the whole jar of a
+	// profile synced from the user's browser is only read once, to clear a stale session.
+	assert.equal(commands.filter((command) => command.method === "Storage.getCookies").length, 1);
+	const polls = commands.filter((command) => command.method === "Network.getCookies");
+	assert.ok(polls.length >= 2);
+	assert.deepEqual(polls[0]?.params, { urls: ["https://example.com/", "https://youtube.com/"] });
 
 	// Nothing left to log in: the stream reports so and ends at once, without showing a page.
 	verified = new Set(["youtube", "example"]);

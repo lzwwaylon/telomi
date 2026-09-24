@@ -4,7 +4,7 @@ import { Check, Loader2, Monitor, MousePointer2, Wifi, WifiOff } from "lucide-re
 import { BrowserIcon, CloseIcon as X } from "@/shared/ui/icons";
 
 import { webSocketUrl } from "@/shared/lib/api";
-import { decodeFrame, sendKey, sendMouse, sendWheel } from "@/shared/lib/browser-input";
+import { decodeFrame, sendKey, sendMouse, sendPointerMove, sendWheel } from "@/shared/lib/browser-input";
 import { cn } from "@/shared/lib/utils";
 import type { GoalSummary } from "@shared/types";
 import { uiText } from "@/app/ui-text";
@@ -324,9 +324,7 @@ function BrowserViewport({
 					tabIndex={userControls && hasFrame ? 0 : -1}
 					onPointerDown={userControls ? (event) => sendMouse(event, "mousePressed", send, viewportRef.current) : undefined}
 					onPointerUp={userControls ? (event) => sendMouse(event, "mouseReleased", send, viewportRef.current) : undefined}
-					onPointerMove={userControls ? (event) => {
-						if (event.buttons) sendMouse(event, "mouseMoved", send, viewportRef.current);
-					} : undefined}
+					onPointerMove={userControls ? (event) => sendPointerMove(event, send, viewportRef.current) : undefined}
 					onWheel={userControls ? (event) => sendWheel(event, send, viewportRef.current) : undefined}
 					onContextMenu={userControls ? (event) => event.preventDefault() : undefined}
 					onKeyDown={userControls ? (event) => sendKey(event, "keyDown", send) : undefined}
