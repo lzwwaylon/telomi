@@ -4,6 +4,8 @@ import contextvars
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import os
+import signal
+import sys
 
 from fastapi import APIRouter, Header, HTTPException
 from hindsight_api import MemoryEngine
@@ -94,6 +96,10 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
+    # uvicorn restores the handler it found and re-raises SIGTERM after its graceful shutdown. With the
+    # default handler that ends the process on the spot and skips the `finally` below, leaving the
+    # detached database running; exiting through SystemExit keeps its shutdown on the path.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     # Before get_config() reads it: Hindsight must connect to the instance Telomi started.
     database_url, database = start_managed_database(os.environ.get("HINDSIGHT_API_DATABASE_URL", ""))
     if database_url:

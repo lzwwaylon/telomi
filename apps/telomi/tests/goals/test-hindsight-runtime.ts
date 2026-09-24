@@ -337,3 +337,15 @@ test("an external User Memory service is not interrupted by stopping Telomi", as
 		await manager.close();
 	}
 });
+
+test("the managed Memory database stops with the service on SIGTERM, even when it was already running", async () => {
+	const { execFile } = await import("node:child_process");
+	const { promisify } = await import("node:util");
+	const { fileURLToPath } = await import("node:url");
+	const result = await promisify(execFile)(
+		fileURLToPath(new URL("../../services/hindsight/.venv/bin/python", import.meta.url)),
+		["-B", fileURLToPath(new URL("./memory-database-lifecycle-check.py", import.meta.url))],
+		{ timeout: 60_000 },
+	);
+	assert.equal(result.stdout.trim(), "ok");
+});
