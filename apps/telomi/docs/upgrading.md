@@ -41,6 +41,9 @@ If any step fails, it returns to the previous version:
   `<data directory>.replaced-<time>`, as evidence of the failed migration. The
   next successful run keeps only the most recent one and deletes older ones.
 
+This also holds when the upgrade process itself crashes after stopping Telomi:
+before it exits, it puts the previous version back and starts it again.
+
 Exit status: `0` done or nothing to do, `1` failed and returned to the previous
 version, `2` failed and could not return (recover with the
 [manual procedure](#recover-from-a-failed-upgrade) from the snapshot it names),

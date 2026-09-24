@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 
+import "./config/socket-tos.js";
 import { loadProjectEnvironment } from "./config/environment.js";
 import { keepOutputLogBounded } from "./config/output-log.js";
 

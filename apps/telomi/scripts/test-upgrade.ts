@@ -252,3 +252,29 @@ test("an upgrade needs a data directory Telomi has marked", (context) => {
 	marked(join(root, "data"), "marked");
 	assert.equal(installation(appRoot, { TELOMI_DATA_DIR: join(root, "data") }).backupDir, join(root, "backups", "marked"));
 });
+
+test("an uncaught exception after Telomi was stopped starts it again and clears the marker and lock", (context) => {
+	const root = scratch(context);
+	gitRepo(root);
+	const target = install(root);
+	const env = {
+		// Recorded by the hooks; no real server answers on the base URL, so the health wait lasts until the crash.
+		TELOMI_SERVICE_STOP: "echo stop >> hooks.log",
+		TELOMI_SERVICE_START: "echo start >> hooks.log",
+		HINDSIGHT_API_DATABASE_URL: "postgresql://unused",
+	};
+	// Like undici's EINVAL: thrown from an I/O callback while the upgrade awaits, so no try/catch sees it.
+	const script = `
+		import { main } from ${JSON.stringify(new URL("./upgrade.ts", import.meta.url).href)};
+		const install = ${JSON.stringify({ ...target, env })};
+		setTimeout(() => { throw new Error("injected crash"); }, 3_000);
+		process.exitCode = await main(["--snapshot-only"], install);
+	`;
+	const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], { cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 60_000 });
+	assert.equal(result.status, 1, result.stderr);
+	assert.match(result.stderr, /crashed after stopping Telomi: Error: injected crash/u);
+	assert.deepEqual(readFileSync(join(root, "hooks.log"), "utf8").trim().split("\n"), ["stop", "start", "start"]);
+	assert.equal(existsSync(target.marker), false);
+	assert.equal(existsSync(join(target.backupDir, ".upgrade.lock")), false);
+	assert.equal(listSnapshots(target.backupDir).length, 1);
+});
