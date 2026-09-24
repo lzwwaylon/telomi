@@ -13,6 +13,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { applicationRoot, resolveDataDir } from "../server/config/data-dir.js";
+import { dataFingerprint } from "../server/config/data-fingerprint.js";
 import { installationBackupDir, readDataFormat, upgradeMarkerPath } from "../server/config/data-format.js";
 import { stopManagedBrowser, stopMemoryDatabase } from "../server/config/data-layout.js";
 import { loadProjectEnvironment } from "../server/config/environment.js";
@@ -37,6 +38,8 @@ export interface Snapshot {
 	/** The code the snapshot belongs to. */
 	commit: string;
 	formatVersion: number;
+	/** `dataFingerprint()` just before the stop; absent in older snapshots, which then never match. */
+	fingerprint?: string;
 }
 
 export interface Checkout {
@@ -180,13 +183,16 @@ export function cloneTree(source: string, target: string): void {
 }
 
 /** Copies the data directory, which must not be in use, into `<backupDir>/<kind>-<time>-<commit>`. */
-export function takeSnapshot(install: Installation, kind: SnapshotKind, commit: string, now = new Date()): Snapshot {
+export function takeSnapshot(install: Installation, kind: SnapshotKind, commit: string, now = new Date(), fingerprint?: string): Snapshot {
 	const path = join(install.backupDir, `${kind}-${stamp(now)}-${commit.slice(0, 12)}`);
 	const partial = `${path}.partial`;
 	rmSync(partial, { recursive: true, force: true });
 	mkdirSync(partial, { recursive: true, mode: 0o700 });
 	cloneTree(install.dataDir, join(partial, "data"));
-	const record = { kind, createdAt: now.toISOString(), commit, formatVersion: readDataFormat(install.dataDir)?.formatVersion ?? 1 };
+	const record = {
+		kind, createdAt: now.toISOString(), commit, formatVersion: readDataFormat(install.dataDir)?.formatVersion ?? 1,
+		...(fingerprint ? { fingerprint } : {}),
+	};
 	writeFileSync(join(partial, "snapshot.json"), `${JSON.stringify(record, null, "\t")}\n`);
 	renameSync(partial, path);
 	return { path, ...record };
@@ -518,6 +524,13 @@ export async function main(argv: string[], install = installation()): Promise<nu
 			const code = await busy(install);
 			if (code !== undefined) return code;
 		}
+		// Read while running and idle: User Memory is only readable through the running service.
+		const fingerprint = await dataFingerprint(install.dataDir, install.env);
+		const newest = listSnapshots(install.backupDir)[0];
+		if (!target && fingerprint && newest?.fingerprint === fingerprint) {
+			log(`no change since ${newest.path}; it already holds the current data, nothing was stopped`);
+			return 0;
+		}
 		log("stopping Telomi");
 		let snapshot: Snapshot | undefined;
 		// From here on, Telomi is never left stopped: not after a thrown error, and not after an
@@ -541,7 +554,7 @@ export async function main(argv: string[], install = installation()): Promise<nu
 			await stopService(install);
 			trackBusy(busyStatePath(install), false);
 			const started = Date.now();
-			snapshot = takeSnapshot(install, target ? "upgrade" : "daily", current);
+			snapshot = takeSnapshot(install, target ? "upgrade" : "daily", current, new Date(), fingerprint);
 			log(`snapshot ${snapshot.path} took ${Date.now() - started} ms`);
 			if (target) {
 				log(`installing ${target.label} (${target.commit.slice(0, 12)})`);
