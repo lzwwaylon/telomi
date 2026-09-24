@@ -109,9 +109,13 @@ async function runLogin(client: WebSocket, deps: BrowserLoginDependencies): Prom
 		// Started on the blank tab: while a cross-site navigation swaps the page's renderer, Chrome
 		// rejects a screencast start ("Not attached to an active page"); one already running carries on.
 		await page("Page.startScreencast", { format: "jpeg", quality: 75, maxWidth: VIEWPORT.width, maxHeight: VIEWPORT.height, everyNthFrame: 1 });
-		const allCookies = async () => (await cdp.call("Storage.getCookies") as { cookies: Array<{ domain: string; name: string; path: string }> }).cookies;
+		type Cookie = { domain: string; name: string; path: string };
+		const allCookies = async () => (await cdp.call("Storage.getCookies") as { cookies: Cookie[] }).cookies;
+		// Polled every second while the user types: ask only for the login sites' cookies. The whole
+		// jar of a profile synced from the user's browser is thousands of cookies, about 1 MB a call.
+		const loginUrls = logins.map((login) => `https://${login.cookie.domain}/`);
 		const loginStates = async () => {
-			const cookies = await allCookies();
+			const cookies = (await page("Network.getCookies", { urls: loginUrls }) as { cookies: Cookie[] }).cookies;
 			return Object.fromEntries(logins.map((login) => [
 				login.id,
 				cookies.some((cookie) => cookie.name === login.cookie.name && cookieOnDomain(cookie.domain, login.cookie.domain)),

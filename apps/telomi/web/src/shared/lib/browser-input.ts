@@ -37,6 +37,39 @@ export function sendMouse(
 	});
 }
 
+const pendingMoves = new WeakMap<HTMLCanvasElement, { message: Record<string, unknown>; send: Send }>();
+
+/**
+ * Pointer moves, hover included, so the streamed page shows its hover states and cursor targets.
+ * A pointer reports far more moves than the stream can show, so they are coalesced to the latest
+ * one per animation frame and per canvas.
+ */
+export function sendPointerMove(
+	event: React.PointerEvent<HTMLCanvasElement>,
+	send: Send,
+	viewport: Viewport,
+): void {
+	const canvas = event.currentTarget;
+	const scheduled = pendingMoves.has(canvas);
+	pendingMoves.set(canvas, {
+		send,
+		message: {
+			type: "input_mouse",
+			eventType: "mouseMoved",
+			...canvasPoint(canvas, event.clientX, event.clientY, viewport),
+			button: event.buttons & 1 ? "left" : event.buttons & 2 ? "right" : event.buttons & 4 ? "middle" : "none",
+			clickCount: 0,
+			modifiers: modifiers(event),
+		},
+	});
+	if (scheduled) return;
+	requestAnimationFrame(() => {
+		const pending = pendingMoves.get(canvas);
+		pendingMoves.delete(canvas);
+		pending?.send(pending.message);
+	});
+}
+
 export function sendWheel(
 	event: React.WheelEvent<HTMLCanvasElement>,
 	send: Send,

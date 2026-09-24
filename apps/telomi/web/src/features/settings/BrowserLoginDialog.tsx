@@ -4,7 +4,7 @@ import type { SourceStatus, SourcesResponse } from "@shared/sources.js";
 
 import { webSocketUrl } from "@/shared/lib/api";
 import { apiClient } from "@/shared/lib/api-client";
-import { decodeFrame, sendKey, sendMouse, sendWheel, type Viewport } from "@/shared/lib/browser-input";
+import { decodeFrame, sendKey, sendMouse, sendPointerMove, sendWheel, type Viewport } from "@/shared/lib/browser-input";
 import { cn } from "@/shared/lib/utils";
 import { uiText } from "@/app/ui-text";
 import type { MessageId } from "@/app/locales/zh-CN";
@@ -180,9 +180,7 @@ export function BrowserLoginDialog({
 							tabIndex={live ? 0 : -1}
 							onPointerDown={live ? (event) => sendMouse(event, "mousePressed", send, viewportRef.current) : undefined}
 							onPointerUp={live ? (event) => sendMouse(event, "mouseReleased", send, viewportRef.current) : undefined}
-							onPointerMove={live ? (event) => {
-								if (event.buttons) sendMouse(event, "mouseMoved", send, viewportRef.current);
-							} : undefined}
+							onPointerMove={live ? (event) => sendPointerMove(event, send, viewportRef.current) : undefined}
 							onWheel={live ? (event) => sendWheel(event, send, viewportRef.current) : undefined}
 							onContextMenu={live ? (event) => event.preventDefault() : undefined}
 							onKeyDown={live ? (event) => sendKey(event, "keyDown", send) : undefined}
