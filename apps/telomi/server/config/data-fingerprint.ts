@@ -13,22 +13,31 @@ import { join, relative, sep } from "node:path";
 import { normalizeBaseUrl } from "../goals/memory/hindsight-runtime.js";
 
 /**
- * Data-directory paths left out of the fingerprint, relative and `/`-separated; `*` matches one
- * path segment. Each changes while the installation runs, without anything the user did.
+ * Data-directory paths left out of the fingerprint, relative and `/`-separated. `*` matches one path
+ * segment; a leading `**` matches any number. List only state that changes without any user action,
+ * observed on an idle installation or driven by a timer. Anything else counts, including runtime
+ * state, since some of it is the user's: pending User Memory deletions, the prompt registry, Research
+ * Schedules and Topic Plan Proposals all live under `.pi/runtime`.
  */
 export const SELF_CHANGING_STATE = [
-	"browser-profile", // managed browser; re-syncs from the user's Chrome and changes whenever it runs
-	"user-memory", // counted by content below; PostgreSQL rewrites its files on every stop and start
-	".pi/runtime", // traces, Cases, activity records, logs, locks, runtime databases and caches
-	"*/.pi/runtime", // a Goal's own runtime cache
-	".pi/agent/source-status.json", // connection probe results
+	"browser-profile", // managed browser; rewritten whenever it runs (observed idle and on every start)
+	"user-memory", // counted by content below; PostgreSQL rewrites its files while idle and on every start
+	".pi/runtime/chrome-debug", // managed browser's state file and log, appended while idle (observed)
+	".pi/runtime/logs", // server output `npm run upgrade` appends to on every start without a supervisor
+	".pi/agent/source-status.json", // connection probe results, rewritten on every start (observed)
+	"**/node-evaluation", // Evaluation Cases in every Run root; the hourly retention sweep deletes old ones
+	".pi/runtime/harness/*/evaluation/node-backtests", // replays of those Cases, deleted by the same sweep
+	".pi/runtime/harness/*/evolution/runs", // automatic Evolution records the sweep compacts; the evolved Skill counts
 ] as const;
 
 /** `pattern` covers `path` itself or an ancestor of it. */
 function covers(pattern: string, path: string): boolean {
 	const segments = path.split("/");
-	const parts = pattern.split("/");
-	return parts.length <= segments.length && parts.every((part, index) => part === "*" || part === segments[index]);
+	const anywhere = pattern.startsWith("**/");
+	const parts = (anywhere ? pattern.slice(3) : pattern).split("/");
+	const matchesAt = (start: number) => start + parts.length <= segments.length
+		&& parts.every((part, index) => part === "*" || part === segments[start + index]);
+	return anywhere ? segments.some((_, start) => matchesAt(start)) : matchesAt(0);
 }
 
 type Json = Record<string, unknown>;

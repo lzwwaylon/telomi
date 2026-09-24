@@ -31,11 +31,47 @@ async function fakeMemory(context: { after(fn: () => void): void }, banks: () =>
 
 test("state a running installation changes by itself is left out; everything else counts", (context) => {
 	const root = scratch(context);
-	for (const path of ["goals.json", "format.json", "goal_a/wiki/page.md", "goal_a/context.jsonl", ".pi/agent/settings.json", "unknown/new-state.json",
-		"browser-profile/Default/Cookies", "user-memory/postgres/PG_VERSION", ".pi/runtime/harness/goal_a/trace.jsonl",
-		"goal_a/.pi/runtime/cache/x", ".pi/agent/source-status.json"]) write(root, path, "x");
-	assert.deepEqual(dataDirectoryEntries(root).map((entry) => entry.split("\t")[0]),
-		[".pi/agent/settings.json", "format.json", "goal_a/context.jsonl", "goal_a/wiki/page.md", "goals.json", "unknown/new-state.json"]);
+	const counted = [
+		"goals.json", "format.json", "goal_a/wiki/page.md", "goal_a/context.jsonl", ".pi/agent/settings.json", "unknown/new-state.json",
+		// Runtime state that is the user's, or changes only with the user's work.
+		".pi/runtime/user-memory-deletions.json",
+		".pi/runtime/agent-runtime/prompt-registry/v1/index.json",
+		".pi/runtime/secrets/token",
+		".pi/runtime/harness/goal_a/research/schedules.sqlite",
+		".pi/runtime/harness/goal_a/topic-plan/proposals/p1.json",
+		".pi/runtime/harness/goal_a/memory/hindsight-projection.jsonl",
+		".pi/runtime/harness/goal_a/runs/r1/run-state.json",
+		".pi/runtime/harness/goal_a/evaluation/other.json",
+		".pi/runtime/activity/events.jsonl",
+		"goal_a/.pi/runtime/cache/x",
+	];
+	const selfChanging = [
+		"browser-profile/Default/Cookies", "user-memory/postgres/PG_VERSION", ".pi/runtime/chrome-debug/chrome-debug.log",
+		".pi/runtime/logs/server.log", ".pi/agent/source-status.json",
+		".pi/runtime/harness/goal_a/runs/r1/node-evaluation/cases/c1/manifest.json",
+		".pi/runtime/harness/goal_a/main-agent/runs/r2/node-evaluation/cases/c2/manifest.json",
+		"goal_a/.pi/runtime/runs/podcast-ai/r3/node-evaluation/.trash/c3",
+		".pi/runtime/harness/goal_a/evaluation/node-backtests/b1/run.json",
+		".pi/runtime/harness/goal_a/evolution/runs/e1/current.json",
+	];
+	for (const path of [...counted, ...selfChanging]) write(root, path, "x");
+	assert.deepEqual(dataDirectoryEntries(root).map((entry) => entry.split("\t")[0]), [...counted].sort());
+});
+
+test("pending User Memory deletions, the prompt registry and runtime secrets change the fingerprint", async (context) => {
+	const root = scratch(context);
+	write(root, "goals.json", "[]");
+	const url = await fakeMemory(context, () => [{ bank_id: "user", fact_count: 1, last_write_at: "w" }]);
+	const fingerprint = () => dataFingerprint(root, { HINDSIGHT_URL: url });
+	let previous = await fingerprint();
+	for (const path of [".pi/runtime/user-memory-deletions.json", ".pi/runtime/agent-runtime/prompt-registry/v1/index.json", ".pi/runtime/secrets/token"]) {
+		write(root, path, "[\"goal_a\"]");
+		const next = await fingerprint();
+		assert.notEqual(next, previous, path);
+		previous = next;
+	}
+	write(root, ".pi/runtime/chrome-debug/chrome-debug.log", "appended while idle");
+	assert.equal(await fingerprint(), previous, "the browser's debug log is not a change");
 });
 
 test("the synced model catalog does not count; connections and chosen models do", (context) => {

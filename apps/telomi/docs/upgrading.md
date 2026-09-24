@@ -74,9 +74,9 @@ has changed since the newest snapshot, it stops nothing and takes no snapshot, s
 that snapshot already holds the current data. It compares a fingerprint, recorded
 in each snapshot's `snapshot.json`, of Goals (Wiki, reports, attachments,
 conversations), settings, connections, credentials and User Memory content. State
-that changes while Telomi runs is left out: the managed browser profile, runtime
-traces and logs, the model catalog that connections sync, and refreshed login
-tokens. The command keeps the 10 most recent snapshots taken before upgrades and the 7 most
+that changes while Telomi runs without anything you did is left out: the managed
+browser, server logs, connection checks, the evaluation records that retention
+prunes, the model catalog that connections sync, and refreshed login tokens. The command keeps the 10 most recent snapshots taken before upgrades and the 7 most
 recent `--snapshot-only` ones.
 
 To restore one by hand, stop Telomi, move the data directory aside, copy the
