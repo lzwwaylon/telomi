@@ -42,6 +42,10 @@ export class ResearchScheduleReviewService {
 		return this.running.has(`${goalId}:${scheduleId}`);
 	}
 
+	hasRunning(): boolean {
+		return this.running.size > 0;
+	}
+
 	async review(goalId: string, scheduleId: string): Promise<ResearchScheduleReview> {
 		const key = `${goalId}:${scheduleId}`;
 		if (this.running.has(key)) {
