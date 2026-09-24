@@ -75,7 +75,9 @@ export function launchdHooks(repoRoot: string, uid = process.getuid?.() ?? 0, ho
 	const label = `${serviceLabel(repoRoot)}.server`;
 	const plist = launchAgentPath(label, home);
 	return {
-		stop: `launchctl bootout gui/${uid}/${label}`,
+		// bootout returns while the job is still exiting; the upgrade must not snapshot or bootstrap before it is gone.
+		stop: `launchctl bootout gui/${uid}/${label}; i=0; while launchctl print gui/${uid}/${label} >/dev/null 2>&1; do`
+			+ ` [ $i -ge 300 ] && exit 1; i=$((i+1)); sleep 0.2; done`,
 		start: `launchctl enable gui/${uid}/${label} && launchctl bootstrap gui/${uid} '${plist.replaceAll("'", "'\\''")}'`,
 	};
 }
