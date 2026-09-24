@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 
-import { resolveDataDir, upgradeInProgress } from "./config/data-dir.js";
-import { DataDirectoryError, prepareDataDirectory } from "./config/data-format.js";
+import { resolveDataDir } from "./config/data-dir.js";
+import { DataDirectoryError, prepareDataDirectory, upgradeInProgress } from "./config/data-format.js";
 import { loadProjectEnvironment } from "./config/environment.js";
 import { keepOutputLogBounded } from "./config/output-log.js";
 

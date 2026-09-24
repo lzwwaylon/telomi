@@ -48,8 +48,16 @@ version, `2` failed and could not return (recover with the
 
 ### Snapshots
 
-Snapshots go to `TELOMI_BACKUP_DIR`, by default `backups` next to the data
-directory (for example `apps/telomi/backups`). Each holds a copy of the stopped
+Snapshots go to this installation's own directory under the backup root:
+`<backup root>/<installationId>/`, where `installationId` is recorded in the data
+directory's `format.json`. The backup root is `TELOMI_BACKUP_DIR`, by default
+`backups` next to the data directory (for example `apps/telomi/backups`).
+Installations whose data directories share a parent, or that set the same
+`TELOMI_BACKUP_DIR`, share the root, but each only ever sees, prunes and rolls
+back to its own snapshots. The upgrade lock, the upgrade-in-progress marker and
+the `--if-idle` busy record live in the same directory. Snapshots that an earlier
+`dev` build left directly in the root are never touched; the next upgrade names
+them once, so you can delete them by hand. Each snapshot holds a copy of the stopped
 data directory in `data/` and a `snapshot.json` recording its time, the commit
 it belongs to and its `formatVersion`. On APFS, a snapshot on the same volume as
 the data directory is a copy-on-write clone: it takes seconds and uses little

@@ -5,14 +5,17 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 
-import { resolveBackupDir, upgradeInProgress, upgradeMarkerPath } from "../server/config/data-dir.js";
+import { resolveBackupDir } from "../server/config/data-dir.js";
+import { installationBackupDir, upgradeInProgress, upgradeMarkerPath } from "../server/config/data-format.js";
 import {
 	assertClean,
+	checkout,
 	checksVerdict,
 	githubRepository,
 	installation,
 	launchAgentPath,
 	launchdHooks,
+	reportFlatSnapshots,
 	serviceLabel,
 	dataFormatChanged,
 	listSnapshots,
@@ -85,12 +88,12 @@ test("an installed service becomes the supervisor unless stop and start are conf
 	assert.match(hooks.stop, /^launchctl bootout gui\/501\/com\.telomi\.[0-9a-f]{12}\.server$/u);
 	assert.match(hooks.start, /^launchctl enable .+ && launchctl bootstrap gui\/501 '.+\.server\.plist'$/u);
 	assert.notEqual(serviceLabel(root), serviceLabel(appRoot));
-	assert.equal(installation(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP, undefined);
+	assert.equal(checkout(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP, undefined);
 	const plist = launchAgentPath(`${serviceLabel(root)}.server`, home);
 	mkdirSync(dirname(plist), { recursive: true });
 	writeFileSync(plist, "");
-	assert.equal(installation(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP?.startsWith("launchctl bootout"), true);
-	assert.equal(installation(appRoot, { HOME: home, TELOMI_SERVICE_STOP: "custom" }).env.TELOMI_SERVICE_STOP, "custom");
+	assert.equal(checkout(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP?.startsWith("launchctl bootout"), true);
+	assert.equal(checkout(appRoot, { HOME: home, TELOMI_SERVICE_STOP: "custom" }).env.TELOMI_SERVICE_STOP, "custom");
 });
 
 test("the default target is the highest published Release tag, not a prerelease", (context) => {
@@ -178,16 +181,74 @@ test("a busy streak is measured from its first skipped run and cleared when idle
 	assert.equal(trackBusy(state, true, start + 27 * 3_600_000), 0);
 });
 
-test("the server sees an upgrade in progress only while that upgrade is alive", (context) => {
+function marked(dataDir: string, installationId: string): void {
+	mkdirSync(dataDir, { recursive: true });
+	writeFileSync(join(dataDir, "format.json"), JSON.stringify({ formatVersion: 2, installationId }));
+}
+
+test("the server sees an upgrade in progress only while that upgrade of its own installation is alive", (context) => {
 	const root = scratch(context);
 	const env = { TELOMI_DATA_DIR: join(root, "data") };
+	const other = { TELOMI_DATA_DIR: join(root, "other") };
 	assert.equal(resolveBackupDir(env), join(root, "backups"));
+	// An unmarked data directory has no installation directory, so nothing can be upgrading it.
+	assert.equal(installationBackupDir(env), undefined);
 	assert.equal(upgradeInProgress(env), undefined);
-	mkdirSync(join(root, "backups"));
-	writeFileSync(upgradeMarkerPath(env), String(process.pid));
+	marked(env.TELOMI_DATA_DIR, "first");
+	marked(other.TELOMI_DATA_DIR, "second");
+	const backupDir = installationBackupDir(env)!;
+	assert.equal(backupDir, join(root, "backups", "first"));
+	mkdirSync(backupDir, { recursive: true });
+	writeFileSync(upgradeMarkerPath(backupDir), String(process.pid));
 	assert.equal(upgradeInProgress(env), process.pid);
+	assert.equal(upgradeInProgress(other), undefined, "another installation sharing the root still starts");
 	const exited = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" });
-	writeFileSync(upgradeMarkerPath(env), exited.stdout);
+	writeFileSync(upgradeMarkerPath(backupDir), exited.stdout);
 	assert.equal(upgradeInProgress(env), undefined);
-	assert.equal(resolveBackupDir({ ...env, TELOMI_BACKUP_DIR: join(root, "elsewhere") }), join(root, "elsewhere"));
+	assert.equal(installationBackupDir({ ...env, TELOMI_BACKUP_DIR: join(root, "elsewhere") }), join(root, "elsewhere", "first"));
+});
+
+test("installations sharing a backup root never see or prune each other's snapshots", (context) => {
+	const root = scratch(context);
+	const [a, b] = ["a", "b"].map((name) => {
+		const dataDir = join(root, name);
+		marked(dataDir, `id-${name}`);
+		const backupDir = installationBackupDir({ TELOMI_DATA_DIR: dataDir })!;
+		return { repoRoot: root, dataDir, backupDir, marker: upgradeMarkerPath(backupDir), baseUrl: "http://127.0.0.1:1", env: {} } satisfies Installation;
+	});
+	assert.equal(dirname(a!.backupDir), dirname(b!.backupDir));
+	const kept = takeSnapshot(b!, "daily", "b".repeat(40), new Date("2026-09-01T00:00:00Z"));
+	for (let day = 1; day <= SNAPSHOT_LIMITS.daily + 2; day++) takeSnapshot(a!, "daily", "a".repeat(40), new Date(Date.UTC(2026, 8, 10 + day)));
+	assert.equal(listSnapshots(a!.backupDir).length, SNAPSHOT_LIMITS.daily + 2);
+	assert.deepEqual(listSnapshots(b!.backupDir).map((snapshot) => snapshot.path), [kept.path]);
+	pruneSnapshots(a!);
+	assert.equal(listSnapshots(a!.backupDir).length, SNAPSHOT_LIMITS.daily);
+	assert.deepEqual(listSnapshots(b!.backupDir).map((snapshot) => snapshot.path), [kept.path], "the other installation's oldest snapshot survives");
+});
+
+test("snapshots from before per-installation backups are reported once and never touched", (context) => {
+	const root = scratch(context);
+	const dataDir = join(root, "data");
+	marked(dataDir, "only");
+	const flat = join(root, "backups", "daily-20260901T000000Z-aaaaaaaaaaaa");
+	mkdirSync(join(flat, "data"), { recursive: true });
+	writeFileSync(join(flat, "snapshot.json"), JSON.stringify({ kind: "daily", createdAt: "2026-09-01T00:00:00.000Z", commit: "a".repeat(40), formatVersion: 2 }));
+	const backupDir = installationBackupDir({ TELOMI_DATA_DIR: dataDir })!;
+	mkdirSync(backupDir);
+	const target = { dataDir, backupDir };
+	assert.deepEqual(reportFlatSnapshots(target), [flat]);
+	assert.deepEqual(reportFlatSnapshots(target), [], "reported once");
+	assert.deepEqual(listSnapshots(backupDir), []);
+	pruneSnapshots(target);
+	assert.equal(existsSync(join(flat, "snapshot.json")), true);
+});
+
+test("an upgrade needs a data directory Telomi has marked", (context) => {
+	const root = scratch(context);
+	const appRoot = join(root, "apps", "telomi");
+	mkdirSync(join(root, "data"), { recursive: true });
+	mkdirSync(appRoot, { recursive: true });
+	assert.throws(() => installation(appRoot, { TELOMI_DATA_DIR: join(root, "data") }), /has no format\.json yet/u);
+	marked(join(root, "data"), "marked");
+	assert.equal(installation(appRoot, { TELOMI_DATA_DIR: join(root, "data") }).backupDir, join(root, "backups", "marked"));
 });
