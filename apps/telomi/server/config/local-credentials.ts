@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { resolveDataDir } from "./data-dir.js";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -18,7 +18,7 @@ type BrowserCookie = {
 
 export interface LocalCredentialDiscoveryOptions {
 	homeDir?: string;
-	readBrowserCookies?: (cdpUrl: string) => Promise<BrowserCookie[]>;
+	readBrowserCookies?: (cdpUrl: string) => Promise<BrowserCookie[] | undefined>;
 }
 
 /**
@@ -55,9 +55,11 @@ export async function discoverLocalProviderEnvironment(
 
 /**
  * Re-read the user's browser session from the Browser host: the X login as the Twitter cookie
- * header, the YouTube/Google login as a yt-dlp cookie file. Called at startup and before each
- * research run, so a session that was refreshed or expired in the browser is what the next run
- * uses. A value the user set explicitly is never touched.
+ * header, the YouTube/Google login as a yt-dlp cookie file. Called at startup, before each
+ * research run and around each start and idle stop of the managed browser, so a session that was
+ * refreshed or expired in the browser is what the next run uses. Both are kept in the runtime
+ * directory: the browser runs only while something uses it, and while it is stopped the last
+ * session it held is still the user's. A value the user set explicitly is never touched.
  */
 export async function refreshBrowserSessions(
 	env: NodeJS.ProcessEnv = process.env,
@@ -72,11 +74,20 @@ export async function refreshBrowserSessions(
 	if (!wantsTwitter && !wantsYouTube) return [];
 
 	const cdpUrl = env.TELOMI_BROWSER_HOST_CDP_URL?.trim() || "http://127.0.0.1:9222";
+	// Undefined while the host is not running: the saved session stands until the browser says otherwise.
 	const cookies = await (options.readBrowserCookies ?? readBrowserCookies)(cdpUrl);
+	const sessionDir = browserSessionDir(env, appRoot);
 	const discovered: string[] = [];
+	if (cookies && !browserSessionRecorded(env, appRoot)) {
+		// Written once and never rewritten, so a later read that finds the same session changes no file.
+		mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+		writeFileSync(join(sessionDir, SESSION_READ_MARKER), "");
+	}
 
 	if (wantsTwitter) {
-		const header = xCookieHeader(cookies);
+		const path = join(sessionDir, "x-cookie-header.txt");
+		const header = cookies ? xCookieHeader(cookies) : readBrowserSessionFile(path);
+		if (cookies) saveBrowserSessionFile(path, header);
 		if (header) {
 			env.SOURCE_SERVICE_TWITTER_COOKIE = header;
 			browserOwned.add("SOURCE_SERVICE_TWITTER_COOKIE");
@@ -87,11 +98,10 @@ export async function refreshBrowserSessions(
 	}
 
 	if (wantsYouTube) {
-		const file = youtubeCookieFile(cookies);
+		const path = join(sessionDir, "youtube-cookies.txt");
+		const file = cookies ? youtubeCookieFile(cookies) : readBrowserSessionFile(path);
+		if (cookies) saveBrowserSessionFile(path, file);
 		if (file) {
-			const path = join(resolveDataDir(env, appRoot), ".pi", "runtime", "browser-session", "youtube-cookies.txt");
-			mkdirSync(join(path, ".."), { recursive: true, mode: 0o700 });
-			writeFileSync(path, file, { mode: 0o600 });
 			env.PI_YOUTUBE_YTDLP_COOKIE_FILE = path;
 			browserOwned.add("PI_YOUTUBE_YTDLP_COOKIE_FILE");
 			discovered.push("youtube-browser-session");
@@ -103,6 +113,43 @@ export async function refreshBrowserSessions(
 	return discovered;
 }
 
+const SESSION_READ_MARKER = "read";
+
+function browserSessionDir(env: NodeJS.ProcessEnv, appRoot?: string): string {
+	return join(resolveDataDir(env, appRoot), ".pi", "runtime", "browser-session");
+}
+
+/**
+ * Whether the saved browser session reflects a read of the browser. Until one has happened (a new
+ * installation, or one from before the session was saved), a missing file means "not known" rather
+ * than "logged out", and the browser has to be read once.
+ */
+export function browserSessionRecorded(env: NodeJS.ProcessEnv = process.env, appRoot?: string): boolean {
+	return existsSync(join(browserSessionDir(env, appRoot), SESSION_READ_MARKER));
+}
+
+function readBrowserSessionFile(path: string): string | undefined {
+	try {
+		return readFileSync(path, "utf8") || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The browser's current session, or its absence once the browser shows it logged out. An unchanged
+ * session is not rewritten, so reading the browser alone never looks like new user data.
+ */
+function saveBrowserSessionFile(path: string, content: string | undefined): void {
+	if (!content) {
+		rmSync(path, { force: true });
+		return;
+	}
+	if (readBrowserSessionFile(path) === content) return;
+	mkdirSync(join(path, ".."), { recursive: true, mode: 0o700 });
+	writeFileSync(path, content, { mode: 0o600 });
+}
+
 /**
  * A freshly launched browser host answers with a partial cookie set while its profile loads. Wait
  * until two consecutive reads agree, so a login is not judged on half of its cookies.
@@ -111,7 +158,7 @@ export async function waitForBrowserCookies(cdpUrl: string, timeoutMs = 10_000):
 	const deadline = Date.now() + timeoutMs;
 	let previous = -1;
 	while (Date.now() < deadline) {
-		const count = (await readBrowserCookies(cdpUrl)).length;
+		const count = (await readBrowserCookies(cdpUrl))?.length ?? 0;
 		if (count > 0 && count === previous) return;
 		previous = count;
 		await new Promise((resolve) => setTimeout(resolve, 500));
@@ -209,25 +256,26 @@ function readSmallSecret(path: string): string | undefined {
 	}
 }
 
-export async function readBrowserCookies(cdpUrl: string): Promise<BrowserCookie[]> {
+/** The browser's cookies, or undefined when the host is not running or did not answer. */
+export async function readBrowserCookies(cdpUrl: string): Promise<BrowserCookie[] | undefined> {
 	try {
 		const base = new URL(cdpUrl);
-		if (base.protocol !== "http:" && base.protocol !== "https:") return [];
+		if (base.protocol !== "http:" && base.protocol !== "https:") return undefined;
 		const response = await fetch(new URL("/json/version", base), { signal: AbortSignal.timeout(2_000) });
-		if (!response.ok) return [];
+		if (!response.ok) return undefined;
 		const version = await response.json() as { webSocketDebuggerUrl?: unknown };
-		if (typeof version.webSocketDebuggerUrl !== "string") return [];
+		if (typeof version.webSocketDebuggerUrl !== "string") return undefined;
 		return await browserCookiesFromSocket(version.webSocketDebuggerUrl);
 	} catch {
-		return [];
+		return undefined;
 	}
 }
 
-function browserCookiesFromSocket(endpoint: string): Promise<BrowserCookie[]> {
+function browserCookiesFromSocket(endpoint: string): Promise<BrowserCookie[] | undefined> {
 	return new Promise((resolve) => {
 		const socket = new WebSocket(endpoint);
 		let settled = false;
-		const finish = (cookies: BrowserCookie[] = []) => {
+		const finish = (cookies?: BrowserCookie[]) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
@@ -241,7 +289,7 @@ function browserCookiesFromSocket(endpoint: string): Promise<BrowserCookie[]> {
 		socket.on("message", (data) => {
 			try {
 				const message = JSON.parse(data.toString()) as { id?: unknown; result?: { cookies?: unknown } };
-				if (message.id === 1) finish(Array.isArray(message.result?.cookies) ? message.result.cookies : []);
+				if (message.id === 1) finish(Array.isArray(message.result?.cookies) ? message.result.cookies : undefined);
 			} catch {
 				finish();
 			}

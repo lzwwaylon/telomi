@@ -25,7 +25,7 @@ export type SourceVerify =
 	| "source_service"
 	/** Run one account-scoped yt-dlp call with the browser-derived cookie file. */
 	| "youtube"
-	/** Probe the browser CDP host. */
+	/** Whether the browser can be used: a managed host can be started (it runs on demand), a remote one must answer. */
 	| "browser"
 	/** Local or public with no credential; nothing to verify. */
 	| "none";

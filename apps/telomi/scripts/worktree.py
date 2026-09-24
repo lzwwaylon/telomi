@@ -578,6 +578,14 @@ if(Number(process.versions.node.split('.')[0])!==24)throw Error('Node 24 require
                 "web proxy": env["TELOMI_WEB_URL"] + "/api/health",
                 "browser": env["TELOMI_BROWSER_HOST_CDP_URL"].rstrip("/") + "/json/version"}
         for label, url in urls.items():
+            if label == "browser":
+                # The managed browser starts on first use and stops when idle; not running is normal.
+                try:
+                    urllib.request.urlopen(url, timeout=5).close()
+                    print("[worktree] browser reachable", flush=True)
+                except OSError:
+                    print("[worktree] browser not running (started on demand)", flush=True)
+                continue
             with urllib.request.urlopen(url, timeout=5) as response:
                 if response.status != 200:
                     raise RuntimeError(f"{label} is not ready")

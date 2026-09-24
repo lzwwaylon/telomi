@@ -144,6 +144,8 @@ export interface BrowserSessionRegistryOptions {
 	isProcessAlive?: (pid: number) => boolean;
 	/** Confirms a pid is really our agent-browser daemon before any signal. */
 	isAgentBrowserProcess?: (pid: number) => boolean;
+	/** Starts the browser host for admitted workspaces; the lease is held until the last one ends. */
+	host?: { acquire(): Promise<() => void> };
 }
 
 export class BrowserSessionRegistry {
@@ -163,6 +165,8 @@ export class BrowserSessionRegistry {
 	private readonly queue: PendingAdmission[] = [];
 	private activeWorkspaces = 0;
 	private sweepTimer?: ReturnType<typeof setInterval>;
+	private readonly host?: { acquire(): Promise<() => void> };
+	private hostLease?: Promise<() => void>;
 
 	constructor(options: BrowserSessionRegistryOptions = {}) {
 		this.namespace = normalizeNamespace(
@@ -185,6 +189,7 @@ export class BrowserSessionRegistry {
 		this.onEvent = options.onEvent;
 		this.isProcessAlive = options.isProcessAlive ?? processIsAlive;
 		this.isAgentBrowserProcess = options.isAgentBrowserProcess ?? isAgentBrowserProcess;
+		this.host = options.host;
 	}
 
 	get config(): {
@@ -259,6 +264,7 @@ export class BrowserSessionRegistry {
 			return { exitCode: 0 };
 		}
 		await this.admit(task, options.signal);
+		await this.holdHost();
 		if (["open", "read", "reload"].includes(args[0] ?? "")) return this.navigate(task, args, options);
 		return { exitCode: await this.runAgentCommand(task, args, options) };
 	}
@@ -313,6 +319,7 @@ export class BrowserSessionRegistry {
 		if (!task) throw new Error(`No active Browser workspace for owner: ${ownerId}`);
 		if (!/^@e[1-9][0-9]*$/u.test(ref)) throw new Error("Browser download requires a current snapshot ref");
 		await this.admit(task, options.signal);
+		await this.holdHost();
 		return { exitCode: await this.runAgentCommand(task, ["download", ref, outputPath], options) };
 	}
 
@@ -351,6 +358,7 @@ export class BrowserSessionRegistry {
 				if (task.admitted) {
 					task.admitted = false;
 					this.activeWorkspaces -= 1;
+					if (this.activeWorkspaces === 0) this.releaseHost();
 				}
 			} catch (error) {
 				// Keep the owner and permit until teardown succeeds; sweep retries aborted tasks.
@@ -666,6 +674,24 @@ export class BrowserSessionRegistry {
 			AGENT_BROWSER_PIN_TAB: "1",
 			AGENT_BROWSER_IDLE_TIMEOUT_MS: String(this.idleTimeoutMs),
 		};
+	}
+
+	/** The browser host stays up while any workspace is admitted; the first command starts it. */
+	private async holdHost(): Promise<void> {
+		if (!this.host) return;
+		const lease = this.hostLease ??= this.host.acquire();
+		try {
+			await lease;
+		} catch (error) {
+			if (this.hostLease === lease) this.hostLease = undefined;
+			throw error;
+		}
+	}
+
+	private releaseHost(): void {
+		const lease = this.hostLease;
+		this.hostLease = undefined;
+		void lease?.then((release) => release(), () => undefined);
 	}
 
 	private admit(task: ActiveTask, signal?: AbortSignal): Promise<void> {

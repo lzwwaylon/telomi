@@ -17,6 +17,6 @@ To restart the current Worktree, run `npm run worktree -- stop` and wait for it 
 
 `browser:start`, `browser:status` and `browser:stop` use the current Worktree's CDP configuration. The browser stop command only acts on a browser recorded by this checkout whose process arguments match both the port and Profile path. Specifying another port does not grant permission to close that browser.
 
-`doctor` checks local import resolution and pinned Runtime dependencies. `--live` also checks the running product, frontend and browser endpoints. Actual Provider authorization, audio hardware and model behavior still require their own real verification.
+`doctor` checks local import resolution and pinned Runtime dependencies. `--live` also checks the running product and frontend endpoints, and reports whether the managed browser is running (it starts on first use and stops when idle, so not running is normal). Actual Provider authorization, audio hardware and model behavior still require their own real verification.
 
 Read [Deterministic testing](testing.md) when writing or selecting tests, and [Real E2E verification](e2e.md) when verifying user flows.
