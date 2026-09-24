@@ -5,7 +5,9 @@
 // failed version already migrated the data (`format.json` changed). See docs/upgrading.md.
 
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +15,7 @@ import { applicationRoot, resolveBackupDir, resolveDataDir, upgradeMarkerPath } 
 import { readDataFormat } from "../server/config/data-format.js";
 import { stopManagedBrowser, stopMemoryDatabase } from "../server/config/data-layout.js";
 import { loadProjectEnvironment } from "../server/config/environment.js";
+import { rotateOutputLog } from "../server/config/output-log.js";
 import { runtimeControlRoot } from "../server/workspaces/server-runtime-paths.js";
 import { managedBrowserPaths } from "./chrome-debug.js";
 
@@ -50,11 +53,42 @@ export class UpgradeError extends Error {}
 
 const log = (message: string) => console.log(`[upgrade] ${message}`);
 
+/**
+ * launchd label prefix of this checkout's service (`npm run service`). Derived from the checkout's
+ * real path, so every checkout on the machine gets its own jobs.
+ */
+export function serviceLabel(repoRoot: string): string {
+	return `com.telomi.${createHash("sha256").update(realpathSync(repoRoot)).digest("hex").slice(0, 12)}`;
+}
+
+export function launchAgentPath(label: string, home = homedir()): string {
+	return join(home, "Library", "LaunchAgents", `${label}.plist`);
+}
+
+/** Stop and start commands for an installed `npm run service`; `enable` undoes `npm run service -- stop`. */
+export function launchdHooks(repoRoot: string, uid = process.getuid?.() ?? 0, home = homedir()): { stop: string; start: string } {
+	const label = `${serviceLabel(repoRoot)}.server`;
+	const plist = launchAgentPath(label, home);
+	return {
+		stop: `launchctl bootout gui/${uid}/${label}`,
+		start: `launchctl enable gui/${uid}/${label} && launchctl bootstrap gui/${uid} '${plist.replaceAll("'", "'\\''")}'`,
+	};
+}
+
 export function installation(appRoot = applicationRoot, parentEnv: NodeJS.ProcessEnv = process.env): Installation {
 	const env = { ...parentEnv };
 	loadProjectEnvironment(appRoot, env);
+	const repoRoot = resolve(appRoot, "../..");
+	// An installed service is the supervisor: stop and start through it unless configured otherwise.
+	const home = env.HOME || homedir();
+	if (!env.TELOMI_SERVICE_STOP?.trim() && !env.TELOMI_SERVICE_START?.trim()
+		&& existsSync(launchAgentPath(`${serviceLabel(repoRoot)}.server`, home))) {
+		const hooks = launchdHooks(repoRoot, undefined, home);
+		env.TELOMI_SERVICE_STOP = hooks.stop;
+		env.TELOMI_SERVICE_START = hooks.start;
+	}
 	return {
-		repoRoot: resolve(appRoot, "../.."),
+		repoRoot,
 		dataDir: resolve(appRoot, resolveDataDir(env, appRoot)),
 		backupDir: resolveBackupDir(env, appRoot),
 		marker: upgradeMarkerPath(env, appRoot),
@@ -313,26 +347,59 @@ async function busy(install: Installation): Promise<number | undefined> {
 	return 3;
 }
 
+/** `owner/repo` of a GitHub remote URL (https or ssh), otherwise undefined. */
+export function githubRepository(remoteUrl: string): string | undefined {
+	return /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/u.exec(remoteUrl.trim())?.[1];
+}
+
+export interface CheckRun {
+	name: string;
+	status: string;
+	conclusion: string | null;
+}
+
+/** Every check run finished without failing. No runs yet means they have not started: not passed. */
+export function checksVerdict(runs: CheckRun[]): { passed: boolean; reason: string } {
+	if (runs.length === 0) return { passed: false, reason: "no checks have run yet" };
+	const pending = runs.filter((run) => run.status !== "completed");
+	if (pending.length > 0) return { passed: false, reason: `pending: ${pending.map((run) => run.name).join(", ")}` };
+	const failed = runs.filter((run) => !["success", "neutral", "skipped"].includes(run.conclusion ?? ""));
+	if (failed.length > 0) return { passed: false, reason: `failed: ${failed.map((run) => `${run.name} (${run.conclusion})`).join(", ")}` };
+	return { passed: true, reason: `${runs.length} checks passed` };
+}
+
+/** Reads the commit's GitHub check runs. Fails closed: anything unreadable counts as not passed. */
+async function commitChecks(repo: string, commit: string): Promise<{ passed: boolean; reason: string }> {
+	const slug = githubRepository(spawnSync("git", ["remote", "get-url", "origin"], { cwd: repo, encoding: "utf8" }).stdout ?? "");
+	if (!slug) return { passed: false, reason: "origin is not a GitHub repository" };
+	const response = await getJson(`https://api.github.com/repos/${slug}/commits/${commit}/check-runs?per_page=100`) as { check_runs?: CheckRun[] } | undefined;
+	if (!Array.isArray(response?.check_runs)) return { passed: false, reason: `could not read the checks of ${commit.slice(0, 12)} from GitHub` };
+	return checksVerdict(response.check_runs);
+}
+
 export interface Options {
 	ref?: string;
 	ifIdle: boolean;
 	snapshotOnly: boolean;
 	rollback: boolean;
+	requireChecks: boolean;
 }
 
 export function parseOptions(argv: string[]): Options {
-	const options: Options = { ifIdle: false, snapshotOnly: false, rollback: false };
+	const options: Options = { ifIdle: false, snapshotOnly: false, rollback: false, requireChecks: false };
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index]!;
 		if (arg === "--if-idle") options.ifIdle = true;
 		else if (arg === "--snapshot-only") options.snapshotOnly = true;
 		else if (arg === "--rollback") options.rollback = true;
+		else if (arg === "--require-checks") options.requireChecks = true;
 		else if (arg === "--ref") options.ref = argv[++index];
 		else if (arg.startsWith("--ref=")) options.ref = arg.slice("--ref=".length);
-		else throw new UpgradeError(`Unknown argument ${arg}. Usage: npm run upgrade -- [--ref <ref>] [--if-idle] | --snapshot-only [--if-idle] | --rollback`);
+		else throw new UpgradeError(`Unknown argument ${arg}. Usage: npm run upgrade -- [--ref <ref>] [--if-idle] [--require-checks] | --snapshot-only [--if-idle] | --rollback`);
 	}
 	if (options.ref === "") throw new UpgradeError("--ref needs a value");
-	if (options.rollback && (options.ref || options.ifIdle || options.snapshotOnly)) throw new UpgradeError("--rollback takes no other options");
+	if (options.rollback && (options.ref || options.ifIdle || options.snapshotOnly || options.requireChecks)) throw new UpgradeError("--rollback takes no other options");
+	if (options.snapshotOnly && options.requireChecks) throw new UpgradeError("--require-checks applies to a code change; drop it with --snapshot-only");
 	if (options.snapshotOnly && options.ref) throw new UpgradeError("--snapshot-only keeps the current code; drop --ref");
 	return options;
 }
@@ -360,7 +427,15 @@ function acquireLock(backupDir: string): () => void {
 
 export async function main(argv: string[], install = installation()): Promise<number> {
 	const options = parseOptions(argv);
-	const release = acquireLock(install.backupDir);
+	let release: () => void;
+	try {
+		release = acquireLock(install.backupDir);
+	} catch (error) {
+		// A scheduled run that meets another upgrade or snapshot simply waits for its next turn.
+		if (!options.ifIdle || !(error instanceof UpgradeError)) throw error;
+		log(`${error.message}; nothing was changed`);
+		return 0;
+	}
 	try {
 		assertClean(install.repoRoot);
 		const current = git(install.repoRoot, "rev-parse", "HEAD");
@@ -375,6 +450,14 @@ export async function main(argv: string[], install = installation()): Promise<nu
 		if (target?.commit === current) {
 			log(`already at ${target.label} (${current.slice(0, 12)})`);
 			return 0;
+		}
+		if (target && options.requireChecks) {
+			const checks = await commitChecks(install.repoRoot, target.commit);
+			if (!checks.passed) {
+				log(`${target.label} (${target.commit.slice(0, 12)}) is not ready: ${checks.reason}; nothing was changed`);
+				return 0;
+			}
+			log(`${target.label} (${target.commit.slice(0, 12)}): ${checks.reason}`);
 		}
 		if (options.ifIdle) {
 			const code = await busy(install);
@@ -413,6 +496,8 @@ export async function main(argv: string[], install = installation()): Promise<nu
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	// A scheduled job appends a few lines per run to its log; keep it bounded like the server's.
+	rotateOutputLog(process.env.TELOMI_OUTPUT_LOG?.trim());
 	main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (error: unknown) => {
 		console.error(`[upgrade] ${error instanceof Error ? error.message : String(error)}`);
 		process.exitCode = 1;

@@ -2,12 +2,18 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import { resolveBackupDir, upgradeInProgress, upgradeMarkerPath } from "../server/config/data-dir.js";
 import {
 	assertClean,
+	checksVerdict,
+	githubRepository,
+	installation,
+	launchAgentPath,
+	launchdHooks,
+	serviceLabel,
 	dataFormatChanged,
 	listSnapshots,
 	parseOptions,
@@ -49,12 +55,42 @@ function gitRepo(root: string): (...args: string[]) => string {
 }
 
 test("options reject combinations that would do something other than asked", () => {
-	assert.deepEqual(parseOptions(["--ref", "dev", "--if-idle"]), { ref: "dev", ifIdle: true, snapshotOnly: false, rollback: false });
+	assert.deepEqual(parseOptions(["--ref", "dev", "--if-idle", "--require-checks"]), { ref: "dev", ifIdle: true, snapshotOnly: false, rollback: false, requireChecks: true });
 	assert.equal(parseOptions(["--ref=v1.2.3"]).ref, "v1.2.3");
 	assert.throws(() => parseOptions(["--rollback", "--ref", "dev"]), UpgradeError);
 	assert.throws(() => parseOptions(["--snapshot-only", "--ref", "dev"]), UpgradeError);
 	assert.throws(() => parseOptions(["--ref="]), UpgradeError);
 	assert.throws(() => parseOptions(["--force"]), UpgradeError);
+	assert.throws(() => parseOptions(["--snapshot-only", "--require-checks"]), UpgradeError);
+	assert.throws(() => parseOptions(["--rollback", "--require-checks"]), UpgradeError);
+});
+
+test("a commit is ready only when all of its checks finished without failing", () => {
+	const run = (name: string, status: string, conclusion: string | null) => ({ name, status, conclusion });
+	assert.equal(checksVerdict([]).passed, false);
+	assert.equal(checksVerdict([run("tests", "completed", "success"), run("build", "in_progress", null)]).passed, false);
+	assert.match(checksVerdict([run("tests", "completed", "failure")]).reason, /failed: tests \(failure\)/u);
+	assert.equal(checksVerdict([run("tests", "completed", "success"), run("lint", "completed", "skipped")]).passed, true);
+	assert.equal(githubRepository("git@github.com:owner/repo.git"), "owner/repo");
+	assert.equal(githubRepository("https://github.com/owner/repo"), "owner/repo");
+	assert.equal(githubRepository("https://gitlab.com/owner/repo.git"), undefined);
+});
+
+test("an installed service becomes the supervisor unless stop and start are configured", (context) => {
+	const root = scratch(context);
+	const appRoot = join(root, "apps", "telomi");
+	mkdirSync(appRoot, { recursive: true });
+	const home = join(root, "home");
+	const hooks = launchdHooks(root, 501, home);
+	assert.match(hooks.stop, /^launchctl bootout gui\/501\/com\.telomi\.[0-9a-f]{12}\.server$/u);
+	assert.match(hooks.start, /^launchctl enable .+ && launchctl bootstrap gui\/501 '.+\.server\.plist'$/u);
+	assert.notEqual(serviceLabel(root), serviceLabel(appRoot));
+	assert.equal(installation(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP, undefined);
+	const plist = launchAgentPath(`${serviceLabel(root)}.server`, home);
+	mkdirSync(dirname(plist), { recursive: true });
+	writeFileSync(plist, "");
+	assert.equal(installation(appRoot, { HOME: home }).env.TELOMI_SERVICE_STOP?.startsWith("launchctl bootout"), true);
+	assert.equal(installation(appRoot, { HOME: home, TELOMI_SERVICE_STOP: "custom" }).env.TELOMI_SERVICE_STOP, "custom");
 });
 
 test("the default target is the highest published Release tag, not a prerelease", (context) => {
