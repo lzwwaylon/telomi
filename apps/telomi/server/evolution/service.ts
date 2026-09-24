@@ -431,6 +431,11 @@ export class EvolutionService {
 		return TERMINAL_RUN_STATUSES.includes(run.status) ? run : this.transition(run, "cancelled");
 	}
 
+	/** Whether this process is still executing a Run, including one that is settling after cancellation. Nothing resumes a Run. */
+	hasExecutingRun(): boolean {
+		return this.active.size > 0;
+	}
+
 	stop(): void {
 		for (const { controller } of this.active.values()) controller.abort("evolution_service_stopped");
 	}

@@ -50,6 +50,37 @@ export class ResearchScheduleScheduler {
 		this.timer = undefined;
 	}
 
+	/** Whether a claimed occurrence is still starting its Research Run or running it. */
+	hasClaimedOccurrence(): boolean {
+		return this.activeGoals.size > 0;
+	}
+
+	/**
+	 * The earliest time an active Schedule is next due, which may already be past while its Goal
+	 * is busy. Undefined when nothing is pending or this scheduler is not running.
+	 */
+	nextOccurrenceAt(): string | undefined {
+		if (!this.timer) return undefined;
+		let next: string | undefined;
+		for (const goal of this.goals.listGoals()) {
+			try {
+				const store = new ResearchScheduleStore(goal.id, this.workspaceDir);
+				try {
+					for (const schedule of store.list()) {
+						if (schedule.status !== "active" || !schedule.nextRunAt) continue;
+						if (!next || Date.parse(schedule.nextRunAt) < Date.parse(next)) next = schedule.nextRunAt;
+					}
+				} finally {
+					store.close();
+				}
+			} catch (error) {
+				// A store the scheduler cannot open cannot start work either.
+				this.logStoreFailure(goal.id, error);
+			}
+		}
+		return next;
+	}
+
 	async tick(now = new Date()): Promise<void> {
 		if (this.ticking) return;
 		this.ticking = true;

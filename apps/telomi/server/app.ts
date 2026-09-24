@@ -72,6 +72,7 @@ import { createResearchSchedulesRouter } from "./research/schedules/api.js";
 import { ResearchScheduleReviewService } from "./research/schedules/review-service.js";
 import { ResearchScheduleScheduler } from "./research/schedules/scheduler.js";
 import { createActivityProjection } from "./app/activity-projection.js";
+import { readIdleVerdict } from "./app/idle-verdict.js";
 import { createTraceRouter } from "./observability/trace-api.js";
 import { createPromptRegistryRouter } from "./agent-runtime/prompt-registry-api.js";
 import { PromptRegistry } from "./agent-runtime/prompt-registry.js";
@@ -499,6 +500,24 @@ app.get("/api/health", (_req, res) => {
 		sandbox: "srt",
 		workspaceDir,
 	});
+});
+
+// Maintenance such as an upgrade reads this before stopping the server; it never delays work.
+app.get("/api/runtime/idle", async (_req, res) => {
+	try {
+		res.json(await readIdleVerdict({
+			listGoalIds: () => goals.listGoals().map((goal) => goal.id),
+			isGoalActive: (goalId) => goals.isGoalActive(goalId),
+			activitySummary: () => activityProjection.getGlobalSummary(),
+			hasClaimedScheduledResearch: () => researchScheduleScheduler.hasClaimedOccurrence(),
+			nextScheduledAt: () => researchScheduleScheduler.nextOccurrenceAt(),
+			hasRunningScheduleReview: () => researchScheduleReviews.hasRunning(),
+			hasExecutingEvolutionRun: () => operations?.evolution.hasExecutingRun() ?? false,
+			userMemoryActiveOperations: () => getHindsightRuntimeManager().activeOperations(),
+		}));
+	} catch (err) {
+		res.status(500).json({ error: toErrorMessage(err) });
+	}
 });
 
 app.post("/api/admin/providers/sync/run-now", async (_req, res) => {

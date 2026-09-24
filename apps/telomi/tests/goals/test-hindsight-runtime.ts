@@ -274,3 +274,66 @@ test("Memory embedding rejects unknown connections instead of inheriting the env
 		assert.throws(() => memoryEmbeddingEnv({ connection, model: "old-model", baseUrl: "" }, "stored-key"), /is unknown/u);
 	}
 });
+
+test("User Memory reports executing operations without starting the service", async () => {
+	const root = mkdtempSync(join(tmpdir(), "telomi-hindsight-activity-"));
+	mkdirSync(join(root, ".venv", "bin"), { recursive: true });
+	writeFileSync(join(root, ".venv", "bin", "python"), "");
+	let healthy = false;
+	let spawns = 0;
+	let activeOperations = 3;
+	let boundaryAnswers = true;
+	let becomeHealthy: (() => void) | undefined;
+	const manager = new HindsightRuntimeManager({
+		env: { TELOMI_HINDSIGHT_EXECUTABLE: join(root, ".venv", "bin", "hindsight-api") },
+		serviceRoot: root,
+		fetcher: async (input) => {
+			if (new URL(String(input)).pathname === "/ext/telomi-configuration/status") {
+				return boundaryAnswers
+					? Response.json({ draining: false, activeOperations })
+					: new Response(null, { status: 502 });
+			}
+			return new Response(null, { status: healthy ? 200 : 503 });
+		},
+		spawnProcess: () => {
+			spawns += 1;
+			return fakeChild();
+		},
+		wait: () => new Promise((resolveWait) => {
+			becomeHealthy = () => {
+				healthy = true;
+				resolveWait();
+			};
+		}),
+	});
+	try {
+		assert.equal(await manager.activeOperations(), 0, "a service that was never started runs nothing");
+		assert.equal(spawns, 0, "reading the count never starts the service");
+		const ready = manager.ensureReady();
+		while (!becomeHealthy) await new Promise((resolveTick) => setImmediate(resolveTick));
+		assert.equal(await manager.activeOperations(), null, "a starting service cannot say what it runs");
+		becomeHealthy();
+		assert.equal((await ready).owned, true);
+		assert.equal(await manager.activeOperations(), 3);
+		activeOperations = 0;
+		assert.equal(await manager.activeOperations(), 0);
+		boundaryAnswers = false;
+		assert.equal(await manager.activeOperations(), null, "an unanswered boundary is not reported as idle");
+	} finally {
+		await manager.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("an external User Memory service is not interrupted by stopping Telomi", async () => {
+	const manager = new HindsightRuntimeManager({
+		fetcher: async () => new Response(JSON.stringify({ status: "healthy" }), { status: 200 }),
+		spawnProcess: () => fakeChild(),
+	});
+	try {
+		assert.equal((await manager.ensureReady()).owned, false);
+		assert.equal(await manager.activeOperations(), 0);
+	} finally {
+		await manager.close();
+	}
+});

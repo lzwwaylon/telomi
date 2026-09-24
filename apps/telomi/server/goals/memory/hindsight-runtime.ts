@@ -105,6 +105,33 @@ export class HindsightRuntimeManager {
 			status: this.configurationPhase, error: this.configurationError };
 	}
 
+	/**
+	 * User Memory operations the managed service is executing, without starting it. Queued work is
+	 * persisted by Hindsight and survives a restart, so only executing operations count. `null`
+	 * means the count is unknown: the service is starting, a configuration is applying, or its
+	 * boundary did not answer. An external service is not stopped with Telomi, so it reports 0.
+	 */
+	async activeOperations(): Promise<number | null> {
+		if (this.applying || this.closing) return null;
+		const ready = this.ready;
+		if (!ready) return 0;
+		const pending = Symbol("pending");
+		let runtime: HindsightRuntime | typeof pending;
+		try {
+			// A settled `ready` wins the race because it is listed first.
+			runtime = await Promise.race([ready, Promise.resolve(pending)]);
+		} catch {
+			return 0;
+		}
+		if (runtime === pending) return null;
+		if (!runtime.owned) return 0;
+		try {
+			return (await this.control(runtime.baseUrl, "status")).activeOperations;
+		} catch {
+			return null;
+		}
+	}
+
 	async validateConfiguration(settings: PiSettings): Promise<void> {
 		if (!isDeepStrictEqual(resolveMemoryModels(settings), this.activeModels)) await validateMemoryModels(settings);
 	}
