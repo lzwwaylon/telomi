@@ -9,7 +9,10 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { resolveDataDir } from "./data-dir.js";
+import { DataDirectoryError, resolveDataDir } from "./data-dir.js";
+import { moveInstallationStateIntoDataDirectory } from "./data-layout.js";
+
+export { DataDirectoryError };
 
 export const DATA_FORMAT_FILE = "format.json";
 
@@ -26,11 +29,11 @@ export interface DataMigration {
 }
 
 /** Forward-only. Append a step to raise CURRENT_FORMAT_VERSION; never edit or reorder published steps. */
-export const MIGRATIONS: readonly DataMigration[] = [];
+export const MIGRATIONS: readonly DataMigration[] = [
+	moveInstallationStateIntoDataDirectory,
+];
 
 export const CURRENT_FORMAT_VERSION = 1 + MIGRATIONS.length;
-
-export class DataDirectoryError extends Error {}
 
 /** The recorded format, or undefined for a directory that has never been marked. Throws on an unreadable marker. */
 export function readDataFormat(dataDir: string): DataFormat | undefined {
@@ -81,12 +84,13 @@ export async function prepareDataDirectory(
 
 	let format = readDataFormat(dataDir);
 	if (!format) {
+		// A new installation starts in the current layout; one that predates versioning is 0.0.1's layout.
 		const adopted = readdirSync(dataDir).length > 0;
-		format = { formatVersion: 1, installationId: randomUUID() };
+		format = { formatVersion: adopted ? 1 : currentVersion, installationId: randomUUID() };
 		writeDataFormat(dataDir, format);
 		log(adopted
 			? `data directory ${dataDir} predates format versioning; adopted as format version 1`
-			: `initialized data directory ${dataDir} at format version 1`);
+			: `initialized data directory ${dataDir} at format version ${currentVersion}`);
 	}
 
 	if (format.formatVersion > currentVersion) {

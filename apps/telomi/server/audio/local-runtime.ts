@@ -1,11 +1,12 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { audioEnv } from "./environment.js";
+import { resolveDataDir } from "../config/data-dir.js";
+import { runtimeControlRoot } from "../workspaces/server-runtime-paths.js";
 import { isManagedAudioConnection } from "../../shared/connections.js";
 import { loadCustomProviders } from "../providers/custom-models.js";
 import { toErrorMessage } from "../lib/values.js";
@@ -246,6 +247,7 @@ export class AudioLocalRuntimeManager {
 				detached: false,
 				env: {
 					...this.env,
+					...this.statePaths(),
 					TELOMI_AUDIO_HOST: "127.0.0.1",
 					TELOMI_AUDIO_PORT: port,
 					// run.sh execs the service, so it stops on its own when this process dies without closing it.
@@ -384,12 +386,22 @@ export class AudioLocalRuntimeManager {
 		return statuses;
 	}
 
+	/**
+	 * Install progress and transcription jobs belong to this installation, so they default into its
+	 * data directory. Downloaded models stay in the audio runtime's own machine-wide model cache.
+	 */
+	private statePaths(): Record<"TELOMI_AUDIO_ASR_INSTALL_STATUS" | "TELOMI_AUDIO_TTS_INSTALL_STATUS" | "TELOMI_AUDIO_ASR_JOB_ROOT", string> {
+		const state = join(runtimeControlRoot(resolveDataDir(this.env)), "audio");
+		return {
+			TELOMI_AUDIO_ASR_INSTALL_STATUS: resolve(audioEnv("ASR_INSTALL_STATUS", this.env) || join(state, "asr-install.json")),
+			TELOMI_AUDIO_TTS_INSTALL_STATUS: resolve(audioEnv("TTS_INSTALL_STATUS", this.env) || join(state, "tts-install.json")),
+			TELOMI_AUDIO_ASR_JOB_ROOT: resolve(audioEnv("ASR_JOB_ROOT", this.env) || join(state, "transcription-jobs")),
+		};
+	}
+
 	private installStatusPaths(): string[] {
-		const state = join(this.env.HOME || homedir(), ".cache", "telomi-audio", "state");
-		return [
-			resolve(audioEnv("ASR_INSTALL_STATUS", this.env) || join(state, "asr-install.json")),
-			resolve(audioEnv("TTS_INSTALL_STATUS", this.env) || join(state, "tts-install.json")),
-		];
+		const paths = this.statePaths();
+		return [paths.TELOMI_AUDIO_ASR_INSTALL_STATUS, paths.TELOMI_AUDIO_TTS_INSTALL_STATUS];
 	}
 
 	/** Configured endpoint of the local runtime, read live (the status snapshot may lag an environment change). */

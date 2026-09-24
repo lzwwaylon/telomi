@@ -28,6 +28,13 @@ export function memoryDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string 
 	if (configured) return configured;
 	return `pg0://telomi-${createHash("sha256").update(resolveDataDir(env)).digest("hex").slice(0, 12)}`;
 }
+/**
+ * Where an embedded (`pg0://`) memory database keeps its files: inside the data directory, so a copy
+ * of the stopped data directory includes User Memory. A `postgresql://` URL is an external database.
+ */
+export function memoryDatabaseDir(dataDir: string): string {
+	return join(dataDir, "user-memory", "postgres");
+}
 /** How long a replacement waits for in-flight Memory operations before giving up. */
 const DRAIN_TIMEOUT_MS = 60_000;
 const MEMORY_EMBEDDING_UNSET = "Choose an embedding model for User Memory";
@@ -438,17 +445,7 @@ export class HindsightRuntimeManager {
 	}
 
 	private executable(): string {
-		const configuredExecutable = resolve(
-			this.env.TELOMI_HINDSIGHT_EXECUTABLE?.trim()
-				|| join(this.serviceRoot, ".venv", "bin", "python"),
-		);
-		// Managed worktrees still name the native CLI; run its interpreter with our native application.
-		const siblingPython = join(dirname(configuredExecutable), "python");
-		const executable = basename(configuredExecutable) === "hindsight-api" && existsSync(siblingPython) ? siblingPython : configuredExecutable;
-		if (!existsSync(executable)) {
-			throw new Error(`Hindsight Python environment is missing at ${executable}. Run npm run memory:install.`);
-		}
-		return executable;
+		return hindsightPython(this.env, this.serviceRoot);
 	}
 
 	private async configurationEnv(embeddingOverride?: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> {
@@ -464,6 +461,7 @@ export class HindsightRuntimeManager {
 		return { ...env, ...this.serving?.env, ...embedding,
 			HINDSIGHT_API_HOST: "127.0.0.1",
 			HINDSIGHT_API_DATABASE_URL: memoryDatabaseUrl(this.env),
+			TELOMI_MEMORY_DATABASE_DIR: memoryDatabaseDir(resolve(resolveDataDir(this.env))),
 			HINDSIGHT_API_WORKER_ID: this.env.HINDSIGHT_API_WORKER_ID || "pi-user-memory",
 			HINDSIGHT_API_RERANKER_PROVIDER: "local",
 			HINDSIGHT_API_RERANKER_LOCAL_MODEL: DEFAULT_MEMORY_RERANKER_MODEL,
@@ -497,6 +495,21 @@ export class HindsightRuntimeManager {
 		}
 	}
 
+}
+
+/** The interpreter of the managed Hindsight environment. */
+export function hindsightPython(env: NodeJS.ProcessEnv = process.env, serviceRoot = DEFAULT_SERVICE_ROOT): string {
+	const configuredExecutable = resolve(
+		env.TELOMI_HINDSIGHT_EXECUTABLE?.trim()
+			|| join(serviceRoot, ".venv", "bin", "python"),
+	);
+	// Managed worktrees still name the native CLI; run its interpreter with our native application.
+	const siblingPython = join(dirname(configuredExecutable), "python");
+	const executable = basename(configuredExecutable) === "hindsight-api" && existsSync(siblingPython) ? siblingPython : configuredExecutable;
+	if (!existsSync(executable)) {
+		throw new Error(`Hindsight Python environment is missing at ${executable}. Run npm run memory:install.`);
+	}
+	return executable;
 }
 
 export function normalizeBaseUrl(value: string | undefined): string {

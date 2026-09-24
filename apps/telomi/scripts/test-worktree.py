@@ -175,6 +175,10 @@ class WorktreeTest(unittest.TestCase):
         self.assertEqual(loaded["LIVEKIT_RTC_TCP_PORT"], "21009")
         self.assertEqual(loaded["LIVEKIT_KEYS"], f"{loaded['LIVEKIT_API_KEY']}: {loaded['LIVEKIT_API_SECRET']}")
         self.assertEqual(loaded["TELOMI_DATA_DIR"], str(self.root / wt.APP / "data"))
+        # Downloads and fetched material are caches: never written into any data directory.
+        self.assertEqual(loaded["TELOMI_CACHE_DIR"], str(self.root / wt.APP / "cache"))
+        for key in ("SOURCE_SERVICE_HF_HOME", "SOURCE_SERVICE_MATERIAL_CACHE_ROOT", "SOURCE_SERVICE_ARXIV_SQLITE_PATH"):
+            self.assertTrue(Path(loaded[key]).is_relative_to(self.root / wt.APP / "cache"), key)
         target.write_text('SECRET="edited"')
         wt.private_copy(source, target)
         self.assertIn("edited", target.read_text())
@@ -233,9 +237,12 @@ class WorktreeTest(unittest.TestCase):
                 {"root": str(self.root), "source": str(self.main), "ports": [0] * 5 + [chrome_port, memory_port, 0]})
         sleep = [sys.executable, "-c", "import time; time.sleep(60)"]
         command = subprocess.Popen(sleep, start_new_session=True)
-        profile = self.root / wt.APP / ".chrome-debug-profile"
+        profile = self.root / wt.APP / "data/browser-profile"
         chrome = subprocess.Popen([*sleep, f"--remote-debugging-port={chrome_port}", f"--user-data-dir={profile}"], start_new_session=True)
-        for process in (command, chrome):
+        # A browser started before profiles moved into the data directory is reaped the same way.
+        legacy = subprocess.Popen([*sleep, f"--remote-debugging-port={chrome_port}",
+                                   f"--user-data-dir={self.root / wt.APP / '.chrome-debug-profile'}"], start_new_session=True)
+        for process in (command, chrome, legacy):
             self.addCleanup(lambda process=process: process.poll() is None and process.kill())
         wt.save(self.state / "processes" / f"{self.identity}-{command.pid}.json",
                 {"root": str(self.root), "pid": command.pid, "started": wt.process_stamp(command.pid), "locks": []})
@@ -247,6 +254,7 @@ class WorktreeTest(unittest.TestCase):
         self.cli("doctor", root=self.main)
         self.assertEqual(command.wait(timeout=10), -15)
         self.assertEqual(chrome.wait(timeout=10), -15)
+        self.assertEqual(legacy.wait(timeout=10), -15)
         self.assertFalse(sockets.exists())
         self.assertEqual(list((self.state / "processes").glob("*.json")), [])
         self.assertFalse((self.state / f"{self.identity}.json").exists())
@@ -279,6 +287,24 @@ class WorktreeTest(unittest.TestCase):
         with patch("builtins.print") as printed:
             wt.check_agent_browser_config({**env, "AGENT_BROWSER_CONFIG": ""})
         self.assertIn("rerun worktree setup", printed.call_args.args[0])
+
+    def test_setup_shares_downloads_through_the_main_cache_not_its_data(self):
+        stale = self.main / wt.APP / "data/.pi/runtime/research-source-service/huggingface/hub"
+        stale.mkdir(parents=True)
+        local = self.root / wt.APP / "cache/huggingface"
+        local.mkdir(parents=True)
+        (local / "hub").symlink_to(stale, target_is_directory=True)
+        kernel = self.root / wt.APP / ".prime-kernel"
+        kernel.mkdir()
+        (kernel / ".bootstrap-version").write_text("{}")
+        with ExitStack() as stack:
+            for name in ("checked", "prepare_venv", "prepare_prime", "doctor"):
+                stack.enter_context(patch.object(wt, name))
+            stack.enter_context(patch.object(wt, "prime_info", return_value={"file": str(kernel / ".bootstrap-version")}))
+            stack.enter_context(patch.object(wt.urllib.request, "urlopen", side_effect=OSError))
+            wt.setup(self.root)
+        for name in ("hub", "xet"):
+            self.assertEqual((local / name).resolve(), (self.main / wt.APP / "cache/huggingface" / name).resolve())
 
     def test_setup_copies_credentials_from_explicit_source_read_only(self):
         (self.main / wt.APP / "data/.pi/agent").mkdir(parents=True)

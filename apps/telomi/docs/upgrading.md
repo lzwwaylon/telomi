@@ -24,25 +24,36 @@ the target Release before changing an existing installation.
 
 ## What to back up
 
+With Telomi stopped, back up:
+
 | State | Location and constraint |
 |---|---|
-| Goals, research, Wiki, reports, settings, runtime databases and project credentials | The **entire resolved `TELOMI_DATA_DIR`**, default `apps/telomi/data`. Include hidden files and SQLite sidecar files. Use the actual running configuration, including `.env.worktree` where applicable. |
-| Environment and custom locations | `.env`, `.env.local`, `.env.worktree` if used, and any external credential, storage or database paths configured by the installation. Record their locations without publishing their values. |
-| Long-term memory | Hindsight has a **separate PostgreSQL database**, by default a local pg0 instance named `telomi-<hash of the data directory>` unless `HINDSIGHT_API_DATABASE_URL` is set, and bank identity `HINDSIGHT_BANK_ID`. Copying `TELOMI_DATA_DIR` does not include this database. Preserve the bank identity. |
-| Browser login state | The managed Chrome Profile, normally `apps/telomi/.chrome-debug-profile`, after its Chrome process has stopped. It contains cookies. External browser profiles are managed separately. |
+| All installation state: Goals, research, Wiki, reports, settings, credentials, runtime databases, long-term memory and the managed browser's logins | The **entire resolved `TELOMI_DATA_DIR`**, default `apps/telomi/data`. Include hidden files. Use the actual running configuration, including `.env.worktree` where applicable. |
+| Environment and custom locations | `.env`, `.env.local`, `.env.worktree` if used, including `HINDSIGHT_BANK_ID`, and any external credential, storage or database paths configured by the installation. Record their locations without publishing their values. |
 
-For a local pg0 database, identify the instance named in your database URL.
-Default instance metadata lives under `~/.pg0/instances/<instance-name>`; a
-Worktree uses its own instance name. Stop that specific PostgreSQL instance
-before making a filesystem backup, and include its actual data directory if it
-is configured elsewhere. Do not stop or copy every pg0 instance on the machine.
-For an externally managed PostgreSQL/Hindsight service, use its supported
-backup and restore procedure and coordinate with its operator. If you cannot
-back up the memory database, the backup is incomplete; do not treat it as a
-full recovery point.
+The long-term memory database and the browser profile inside the data directory
+are consistent only while Telomi is stopped. The cache directory
+(`TELOMI_CACHE_DIR`, default `apps/telomi/cache`) holds only downloads and does
+not need a backup. If `HINDSIGHT_API_DATABASE_URL` points to an external
+`postgresql://` database, back it up with that database's supported procedure;
+if you cannot, the backup is not a full recovery point.
 
-Dependencies and model download caches can be reinstalled. They are not a
-substitute for the data and database backups above.
+### Installations from before format version 2
+
+A data directory whose `format.json` is missing or records `formatVersion` 1
+(for example Telomi 0.0.1) keeps two parts of its state elsewhere. Back them up
+as well before upgrading:
+
+- **Long-term memory**: a pg0 instance named in `HINDSIGHT_API_DATABASE_URL`,
+  or by default `telomi-<hash of the data directory>`, with its files under
+  `~/.pg0/instances/<instance-name>`. Stop that specific instance before
+  copying it; do not stop or copy every pg0 instance on the machine.
+- **Browser login state**: `apps/telomi/.chrome-debug-profile`, after its
+  Chrome process has stopped.
+
+The first start of a newer version moves both into the data directory. When the
+data directory is on another volume, it copies them and keeps the originals,
+which you can delete once the checks below pass.
 
 ## Install the selected Release
 
@@ -103,11 +114,12 @@ with the value recorded before the upgrade:
 - **Increased**: the old code will refuse to start against this data. Restore
   the complete recovery point as described below.
 
-The format version covers the data directory only. Restore the Hindsight
-database from the same recovery point whenever the new version's release notes
-say that it changed memory storage.
+From format version 2, the data directory includes an embedded (pg0) memory
+database. An external `postgresql://` database is outside it: restore that from
+the same recovery point whenever the new version's release notes say that it
+changed memory storage.
 
-Restore **matching code, configuration, product data and Hindsight database**
+Restore **matching code, configuration, product data and memory database**
 from the same pre-upgrade recovery point, using empty restore destinations rather
 than overlaying old files onto the failed installation. Keep the recorded data
 paths and bank identity. Reinstall the old version's locked dependencies and

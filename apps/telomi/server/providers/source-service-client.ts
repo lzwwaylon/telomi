@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { redactSecret } from "../agent-runtime/model-connectivity.js";
-import { runtimeControlRoot } from "../workspaces/server-runtime-paths.js";
-import { resolveDataDir } from "../config/data-dir.js";
+import { resolveCacheDir } from "../config/data-dir.js";
 import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { delimiter, join, resolve } from "node:path";
@@ -481,8 +480,7 @@ export function resolveAutostartHuggingFaceHome(
 ): string {
 	const configured = env.SOURCE_SERVICE_HF_HOME?.trim();
 	if (configured) return resolve(configured);
-	const dataRoot = resolve(resolveDataDir(env, resolve(serviceRoot, "../..")));
-	return join(runtimeControlRoot(dataRoot), "research-source-service", "huggingface");
+	return join(resolve(resolveCacheDir(env, resolve(serviceRoot, "../.."))), "huggingface");
 }
 
 export function resolveAutostartMaterialCacheRoot(
@@ -491,8 +489,7 @@ export function resolveAutostartMaterialCacheRoot(
 ): string {
 	const configured = env.SOURCE_SERVICE_MATERIAL_CACHE_ROOT?.trim();
 	if (configured) return resolve(configured);
-	const dataRoot = resolve(resolveDataDir(env, resolve(serviceRoot, "../..")));
-	return join(runtimeControlRoot(dataRoot), "research-source-service", "material-cache");
+	return join(resolve(resolveCacheDir(env, resolve(serviceRoot, "../.."))), "material-cache");
 }
 
 let defaultManager: ResearchSourceServiceManager | undefined;

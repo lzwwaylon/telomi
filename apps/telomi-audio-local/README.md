@@ -1,9 +1,11 @@
 # Telomi Audio Local
 
 Optional Apple Silicon speech service for Telomi. Python dependencies live in
-this directory's uv-managed `.venv`; model weights and runtime state remain in
+this directory's uv-managed `.venv`; model weights remain in
 `~/.cache/telomi-audio` so they are not committed or duplicated with the
-environment.
+environment. When Telomi starts the service, install progress and transcription
+jobs are kept in Telomi's data directory; run on its own, they default to
+`~/.cache/telomi-audio` as well.
 
 ```bash
 cd ../..

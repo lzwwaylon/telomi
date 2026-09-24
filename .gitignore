@@ -36,7 +36,10 @@ dist/
 apps/telomi/data/
 apps/telomi/.pi/*
 
-# Managed Chrome state written by scripts/chrome-debug.ts
+# Re-downloadable caches (default TELOMI_CACHE_DIR)
+apps/telomi/cache/
+
+# Managed Chrome state from before it moved into the data directory
 apps/telomi/.chrome-debug/
 apps/telomi/.chrome-debug-profile/
 

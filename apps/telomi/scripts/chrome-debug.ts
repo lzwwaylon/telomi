@@ -16,7 +16,9 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import WebSocket from "ws";
+import { resolveDataDir } from "../server/config/data-dir.js";
 import { loadProjectEnvironment } from "../server/config/environment.js";
+import { runtimeControlRoot } from "../server/workspaces/server-runtime-paths.js";
 
 type BrowserName = "chrome" | "brave" | "edge" | "chromium";
 type Command = "help" | "profiles" | "start" | "status" | "stop" | "sync-default";
@@ -49,8 +51,19 @@ type StateFile = {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const defaultStateDir = path.join(repoRoot, ".chrome-debug");
-const defaultProfileDir = path.join(repoRoot, ".chrome-debug-profile");
+/** Where format version 1 kept the managed browser, inside the checkout; the data-directory migration moves it. */
+export const legacyBrowserPaths = {
+  profileDir: path.join(repoRoot, ".chrome-debug-profile"),
+  stateDir: path.join(repoRoot, ".chrome-debug"),
+};
+
+/** The managed profile holds the browser's logins, so it lives with the rest of the installation's state. */
+export function managedBrowserPaths(dataDir = resolveDataDir(process.env, repoRoot)): { profileDir: string; stateDir: string } {
+  return {
+    profileDir: path.join(dataDir, "browser-profile"),
+    stateDir: path.join(runtimeControlRoot(dataDir), "chrome-debug"),
+  };
+}
 const defaultPort = 9222;
 const defaultTimeoutMs = 15_000;
 
@@ -359,10 +372,11 @@ export function parseArgs(argv: string[]): { command: Command; options: Options 
   let headless = true;
   let onlyProfile = false;
   let port = defaultPort;
-  let profileDir = defaultProfileDir;
+  const managed = managedBrowserPaths();
+  let profileDir = managed.profileDir;
   let sourceDir = resolveDefaultSourceDir(browser);
   let profileDirectory = resolveDefaultProfileDirectory(sourceDir);
-  let stateDir = defaultStateDir;
+  let stateDir = managed.stateDir;
   let syncOnStart = false;
   let timeoutMs = defaultTimeoutMs;
 

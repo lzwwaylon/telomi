@@ -50,10 +50,13 @@ try {
 	const isolatedApp = join(fixture, "isolated");
 	mkdirSync(join(isolatedApp, "scripts"), { recursive: true });
 	mkdirSync(join(isolatedApp, "server/config"), { recursive: true });
+	mkdirSync(join(isolatedApp, "server/workspaces"), { recursive: true });
 	mkdirSync(join(isolatedApp, "node_modules"));
 	symlinkSync(dirname(fileURLToPath(import.meta.resolve("ws/package.json"))), join(isolatedApp, "node_modules/ws"), "dir");
 	copyFileSync(join(app, "scripts/chrome-debug.ts"), join(isolatedApp, "scripts/chrome-debug.ts"));
-	copyFileSync(join(app, "server/config/environment.ts"), join(isolatedApp, "server/config/environment.ts"));
+	for (const module of ["config/environment.ts", "config/data-dir.ts", "workspaces/server-runtime-paths.ts", "workspaces/goal-runtime-paths.ts"]) {
+		copyFileSync(join(app, "server", module), join(isolatedApp, "server", module));
+	}
 	writeFileSync(join(isolatedApp, "package.json"), '{"type":"module"}');
 	writeFileSync(join(isolatedApp, ".env.worktree"), `TELOMI_BROWSER_HOST_CDP_URL=http://127.0.0.1:${address.port}\n`);
 	const status = await exec(process.execPath, ["--import", import.meta.resolve("tsx"), "scripts/chrome-debug.ts", "status"], {

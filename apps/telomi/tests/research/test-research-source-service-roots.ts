@@ -43,13 +43,20 @@ assert.equal(
 	resolveAutostartArxivSqlitePath(serviceRoot, { TELOMI_DATA_DIR: externalDataRoot }),
 	"arXiv scheduling must be shared across checkouts on the same host",
 );
+const externalCacheRoot = resolve("../../tmp/external-pi-cache");
 assert.equal(
-	resolveAutostartHuggingFaceHome(serviceRoot, { TELOMI_DATA_DIR: externalDataRoot }),
-	join(externalDataRoot, ".pi", "runtime", "research-source-service", "huggingface"),
+	resolveAutostartHuggingFaceHome(serviceRoot, { TELOMI_DATA_DIR: externalDataRoot, TELOMI_CACHE_DIR: externalCacheRoot }),
+	join(externalCacheRoot, "huggingface"),
+	"downloads live in the cache directory, never the data directory",
+);
+assert.equal(
+	resolveAutostartMaterialCacheRoot(serviceRoot, { TELOMI_DATA_DIR: externalDataRoot, TELOMI_CACHE_DIR: externalCacheRoot }),
+	join(externalCacheRoot, "material-cache"),
 );
 assert.equal(
 	resolveAutostartMaterialCacheRoot(serviceRoot, { TELOMI_DATA_DIR: externalDataRoot }),
-	join(externalDataRoot, ".pi", "runtime", "research-source-service", "material-cache"),
+	join(resolve(serviceRoot, "../.."), "cache", "material-cache"),
+	"a plain checkout keeps its cache next to its default data directory",
 );
 assert.equal(
 	resolveAutostartMaterialCacheRoot(serviceRoot, {
@@ -120,6 +127,7 @@ const startupEnv: NodeJS.ProcessEnv = {
 	TELOMI_RESEARCH_SOURCE_PORT: "",
 	TELOMI_RESEARCH_SOURCE_SERVICE_DIR: localService,
 	TELOMI_DATA_DIR: join(startupRoot, "isolated-data"),
+	TELOMI_CACHE_DIR: join(startupRoot, "isolated-cache"),
 	SOURCE_SERVICE_WORKSPACE_ROOTS: "",
 	SOURCE_SERVICE_MATERIAL_CACHE_ROOT: "",
 	UV_CALLS: calls,
@@ -132,7 +140,7 @@ try {
 	const ready = await first;
 	assert.deepEqual(JSON.parse(readFileSync(calls, "utf8").trim()), ["sync", "--project", localService, "--frozen", "--extra", "dev", "--python", "3.11"]);
 	const observed = JSON.parse(readFileSync(startupEnv.STARTUP_ENV!, "utf8"));
-	assert.equal(observed.cache, join(startupEnv.TELOMI_DATA_DIR!, ".pi/runtime/research-source-service/material-cache"));
+	assert.equal(observed.cache, join(startupEnv.TELOMI_CACHE_DIR!, "material-cache"));
 	assert.ok(observed.roots.split(delimiter).includes(startupEnv.TELOMI_DATA_DIR));
 	const external = new ResearchSourceServiceManager({...startupEnv, TELOMI_RESEARCH_SOURCE_BASE_URL: ready.baseUrl});
 	await external.ensureReady();

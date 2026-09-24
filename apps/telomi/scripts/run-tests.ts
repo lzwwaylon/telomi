@@ -83,6 +83,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 	// have a private directory and must keep their parent's data and database.
 	const data = mkdtempSync(join(process.env.TELOMI_TEST_RUN_DATA, "file-"));
 	process.env.TELOMI_DATA_DIR = data;
+	process.env.TELOMI_CACHE_DIR = join(data, "cache");
 	process.env.SOURCE_SERVICE_ARXIV_SQLITE_PATH = join(data, "arxiv-runtime.sqlite3");
 	const listener = createServer();
 	await new Promise<void>((ready, reject) => {

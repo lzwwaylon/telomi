@@ -11,9 +11,23 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, "../..");
+/** The application directory of this checkout, where its `.env` files and default directories live. */
+export const applicationRoot = appRoot;
 
 export function resolveDataDir(env: NodeJS.ProcessEnv = process.env, root = appRoot): string {
 	const configured = env.TELOMI_DATA_DIR?.trim();
 	if (configured) return configured;
 	return join(root, "data");
 }
+
+// Re-downloadable or rebuildable content (model downloads, fetched material). Kept out of the data
+// directory so that backing up, snapshotting or migrating the data directory never carries it;
+// deleting this directory costs only time.
+export function resolveCacheDir(env: NodeJS.ProcessEnv = process.env, root = appRoot): string {
+	const configured = env.TELOMI_CACHE_DIR?.trim();
+	if (configured) return configured;
+	return join(root, "cache");
+}
+
+/** A data or cache directory Telomi must not open; startup reports the message and exits. */
+export class DataDirectoryError extends Error {}

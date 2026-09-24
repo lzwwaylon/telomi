@@ -96,7 +96,7 @@ The status endpoint returns the currently registered Recipes:
 }
 ```
 
-Status returns no host paths. The launching process configures the material cache root through `SOURCE_SERVICE_MATERIAL_CACHE_ROOT`, defaulting to `<TELOMI_DATA_DIR>/.pi/runtime/research-source-service/material-cache`. Eval instances use their own writable Overlay, not the production cache. External evaluation environments set these values themselves and do not need Telomi to report its disk layout.
+Status returns no host paths. The launching process configures the material cache root through `SOURCE_SERVICE_MATERIAL_CACHE_ROOT`, defaulting to `<TELOMI_CACHE_DIR>/material-cache`. Eval instances use their own writable Overlay, not the production cache. External evaluation environments set these values themselves and do not need Telomi to report its disk layout.
 
 ## Candidate Replay
 

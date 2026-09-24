@@ -16,6 +16,8 @@ from hindsight_api.extensions.tenant import TenantExtension
 from hindsight_api.worker.exceptions import DeferOperation
 import uvicorn
 
+from telomi_database import start_managed_database
+
 _draining = False
 _active = 0
 _admitted = contextvars.ContextVar("telomi_memory_admitted", default=False)
@@ -92,20 +94,28 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
-    config = get_config()
-    config.configure_logging()
-    tenant = load_extension("TENANT", TenantExtension)
-    memory = ManagedMemoryEngine(
-        operation_validator=load_extension("OPERATION_VALIDATOR", OperationValidatorExtension),
-        tenant_extension=tenant,
-        run_migrations=config.run_migrations_on_startup,
-    )
-    if tenant:
-        tenant.set_context(DefaultExtensionContext(database_url=config.database_url, memory_engine=memory))
-    app = build_app(memory)
-    # Same graceful shutdown budget as hindsight-api; replacements drain before signaling.
-    uvicorn.run(AdmissionBoundary(app), host=args.host, port=args.port, log_level=config.log_level,
-                timeout_graceful_shutdown=5, timeout_keep_alive=30, ws="wsproto")
+    # Before get_config() reads it: Hindsight must connect to the instance Telomi started.
+    database_url, database = start_managed_database(os.environ.get("HINDSIGHT_API_DATABASE_URL", ""))
+    if database_url:
+        os.environ["HINDSIGHT_API_DATABASE_URL"] = database_url
+    try:
+        config = get_config()
+        config.configure_logging()
+        tenant = load_extension("TENANT", TenantExtension)
+        memory = ManagedMemoryEngine(
+            operation_validator=load_extension("OPERATION_VALIDATOR", OperationValidatorExtension),
+            tenant_extension=tenant,
+            run_migrations=config.run_migrations_on_startup,
+        )
+        if tenant:
+            tenant.set_context(DefaultExtensionContext(database_url=config.database_url, memory_engine=memory))
+        app = build_app(memory)
+        # Same graceful shutdown budget as hindsight-api; replacements drain before signaling.
+        uvicorn.run(AdmissionBoundary(app), host=args.host, port=args.port, log_level=config.log_level,
+                    timeout_graceful_shutdown=5, timeout_keep_alive=30, ws="wsproto")
+    finally:
+        if database:
+            database.stop()
 
 
 if __name__ == "__main__":
