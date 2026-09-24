@@ -45,12 +45,16 @@ Ordinary users use the latest formal Release; contributors use `dev`.
   platforms; do not claim untested platforms as supported.
 - Later releases: install the preceding formal version in an isolated environment,
   create a Goal, report, Wiki and long-term memory using non-sensitive samples,
-  follow [backup and recovery](../upgrading.md), then upgrade to the candidate.
-  Verify readable data, preserved credentials/configuration and working key flows.
-  The Release must explicitly state whether older versions can upgrade directly.
-- For data/configuration migrations, actually rehearse restoring the old version
-  from its corresponding backup. Record recovery scope and possible loss of data
-  created after the upgrade. Do not claim an untested path is reversible.
+  then upgrade to the candidate with `npm run upgrade -- --ref <candidate>` as
+  described in [upgrade, backup and recovery](../upgrading.md). A preceding version
+  without that command is upgraded with the manual procedure there. Verify readable
+  data, preserved credentials/configuration and working key flows. The Release must
+  explicitly state whether older versions can upgrade directly.
+- Rehearse the way back with `npm run upgrade -- --rollback`. For data/configuration
+  migrations, also rehearse a failed upgrade that has already migrated the data, and
+  confirm that the snapshot restores the old version. Record recovery scope and
+  possible loss of data created after the upgrade. Do not claim an untested path is
+  reversible.
 - Installation/upgrade checks are release acceptance, not a requirement to repeat
   for every documentation PR. Deterministic tests do not replace installation and
   real user-flow verification.

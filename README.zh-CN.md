@@ -66,7 +66,7 @@ Telomi 生成的 Goal、报告、Wiki、设置和已保存的凭据默认存放�
 
 如需语音功能，可在设置中连接云端音频服务；Apple Silicon Mac 也可以按[本地音频说明](apps/telomi-audio-local/README.md)进行可选安装。
 
-已有安装请先阅读[升级、备份与恢复](apps/telomi/docs/upgrading.zh-CN.md)，保留现有配置和数据，再切换版本。
+升级已有安装时执行 `npm run upgrade`：它会先为数据目录建立快照，任何一步失败都会回到之前的版本。详见[升级、备份与恢复](apps/telomi/docs/upgrading.zh-CN.md)，其中也说明了还没有这条命令的旧版本如何升级。
 
 ## 开始使用
 

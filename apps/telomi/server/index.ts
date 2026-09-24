@@ -1,12 +1,14 @@
 import { fileURLToPath } from "node:url";
 
-import { resolveDataDir } from "./config/data-dir.js";
+import { resolveDataDir, upgradeInProgress } from "./config/data-dir.js";
 import { DataDirectoryError, prepareDataDirectory } from "./config/data-format.js";
 import { loadProjectEnvironment } from "./config/environment.js";
 
 loadProjectEnvironment(fileURLToPath(new URL("..", import.meta.url)));
 // Before app.js loads: its modules and managed services (Hindsight, Source Service) open the data directory.
 try {
+	const upgrade = upgradeInProgress();
+	if (upgrade) throw new DataDirectoryError(`An upgrade (pid ${upgrade}) is changing this installation; it starts Telomi again when it finishes.`);
 	await prepareDataDirectory(resolveDataDir());
 } catch (error) {
 	if (!(error instanceof DataDirectoryError)) throw error;

@@ -75,32 +75,48 @@ function moveMemoryDatabase(dataDir: string, env: NodeJS.ProcessEnv): void {
 	const metadata = join(instance, "instance.json");
 	const recorded = existsSync(metadata) ? readJson<{ data_dir?: string }>(metadata).data_dir : undefined;
 	if (!existsSync(source) || (recorded && resolve(recorded) !== resolve(source))) return;
-	const target = memoryDatabaseDir(dataDir);
 	// PostgreSQL files are only copied from a stopped cluster.
+	stopMemoryDatabase(env);
+	moveTree(source, memoryDatabaseDir(dataDir), "copy");
+}
+
+/** Stops the embedded (`pg0://`) User Memory database, so its files can be copied. External databases are left alone. */
+export function stopMemoryDatabase(env: NodeJS.ProcessEnv): void {
+	const name = pg0InstanceName(memoryDatabaseUrl(env));
+	if (!name) return;
 	const stopped = spawnSync(hindsightPython(env), ["-c",
 		"import sys; from pg0 import Pg0; p = Pg0(name=sys.argv[1]); p.stop(); sys.exit(1 if p.info().running else 0)", name],
 	{ encoding: "utf8", env: { ...env, PYTHONDONTWRITEBYTECODE: "1" } });
 	if (stopped.status !== 0) {
-		throw new DataDirectoryError(`Could not stop the User Memory database ${name} before moving it: ${stopped.stderr.trim() || stopped.status}`);
+		throw new DataDirectoryError(`Could not stop the User Memory database ${name}: ${stopped.stderr.trim() || stopped.status}`);
 	}
-	moveTree(source, target, "copy");
 }
 
 async function moveManagedBrowser(dataDir: string, legacy: typeof legacyBrowserPaths): Promise<void> {
 	if (!existsSync(legacy.profileDir)) return;
-	if (browserUsing(legacy.profileDir)) {
-		const stateFile = join(legacy.stateDir, "chrome-debug.json");
-		const state = existsSync(stateFile) ? readJson<{ port?: number }>(stateFile) : undefined;
-		if (state?.port) {
-			const { options } = parseArgs(["stop", "--port", String(state.port), "--profile-dir", legacy.profileDir, "--state-dir", legacy.stateDir]);
-			await stopChrome(options).catch(() => undefined);
-		}
-		if (browserUsing(legacy.profileDir)) {
-			throw new DataDirectoryError(`The managed browser is still running from ${legacy.profileDir}; close it and start Telomi again.`);
-		}
-	}
+	await stopManagedBrowser(legacy);
 	moveTree(legacy.profileDir, managedBrowserPaths(dataDir).profileDir, "copy");
 }
+
+/** Stops the managed Chrome using `paths.profileDir`, so the profile can be copied; throws if it keeps running. */
+export async function stopManagedBrowser(paths: { profileDir: string; stateDir: string }): Promise<void> {
+	if (!browserUsing(paths.profileDir)) return;
+	const stateFile = join(paths.stateDir, "chrome-debug.json");
+	const state = existsSync(stateFile) ? readJson<{ port?: number }>(stateFile) : undefined;
+	if (state?.port) {
+		const { options } = parseArgs(["stop", "--port", String(state.port), "--profile-dir", paths.profileDir, "--state-dir", paths.stateDir]);
+		await stopChrome(options).catch(() => undefined);
+	}
+	// A browser whose server just shut down is often still exiting, with its state record already gone.
+	for (let waited = 0; waited < BROWSER_EXIT_TIMEOUT_MS && browserUsing(paths.profileDir); waited += 250) {
+		await new Promise((done) => setTimeout(done, 250));
+	}
+	if (browserUsing(paths.profileDir)) {
+		throw new DataDirectoryError(`The managed browser is still running from ${paths.profileDir}; close it and try again.`);
+	}
+}
+
+const BROWSER_EXIT_TIMEOUT_MS = 15_000;
 
 function browserUsing(profileDir: string): boolean {
 	const listed = spawnSync("ps", ["-axo", "args="], { encoding: "utf8" });
