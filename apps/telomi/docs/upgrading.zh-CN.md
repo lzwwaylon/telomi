@@ -69,57 +69,68 @@ npm run upgrade -- --ref dev     # 贡献者：分支、Tag 或提交
 它输出警告并以 `3` 退出，便于调度器发现始终无法空闲的实例。`--if-idle` 从不
 强制重启。
 
-可以定时执行，例如每 15 分钟执行 `npm run upgrade -- --if-idle` 跟随 Release，
-或执行 `npm run upgrade -- --ref dev --if-idle` 跟随 `dev`；每天执行一次
+在 macOS 上，`npm run service` 会替你安排这些定时任务（见
+[保持 Telomi 运行](#保持-telomi-运行)）。其他平台可以定时执行，例如每 15 分钟执行
+`npm run upgrade -- --if-idle` 跟随 Release，或执行
+`npm run upgrade -- --ref dev --if-idle --require-checks` 跟随 `dev`；每天执行一次
 `npm run upgrade -- --snapshot-only --if-idle`。
 
-### 在进程守护下运行
+`--require-checks` 只在某个提交的 GitHub check run 全部结束且没有失败时才安装它。
+检查仍在进行、已经失败或无法读取时，它不做任何改动并以 `0` 退出，所以跟随的分支
+会在检查通过后被自动采用。定时执行的 `--if-idle` 遇到另一次正在进行的升级或快照时，
+同样不做改动并以 `0` 退出。
 
-默认情况下，命令会停止本 checkout 通过 `npm start`、`npm run dev` 或
-`npm run worktree -- run` 启动的进程，结束后在后台执行 `npm start`，输出写入
-数据目录中的 `.pi/runtime/logs/server.log`。
+### 保持 Telomi 运行
 
-由 launchd、systemd 等守护进程运行 Telomi 时，只停止进程不够：守护进程会在
-升级中途重新启动旧版本。在 `apps/telomi/.env.local` 中告诉命令如何停止和启动
-服务，两条命令都在仓库根目录通过 `/bin/sh` 执行：
+在 macOS 上，可以把 Telomi 安装为当前登录用户的 launchd 服务：
 
 ```bash
-# launchd
-TELOMI_SERVICE_STOP=launchctl bootout gui/$(id -u)/com.example.telomi
-TELOMI_SERVICE_START=launchctl bootstrap gui/$(id -u) /Users/you/Library/LaunchAgents/com.example.telomi.plist
-# systemd（用户单元）
+npm run service -- install                    # 立即运行，每次登录时运行，退出后自动重启
+npm run service -- install --auto-upgrade     # 同时在空闲时升级到新的 Release
+npm run service -- install --auto-upgrade=dev --daily-snapshot   # 贡献者：跟随 dev
+npm run service -- status                     # 另有 stop、start、restart、uninstall
+```
+
+- `install` 使用执行这条命令的 Node 运行 Telomi，也可以用 `--node <路径>` 指定。
+  再次执行 `install` 会按新的选项替换任务。任务以 checkout 命名
+  （`com.telomi.<id>.server`、`.auto-upgrade`、`.snapshot`），每个 checkout 各有
+  一套。日志写在 `~/Library/Logs/Telomi/`。
+- `--auto-upgrade` 每 15 分钟执行一次 `npm run upgrade -- --if-idle`；
+  `--auto-upgrade=<ref>` 以 `--require-checks` 跟随该分支、标签或提交。
+  `--daily-snapshot` 在每天 04:30（或 Mac 下次唤醒时）执行
+  `npm run upgrade -- --snapshot-only --if-idle`。
+- `stop` 停止 Telomi、它托管的浏览器和记忆数据库，以及定时任务，并且在重新登录后
+  仍保持停止，直到执行 `start`。`uninstall` 删除这些任务。
+- `status` 显示每个任务的状态和上次退出码、正在运行的代码、最近一次自动升级的结果，
+  以及自动升级从何时起一直发现 Telomi 处于忙碌。
+- `npm run upgrade` 会识别这个服务，并通过它停止和启动 Telomi。
+
+如果 checkout 或数据目录在外接卷上，macOS 可能要求授权任务所用的 `node` 访问它。
+未授权时，任务会以 "Operation not permitted" 失败（`status` 会报告），或者没有任何
+输出地一直等待。请在 系统设置 > 隐私与安全性 > 完全磁盘访问权限 中添加该文件。
+使用 Developer ID 签名的 Node（例如 nodejs.org 的安装包）在升级 Node 后仍保留授权；
+ad-hoc 签名的 Node（例如 Homebrew 安装的）每次被替换都会失去授权，`install` 会对此
+给出提示。目前只验证过 macOS 上的 launchd。
+
+### 其他进程守护
+
+没有安装服务、也没有下面的设置时，命令会停止本 checkout 通过 `npm start`、
+`npm run dev` 或 `npm run worktree -- run` 启动的进程，结束后在后台执行
+`npm start`，输出写入数据目录中的 `.pi/runtime/logs/server.log`。
+
+由 systemd 等其他守护进程运行 Telomi 时，只停止进程不够：守护进程会在升级中途
+重新启动旧版本。在 `apps/telomi/.env.local` 中告诉命令如何停止和启动服务，两条命令
+都在仓库根目录通过 `/bin/sh` 执行：
+
+```bash
 TELOMI_SERVICE_STOP=systemctl --user stop telomi
 TELOMI_SERVICE_START=systemctl --user start telomi
 ```
 
-停止命令必须让服务不被重新拉起：`launchctl bootout` 会卸载任务，`Restart=`
-也不会撤销 `systemctl stop`。作为保险，升级正在修改安装时 Telomi 拒绝启动，
-因此即使守护进程仍然重启它，也无法写入正在复制或替换的数据。在守护进程下，
-命令看不到服务进程，始终无法正常响应的版本要等 10 分钟等待结束才会被发现。
-
-用于 Telomi 的 launchd 任务：
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.example.telomi</string>
-  <key>ProgramArguments</key>
-  <array><string>/bin/zsh</string><string>-lc</string><string>cd /path/to/telomi &amp;&amp; exec npm start</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/path/to/telomi.log</string>
-  <key>StandardErrorPath</key><string>/path/to/telomi.log</string>
-</dict>
-</plist>
-```
-
-`zsh -lc` 让任务使用登录 shell 的 `PATH`，其中包含 `node` 和 `npm`。如果
-checkout 或数据目录在外接卷上，macOS 必须先允许任务访问它：在此之前，任务会以
-"Operation not permitted" 失败，或者没有任何输出地一直等待。请允许访问可移除
-的宗卷（系统设置 > 隐私与安全性 > 文件和文件夹），或为任务运行的 `node` 授予
-完全磁盘访问权限。目前只验证过 macOS 上的 launchd。
+停止命令必须让服务不被重新拉起：`Restart=` 不会撤销 `systemctl stop`。作为保险，
+升级正在修改安装时 Telomi 拒绝启动，因此即使守护进程仍然重启它，也无法写入正在
+复制或替换的数据。在守护进程下（包括 `npm run service`），命令看不到服务进程，
+始终无法正常响应的版本要等 10 分钟等待结束才会被发现。
 
 ## 手动升级
 

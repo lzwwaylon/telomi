@@ -60,7 +60,7 @@ npm start
 
 `npm run setup` prepares the Python environments Telomi manages: the Hindsight memory service, the Research Source Service and the Prime Agent kernel, all installed with uv. A cold setup downloads Python interpreters and packages, so how long it takes depends on your network. Local audio (MLX) is not part of `setup`; on Apple Silicon macOS, run `npm run setup:audio` separately.
 
-Once startup completes, open <http://127.0.0.1:8787>. Keep Telomi running while using it or waiting for scheduled research.
+Once startup completes, open <http://127.0.0.1:8787>. Keep Telomi running while using it or waiting for scheduled research. On macOS, `npm run service -- install` runs it in the background instead, starts it at every login and restarts it if it exits; see [keep Telomi running](apps/telomi/docs/upgrading.md#keep-telomi-running).
 
 Telomi keeps what it creates, including Goals, reports, the Wiki, settings and saved credentials, under `apps/telomi/data` by default; set `TELOMI_DATA_DIR` to use another directory. Telomi creates only the default directory itself; create any other directory before the first start, so that an unmounted drive is reported instead of silently starting an empty installation. Long-term memory (a local PostgreSQL database) and the managed browser's logins live there too, so the data directory holds everything to back up. Downloads that can be fetched again are kept separately in `apps/telomi/cache` (`TELOMI_CACHE_DIR`). See [upgrade, backup and recovery](apps/telomi/docs/upgrading.md).
 

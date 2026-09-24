@@ -82,63 +82,76 @@ reasons, changes nothing and exits `0`. After it has skipped for 24 hours in a
 row, it prints a warning and exits `3`, so a scheduler can report an instance
 that never becomes idle. `--if-idle` never forces a restart.
 
-Run it on a schedule, for example every 15 minutes, with
-`npm run upgrade -- --if-idle` for Releases or `npm run upgrade -- --ref dev --if-idle`
-to follow `dev`, and once a day with `npm run upgrade -- --snapshot-only --if-idle`.
+On macOS, `npm run service` schedules this for you (see
+[Keep Telomi running](#keep-telomi-running)). Elsewhere, run it on a schedule,
+for example every 15 minutes, with `npm run upgrade -- --if-idle` for Releases or
+`npm run upgrade -- --ref dev --if-idle --require-checks` to follow `dev`, and
+once a day with `npm run upgrade -- --snapshot-only --if-idle`.
 
-### Run under a supervisor
+`--require-checks` installs a commit only after all of its GitHub check runs have
+finished without failing. While they are pending or failed, or cannot be read, it
+changes nothing and exits `0`, so a followed branch is picked up once its checks
+pass. A scheduled `--if-idle` run that finds another upgrade or snapshot in
+progress also changes nothing and exits `0`.
 
-By default the command stops what this checkout started with `npm start`,
-`npm run dev` or `npm run worktree -- run`, and afterwards starts `npm start` in
-the background, writing its output to `.pi/runtime/logs/server.log` in the data
-directory.
+### Keep Telomi running
 
-When a supervisor such as launchd or systemd runs Telomi, stopping the process
-is not enough: the supervisor would restart the old version in the middle of the
-upgrade. Tell the command how to stop and start the service in
-`apps/telomi/.env.local`; both run through `/bin/sh` in the repository root:
+On macOS, install Telomi as a launchd service of the signed-in user:
 
 ```bash
-# launchd
-TELOMI_SERVICE_STOP=launchctl bootout gui/$(id -u)/com.example.telomi
-TELOMI_SERVICE_START=launchctl bootstrap gui/$(id -u) /Users/you/Library/LaunchAgents/com.example.telomi.plist
-# systemd (user unit)
+npm run service -- install                    # run now and at every login; restart it if it exits
+npm run service -- install --auto-upgrade     # also upgrade to new Releases when idle
+npm run service -- install --auto-upgrade=dev --daily-snapshot   # contributors: follow dev
+npm run service -- status                     # also: stop, start, restart, uninstall
+```
+
+- `install` runs Telomi with the Node that runs the command, or the one given
+  with `--node <path>`. Installing again replaces the jobs with the new options.
+  Jobs are named after the checkout (`com.telomi.<id>.server`, `.auto-upgrade`,
+  `.snapshot`), so every checkout has its own. Logs go to `~/Library/Logs/Telomi/`.
+- `--auto-upgrade` runs `npm run upgrade -- --if-idle` every 15 minutes;
+  `--auto-upgrade=<ref>` follows that branch, tag or commit with `--require-checks`.
+  `--daily-snapshot` runs `npm run upgrade -- --snapshot-only --if-idle` at 04:30,
+  or when the Mac next wakes.
+- `stop` stops Telomi, its managed browser and memory database, and the scheduled
+  jobs, and keeps them stopped across logins until `start`. `uninstall` removes
+  the jobs.
+- `status` shows each job's state and last exit code, the running code, the last
+  automatic upgrade and since when automatic upgrades have found Telomi busy.
+- `npm run upgrade` finds the service and stops and starts Telomi through it.
+
+If the checkout or the data directory is on an external volume, macOS may require
+permission for the job's `node` to use it. Without it the jobs fail with
+"Operation not permitted", which `status` reports, or wait without output. Add
+that file under System Settings > Privacy & Security > Full Disk Access. A Node
+signed with a Developer ID, such as the installer from nodejs.org, keeps the
+permission across Node upgrades; an ad-hoc signed one, such as Homebrew's, loses it
+whenever it is replaced, and `install` warns about it. Only macOS with launchd has
+been verified.
+
+### Other supervisors
+
+Without a service or the settings below, the command stops what this checkout
+started with `npm start`, `npm run dev` or `npm run worktree -- run`, and
+afterwards starts `npm start` in the background, writing its output to
+`.pi/runtime/logs/server.log` in the data directory.
+
+When another supervisor, such as systemd, runs Telomi, stopping the process is not
+enough: the supervisor would restart the old version in the middle of the upgrade.
+Tell the command how to stop and start the service in `apps/telomi/.env.local`;
+both run through `/bin/sh` in the repository root:
+
+```bash
 TELOMI_SERVICE_STOP=systemctl --user stop telomi
 TELOMI_SERVICE_START=systemctl --user start telomi
 ```
 
-The stop command must keep the service from being restarted: `launchctl bootout`
-unloads the job, and `systemctl stop` is not undone by `Restart=`. As a safeguard,
-Telomi refuses to start while an upgrade is changing its installation, so a
-supervisor that restarts it anyway cannot write to data that is being copied or
-replaced. Under a supervisor the command cannot see the server process, so a
-version that never becomes healthy is detected when the 10-minute wait ends.
-
-A launchd job for Telomi:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.example.telomi</string>
-  <key>ProgramArguments</key>
-  <array><string>/bin/zsh</string><string>-lc</string><string>cd /path/to/telomi &amp;&amp; exec npm start</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/path/to/telomi.log</string>
-  <key>StandardErrorPath</key><string>/path/to/telomi.log</string>
-</dict>
-</plist>
-```
-
-`zsh -lc` gives the job the `PATH` of a login shell, where `node` and `npm` are
-installed. If the checkout or the data directory is on an external volume, macOS
-must first allow the job to use it: until then, the job fails with
-"Operation not permitted" or waits without output. Allow access to removable
-volumes (System Settings > Privacy & Security > Files and Folders) or grant Full
-Disk Access to the `node` binary the job runs. Only macOS with launchd has been
-verified.
+The stop command must keep the service from being restarted: `systemctl stop` is
+not undone by `Restart=`. As a safeguard, Telomi refuses to start while an upgrade
+is changing its installation, so a supervisor that restarts it anyway cannot write
+to data that is being copied or replaced. Under a supervisor, `npm run service`
+included, the command cannot see the server process, so a version that never
+becomes healthy is detected when the 10-minute wait ends.
 
 ## Manual upgrade
 

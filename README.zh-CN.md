@@ -60,7 +60,7 @@ npm start
 
 `npm run setup` 准备由 Telomi 管理的 Python 环境：Hindsight 记忆服务、Research Source Service 和 Prime Agent 内核，均通过 uv 安装。首次 setup 会下载 Python 解释器和依赖包，耗时取决于网络。本地音频（MLX）不包含在 `setup` 中；Apple Silicon macOS 上请另行执行 `npm run setup:audio`。
 
-启动完成后，打开 <http://127.0.0.1:8787>。使用期间，以及等待定期研究执行时，请保持 Telomi 运行。
+启动完成后，打开 <http://127.0.0.1:8787>。使用期间，以及等待定期研究执行时，请保持 Telomi 运行。在 macOS 上，也可以执行 `npm run service -- install` 让它在后台运行：每次登录时自动启动，退出后自动重启；详见[保持 Telomi 运行](apps/telomi/docs/upgrading.zh-CN.md#保持-telomi-运行)。
 
 Telomi 生成的 Goal、报告、Wiki、设置和已保存的凭据默认存放在 `apps/telomi/data`；设置 `TELOMI_DATA_DIR` 可改用其他目录。Telomi 只会自动创建默认目录；其他目录需要在首次启动前自行创建，这样移动硬盘未挂载时会直接报错，而不是悄悄以空数据启动。长期记忆（本地 PostgreSQL 数据库）和托管浏览器的登录状态也存放在这里，所以需要备份的只有这个数据目录。可以重新下载的内容单独放在 `apps/telomi/cache`（`TELOMI_CACHE_DIR`）。详见[升级、备份与恢复](apps/telomi/docs/upgrading.zh-CN.md)。
 
