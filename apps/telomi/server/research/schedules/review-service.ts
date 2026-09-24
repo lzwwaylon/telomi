@@ -76,7 +76,7 @@ export class ResearchScheduleReviewService {
 			const validate = (output: unknown) => parseScheduleReviewOutput(output, schedule);
 			// Capture 关闭时直接跑 Reviewer 并校验契约，不写 Evaluation Case。
 			const capture = caseCapture();
-			outcome = capture
+			outcome = capture?.scheduleReviewer
 				? await capture.scheduleReviewer(reviewerInput, { execute: this.reviewer, validate })
 				: validate(await this.reviewer(reviewerInput));
 		} catch (error) {

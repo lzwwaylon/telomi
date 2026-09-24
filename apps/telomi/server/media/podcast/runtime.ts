@@ -285,7 +285,7 @@ export async function generateSingleNarratorPodcastScript(input: {
 		...(input.skillWorkspaceDirectory ? { skillWorkspaceDirectory: input.skillWorkspaceDirectory } : {}),
 	};
 	// Capture 关闭时直接跑产品 Podcast Writer，不写 Evaluation Case。
-	const prime = capture
+	const prime = capture?.podcastWriter
 		? await capture.podcastWriter(podcastInput, {
 			recordDirectory: input.sessionDir,
 			runId: basename(input.sessionDir),

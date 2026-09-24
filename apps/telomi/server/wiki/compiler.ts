@@ -40,7 +40,7 @@ function runWikiShard(
 	runId: string,
 ): ReturnType<typeof runPrimeNoteWikiMaintainer> {
 	const capture = caseCapture();
-	return capture ? capture.wikiShard(input, { recordDirectory, runId }) : runPrimeNoteWikiMaintainer(input);
+	return capture?.wikiShard ? capture.wikiShard(input, { recordDirectory, runId }) : runPrimeNoteWikiMaintainer(input);
 }
 
 function runWikiCurator(
@@ -49,7 +49,7 @@ function runWikiCurator(
 	runId: string,
 ): ReturnType<typeof curateWikiEdition> {
 	const capture = caseCapture();
-	return capture ? capture.wikiCurator(input, { recordDirectory, runId }) : curateWikiEdition(input);
+	return capture?.wikiCurator ? capture.wikiCurator(input, { recordDirectory, runId }) : curateWikiEdition(input);
 }
 
 interface CompilationRecord {

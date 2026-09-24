@@ -1470,7 +1470,7 @@ export class GoalRunner {
 			const runMessages = (this.agent.state.messages as any[]).slice(messageCountBeforeRun);
 			this.lastRunUsage = summarizeAssistantUsage(runMessages);
 			try {
-				caseCapture()?.mainAgent({
+				caseCapture()?.mainAgent?.({
 					runId: workspaceSession.id,
 					runDirectory: workspaceSession.runDirectory,
 					question: this.activeOriginalQuestion,

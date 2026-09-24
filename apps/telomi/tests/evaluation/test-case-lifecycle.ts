@@ -196,6 +196,58 @@ assert.ok(
 );
 
 // ---------------------------------------------------------------------------
+// Settled Evolution Runs shrink to their record after the retention period.
+// ---------------------------------------------------------------------------
+
+{
+	const evolutionRuns = join(runtimeDir, "evolution", "runs");
+	const backtests = join(runtimeDir, "evaluation", "node-backtests");
+	const writeBacktest = (id: string, status: string) => {
+		mkdirSync(join(backtests, id, "executions"), { recursive: true });
+		writeFileSync(join(backtests, id, "run.json"), `${JSON.stringify({ id, status })}\n`);
+		writeFileSync(join(backtests, id, "executions", "payload.bin"), "x".repeat(1_000));
+	};
+	const writeEvolutionRun = (id: string, status: string, updatedAtMs: number, replayRunIds: string[]) => {
+		const directory = join(evolutionRuns, id);
+		for (const bulky of ["evidence", "replay-evidence", "rounds"]) {
+			mkdirSync(join(directory, bulky), { recursive: true });
+			writeFileSync(join(directory, bulky, "payload.bin"), "x".repeat(1_000));
+		}
+		writeFileSync(join(directory, "current.json"), `${JSON.stringify({
+			id, status, updatedAt: new Date(updatedAtMs).toISOString(),
+			innerLoop: { rounds: replayRunIds.map((replayRunId, index) => ({ round: index + 1, replayRunId })) },
+		})}\n`);
+		writeFileSync(join(directory, "request.json"), "{}\n");
+		writeFileSync(join(directory, "apply-receipt.json"), "{}\n");
+		return directory;
+	};
+	writeBacktest("nodebt_old", "awaiting_evaluation");
+	writeBacktest("nodebt_running", "running");
+	const old = writeEvolutionRun("evo-old", "applied", now - 40 * DAY, ["nodebt_old", "nodebt_running", ""]);
+	const recent = writeEvolutionRun("evo-recent", "no_change", now - 5 * DAY, []);
+	const inFlight = writeEvolutionRun("evo-in-flight", "replaying", now - 40 * DAY, []);
+	const withCase = writeEvolutionRun("evo-with-case", "failed", now - 40 * DAY, []);
+	const evolutionCase = join(withCase, "node-evaluation", "cases", "evolution-case");
+	mkdirSync(evolutionCase, { recursive: true });
+	writeFileSync(join(evolutionCase, "manifest.json"), `${JSON.stringify({ capturedAt: new Date(now - DAY).toISOString() })}\n`);
+
+	const preview = sweep({ dryRun: true });
+	assert.equal(preview.compactedEvolutionRuns, 1);
+	assert.ok(existsSync(join(old, "evidence")), "a dry run deletes nothing");
+
+	const compacted = sweep();
+	assert.equal(compacted.compactedEvolutionRuns, 1, "only the settled, expired Run without a retained Case is compacted");
+	assert.deepEqual(readdirSync(old).sort(), ["apply-receipt.json", "current.json", "request.json"],
+		"the record that keeps the Browser trigger cursor survives");
+	assert.equal(existsSync(join(backtests, "nodebt_old")), false, "its finished Replay goes with it");
+	assert.ok(existsSync(join(backtests, "nodebt_running")), "a Replay still running is never deleted");
+	for (const kept of [recent, inFlight, withCase]) assert.ok(existsSync(join(kept, "evidence")), `${kept} must be kept whole`);
+	assert.equal(sweep().compactedEvolutionRuns, 0, "compaction is idempotent");
+	rmSync(join(runtimeDir, "evolution"), { recursive: true, force: true });
+	rmSync(join(backtests, "nodebt_running"), { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
 // 首次 Sweep 不在启动关键路径上，由 idle() 确定性等待。
 // ---------------------------------------------------------------------------
 

@@ -1,9 +1,9 @@
 /**
  * Evolution lifecycle wiring.
  *
- * Installed by the Evaluation composition root, which every product instance runs, so both the
- * Capture and the Eval Instance role have this listener. Evolution needs captured Cases; a process
- * that does not compose Evaluation has no listener and counts nothing.
+ * Installed by the Evaluation composition root, which every product instance runs, so every
+ * evaluation role has this listener. Evolution needs captured Prime Search Cases, which every role
+ * captures; a process that does not compose Evaluation has no listener and counts nothing.
  */
 import { installResearchRunSettled } from "../observability/case-capture.js";
 import type { NodeBacktestService } from "../evaluation/node-backtest.js";

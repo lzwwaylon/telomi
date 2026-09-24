@@ -82,6 +82,17 @@ export function capturedBrowserProviderExecutions(
 		.sort((left, right) => left.execution_id.localeCompare(right.execution_id));
 }
 
+/**
+ * Whether a Prime Search batch produced anything this Target could count: a Browser child that ended
+ * in `valid_bundle`. Instances without full capture keep only these Prime Search Cases.
+ */
+export function producesBrowserEvolutionEvidence(result: {
+	executionRecords: ReadonlyArray<{ record: Pick<SearchExecutionRecord, "provider_id" | "terminal_status"> }>;
+}): boolean {
+	return result.executionRecords.some(({ record }) => record.provider_id === BROWSER_PROVIDER.id
+		&& record.terminal_status === "valid_bundle");
+}
+
 const BROWSER_CASE_RESULT_REF = "output:result.json";
 
 function browserProviderExecutionRef(value: EvolutionEvidenceRef): BrowserProviderExecutionRef {

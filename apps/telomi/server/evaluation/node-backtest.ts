@@ -1322,7 +1322,7 @@ export class NodeBacktestService {
 	}
 
 	private runsDirectory(goalId: string): string {
-		return join(serverRuntimeDirForGoal(goalId, this.options.workspaceDir), "evaluation/node-backtests");
+		return nodeBacktestRunsDirectory(this.options.workspaceDir, goalId);
 	}
 
 	private capabilitySnapshotsDirectory(goalId: string): string {
@@ -1693,6 +1693,10 @@ function verifiedNestedFile(
  * Capability Snapshot 都在 `evaluation/` 里，因此这个列表就是 Case 保留策略
  * 唯一可以触碰的所有权边界。
  */
+export function nodeBacktestRunsDirectory(workspaceDir: string, goalId: string): string {
+	return join(serverRuntimeDirForGoal(goalId, workspaceDir), "evaluation/node-backtests");
+}
+
 export function capturedCaseRunRoots(workspaceDir: string, goalId: string): string[] {
 	const root = serverRuntimeDirForGoal(goalId, workspaceDir);
 	return [

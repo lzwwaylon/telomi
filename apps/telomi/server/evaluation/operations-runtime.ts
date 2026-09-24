@@ -1,8 +1,12 @@
 /**
  * Evaluation 组合根。每个产品实例启动时都被 `server/app.ts` 动态 import，因此
- * Case Capture Hook、Replay Recipe 和 NodeBacktestService 在所有实例上都存在。
- * 实例角色只决定 Operations Listener 的写权限、Bundle Exchange Root 和 Case
- * 保留策略，不决定产品路径是否 Capture。
+ * Replay Recipe 和 NodeBacktestService 在所有实例上都存在，Evolution 依赖它们。
+ * 实例角色决定安装哪些 Case Capture Hook、是否绑定 Operations Listener 及其写权限、
+ * Bundle Exchange Root 和 Case 保留策略：
+ *
+ * - off（默认）：只捕获 Evolution 消费的 Prime Search Case，不绑定 Listener。
+ * - capture：全部节点 Capture，只读 Listener。
+ * - eval：全部节点 Capture，完整 Replay Listener，不跑保留策略。
  *
  * Operations HTTP 使用独立 Express app 和独立 Listener，固定绑定 127.0.0.1，
  * 不读取 TELOMI_HOST，也不会被产品反向代理转发。
@@ -36,16 +40,17 @@ import { runWikiCuratorNodeEvaluation, runWikiShardNodeEvaluation } from "./wiki
 import { runPodcastWriterNodeEvaluation } from "./podcast-replay.js";
 import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
 import { OPERATIONS_PROTOCOL_VERSION, OPERATIONS_SCHEMA_HASH } from "./operations-contract.js";
+import { producesBrowserEvolutionEvidence } from "../evolution/targets.js";
 
 export interface OperationsRuntime {
 	readonly mode: OperationsMode;
 	readonly nodeBacktests: NodeBacktestService;
 	/** Only directory a Bundle tar may be imported from. */
 	readonly exchangeRoot: string;
-	/** Bound address; undefined before `listen()` resolves. */
+	/** Bound address; undefined before `start()` resolves and always in the default role. */
 	address(): AddressInfo | undefined;
-	/** Starts the Replay queue and binds the loopback Operations Listener. */
-	listen(): Promise<void>;
+	/** Starts the Replay queue and Case retention, and binds the loopback Listener outside the default role. */
+	start(): Promise<void>;
 	close(): void;
 }
 
@@ -55,9 +60,13 @@ export function createOperationsRuntime(options: {
 	workspaceDir: string;
 	goals: Pick<GoalService, "listGoals" | "getGoal" | "ensureImportedGoal">;
 }): OperationsRuntime {
-	// 产品节点通过 server/observability/case-capture.ts 找到这些 Hook。两种角色都安装，
-	// 所以每个实例的产品路径都写 Evaluation Case；只有没有组合 Evaluation 的进程没有 Hook。
-	const uninstallCaseCapture = installCaseCapture({
+	// 产品节点通过 server/observability/case-capture.ts 找到这些 Hook；缺省的节点不写 Case。
+	const uninstallCaseCapture = installCaseCapture(options.mode === "off" ? {
+		primeSearchBatch: (executor, captureOptions) => withPrimeSearchNodeEvaluationCapture(executor, {
+			...captureOptions,
+			keep: producesBrowserEvolutionEvidence,
+		}),
+	} : {
 		researchStages: withResearchNodeEvaluationCapture,
 		cornellNote: withCornellNoteCapture,
 		primeSearchBatch: withPrimeSearchNodeEvaluationCapture,
@@ -89,11 +98,6 @@ export function createOperationsRuntime(options: {
 	const exchangeRoot = resolveOperationsExchangeRoot(options.workspaceDir);
 	if (options.mode === "eval") ensureOperationsExchangeRoot(exchangeRoot);
 
-	const app = express();
-	app.use(express.json({ limit: "50mb" }));
-	app.use(createOperationsRouter(options.goals, nodeBacktests, options.mode, exchangeRoot));
-	app.use((_req, res) => void res.status(404).json({ error: "Operations route not found" }));
-
 	let server: Server | undefined;
 	let retention: CaseRetentionSweeper | undefined;
 	return {
@@ -104,16 +108,25 @@ export function createOperationsRuntime(options: {
 			const bound = server?.address();
 			return bound && typeof bound === "object" ? bound : undefined;
 		},
-		listen: () => new Promise<void>((resolve, reject) => {
+		start: () => new Promise<void>((resolve, reject) => {
 			nodeBacktests.start();
-			// 保留策略只属于内部正式实例。Candidate 实例可能挂着同一个 workspace，
+			// 保留策略属于产品实例。Candidate 实例可能挂着同一个 workspace，
 			// 它绝不能删除正式 Capture 的 Case。
-			if (options.mode === "capture") {
+			if (options.mode !== "eval") {
 				retention = startCaseRetention({
 					workspaceDir: options.workspaceDir,
 					listGoalIds: () => options.goals.listGoals().map((goal) => goal.id),
 				});
 			}
+			const mode = options.mode;
+			if (mode === "off") {
+				resolve();
+				return;
+			}
+			const app = express();
+			app.use(express.json({ limit: "50mb" }));
+			app.use(createOperationsRouter(options.goals, nodeBacktests, mode, exchangeRoot));
+			app.use((_req, res) => void res.status(404).json({ error: "Operations route not found" }));
 			server = app.listen(options.port, OPERATIONS_HOST, () => {
 				const bound = server?.address();
 				console.log(

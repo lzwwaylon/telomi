@@ -13,6 +13,11 @@
  * - 删除先原子 rename 到 `.trash`，再递归删除；进程在中途退出时，下一次 Sweep
  *   会先清空 `.trash`，因此不会留下半个 Case 目录被当成可回放 Case。
  * - Sweep 对产品完全 fail-open：任何一个 Case 出错只写警告计数，不抛给调用方。
+ *
+ * Evolution Run 记录按同一保留期压缩：终态且超过保留期、自身 Evolution Case 已被清理的
+ * Run 只留下 `current.json`、`request.json` 和 Apply Receipt，它的 Evidence、Round、
+ * Replay Evidence 和 Replay 用的 Node Backtest Run 一并删除。留下的记录仍是 Browser
+ * Trigger 的游标，所以已消费的执行不会被再次计数。
  */
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync } from "node:fs";
@@ -20,7 +25,9 @@ import { join } from "node:path";
 
 import { TERMINAL_RUN_STATUSES } from "../research/run-state.js";
 import { WIKI_UPDATE_JOB_FILE } from "../wiki/wiki-update-job.js";
-import { capturedCaseRunRoots } from "./node-backtest.js";
+import { capturedCaseRunRoots, nodeBacktestRunsDirectory } from "./node-backtest.js";
+import { APPLY_RECEIPT_FILE, TERMINAL_RUN_STATUSES as TERMINAL_EVOLUTION_STATUSES, type EvolutionRun } from "../evolution/service.js";
+import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import { caseExporting } from "./case-export-lock.js";
 import { toErrorMessage } from "../lib/values.js";
 
@@ -55,6 +62,8 @@ export interface CaseRetentionReport {
 	protectedRecent: number;
 	/** Bundle export currently reads this Case. */
 	protectedExporting: number;
+	/** Settled Evolution Runs reduced to their record in this sweep. */
+	compactedEvolutionRuns: number;
 	dryRun: boolean;
 	warnings: string[];
 }
@@ -124,7 +133,7 @@ export function sweepCapturedCases(options: {
 	const isRunActive = options.isRunActive ?? productionRunActive;
 	const report: CaseRetentionReport = {
 		scanned: 0, retained: 0, retainedBytes: 0, deletedByAge: 0, deletedBySize: 0, reclaimedBytes: 0,
-		protectedActive: 0, protectedRecent: 0, protectedExporting: 0,
+		protectedActive: 0, protectedRecent: 0, protectedExporting: 0, compactedEvolutionRuns: 0,
 		dryRun: options.dryRun === true, warnings: [],
 	};
 	const sweepable: CapturedCase[] = [];
@@ -183,7 +192,43 @@ export function sweepCapturedCases(options: {
 			+ `${report.protectedRecent} recent and ${report.protectedExporting} exporting Cases`);
 	}
 	report.retained = report.scanned - report.deletedByAge - report.deletedBySize;
+	for (const goalId of options.goalIds) compactEvolutionRuns(options.workspaceDir, goalId, now - policy.maxAgeMs, report);
 	return report;
+}
+
+const EVOLUTION_RECORD_ENTRIES = new Set(["current.json", "request.json", APPLY_RECEIPT_FILE, "node-evaluation"]);
+
+function compactEvolutionRuns(workspaceDir: string, goalId: string, cutoffMs: number, report: CaseRetentionReport): void {
+	const backtests = nodeBacktestRunsDirectory(workspaceDir, goalId);
+	for (const runDirectory of subdirectories(join(serverRuntimeDirForGoal(goalId, workspaceDir), "evolution", "runs"))) {
+		try {
+			const run = JSON.parse(readFileSync(join(runDirectory, "current.json"), "utf-8")) as EvolutionRun;
+			if (!TERMINAL_EVOLUTION_STATUSES.includes(run.status) || !(Date.parse(run.updatedAt) < cutoffMs)) continue;
+			// Its own Evolution Case may still be retained or exporting, and it can reference this directory.
+			if (subdirectories(join(runDirectory, "node-evaluation", "cases")).length > 0) continue;
+			const bulky = readdirSync(runDirectory).filter((name) => !EVOLUTION_RECORD_ENTRIES.has(name));
+			const replays = (run.innerLoop?.rounds ?? []).map((round) => round.replayRunId)
+				.filter((id) => id && existsSync(join(backtests, id)) && !backtestActive(join(backtests, id)));
+			if (bulky.length === 0 && replays.length === 0) continue;
+			for (const name of bulky) report.reclaimedBytes += pathBytes(join(runDirectory, name));
+			for (const id of replays) report.reclaimedBytes += pathBytes(join(backtests, id));
+			report.compactedEvolutionRuns += 1;
+			if (report.dryRun) continue;
+			for (const name of bulky) rmSync(join(runDirectory, name), { recursive: true, force: true });
+			for (const id of replays) rmSync(join(backtests, id), { recursive: true, force: true });
+		} catch (error) {
+			warn(report, `skipped Evolution Run '${runDirectory}': ${describe(error)}`);
+		}
+	}
+}
+
+function backtestActive(directory: string): boolean {
+	const status = runStatus(join(directory, "run.json"));
+	return status === "queued" || status === "running" || status === "unreadable";
+}
+
+function pathBytes(path: string): number {
+	return lstatSync(path).isDirectory() ? directoryBytes(path) : lstatSync(path).size;
 }
 
 /**
@@ -208,7 +253,8 @@ export function startCaseRetention(options: {
 		} catch (error) {
 			// Fail-open：保留策略是后台维护，出错只记录，不影响任何产品路径。
 			report = { scanned: 0, retained: 0, retainedBytes: status.bytes, deletedByAge: 0, deletedBySize: 0,
-				reclaimedBytes: 0, protectedActive: 0, protectedRecent: 0, protectedExporting: 0, dryRun: false,
+				reclaimedBytes: 0, protectedActive: 0, protectedRecent: 0, protectedExporting: 0,
+				compactedEvolutionRuns: 0, dryRun: false,
 				warnings: [`case retention sweep failed: ${describe(error)}`] };
 		}
 		status = {

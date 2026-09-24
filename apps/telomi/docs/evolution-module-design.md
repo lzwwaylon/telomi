@@ -10,7 +10,7 @@ Evolution changes only the Browser Skill override for a single Goal:
 <goal>/skills/prime-search/prime-browser-provider-skill
 ```
 
-It does not change bundled Skills, the Agent Bundle, Telomi source code, or capabilities shared across Goals. The Evaluation composition root installs the Evolution Runtime in every product instance, for both Capture and Eval Instance roles.
+It does not change bundled Skills, the Agent Bundle, Telomi source code, or capabilities shared across Goals. The Evaluation composition root installs the Evolution Runtime in every instance, whatever its [evaluation role](node-agent-backtest.md#operating-modes-and-operations-listener). Without full capture, the instance still captures the Prime Search Cases this Target counts, and nothing else.
 
 ## Triggers
 
@@ -84,7 +84,7 @@ The old override remains in `before/`. If the Goal previously used the bundled S
 
 ## Evolution Cases and Outer Replay
 
-Every terminal Browser Evolution attempts Capture:
+With full capture (`TELOMI_EVAL_CAPTURE=1` or an Eval Instance), every terminal Browser Evolution attempts Capture. The default role captures no Evolution Case:
 
 - `applied` and `no_change` produce Quality Cases.
 - `failed` and `cancelled` produce Recovery Cases without Observed output.

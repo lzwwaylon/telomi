@@ -162,7 +162,7 @@ export class RuntimeCornellNoteAgentProcessor implements CornellNoteProcessor {
 		};
 		const systemPrompt = renderCornellNoteAgentSystemPrompt();
 		const userPrompt = renderCornellNoteAgentUserPrompt(request);
-		const runner = caseCapture()?.cornellNote(this.stageRunner, {
+		const runner = caseCapture()?.cornellNote?.(this.stageRunner, {
 			...request, document: { id: document.id, title: document.title, url: document.url, provider: document.providerId },
 		}, this.skills) ?? this.stageRunner;
 		const result = await runner.runStage<CornellNote>({
