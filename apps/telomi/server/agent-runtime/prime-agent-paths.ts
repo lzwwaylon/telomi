@@ -258,8 +258,19 @@ function modelDefinition(provider: Record<string, unknown> | undefined, id: stri
 		?? asRecord(asRecord(provider?.modelOverrides)?.[id]);
 }
 
+/** Model ids a Provider declares, through `models` or `modelOverrides`. */
+function declaredModelIds(provider: Record<string, unknown> | undefined): string[] {
+	return [...new Set([
+		...(Array.isArray(provider?.models) ? provider.models.flatMap((value) => {
+			const id = asRecord(value)?.id;
+			return typeof id === "string" ? [id] : [];
+		}) : []),
+		...Object.keys(asRecord(provider?.modelOverrides) ?? {}),
+	])].sort();
+}
+
 /** Authentication values may rotate; destinations, protocols and header layouts may not. */
-function connectionIdentity(provider: Record<string, unknown> | undefined, modelId: string | undefined, frozen: boolean): unknown {
+function connectionIdentity(provider: Record<string, unknown> | undefined, ids: readonly string[], frozen: boolean): unknown {
 	const shape = (entry: Record<string, unknown> | undefined) => {
 		const headers = asRecord(entry?.headers) ?? {};
 		for (const [name, value] of Object.entries(headers)) {
@@ -274,15 +285,11 @@ function connectionIdentity(provider: Record<string, unknown> | undefined, model
 				.map(([key, value]) => [key.toLowerCase(), value]).sort(([a], [b]) => a!.localeCompare(b!))),
 		};
 	};
-	const ids = modelId ? [modelId] : [...new Set([
-		...(Array.isArray(provider?.models) ? provider.models.flatMap((value) => {
-			const id = asRecord(value)?.id;
-			return typeof id === "string" ? [id] : [];
-		}) : []),
-		...Object.keys(asRecord(provider?.modelOverrides) ?? {}),
-	])].sort();
 	return { declared: Boolean(provider), provider: shape(provider),
-		models: Object.fromEntries(ids.map((id) => [id, shape(modelDefinition(provider, id))])) };
+		models: Object.fromEntries(ids.map((id) => {
+			const entry = modelDefinition(provider, id);
+			return [id, { declared: Boolean(entry), ...shape(entry) }];
+		})) };
 }
 
 /** Reads JSON without turning corrupt or unreadable configuration into credential deletion. */
@@ -335,7 +342,11 @@ export function createPrimeModelRegistry(
 			throw new Error("Invalid Prime connection configuration");
 		}
 		const definition = providerDefinition(live, provider);
-		if (!isDeepStrictEqual(connectionIdentity(providerDefinition(frozen, provider), modelId, true), connectionIdentity(definition, modelId, false))) {
+		const frozenDefinition = providerDefinition(frozen, provider);
+		// A provider-level check covers the models this Run froze. Models a catalog sync appends later
+		// are invisible to the Run, so they cannot change any connection it uses.
+		const ids = modelId ? [modelId] : declaredModelIds(frozenDefinition);
+		if (!isDeepStrictEqual(connectionIdentity(frozenDefinition, ids, true), connectionIdentity(definition, ids, false))) {
 			throw new Error(`Provider connection '${provider}' changed; start a new Run to use the activated connection`);
 		}
 		return definition ?? {};
