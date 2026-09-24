@@ -137,7 +137,9 @@ TELOMI_SERVICE_STOP=systemctl --user stop telomi
 TELOMI_SERVICE_START=systemctl --user start telomi
 ```
 
-停止命令必须让服务不被重新拉起：`Restart=` 不会撤销 `systemctl stop`。作为保险，
+停止命令必须让服务不被重新拉起：`Restart=` 不会撤销 `systemctl stop`。它还必须在
+Telomi 退出后才返回，因为紧接着就会复制数据目录：`systemctl stop` 会等待单元停止；
+对 `npm run service`，命令会等到 launchd 不再列出该任务。作为保险，
 升级正在修改安装时 Telomi 拒绝启动，因此即使守护进程仍然重启它，也无法写入正在
 复制或替换的数据。在守护进程下（包括 `npm run service`），命令看不到服务进程，
 始终无法正常响应的版本要等 10 分钟等待结束才会被发现。

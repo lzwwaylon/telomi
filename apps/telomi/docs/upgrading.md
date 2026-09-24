@@ -161,7 +161,10 @@ TELOMI_SERVICE_START=systemctl --user start telomi
 ```
 
 The stop command must keep the service from being restarted: `systemctl stop` is
-not undone by `Restart=`. As a safeguard, Telomi refuses to start while an upgrade
+not undone by `Restart=`. It must also return only once Telomi has exited, since
+the data directory is copied right after it; `systemctl stop` waits for the unit
+to stop, and for `npm run service` the command waits until launchd no longer
+lists the job. As a safeguard, Telomi refuses to start while an upgrade
 is changing its installation, so a supervisor that restarts it anyway cannot write
 to data that is being copied or replaced. Under a supervisor, `npm run service`
 included, the command cannot see the server process, so a version that never
