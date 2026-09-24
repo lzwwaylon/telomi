@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { sha256 } from "../../server/lib/hash.js";
 import { createCaseBundle } from "../../server/evaluation/case-bundle.js";
 import { NodeBacktestService } from "../../server/evaluation/node-backtest.js";
+import { producesBrowserEvolutionEvidence } from "../../server/evolution/targets.js";
 import {
 	createLivePrimeSearchReplayRecipe,
 	type PrimeSearchReplayExecutionInput,
@@ -151,6 +152,32 @@ await assert.rejects(withPrimeSearchNodeEvaluationCapture({
 	async execute() { throw new Error("Interrupted acquisition"); },
 }, captureOptions).execute(captureInput), /Interrupted acquisition/);
 await withPrimeSearchNodeEvaluationCapture(captureExecutor, captureOptions).execute(captureInput);
+
+// Evolution-only capture keeps a batch only when the predicate accepts it; failures and rejected
+// batches leave no Case behind, and the product result is unchanged.
+{
+	const filteredRun = join(serverRuntimeDirForGoal(goalId, workspaceDir), "runs", "filtered-run");
+	mkdirSync(filteredRun, { recursive: true });
+	const filteredInput = { ...captureInput, runId: "filtered-run", controlDirectory: filteredRun, artifactStore: new RunArtifactStore(filteredRun) };
+	const cases = () => existsSync(join(filteredRun, "node-evaluation", "cases"))
+		? readdirSync(join(filteredRun, "node-evaluation", "cases")) : [];
+	const githubOnly = await withPrimeSearchNodeEvaluationCapture(captureExecutor, {
+		...captureOptions, keep: producesBrowserEvolutionEvidence,
+	}).execute({ ...filteredInput, sequence: 10 });
+	assert.equal(githubOnly.executionRecords[0]?.record.provider_id, "github");
+	assert.deepEqual(cases(), [], "a batch without a valid Browser child is not Evolution evidence");
+	await assert.rejects(withPrimeSearchNodeEvaluationCapture({
+		async execute() { throw new Error("Interrupted acquisition"); },
+	}, { ...captureOptions, keep: () => true }).execute(filteredInput), /Interrupted acquisition/);
+	assert.deepEqual(cases(), [], "a failed batch is never Evolution evidence");
+	await withPrimeSearchNodeEvaluationCapture(captureExecutor, { ...captureOptions, keep: () => true }).execute({ ...filteredInput, sequence: 11 });
+	assert.equal(cases().length, 1, "an accepted batch is captured as usual");
+	assert.equal(producesBrowserEvolutionEvidence({ executionRecords: [
+		{ record: { provider_id: "browser", terminal_status: "failed" } },
+		{ record: { provider_id: "browser", terminal_status: "valid_bundle" } },
+	] } as unknown as SearchBatchResult), true);
+	rmSync(filteredRun, { recursive: true, force: true });
+}
 
 const liveRecipe = createLivePrimeSearchReplayRecipe({
 	async execute(input) {

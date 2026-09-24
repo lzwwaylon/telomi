@@ -15,7 +15,7 @@ import { join } from "node:path";
 import express from "express";
 
 import { resolveOperationsMode, resolveOperationsPort } from "../../server/config/network.js";
-import { caseCaptureHealth } from "../../server/observability/case-capture.js";
+import { caseCapture, caseCaptureHealth } from "../../server/observability/case-capture.js";
 import { createOperationsRuntime, type OperationsRuntime } from "../../server/evaluation/operations-runtime.js";
 import {
 	OPERATIONS_BASE_PATH,
@@ -28,12 +28,13 @@ import {
 import { resolveExchangeBundlePath, resolveOperationsExchangeRoot } from "../../server/evaluation/exchange-root.js";
 import { createOperationsRouter } from "../../server/evaluation/api.js";
 
-// --- Runtime mode is start-up only and defaults to capture. ---
-assert.equal(resolveOperationsMode({}), "capture");
+// --- Runtime mode is start-up only; full capture is opt-in. ---
+assert.equal(resolveOperationsMode({}), "off");
 assert.equal(resolveOperationsMode({ TELOMI_EVAL_CAPTURE: "1" }), "capture");
 assert.equal(resolveOperationsMode({ TELOMI_EVAL_INSTANCE: "1" }), "eval");
 assert.equal(resolveOperationsMode({ TELOMI_EVAL_CAPTURE: "1", TELOMI_EVAL_INSTANCE: "1" }), "eval");
-assert.equal(resolveOperationsMode({ TELOMI_EVAL_CAPTURE: "0" }), "capture");
+assert.equal(resolveOperationsMode({ TELOMI_EVAL_CAPTURE: "0" }), "off");
+assert.equal(resolveOperationsMode({ TELOMI_EVAL_INSTANCE: "0" }), "off");
 assert.equal(resolveOperationsPort(8787, {}), 8788);
 assert.equal(resolveOperationsPort(8787, { TELOMI_OPERATIONS_PORT: "9999" }), 9999);
 assert.equal(resolveOperationsPort(8787, { TELOMI_OPERATIONS_PORT: "not a port" }), 8788);
@@ -108,17 +109,35 @@ async function withRuntime(mode: "capture" | "eval", body: (runtime: OperationsR
 		workspaceDir,
 		goals,
 	});
-	await runtime.listen();
+	await runtime.start();
 	try {
-		assert.equal(caseCaptureHealth().enabled, true,
-			`${mode} mode must install the Case Capture hooks; every instance captures Cases`);
+		assert.deepEqual(Object.keys(caseCapture() ?? {}).sort(), FULL_CAPTURE_NODES,
+			`${mode} mode must capture every instrumented node`);
 		await body(runtime, `http://127.0.0.1:${runtime.address()!.port}`);
 	} finally {
 		runtime.close();
 	}
 }
 
+const FULL_CAPTURE_NODES = [
+	"cornellNote", "mainAgent", "podcastWriter", "primeSearchBatch", "researchStages", "scheduleReviewer", "wikiCurator", "wikiShard",
+];
+
 try {
+	// --- Default role: only the Prime Search Cases Evolution consumes, and no Listener at all. ---
+	{
+		const runtime = createOperationsRuntime({ mode: "off", port: 0, workspaceDir: join(root, "off"), goals });
+		await runtime.start();
+		try {
+			assert.deepEqual(Object.keys(caseCapture() ?? {}), ["primeSearchBatch"],
+				"the default role must capture only what Browser Skill Evolution consumes");
+			assert.equal(runtime.address(), undefined, "the default role must not bind an Operations Listener");
+		} finally {
+			runtime.close();
+		}
+		assert.equal(caseCaptureHealth().enabled, false);
+	}
+
 	await withRuntime("capture", async (runtime, baseUrl) => {
 		const reasons = await probe(runtime, baseUrl);
 		for (const route of OPERATIONS_ROUTES) {

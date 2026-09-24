@@ -25,11 +25,20 @@ export function isAllowedBrowserOrigin(
 	return false;
 }
 
-/** Instance role controls Operations write access, never product capability availability. */
-export type OperationsMode = "capture" | "eval";
+/**
+ * Evaluation role of this instance. Read once at startup; changing it requires a restart.
+ *
+ * off      Default. Captures only the Cases Browser Skill Evolution consumes; no Operations Listener.
+ * capture  `TELOMI_EVAL_CAPTURE=1`: full Case capture and a read-only Operations Listener.
+ * eval     `TELOMI_EVAL_INSTANCE=1`: full Case capture and the full Replay Operations Listener.
+ *
+ * Product capabilities, Evolution included, are the same in every role.
+ */
+export type OperationsMode = "off" | "capture" | "eval";
 
 export function resolveOperationsMode(env: NodeJS.ProcessEnv = process.env): OperationsMode {
-	return env.TELOMI_EVAL_INSTANCE === "1" ? "eval" : "capture";
+	if (env.TELOMI_EVAL_INSTANCE === "1") return "eval";
+	return env.TELOMI_EVAL_CAPTURE === "1" ? "capture" : "off";
 }
 
 /** The Operations Listener never reads TELOMI_HOST; it is loopback-only by construction. */

@@ -2,10 +2,11 @@
  * Case Capture 的组合缝。
  *
  * 依赖方向固定为 `CaseCapture -> 产品执行结果`：正常 Research、Wiki、Podcast 和
- * Main Agent 只调用这里的可选 Hook，不 import Evaluation 实现。Capture 与 Eval Instance
- * 两种角色都由组合根 `server/evaluation/operations-runtime.ts` 安装真实实现，因此产品
- * 实例始终写 Evaluation Case。只有没有组合 Evaluation 的进程（例如单元测试）没有 Hook，
- * 那时调用方走原本的产品路径。
+ * Main Agent 只调用这里的可选 Hook，不 import Evaluation 实现。组合根
+ * `server/evaluation/operations-runtime.ts` 按实例角色决定安装哪些 Hook：Capture 与
+ * Eval Instance 安装全部节点，默认角色只安装 Evolution 消费的 Prime Search。每个 Hook
+ * 各自可缺省；缺省的节点（以及没有组合 Evaluation 的进程，例如单元测试）走原本的
+ * 产品路径，不写 Case。
  *
  * Hook 的签名用 `typeof` 绑定到真实实现，只做 type-only import，运行时不加载
  * Evaluation 代码，也不需要在这里重复声明一遍参数类型。
@@ -44,7 +45,7 @@ export interface CaseCaptureHealth {
 
 const RECENT_FAILURE_LIMIT = 20;
 
-let installed: CaseCaptureHooks | undefined;
+let installed: Partial<CaseCaptureHooks> | undefined;
 let researchRunSettled: ResearchRunSettledHook | undefined;
 let failures = 0;
 const recent: CaseCaptureFailure[] = [];
@@ -57,7 +58,7 @@ const recent: CaseCaptureFailure[] = [];
 export type ResearchRunSettledHook = (goalId: string, runId: string) => void;
 
 /** Composition root only. Product modules must not call this. */
-export function installCaseCapture(hooks: CaseCaptureHooks): () => void {
+export function installCaseCapture(hooks: Partial<CaseCaptureHooks>): () => void {
 	installed = hooks;
 	return () => {
 		if (installed === hooks) installed = undefined;
@@ -85,8 +86,8 @@ export function notifyResearchRunSettled(goalId: string, runId: string): void {
 	}
 }
 
-/** `undefined` where Evaluation is not composed: the caller runs its plain product path and writes no Case. */
-export function caseCapture(): CaseCaptureHooks | undefined {
+/** A missing hook means the caller runs its plain product path and writes no Case for that node. */
+export function caseCapture(): Partial<CaseCaptureHooks> | undefined {
 	return installed;
 }
 

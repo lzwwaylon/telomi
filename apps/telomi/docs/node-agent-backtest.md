@@ -25,34 +25,36 @@ The production Research Runtime and Node Backtest share one Stage Runner constru
 
 ## Operating Modes and Operations Listener
 
-Every instance captures Cases. There are only two instance roles, Capture and Eval Instance, read at startup; changes require a restart.
+Full Case capture is opt-in. There are three instance roles, read at startup; changes require a restart.
 
-| Role | Environment variable | Case Capture | Operations HTTP | Case retention |
-|---|---|---:|---|---:|
-| Internal production Telomi (default) | None | Enabled | Loopback, read-only Case Interface | Enabled |
-| Candidate evaluation instance | `TELOMI_EVAL_INSTANCE=1` | Enabled | Loopback, complete Replay Interface | Disabled |
+| Role | Environment variable | Case Capture | Operations HTTP | Retention |
+|---|---|---|---|---:|
+| Product instance (default) | None | Only Prime Search Cases with a `valid_bundle` Browser child, which [Evolution](evolution-module-design.md) consumes | None | Enabled |
+| Capture instance | `TELOMI_EVAL_CAPTURE=1` | Every instrumented node, plus one Case per terminal Evolution | Loopback, read-only Case Interface | Enabled |
+| Candidate evaluation instance | `TELOMI_EVAL_INSTANCE=1` | Every instrumented node, plus one Case per terminal Evolution | Loopback, complete Replay Interface | Disabled |
 
-Both roles create `NodeBacktestService`, register all Replay Recipes, start the Replay Queue, and install the Case Capture Hook. The role determines only Operations Listener write access (`writable` in Status), Bundle Import and Bundle Exchange Root, and whether Case retention starts. Composition lives in `server/evaluation/operations-runtime.ts`, dynamically imported by `server/app.ts` at startup. `server/app.ts` does not statically import Evaluation or Evolution implementations.
+Every role creates `NodeBacktestService`, registers all Replay Recipes and starts the Replay Queue, because Browser Skill Evolution replays its Candidates through them. The role determines which Case Capture Hooks are installed, whether an Operations Listener exists and its write access (`writable` in Status), Bundle Import and Bundle Exchange Root, and whether retention starts. Full capture is a development and evaluation tool: most installations never replay their Cases, and on a daily-used installation they grow to many gigabytes. Composition lives in `server/evaluation/operations-runtime.ts`, dynamically imported by `server/app.ts` at startup. `server/app.ts` does not statically import Evaluation or Evolution implementations.
 
 The product HTTP app never mounts Operations routes. Operations uses a separate Express app and Listener, bound exclusively to `127.0.0.1`, ignoring `TELOMI_HOST`. The port defaults to `PORT + 1` and can be overridden through `TELOMI_OPERATIONS_PORT`. Authentication and cross-machine deployment are not currently supported.
 
 ### Case Capture Composition and Failure Semantics
 
-Ordinary Research, Prime Search, Wiki, Podcast, and Main Agent code does not import Evaluation implementations. It only invokes the optional Hook in `server/observability/case-capture.ts`. For both roles, `operations-runtime.ts` installs the real implementation through `installCaseCapture()`, so product instances always write Evaluation Cases. Processes without Evaluation composition, such as unit tests, have no Hook and follow the original product path. Hook signatures bind to the real functions through `typeof` and type-only imports without loading Evaluation code at runtime. `tests/evaluation/test-case-capture.ts` scans `server/` to reject new value imports, except within Evolution and `server/evaluation/` itself.
+Ordinary Research, Prime Search, Wiki, Podcast, and Main Agent code does not import Evaluation implementations. It only invokes the optional Hooks in `server/observability/case-capture.ts`. `operations-runtime.ts` installs the real implementations for the instance role through `installCaseCapture()`; each Hook is optional. A node whose Hook is absent, and every node in a process without Evaluation composition such as a unit test, follows the original product path and writes no Case. In the default role, the Prime Search Hook discards the draft of a failed batch or one without a `valid_bundle` Browser child, so only Evolution evidence remains. Hook signatures bind to the real functions through `typeof` and type-only imports without loading Evaluation code at runtime. `tests/evaluation/test-case-capture.ts` scans `server/` to reject new value imports, except within Evolution and `server/evaluation/` itself.
 
 - Production Capture is **fail-open**: preparation or persistence failures do not prevent product results from returning. Failures are recorded in structured logs and the `capture` field of `GET /operations/v1/status` (`enabled`, `failures`, `recent`).
 - Candidate Replay Evidence is **fail-closed**: failed Prime Search Candidate Capture throws immediately. If a Candidate execution ends without exactly one Candidate Case, the execution is `failed`; incomplete Evidence cannot enter a reviewable Pair.
 
 ### Case Retention and Recovery Cases
 
-Production instances retain Cases only briefly: 30 days or 50 GB by default, whichever limit is reached first. Startup settings `TELOMI_EVAL_CASE_RETENTION_DAYS` and `TELOMI_EVAL_CASE_RETENTION_GB` override these limits. `server/evaluation/case-retention.ts` sweeps once after Capture-mode startup, then hourly. The first Sweep runs outside the startup critical path: recursively measuring a 50 GB Case store uses synchronous IO and must not block binding the Operations Listener or product port. Tests wait deterministically through `idle()`:
+Product and Capture instances retain Cases only briefly: 30 days or 50 GB by default, whichever limit is reached first. Startup settings `TELOMI_EVAL_CASE_RETENTION_DAYS` and `TELOMI_EVAL_CASE_RETENTION_GB` override these limits. `server/evaluation/case-retention.ts` sweeps once after startup, then hourly. The first Sweep runs outside the startup critical path: recursively measuring a 50 GB Case store uses synchronous IO and must not block binding the Operations Listener or product port. Tests wait deterministically through `idle()`:
 
 - Only `node-evaluation/cases/<caseId>` under production Runs covered by `capturedCaseRunRoots()` is eligible. Candidate Replay Runs, imported Bundles, Capability Snapshots, Material Cache, product Runs, and product Artifacts are outside this boundary and are never deleted. Eval Instance mode starts no retention policy, so Candidate instances cannot delete production Capture data.
 - Delete expired Cases first, then the oldest remaining Cases until storage is within the size limit.
 - Always skip nonterminal Runs (`run-state.json`, `wiki-update-job.json`, or unreadable state), Cases being exported as Bundles, and newly persisted Cases within the quiet period.
 - Deletion first atomically renames a Case into a same-directory `.trash`, then recursively removes it. If the process exits midway, the next Sweep finishes cleanup without leaving a partly readable Case.
 - Protection takes precedence over capacity. If active Runs and Cases in the quiet period prevent reaching the size limit, emit a health warning with remaining bytes rather than declaring success.
-- Sweeps fail open for the product. Results and warning counts appear in `capture.retention` in `GET /operations/v1/status`: `cases`, `bytes`, `deletedByAge`, `deletedBySize`, `protectedActive`, `protectedExporting`, `lastSweepAt`, and `warnings`.
+- The same Sweep reduces each terminal Evolution Run older than the retention period to `current.json`, `request.json` and its Apply Receipt, and deletes the finished Node Backtest Runs its rounds replayed. Evidence copies and Replay outputs are several gigabytes per Run, while the kept record is what the Browser trigger reads as its cursor, so consumed executions are never counted again. A Run whose own Evolution Case is still retained is skipped, because that Case may reference the Run directory.
+- Sweeps fail open for the product. With an Operations Listener, results and warning counts appear in `capture.retention` in `GET /operations/v1/status`: `cases`, `bytes`, `deletedByAge`, `deletedBySize`, `protectedActive`, `protectedExporting`, `lastSweepAt`, and `warnings`.
 
 A Capture whose Observed execution failed or was cancelled and therefore has no successful output can still be replayed as a **Recovery Case**. It retains frozen inputs, terminal Workspace, Trace, and terminal error. Every terminal failure class - `cancelled`, `timeout`, `rate_limit`, `budget`, `validation`, `provider`, and `permanent` - attempts to write a Recovery Case. Capture remains fail-open: its failures only affect health reporting, and the product failure path still throws the original error. Failure classification determines only terminal Case fields (`failedNodeEvaluationStatus()`). `run.kind` distinguishes two Run types:
 

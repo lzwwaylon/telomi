@@ -153,7 +153,7 @@ export class ResearchRuntime {
 			// Capture 关闭时 Research Run 直接使用生产 Stage Runner，不写任何 Evaluation Case。
 			const capture = caseCapture();
 			const baseStageRunner = new CheckpointingAgentStageRunner(
-				capture
+				capture?.researchStages
 					? capture.researchStages(productionStageRunner, request.researchHarnessSnapshot.workspaceDir)
 					: productionStageRunner,
 			);
@@ -175,7 +175,7 @@ export class ResearchRuntime {
 				registry, request.researchHarnessSnapshot, { env, skillWorkspaceDirectory },
 			);
 			const searchBatchExecutor = this.options.searchBatchExecutor
-				?? (capture
+				?? (capture?.primeSearchBatch
 					? capture.primeSearchBatch(productionSearchBatchExecutor, {
 						env,
 						skillWorkspaceDirectory,

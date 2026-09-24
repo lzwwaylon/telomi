@@ -201,7 +201,8 @@ const goals = new GoalService(workspaceDir, {
 	},
 });
 const promptRegistry = new PromptRegistry({ dataRoot: workspaceDir });
-// Every instance captures Cases; its role controls only the separate Operations Listener write access.
+// Every instance composes Evaluation because Evolution depends on it; the role decides which Cases
+// are captured and whether the Operations Listener exists (see server/evaluation/operations-runtime.ts).
 const operations = await (async () => {
 	const { createOperationsRuntime } = await import("./evaluation/operations-runtime.js");
 	const runtime = createOperationsRuntime({
@@ -225,8 +226,8 @@ const operations = await (async () => {
 		workspaceDir,
 		listGoalIds,
 		targets: createEvolutionTargets({ workspaceDir, nodeBacktests: runtime.nodeBacktests }),
-		// 每个终态 Browser Evolution Run 捕获成一个 evolution Case，供评估环境外层回放和人工评测。
-		onRunSettled: evolutionCaseCapture({ nodeBacktests: runtime.nodeBacktests }),
+		// 完整 Capture 时，每个终态 Browser Evolution Run 捕获成一个 evolution Case，供评估环境外层回放和人工评测。
+		...(operationsMode === "off" ? {} : { onRunSettled: evolutionCaseCapture({ nodeBacktests: runtime.nodeBacktests }) }),
 	});
 	// 三个已结算的 Browser Provider child execution 自动触发一次 Browser Evolution。
 	const evolutionLifecycle = installBrowserEvolutionTrigger({
@@ -859,7 +860,7 @@ if (distDir) {
 }
 
 // Operations 先绑定，产品 Listener 与其 WebSocket upgrade handler 之间不留窗口。
-if (operations) await operations.runtime.listen();
+if (operations) await operations.runtime.start();
 const httpServer = app.listen(port, host, () => {
 	console.log(`Telomi server listening on http://${host}:${port}`);
 	if (!evalInstance) researchScheduleScheduler.start();

@@ -87,6 +87,11 @@ export function withPrimeSearchNodeEvaluationCapture(
 		skillWorkspaceDirectory?: string;
 		candidateCase?: { sourceRunId: string; capabilitySnapshotId: string };
 		rootUserPromptOverride?: string;
+		/**
+		 * Keeps only successful batches this predicate accepts; every other draft is discarded without
+		 * a Case. Absent, every batch is captured, failures included.
+		 */
+		keep?: (result: SearchBatchResult) => boolean;
 	},
 ): SearchBatchExecutor {
 	// Candidate Replay Evidence 必须 fail-closed；正式产品 Capture 必须 fail-open。
@@ -171,6 +176,11 @@ export function withPrimeSearchNodeEvaluationCapture(
 					logicalWorkspaceCaptureRoot: logicalWorkspaces,
 				});
 			} catch (error) {
+				if (options.keep) {
+					rmSync(draft.caseDirectory, { recursive: true, force: true });
+					rmSync(inputDirectory, { recursive: true, force: true });
+					throw error;
+				}
 				try {
 					finishNodeEvaluationCase(draft, {
 						status: request.signal.aborted ? "cancelled" : "failed",
@@ -186,6 +196,11 @@ export function withPrimeSearchNodeEvaluationCapture(
 				throw error;
 			} finally {
 				rmSync(workDirectory, { recursive: true, force: true });
+			}
+			if (options.keep && !options.keep(result)) {
+				rmSync(draft.caseDirectory, { recursive: true, force: true });
+				rmSync(inputDirectory, { recursive: true, force: true });
+				return result;
 			}
 			try {
 				const artifact = publishPrimeSearchEvaluationOutput(result, request.controlDirectory, request.artifactStore,
