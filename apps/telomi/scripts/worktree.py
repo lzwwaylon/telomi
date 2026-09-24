@@ -460,13 +460,18 @@ def setup(root):
         source_env = read_env(source)
         source_data = (source / APP / source_env.get("TELOMI_DATA_DIR", "data")).resolve()
         source_env["TELOMI_DATA_DIR"] = str(source_data)
-        source_agent = (source / APP / source_env.get("PI_CODING_AGENT_DIR", str(source_data / ".pi/agent"))).resolve()
-        for name in ENV_FILES[:2]:
-            private_copy(source / APP / name, root / APP / name)
-        agent = root / APP / "data/.pi/agent"
+        # An explicit source lets the main checkout develop against its own data while Worktrees
+        # still share one login; it is only ever read.
+        explicit_agent = source_env.get("TELOMI_CREDENTIALS_SOURCE")
+        source_agent = (source / APP / (explicit_agent or source_env.get("PI_CODING_AGENT_DIR", str(source_data / ".pi/agent")))).resolve()
         # Same private-copy set as the evaluation environment seeds into an eval instance: every per-Provider account chain.
         names = ["auth.json", "models.json", "models-store.json", "settings.json", "search-auth.json"]
         names += [f"accounts/{path.name}" for path in sorted((source_agent / "accounts").glob("*.json"))]
+        if explicit_agent and not any((source_agent / name).is_file() for name in names):
+            raise RuntimeError(f"TELOMI_CREDENTIALS_SOURCE has no credential files: {source_agent}")
+        for name in ENV_FILES[:2]:
+            private_copy(source / APP / name, root / APP / name)
+        agent = root / APP / "data/.pi/agent"
         for name in names:
             private_copy(source_agent / name, agent / name)
         ports = allocated_ports(state, previous)
