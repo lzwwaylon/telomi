@@ -11,8 +11,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { applicationRoot, resolveBackupDir, resolveDataDir, upgradeMarkerPath } from "../server/config/data-dir.js";
-import { readDataFormat } from "../server/config/data-format.js";
+import { applicationRoot, resolveDataDir } from "../server/config/data-dir.js";
+import { installationBackupDir, readDataFormat, upgradeMarkerPath } from "../server/config/data-format.js";
 import { stopManagedBrowser, stopMemoryDatabase } from "../server/config/data-layout.js";
 import { loadProjectEnvironment } from "../server/config/environment.js";
 import { rotateOutputLog } from "../server/config/output-log.js";
@@ -38,15 +38,19 @@ export interface Snapshot {
 	formatVersion: number;
 }
 
-export interface Installation {
+export interface Checkout {
 	repoRoot: string;
 	dataDir: string;
-	backupDir: string;
-	/** Tells the server not to start while this upgrade changes the installation. */
-	marker: string;
 	baseUrl: string;
 	/** The checkout's settings, read the way the server reads them. Never passed to child processes. */
 	env: NodeJS.ProcessEnv;
+}
+
+export interface Installation extends Checkout {
+	/** This installation's own `<backup root>/<installationId>/`: its snapshots, lock and marker. */
+	backupDir: string;
+	/** Tells the server not to start while this upgrade changes the installation. */
+	marker: string;
 }
 
 export class UpgradeError extends Error {}
@@ -75,7 +79,7 @@ export function launchdHooks(repoRoot: string, uid = process.getuid?.() ?? 0, ho
 	};
 }
 
-export function installation(appRoot = applicationRoot, parentEnv: NodeJS.ProcessEnv = process.env): Installation {
+export function checkout(appRoot = applicationRoot, parentEnv: NodeJS.ProcessEnv = process.env): Checkout {
 	const env = { ...parentEnv };
 	loadProjectEnvironment(appRoot, env);
 	const repoRoot = resolve(appRoot, "../..");
@@ -90,11 +94,36 @@ export function installation(appRoot = applicationRoot, parentEnv: NodeJS.Proces
 	return {
 		repoRoot,
 		dataDir: resolve(appRoot, resolveDataDir(env, appRoot)),
-		backupDir: resolveBackupDir(env, appRoot),
-		marker: upgradeMarkerPath(env, appRoot),
 		baseUrl: `http://127.0.0.1:${env.PORT?.trim() || "8787"}`,
 		env,
 	};
+}
+
+/** The checkout together with its installation's backup directory, which needs a marked data directory. */
+export function installation(appRoot = applicationRoot, parentEnv: NodeJS.ProcessEnv = process.env): Installation {
+	const base = checkout(appRoot, parentEnv);
+	const backupDir = installationBackupDir(base.env, appRoot);
+	if (!backupDir) {
+		throw new UpgradeError(`${base.dataDir} has no format.json yet: start Telomi once with this version, then upgrade`);
+	}
+	return { ...base, backupDir, marker: upgradeMarkerPath(backupDir) };
+}
+
+/**
+ * Snapshots taken before backups were kept per installation sit directly in the backup root. They are
+ * never touched; this reports them once per installation so they can be deleted by hand.
+ */
+export function reportFlatSnapshots(install: Pick<Installation, "backupDir">): string[] {
+	const root = dirname(install.backupDir);
+	const noted = join(install.backupDir, ".flat-snapshots-reported");
+	if (existsSync(noted) || !existsSync(root)) return [];
+	const flat = readdirSync(root).filter((name) => existsSync(join(root, name, "snapshot.json"))).map((name) => join(root, name));
+	if (flat.length > 0) {
+		log(`${flat.length} snapshot(s) in ${root} predate per-installation backups and are left as they are; `
+			+ `this installation's are in ${install.backupDir}. Delete the old ones when you no longer need them: ${flat.join(", ")}`);
+		writeFileSync(noted, `${new Date().toISOString()}\n`);
+	}
+	return flat;
 }
 
 function git(repo: string, ...args: string[]): string {
@@ -437,6 +466,7 @@ export async function main(argv: string[], install = installation()): Promise<nu
 		return 0;
 	}
 	try {
+		reportFlatSnapshots(install);
 		assertClean(install.repoRoot);
 		const current = git(install.repoRoot, "rev-parse", "HEAD");
 		if (options.rollback) {

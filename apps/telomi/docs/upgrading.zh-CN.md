@@ -41,8 +41,13 @@ npm run upgrade -- --ref dev     # 贡献者：分支、Tag 或提交
 
 ### 快照
 
-快照存放在 `TELOMI_BACKUP_DIR`，默认是数据目录旁边的 `backups`（例如
-`apps/telomi/backups`）。每个快照包含停止状态下数据目录的副本 `data/`，以及
+快照存放在备份根目录下本安装自己的目录 `<备份根目录>/<installationId>/` 中，
+`installationId` 记录在数据目录的 `format.json` 里。备份根目录是
+`TELOMI_BACKUP_DIR`，默认是数据目录旁边的 `backups`（例如 `apps/telomi/backups`）。
+数据目录位于同一父目录、或设置了相同 `TELOMI_BACKUP_DIR` 的多个安装会共用根目录，
+但每个安装只会看到、清理和回滚到自己的快照。升级锁、升级进行中标记和
+`--if-idle` 的忙碌记录也放在这个目录里。早期 `dev` 版本直接留在根目录下的快照
+不会被改动；下一次升级会列出它们一次，便于手动删除。每个快照包含停止状态下数据目录的副本 `data/`，以及
 记录时间、所属提交和 `formatVersion` 的 `snapshot.json`。在 APFS 上，与数据目录
 位于同一卷的快照是写时复制克隆：几秒完成，数据变化前几乎不占额外空间；
 其他情况下为完整复制。快照包含凭据和私人研究资料，请保持目录私有；需要在

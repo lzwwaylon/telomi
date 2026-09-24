@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { DataDirectoryError, resolveDataDir } from "./data-dir.js";
+import { applicationRoot, DataDirectoryError, resolveBackupDir, resolveDataDir } from "./data-dir.js";
 import { moveInstallationStateIntoDataDirectory } from "./data-layout.js";
 
 export { DataDirectoryError };
@@ -109,4 +109,36 @@ export async function prepareDataDirectory(
 		writeDataFormat(dataDir, { formatVersion: version + 1, installationId });
 	}
 	return { formatVersion: currentVersion, installationId };
+}
+
+/**
+ * This installation's own directory under the backup root, named after its `installationId`, or
+ * undefined for a data directory Telomi has not marked yet (no upgrade can have touched it).
+ */
+export function installationBackupDir(env: NodeJS.ProcessEnv = process.env, root = applicationRoot): string | undefined {
+	const format = readDataFormat(resolve(root, resolveDataDir(env, root)));
+	return format && join(resolveBackupDir(env, root), format.installationId);
+}
+
+/** Present, with the upgrade's pid, while `npm run upgrade` stops, snapshots or replaces the installation. */
+export function upgradeMarkerPath(backupDir: string): string {
+	return join(backupDir, ".upgrade-in-progress");
+}
+
+/**
+ * The pid of an upgrade that is changing this installation right now. Telomi must not start then: a
+ * supervisor restarting the old version would write to data that is being snapshotted or replaced.
+ */
+export function upgradeInProgress(env: NodeJS.ProcessEnv = process.env, root = applicationRoot): number | undefined {
+	const backupDir = installationBackupDir(env, root);
+	const marker = backupDir && upgradeMarkerPath(backupDir);
+	if (!marker || !existsSync(marker)) return undefined;
+	const pid = Number(readFileSync(marker, "utf8"));
+	if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+	try {
+		process.kill(pid, 0);
+		return pid;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM" ? pid : undefined; // A crashed upgrade does not block forever.
+	}
 }

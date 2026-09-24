@@ -12,7 +12,8 @@ import { fileURLToPath } from "node:url";
 import { applicationRoot } from "../server/config/data-dir.js";
 import { stopManagedBrowser, stopMemoryDatabase } from "../server/config/data-layout.js";
 import { managedBrowserPaths } from "./chrome-debug.js";
-import { installation, launchAgentPath, serviceLabel, UpgradeError, type Installation } from "./upgrade.js";
+import { installationBackupDir } from "../server/config/data-format.js";
+import { checkout, launchAgentPath, serviceLabel, UpgradeError, type Checkout } from "./upgrade.js";
 
 export const JOBS = ["server", "auto-upgrade", "snapshot"] as const;
 export type Job = typeof JOBS[number];
@@ -69,7 +70,7 @@ function logPath(label: string, home: string): string {
  * file access (including its children, such as PostgreSQL) to the program launchd starts, so that is
  * the binary a privacy grant for an external volume must name.
  */
-export function jobDefinitions(install: Pick<Installation, "repoRoot">, options: InstallOptions, env: { PATH?: string; HOME?: string } = process.env): JobDefinition[] {
+export function jobDefinitions(install: Pick<Checkout, "repoRoot">, options: InstallOptions, env: { PATH?: string; HOME?: string } = process.env): JobDefinition[] {
 	const home = env.HOME || homedir();
 	const base = serviceLabel(install.repoRoot);
 	const appRoot = join(install.repoRoot, "apps", "telomi");
@@ -128,12 +129,12 @@ function launchctl(...args: string[]): { ok: boolean; output: string } {
 	return { ok: result.status === 0, output: `${result.stdout}${result.stderr}`.trim() };
 }
 
-function labels(install: Installation): Record<Job, string> {
+function labels(install: Checkout): Record<Job, string> {
 	const base = serviceLabel(install.repoRoot);
 	return Object.fromEntries(JOBS.map((job) => [job, `${base}.${job}`])) as Record<Job, string>;
 }
 
-function installedJobs(install: Installation): Job[] {
+function installedJobs(install: Checkout): Job[] {
 	const all = labels(install);
 	return JOBS.filter((job) => existsSync(launchAgentPath(all[job])));
 }
@@ -152,12 +153,12 @@ function checkNode(node: string): string {
 }
 
 /** The managed browser and the memory database can outlive the server; stopping Telomi stops them too. */
-async function stopRuntime(inst: Installation): Promise<void> {
+async function stopRuntime(inst: Checkout): Promise<void> {
 	await stopManagedBrowser(managedBrowserPaths(inst.dataDir));
 	stopMemoryDatabase(inst.env);
 }
 
-async function install(inst: Installation, options: InstallOptions): Promise<void> {
+async function install(inst: Checkout, options: InstallOptions): Promise<void> {
 	if (process.platform !== "darwin") throw new UpgradeError("npm run service supports macOS (launchd) only");
 	const node = resolve(options.node);
 	const version = checkNode(node);
@@ -187,7 +188,7 @@ async function install(inst: Installation, options: InstallOptions): Promise<voi
 	}
 }
 
-async function uninstall(inst: Installation, { quiet = false } = {}): Promise<void> {
+async function uninstall(inst: Checkout, { quiet = false } = {}): Promise<void> {
 	const wasInstalled = installedJobs(inst).includes("server");
 	for (const label of Object.values(labels(inst))) {
 		launchctl("bootout", target(label));
@@ -201,7 +202,7 @@ async function uninstall(inst: Installation, { quiet = false } = {}): Promise<vo
 }
 
 /** Stops every job and keeps it stopped across logins; the scheduled jobs would otherwise start Telomi again. */
-async function stop(inst: Installation): Promise<void> {
+async function stop(inst: Checkout): Promise<void> {
 	for (const job of installedJobs(inst)) {
 		const label = labels(inst)[job];
 		launchctl("bootout", target(label));
@@ -211,7 +212,7 @@ async function stop(inst: Installation): Promise<void> {
 	await stopRuntime(inst);
 }
 
-function start(inst: Installation): void {
+function start(inst: Checkout): void {
 	for (const job of installedJobs(inst)) {
 		bootstrap(labels(inst)[job]);
 		console.log(`[service] started ${labels(inst)[job]}`);
@@ -224,7 +225,7 @@ function tail(path: string, bytes = 64 * 1024): string {
 	return readFileSync(path).subarray(Math.max(0, size - bytes)).toString("utf8");
 }
 
-function status(inst: Installation): void {
+function status(inst: Checkout): void {
 	const jobs = installedJobs(inst);
 	if (jobs.length === 0) {
 		console.log("[service] not installed for this checkout; run npm run service -- install");
@@ -250,8 +251,9 @@ function status(inst: Installation): void {
 	}
 	const commit = spawnSync("git", ["describe", "--tags", "--always", "--dirty"], { cwd: inst.repoRoot, encoding: "utf8" }).stdout.trim();
 	console.log(`[service] code: ${commit}`);
-	const busy = join(inst.backupDir, "upgrade-state.json");
-	if (existsSync(busy)) {
+	const backupDir = backupDirOf(inst);
+	const busy = backupDir && join(backupDir, "upgrade-state.json");
+	if (busy && existsSync(busy)) {
 		const since = (JSON.parse(readFileSync(busy, "utf8")) as { busySince?: string }).busySince;
 		if (since) console.log(`[service] automatic upgrades have found Telomi busy since ${since}`);
 	}
@@ -261,10 +263,16 @@ function plistJson(label: string): string {
 	return spawnSync("plutil", ["-convert", "json", "-o", "-", launchAgentPath(label)], { encoding: "utf8" }).stdout;
 }
 
+/** This installation's backup directory; undefined until Telomi has marked the data directory on its first start. */
+function backupDirOf(inst: Checkout): string | undefined {
+	return installationBackupDir(inst.env, join(inst.repoRoot, "apps", "telomi"));
+}
+
 /** Unloading a job kills its program: never while it is halfway through changing the installation. */
-function assertNoUpgradeRunning(inst: Installation): void {
-	const lock = join(inst.backupDir, ".upgrade.lock");
-	if (!existsSync(lock)) return;
+function assertNoUpgradeRunning(inst: Checkout): void {
+	const backupDir = backupDirOf(inst);
+	const lock = backupDir && join(backupDir, ".upgrade.lock");
+	if (!lock || !existsSync(lock)) return;
 	const pid = Number(readFileSync(lock, "utf8"));
 	try {
 		process.kill(pid, 0);
@@ -274,7 +282,7 @@ function assertNoUpgradeRunning(inst: Installation): void {
 	throw new UpgradeError(`an upgrade (pid ${pid}) is changing this installation; try again when it has finished`);
 }
 
-export async function main(argv: string[], inst = installation()): Promise<number> {
+export async function main(argv: string[], inst = checkout()): Promise<number> {
 	const command = parseCommand(argv);
 	if (["install", "uninstall", "stop"].includes(command.action)) assertNoUpgradeRunning(inst);
 	if (command.action === "install") await install(inst, command.options);
@@ -290,7 +298,7 @@ export async function main(argv: string[], inst = installation()): Promise<numbe
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	Promise.resolve().then(() => main(process.argv.slice(2), installation(applicationRoot))).then((code) => { process.exitCode = code; }, (error: unknown) => {
+	Promise.resolve().then(() => main(process.argv.slice(2), checkout(applicationRoot))).then((code) => { process.exitCode = code; }, (error: unknown) => {
 		console.error(`[service] ${error instanceof Error ? error.message : String(error)}`);
 		process.exitCode = 1;
 	});
