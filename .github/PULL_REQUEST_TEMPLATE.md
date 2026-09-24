@@ -13,6 +13,7 @@
 <!-- Config, data format, dependency or upgrade impact; backup/recovery requirements. Write N/A if none.
 配置、数据格式、依赖或升级影响，以及备份/恢复要求；无影响时写 N/A。 -->
 
+- [ ] This PR targets `dev`, not the default `main`. / 目标分支是 `dev`，而不是默认的 `main`。
 - [ ] I read CONTRIBUTING.md and checked existing Issues/PRs. / 已阅读贡献指南并检索已有 Issue/PR。
 - [ ] This PR covers one focused change and includes applicable verification. / 变更范围集中，并完成适用验证。
 - [ ] Relevant documentation is updated, or no update is needed. / 已更新相关文档，或无需更新。
