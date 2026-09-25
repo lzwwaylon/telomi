@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,7 +6,8 @@ import { fileURLToPath } from "node:url";
 const appUrl = process.env.TELOMI_WEB_URL ?? "http://localhost:5174";
 const session = `media-generate-status-e2e-${process.pid}-${Date.now()}`;
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const agentBrowser = path.join(appDir, "node_modules", ".bin", "agent-browser");
+// The workspace hoists agent-browser to the repository root; resolve it the way Node would.
+const agentBrowser = createRequire(import.meta.url).resolve("agent-browser/bin/agent-browser.js");
 
 function run(args, input) {
 	const result = spawnSync(agentBrowser, ["--session", session, ...args], {
@@ -24,7 +26,7 @@ const browserCheck = String.raw`
   const React = (await import('/@id/react')).default;
   const { createRoot } = (await import('/@id/react-dom/client')).default;
   const { useMediaProductStatus } = await import(
-    '/src/stream/useMediaProductStatus.ts?generate-status-e2e=' + Date.now()
+    '/src/features/goals/data/useMediaProductStatus.ts?generate-status-e2e=' + Date.now()
   );
   const originalFetch = window.fetch;
   const goalId = 'goal_media_generate_status_e2e';
