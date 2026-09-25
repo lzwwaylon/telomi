@@ -119,6 +119,13 @@ try {
 	// Once a later attempt for the same report exists, the earlier failure stays in history without attention.
 	const earlierFailure = ordinary.find((item) => item.status === "error")!;
 	assert.equal(earlierFailure.cardId, ordinaryCardId, "every attempt records the card it belongs to");
+	// Retry starts the same report's generation directly, without an instruction, so a finished script resumes.
+	const [retry] = projected(earlierFailure).attention!.actions;
+	assert.equal(retry!.kind, "retry");
+	assert.equal(retry!.href, `/api/goals/${goalId}/media-products/${ordinaryCardId}/generate`);
+	assert.equal(retry!.requestBody, undefined);
+	assert.deepEqual(projected({ ...earlierFailure, cardId: undefined }).attention!.actions, [],
+		"a record that cannot name its report offers no retry");
 	const later: GoalActivityItem = { ...earlierFailure, id: `${goalId}:podcast:later`, status: "done", startedAt: (earlierFailure.startedAt ?? 0) + 1 };
 	const otherReport: GoalActivityItem = { ...later, id: `${goalId}:podcast:other`, cardId: pathCardId };
 	const [superseded] = mainAgentProjection(() => [earlierFailure, later])(goalId)[0]!.items;

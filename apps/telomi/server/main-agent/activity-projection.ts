@@ -41,14 +41,16 @@ function fromPodcast(item: GoalActivityItem, superseded: boolean): ActivityProje
 		lifecycle,
 		...(outcome ? { outcome } : {}),
 		// A failure a later attempt for the same report has replaced stays in history but asks nothing more.
+		// Retrying without an instruction resumes from a finished script when the last attempt left one.
+		// Records from before `cardId` was kept cannot name their report, so they can only be dismissed.
 		...(outcome === "failed" && !superseded ? {
 			attention: {
 				kind: "failure" as const, summary,
-				actions: [{
-					actionId: `open-podcast-report:${item.id}`, kind: "open" as const,
+				actions: item.cardId ? [{
+					actionId: `retry-podcast:${item.id}`, kind: "retry" as const,
 					label: chrome("activityChrome.podcast.retry"), enabled: true, requiresConfirmation: false,
-					href: `/goal/${encodeURIComponent(item.goalId)}`,
-				}],
+					href: `/api/goals/${encodeURIComponent(item.goalId)}/media-products/${encodeURIComponent(item.cardId)}/generate`,
+				}] : [],
 			},
 		} : {}),
 		timing: activityTiming(startedAt, updatedAt, finishedAt),

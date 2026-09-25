@@ -1,3 +1,6 @@
+import { join } from "node:path";
+
+import { goalActivityDismissalStore } from "../events/activity-dismissals.js";
 import { ActivityProjectionService } from "../events/activity-projection.js";
 import { ObservabilityActivityProjection } from "../observability/activity-projection.js";
 import { ResearchActivityProjection } from "../research/activity-projection.js";
@@ -22,6 +25,7 @@ export function createActivityProjection(options: {
 		// Freshness retains reducer registration order, which differs for schedules.
 		itemSources: ["research", "wiki-update", "topic-plan", "scheduled-research", "podcast"],
 		readOutput: (goalId, outputRef, options) => outputs.readOutput(goalId, outputRef, options),
+		dismissals: goalActivityDismissalStore((goalId) => join(options.workspaceDir, goalId)),
 	});
 	service.registerProjection((goalId) => research.project(goalId));
 	service.registerProjection((goalId) => wiki.project(goalId));

@@ -898,8 +898,10 @@ try {
 			action: "生成播客失败", detail: "语音服务暂不可用", status: "error", updatedAt: Date.now(),
 		}],
 	}).getGoal(goalId).history.items.find((item) => item.kind === "podcast");
-	assert.equal(failedPodcasts?.attention?.actions[0]?.href, `/goal/${goalId}`,
-		"failed Podcast must provide a route to its report retry control");
+	// A record that cannot name its report has no retry, yet its failure can still be settled.
+	assert.deepEqual(failedPodcasts?.attention?.actions, []);
+	assert.equal(failedPodcasts?.attention?.dismiss?.href, `/api/goals/${goalId}/events/activity-projection/dismissals`,
+		"a failure nothing can retry must still be dismissible");
 	const global = service.getGlobalSummary();
 	assert.equal(global.schemaVersion, 2, "the Activity Text wire shape carries its own schema version");
 	console.log("activity projection tests passed");

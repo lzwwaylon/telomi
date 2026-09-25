@@ -775,6 +775,16 @@ body[data-theme="dark"] .pulse-band .avs .av.dim { opacity: 0.35; }
 }
 .goal-activity-counts .is-attention { color: var(--warm-deep); }
 .goal-activity-counts .is-running { color: var(--success); }
+.goal-activity-dismiss-all {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-mut);
+  font: inherit;
+  cursor: pointer;
+}
+.goal-activity-dismiss-all:hover:not(:disabled) { color: var(--ink); text-decoration: underline; }
+.goal-activity-dismiss-all:disabled { color: var(--ink-faint); cursor: default; }
 
 @keyframes topic-plan-reveal {
   from { opacity: 0; transform: translateY(-4px); }
@@ -1061,6 +1071,14 @@ body[data-theme="dark"] .pulse-band .avs .av.dim { opacity: 0.35; }
 .goal-activity-attention-actions a:hover,
 .goal-activity-attention-actions button:hover:not(:disabled) { border-color: var(--ink-faint); }
 .goal-activity-attention-actions button:disabled { color: var(--ink-faint); cursor: default; }
+/* Dismissal settles the failure without acting on it, so it stays quieter than the actions that fix it. */
+.goal-activity-attention-actions button.is-quiet {
+  margin-left: auto;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-mut);
+}
+.goal-activity-attention-actions button.is-quiet:hover:not(:disabled) { border-color: transparent; color: var(--ink); }
 .goal-activity-progress { margin-top: 12px; }
 .goal-activity-progress > div {
   height: 3px;

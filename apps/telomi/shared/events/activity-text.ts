@@ -22,6 +22,7 @@ export type ActivityMessageKey =
 	| "activityChrome.usage.toolCalls"
 	| "activityChrome.usage.cost"
 	| "activityChrome.status.interrupted"
+	| "activityChrome.attention.dismiss"
 	// Activity Steps the Runtime records for one Run.
 	| "activityChrome.step.parallel"
 	| "activityChrome.stage.inputResolution"
