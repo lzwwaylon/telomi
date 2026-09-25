@@ -18,6 +18,14 @@ Copy an existing Goal into an isolated Worktree, then launch the product through
 npm run worktree -- seed goal_existing_id
 ```
 
-This command copies existing product and Runtime files, skips symbolic links, dependency caches and locks, and refuses to overwrite an existing Goal. Evaluation instance mode prevents background recovery and scheduling from taking ownership of the copied data.
+This command copies existing product and Runtime files, skips symbolic links, dependency caches and locks, and refuses to overwrite an existing Goal. Evaluation instance mode prevents background recovery and scheduling from taking ownership of the copied data. Goals come from the main checkout's data directory; to copy from another installation, pass its checkout with `--from <checkout>`, whose env files name its data directory.
+
+When the verification needs the Goal's User Memory, start the Worktree after seeding, then import the Goal's memory and the global memory from the same installation:
+
+```bash
+npm run worktree -- seed-memory goal_existing_id --from <checkout>
+```
+
+The import goes through both services' Hindsight document transfer: the source only reads, and this Worktree re-embeds every fact with its own embedding model without an LLM extraction. Never copy a memory database directory, even into a Worktree: a copy of a running cluster carries its lock file, and starting it can shut down the original.
 
 This snapshot is only for product UI/Runtime verification and does not replace [Attestation](attestation.md). Keep private Goals, Browser Profiles and test artifacts out of Git.

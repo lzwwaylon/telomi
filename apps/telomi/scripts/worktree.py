@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import shutil
 import signal
@@ -17,6 +18,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -746,13 +749,21 @@ def stop_memory_database(checkout, name):
                     name], check=True)
 
 
-def seed(root, goal):
+def seed_origin(source, origin):
+    """The checkout whose Goals and User Memory are copied, and its env: the main checkout unless `origin` names another."""
+    checkout = Path(origin).resolve() if origin else source
+    if not (checkout / APP).is_dir():
+        raise RuntimeError(f"Not a Telomi checkout: {checkout}")
+    return checkout, read_env(checkout)
+
+
+def seed(root, goal, origin=None):
     root, source, state, identity = context(root)
     if root == source or not re.fullmatch(r"goal_[A-Za-z0-9_-]+", goal):
         raise RuntimeError("A linked worktree and a valid Goal id are required")
     register(root, state, identity)
-    source_env = read_env(source)
-    source_data = (source / APP / source_env.get("TELOMI_DATA_DIR", "data")).resolve()
+    checkout, source_env = seed_origin(source, origin)
+    source_data = (checkout / APP / source_env.get("TELOMI_DATA_DIR", "data")).resolve()
     data = Path(read_env(root)["TELOMI_DATA_DIR"])
     if data.resolve() != root / APP / "data" or (data / goal).exists():
         raise RuntimeError("Snapshot destination is shared or already exists; preserved")
@@ -762,16 +773,91 @@ def seed(root, goal):
         raise RuntimeError("Goal not found in source data")
     def ignore(directory, names):
         return [name for name in names if name in {"node_modules", ".venv", ".prime-kernel", ".git", "locks"} or (Path(directory) / name).is_symlink()]
+    def copy(relative):
+        # Copied beside its target and renamed into place, so a failed copy leaves nothing to refuse a retry.
+        partial = data / relative.with_name(relative.name + ".partial")
+        shutil.rmtree(partial, ignore_errors=True)
+        try:
+            shutil.copytree(source_data / relative, partial, ignore=ignore)
+        except shutil.Error as error:
+            shutil.rmtree(partial, ignore_errors=True)
+            raise RuntimeError(f"{len(error.args[0])} files of {relative} changed while copying; "
+                               "the Goal is probably running there, so retry once it is idle") from None
+        partial.replace(data / relative)
     with locked(state / f"{identity}-seed.lock"):
         validate_admission(state, identity)
-        shutil.copytree(source_data / goal, data / goal, ignore=ignore)
         history = Path(".pi/runtime/harness") / goal
-        if (source_data / history).is_dir():
-            shutil.copytree(source_data / history, data / history, ignore=ignore)
+        if (source_data / history).is_dir() and not (data / history).exists():
+            copy(history)
+        copy(Path(goal))
         target = data / "goals.json"
         existing = json.loads(target.read_text()) if target.exists() else []
         save(target, [value for value in existing if value.get("id") != goal] + selected)
     print(f"[worktree] Copied {goal} and its existing history; no Agent started", flush=True)
+
+
+def memory_endpoint(env):
+    """The Hindsight URL and bank an installation's server uses, with the same defaults."""
+    user = re.sub(r"[^a-zA-Z0-9_-]", "-", pwd.getpwuid(os.getuid()).pw_name)
+    return (env.get("HINDSIGHT_URL", "").strip() or "http://127.0.0.1:18888/v1/default").rstrip("/"), \
+        env.get("HINDSIGHT_BANK_ID", "").strip() or f"pi-user-{user}"
+
+
+def hindsight(url, data=None, content_type=None):
+    request = urllib.request.Request(url, data=data, headers={"Content-Type": content_type} if content_type else {})
+    with urllib.request.urlopen(request, timeout=300) as response:
+        return response.read()
+
+
+def seed_memory(root, goal, origin=None, poll=1.0):
+    """Copies a seeded Goal's User Memory, and the global memory every Goal recalls, into this Worktree's bank.
+
+    Only through both services' Hindsight document transfer: a running database's files are never copied.
+    """
+    root, source, state, identity = context(root)
+    if root == source or not re.fullmatch(r"goal_[A-Za-z0-9_-]+", goal):
+        raise RuntimeError("A linked worktree and a valid Goal id are required")
+    register(root, state, identity)
+    env = read_env(root)
+    if not (Path(env["TELOMI_DATA_DIR"]) / goal).is_dir():
+        raise RuntimeError(f"Seed {goal} first; its memory belongs to a seeded Goal")
+    source_url, source_bank = memory_endpoint(seed_origin(source, origin)[1])
+    target_url, target_bank = memory_endpoint(env)
+    if source_url == target_url:
+        raise RuntimeError("The source and this Worktree resolve to the same Hindsight; preserved")
+    documents = []
+    tags = [("tags", f"goal:{goal}"), ("tags", "scope:global"), ("tags_match", "any_strict")]
+    while True:
+        query = urllib.parse.urlencode([*tags, ("limit", 100), ("offset", len(documents))])
+        page = json.loads(hindsight(f"{source_url}/banks/{urllib.parse.quote(source_bank)}/documents?{query}"))
+        documents += [item["id"] for item in page["items"]]
+        if not page["items"] or len(documents) >= page["total"]:
+            break
+    if not documents:
+        print(f"[worktree] {source_bank} holds no memory for {goal}", flush=True)
+        return
+    query = urllib.parse.urlencode([("document_id", document) for document in documents])
+    archive = hindsight(f"{source_url}/banks/{urllib.parse.quote(source_bank)}/document-transfer?{query}")
+    boundary = uuid.uuid4().hex
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"transfer.zip\"\r\n"
+            "Content-Type: application/zip\r\n\r\n").encode() + archive + f"\r\n--{boundary}--\r\n".encode()
+    bank = f"{target_url}/banks/{urllib.parse.quote(target_bank)}"
+    with locked(state / f"{identity}-seed.lock"):
+        validate_admission(state, identity)
+        try:
+            submitted = json.loads(hindsight(f"{bank}/document-transfer", body, f"multipart/form-data; boundary={boundary}"))
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"This Worktree's Hindsight is not reachable at {target_url}; start the Worktree first ({error})")
+        # Importing re-embeds every fact with this Worktree's embedding model; no LLM extraction runs.
+        while True:
+            operation = json.loads(hindsight(f"{bank}/operations/{submitted['operation_id']}"))
+            if operation["status"] not in {"pending", "processing"}:
+                break
+            time.sleep(poll)
+    if operation["status"] != "completed":
+        raise RuntimeError(f"Memory import {operation['status']}: {operation.get('error_message') or ''}".strip())
+    print(f"[worktree] Imported {len(documents)} memory Episodes for {goal} from {source_bank} into {target_bank}: "
+          f"{json.dumps(operation.get('result_metadata') or {})}", flush=True)
 
 
 def main():
@@ -792,7 +878,10 @@ def main():
     for name in ("setup", "stop", "remove"):
         sub.add_parser(name)
     sub.add_parser("doctor").add_argument("--live", action="store_true")
-    sub.add_parser("seed").add_argument("goal")
+    for name in ("seed", "seed-memory"):
+        seeding = sub.add_parser(name)
+        seeding.add_argument("goal")
+        seeding.add_argument("--from", dest="origin", help="Checkout of the installation to copy from (default: the main checkout)")
     for name in ("run", "check", "launch"):
         sub.add_parser(name).add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -810,7 +899,7 @@ def main():
             env = execution_env(root) if root != source else dict(os.environ)
             os.execvpe(command[0], command, env)
         args.action = "run"
-    if args.action in {"create", "setup", "run", "check", "seed"}:
+    if args.action in {"create", "setup", "run", "check", "seed", "seed-memory"}:
         register(root, state, identity)
     if args.action == "create":
         target = Path(args.path).absolute()
@@ -825,7 +914,9 @@ def main():
     elif args.action == "doctor":
         doctor(root, args.live)
     elif args.action == "seed":
-        seed(root, args.goal)
+        seed(root, args.goal, args.origin)
+    elif args.action == "seed-memory":
+        seed_memory(root, args.goal, args.origin)
     elif args.action == "stop":
         stop(root)
     elif args.action == "remove":
