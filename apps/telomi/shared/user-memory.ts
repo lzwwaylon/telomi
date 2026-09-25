@@ -1,6 +1,6 @@
 /** What the Memory page shows: each Memory Episode with the Memory Facts extracted from it. */
 
-export type MemoryEpisodeSource = "message" | "topic_plan" | "schedule_proposal" | "other";
+export type MemoryEpisodeSource = "message" | "schedule_proposal" | "other";
 
 /**
  * `waiting`: the turn is still running; retention follows the reply.
@@ -17,10 +17,24 @@ export interface MemoryFactView {
 	editedAt?: string;
 }
 
+/** A Research Schedule Proposal the user rejected, read from the Schedule itself. */
+export interface RejectedScheduleProposalView {
+	scheduleTitle: string;
+	summary: string;
+	/** Absent when the user gave no reason. */
+	reason?: string;
+}
+
 export interface MemoryEpisodeView {
 	documentId: string;
 	source: MemoryEpisodeSource;
+	/**
+	 * What the user said. Empty for a rejected Schedule Proposal: its retained text is extraction
+	 * input written by Telomi, not the user's words.
+	 */
 	text: string;
+	/** Shown instead of `text`; absent when the Schedule is gone, for example with its deleted Goal. */
+	scheduleProposal?: RejectedScheduleProposalView;
 	occurredAt: string;
 	/** The Goal it came from; absent once that Goal was deleted. */
 	goalId?: string;

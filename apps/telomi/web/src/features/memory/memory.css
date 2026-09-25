@@ -149,6 +149,13 @@
 .memory-expand { justify-self: start; margin-top: -4px; padding: 0; color: var(--warm-deep); font-size: 12px; font-weight: 600; }
 .memory-expand:hover { text-decoration: underline; }
 
+.memory-proposal { display: grid; gap: 6px; margin: 0; padding-left: 12px; border-left: 2px solid var(--line); font-size: 13.5px; line-height: 1.6; }
+.memory-proposal > div { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 12px; }
+.memory-proposal dt { color: var(--ink-mut); font-size: 12px; line-height: 1.85; }
+.memory-proposal dd { margin: 0; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-proposal dd[data-empty="true"] { color: var(--ink-mut); }
+.memory-proposal-gone { margin: 0; padding-left: 12px; border-left: 2px solid var(--line); color: var(--ink-mut); font-size: 13px; line-height: 1.65; }
+
 .memory-facts { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .memory-fact { display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px 7px 10px; border-radius: 7px; }
 .memory-fact:hover { background: var(--paper-2); }

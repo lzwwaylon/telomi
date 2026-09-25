@@ -125,6 +125,11 @@ export class HindsightClient {
 		return this.pages<HindsightDocument>("documents", tags);
 	}
 
+	/** Every document whose ID contains `idPart`, whatever its tags. */
+	async listDocumentsById(idPart: string): Promise<HindsightDocument[]> {
+		return this.pages<HindsightDocument>("documents", [], { q: idPart });
+	}
+
 	async getDocument(documentId: string): Promise<HindsightDocumentDetail | undefined> {
 		return this.request<HindsightDocumentDetail>(
 			`/banks/${encodeURIComponent(this.bankId)}/documents/${encodeURIComponent(documentId)}`, undefined, [200, 404],
@@ -174,7 +179,8 @@ export class HindsightClient {
 	private async pages<T>(path: string, tags: string[], extra: Record<string, string> = {}): Promise<T[]> {
 		const items: T[] = [];
 		for (let offset = 0; ; offset += 100) {
-			const query = new URLSearchParams({ ...extra, tags_match: "any_strict", limit: "100", offset: String(offset) });
+			// No tags means no tag filter, not "documents without tags".
+			const query = new URLSearchParams({ ...extra, ...(tags.length ? { tags_match: "any_strict" } : {}), limit: "100", offset: String(offset) });
 			for (const tag of tags) query.append("tags", tag);
 			const page = await this.request<{ items: T[]; total: number }>(`/banks/${encodeURIComponent(this.bankId)}/${path}?${query}`);
 			items.push(...page.items);

@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFile
 import { join, resolve } from "node:path";
 import { applicationRoot, DataDirectoryError, resolveBackupDir, resolveDataDir } from "./data-dir.js";
 import { moveInstallationStateIntoDataDirectory } from "./data-layout.js";
-import { scopeUserMemoryToGoals } from "../goals/memory/goal-scope-migration.js";
+import { removeTopicPlanCopiesFromUserMemory, scopeUserMemoryToGoals } from "../goals/memory/user-memory-migrations.js";
 
 export { DataDirectoryError };
 
@@ -33,6 +33,7 @@ export interface DataMigration {
 export const MIGRATIONS: readonly DataMigration[] = [
 	moveInstallationStateIntoDataDirectory,
 	scopeUserMemoryToGoals,
+	removeTopicPlanCopiesFromUserMemory,
 ];
 
 export const CURRENT_FORMAT_VERSION = 1 + MIGRATIONS.length;

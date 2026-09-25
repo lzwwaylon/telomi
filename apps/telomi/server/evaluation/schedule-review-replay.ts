@@ -26,6 +26,7 @@ import {
 	type NodeEvaluationCaseDraft,
 } from "../agent-runtime/node-evaluation.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
+import type { GoalTopicPlan } from "../goals/topic-plan/index.js";
 import { readJson } from "../lib/fs.js";
 import { toErrorMessage } from "../lib/values.js";
 import { recordCaseCaptureFailure } from "../observability/case-capture.js";
@@ -58,6 +59,8 @@ interface FrozenScheduleReviewRequest {
 	schedule: ReviewedSchedule;
 	language: ResolvedOutputLanguage;
 	previous_review: unknown;
+	/** Absent in Cases captured before the Reviewer received the Topic Plan, and when none was confirmed. */
+	topic_plan?: GoalTopicPlan;
 	models: { root: string; thinking: ThinkingLevel };
 }
 
@@ -124,6 +127,7 @@ export async function captureScheduleReview(
 			},
 			language: input.language,
 			previous_review: input.previousReview ?? null,
+			...(input.topicPlan ? { topic_plan: input.topicPlan } : {}),
 			models: { root: resolvePrimeModel("primeRoot", env).selector, thinking: resolveStageThinkingLevel("primeRoot", "scheduleReview", env).thinkingLevel },
 		};
 		writeFileSync(join(inputDirectory, "request.json"), `${JSON.stringify(frozen, null, 2)}\n`);
@@ -233,6 +237,7 @@ export function createScheduleReviewerReplayRecipe(options: {
 				schedule: request.schedule,
 				language: request.language,
 				previousReview: request.previous_review,
+				...(request.topic_plan ? { topicPlan: request.topic_plan } : {}),
 				signal: input.signal,
 				root,
 				answerTool: frozenScheduleReviewAnswer(interactions),

@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { publish } from "../../events/event-bus.js";
+import { GoalTopicPlanStore } from "../../goals/topic-plan/index.js";
 import { caseCapture } from "../../observability/case-capture.js";
 import { toErrorMessage } from "../../lib/values.js";
 import { parseScheduleReviewOutput } from "./review-contract.js";
@@ -75,6 +76,7 @@ export class ResearchScheduleReviewService {
 				schedule,
 				language: this.resolveLanguage(goalId, schedule.reportContext),
 				previousReview,
+				topicPlan: new GoalTopicPlanStore(goalId, this.workspaceDir).readActive(),
 				signal: timeout,
 			};
 			const validate = (output: unknown) => parseScheduleReviewOutput(output, schedule);

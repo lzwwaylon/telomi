@@ -179,8 +179,8 @@ A Goal Preference or Goal Understanding that optionally references Goal Topic re
 _Avoid_: Topic-tagged chat archive, Wiki fact, automatic keyword classification
 
 **Goal Understanding**:
-A Goal-scoped, time-varying statement about what the user currently understands in relation to that Goal.
-_Avoid_: objective Goal knowledge, permanent user trait, inferred expertise score
+A Goal-scoped, time-varying statement about what the user currently understands in relation to that Goal. In User Memory it comes only from what the user said; the confirmed Topic Plan is read from the Topic Plan itself and is never copied into User Memory.
+_Avoid_: objective Goal knowledge, permanent user trait, inferred expertise score, Topic Plan copy
 
 **Memory Episode**:
 An immutable, timestamped user interaction or feedback event submitted to the User Memory Service as provenance for temporal extraction.

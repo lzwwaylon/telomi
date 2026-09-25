@@ -9,7 +9,12 @@ import express from "express";
 import { HindsightClient } from "pi-user-memory";
 
 import { createUserMemoryRouter } from "../../server/goals/memory/memory-api.ts";
-import { completeGoalScopedUserMemory, scopeUserMemoryToGoals } from "../../server/goals/memory/goal-scope-migration.ts";
+import {
+	completeUserMemoryMigrations,
+	removeTopicPlanCopiesFromUserMemory,
+	scopeUserMemoryToGoals,
+} from "../../server/goals/memory/user-memory-migrations.ts";
+import { ResearchScheduleStore } from "../../server/research/schedules/store.ts";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.ts";
 import { USER_MEMORY_UNAVAILABLE, type UserMemoryResponse } from "../../shared/user-memory.ts";
 
@@ -25,7 +30,8 @@ async function fakeHindsight(documents: FakeDocument[], units: FakeUnit[]) {
 	const tagged = (tags: string[], wanted: string[]) => wanted.length === 0 || wanted.some((tag) => tags.includes(tag));
 	const wantedTags = (query: express.Request["query"]) => ([] as string[]).concat((query.tags as string | string[] | undefined) ?? []);
 	app.get("/banks/:bank/documents", (req, res) => {
-		const items = documents.filter((document) => tagged(document.tags, wantedTags(req.query)))
+		const idPart = typeof req.query.q === "string" ? req.query.q.toLowerCase() : "";
+		const items = documents.filter((document) => tagged(document.tags, wantedTags(req.query)) && document.id.toLowerCase().includes(idPart))
 			.map(({ original_text: _text, ...document }) => document);
 		res.json({ items, total: items.length, limit: 100, offset: 0 });
 	});
@@ -89,12 +95,49 @@ async function serve(router: express.Router) {
 
 test("the Memory page lists, curates and scopes Episodes through Hindsight only", async (context) => {
 	const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-user-memory-api-"));
+	const schedules = new ResearchScheduleStore("goal_a", workspaceDir);
+	const schedule = schedules.create({
+		title: "Weekly TTS releases",
+		question: "What changed?",
+		monitoringScope: "Official releases.",
+		reportContext: "For me.",
+		cron: "0 9 * * 1",
+		timeZone: "UTC",
+		initializedFromRunId: "run-baseline",
+		coveredThrough: "2026-09-01T00:00:00.000Z",
+		sources: [],
+		now: new Date("2026-09-01T00:00:00.000Z"),
+	});
+	const { proposalId } = schedules.recordReview({
+		id: "review-1",
+		scheduleId: schedule.id,
+		startedAt: "2026-09-01T12:00:00.000Z",
+		outcome: {
+			decision: "propose",
+			monitoringScope: "Official releases and benchmarks.",
+			reportContext: "For me.",
+			summary: "Add benchmark results to the scope.",
+			rationale: "Benchmarks keep coming up.",
+			evidence: ["memory:m-1"],
+		},
+		userMessageCount: 0,
+	});
+	schedules.rejectProposal(schedule.id, proposalId!, "Benchmarks are too noisy.");
+	schedules.close();
 	const documents: FakeDocument[] = [
 		{ id: "pi-task-own", created_at: "2026-09-02T00:00:00Z", tags: ["goal:goal_a"], original_text: "Explain with PyTorch.", document_metadata: { source: "task_history" } },
 		{ id: "pi-task-shared", created_at: "2026-09-03T00:00:00Z", tags: ["goal:goal_b", "scope:global"], original_text: "Keep it short." },
 		{ id: "pi-task-other", created_at: "2026-09-04T00:00:00Z", tags: ["goal:goal_b"], original_text: "Goal B only." },
 		{ id: "pi-task-orphan", created_at: "2026-09-01T00:00:00Z", tags: ["scope:global"], original_text: "From a deleted Goal." },
-		{ id: "pi-topic-plan-goal_a-r1", created_at: "2026-09-01T12:00:00Z", tags: ["goal:goal_a"], original_text: "Focus", document_metadata: { source: "topic_plan" } },
+		{
+			id: `pi-schedule-proposal-${proposalId}`, created_at: "2026-09-01T12:00:00Z", tags: ["goal:goal_a"],
+			original_text: "The user rejected a Research Schedule Proposal on the Research Schedule \"Weekly TTS releases\".",
+			document_metadata: { source: "research_schedule_proposal", source_id: proposalId!, schedule_id: schedule.id },
+		},
+		{
+			id: "pi-schedule-proposal-gone", created_at: "2026-09-01T06:00:00Z", tags: ["goal:goal_a"], original_text: "Built for extraction.",
+			document_metadata: { source: "research_schedule_proposal", source_id: "gone", schedule_id: "schedule_gone" },
+		},
 	];
 	const units: FakeUnit[] = [
 		unit("fact-own", "pi-task-own", ["goal:goal_a"], "User explains with PyTorch. | Involving: user | why"),
@@ -128,7 +171,8 @@ test("the Memory page lists, curates and scopes Episodes through Hindsight only"
 	assert.deepEqual(memory.goal.map((episode) => [episode.documentId, episode.status]), [
 		["pi-task-pending", "waiting"],
 		["pi-task-own", "retained"],
-		["pi-topic-plan-goal_a-r1", "retained"],
+		[`pi-schedule-proposal-${proposalId}`, "retained"],
+		["pi-schedule-proposal-gone", "retained"],
 	], "this Goal's Episodes, newest first, with the unaccepted message still waiting on the running turn");
 	assert.deepEqual(memory.global.map((episode) => [episode.documentId, episode.goalTitle ?? null]), [
 		["pi-task-shared", "Goal B"],
@@ -137,7 +181,16 @@ test("the Memory page lists, curates and scopes Episodes through Hindsight only"
 	const own = memory.goal[1]!;
 	assert.equal(own.text, "Explain with PyTorch.");
 	assert.equal(own.source, "message");
-	assert.equal(memory.goal[2]!.source, "topic_plan");
+	const rejected = memory.goal[2]!;
+	assert.equal(rejected.source, "schedule_proposal");
+	assert.equal(rejected.text, "", "Telomi's extraction text is never shown as the user's words");
+	assert.deepEqual(rejected.scheduleProposal, {
+		scheduleTitle: "Weekly TTS releases",
+		summary: "Add benchmark results to the scope.",
+		reason: "Benchmarks are too noisy.",
+	}, "a rejected Proposal is read from its Schedule");
+	assert.equal(memory.goal[3]!.text, "");
+	assert.equal(memory.goal[3]!.scheduleProposal, undefined, "a Proposal whose Schedule is gone shows no details");
 	assert.deepEqual(own.facts.map((fact) => [fact.text, fact.invalidated]), [
 		["User explains with PyTorch.", false],
 		["Old wording", true],
@@ -193,37 +246,45 @@ test("the Memory page reports User Memory as unavailable while it is down", asyn
 	assert.equal(response.body.error, USER_MEMORY_UNAVAILABLE);
 });
 
-test("the scope migration removes only automatic global tags, once, and survives a failure", async (context) => {
-	const dataDir = mkdtempSync(join(tmpdir(), "telomi-goal-scope-"));
+test("deferred User Memory migrations run once each, in order, and survive a failure", async (context) => {
+	const dataDir = mkdtempSync(join(tmpdir(), "telomi-memory-migrations-"));
 	const documents: FakeDocument[] = [
 		{ id: "pi-task-a", created_at: "", tags: ["goal:goal_a", "scope:global"], original_text: "" },
 		{ id: "pi-turn-b", created_at: "", tags: ["goal:goal_b", "scope:global"], original_text: "" },
 		{ id: "pi-turn-plain", created_at: "", tags: ["scope:global"], original_text: "" },
 		{ id: "pi-topic-plan-goal_a-r1", created_at: "", tags: ["goal:goal_a"], original_text: "" },
+		{ id: "pi-topic-plan-goal_a-r2", created_at: "", tags: ["goal:goal_a"], original_text: "" },
+		{ id: "pi-topic-plan-goal_gone-r1", created_at: "", tags: [], original_text: "" },
+		{ id: "pi-task-mentions-pi-topic-plan-", created_at: "", tags: ["goal:goal_a"], original_text: "" },
 	];
-	const hindsight = await fakeHindsight(documents, []);
+	const units = [unit("fact-plan", "pi-topic-plan-goal_a-r1", ["goal:goal_a"], "User focuses on TTS.")];
+	const hindsight = await fakeHindsight(documents, units);
 	context.after(() => hindsight.close());
 	const client = new HindsightClient(hindsight.url, "bank");
 
-	await completeGoalScopedUserMemory(client, dataDir);
-	assert.equal(hindsight.requests.length, 0, "without the data-format step nothing is touched");
+	await completeUserMemoryMigrations(client, dataDir);
+	assert.equal(hindsight.requests.length, 0, "without the data-format steps nothing is touched");
 
 	scopeUserMemoryToGoals.run(dataDir);
-	await assert.rejects(completeGoalScopedUserMemory(new HindsightClient("http://127.0.0.1:9/v1/default", "bank"), dataDir));
-	const marker = join(dataDir, "user-memory", "goal-scope-pending");
-	assert.ok(existsSync(marker), "a failed attempt leaves the work for the next one");
+	removeTopicPlanCopiesFromUserMemory.run(dataDir);
+	await assert.rejects(completeUserMemoryMigrations(new HindsightClient("http://127.0.0.1:9/v1/default", "bank"), dataDir));
+	const markers = ["goal-scope-pending", "topic-plan-copies-pending"].map((name) => join(dataDir, "user-memory", name));
+	assert.ok(markers.every((marker) => existsSync(marker)), "a failed attempt leaves the work for the next one");
 
-	await completeGoalScopedUserMemory(client, dataDir);
-	assert.deepEqual(documents.map((document) => document.tags), [
-		["goal:goal_a"],
-		["goal:goal_b"],
-		["scope:global"],
-		["goal:goal_a"],
-	], "user messages of a Goal lose the automatic tag; a plain Pi session keeps it");
-	assert.ok(!existsSync(marker));
+	await completeUserMemoryMigrations(client, dataDir);
+	assert.deepEqual(documents.map((document) => [document.id, document.tags]), [
+		["pi-task-a", ["goal:goal_a"]],
+		["pi-turn-b", ["goal:goal_b"]],
+		["pi-turn-plain", ["scope:global"]],
+		["pi-task-mentions-pi-topic-plan-", ["goal:goal_a"]],
+	], "user messages of a Goal lose the automatic tag, a plain Pi session keeps it, and every Topic Plan copy is gone");
+	assert.equal(units.length, 0, "a Topic Plan copy's facts go with it");
+	assert.ok(markers.every((marker) => !existsSync(marker)));
 
 	// The user makes an Episode global afterwards; running again must not undo that.
 	documents[0]!.tags = ["goal:goal_a", "scope:global"];
-	await completeGoalScopedUserMemory(client, dataDir);
+	const before = hindsight.requests.length;
+	await completeUserMemoryMigrations(client, dataDir);
 	assert.deepEqual(documents[0]!.tags, ["goal:goal_a", "scope:global"]);
+	assert.equal(hindsight.requests.length, before, "finished migrations never run again");
 });

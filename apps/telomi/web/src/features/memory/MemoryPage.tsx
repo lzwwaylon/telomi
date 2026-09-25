@@ -9,6 +9,7 @@ import {
 	USER_MEMORY_UNAVAILABLE,
 	type MemoryEpisodeView,
 	type MemoryFactView,
+	type RejectedScheduleProposalView,
 	type UserMemoryResponse,
 } from "@shared/user-memory";
 import "@/features/memory/memory.css";
@@ -17,7 +18,6 @@ type MemoryView = "active" | "invalidated";
 
 const SOURCE_LABEL = {
 	message: "memory.source.message",
-	topic_plan: "memory.source.topic_plan",
 	schedule_proposal: "memory.source.schedule_proposal",
 	other: "memory.source.other",
 } as const;
@@ -88,7 +88,9 @@ export function MemoryPage({ goalId, goalTitle, onBack }: { goalId: string; goal
 		const facts = episode.facts.filter((fact) => fact.invalidated === (view === "invalidated"));
 		// Active lists Episodes still being retained or with nothing extracted; invalidated only lists retired facts.
 		if (facts.length === 0 && (view === "invalidated" || episode.facts.length > 0)) return [];
-		if (needle && ![episode.text, ...facts.map((fact) => fact.text)].some((text) => text.toLowerCase().includes(needle))) return [];
+		const proposal = episode.scheduleProposal;
+		const searchable = [episode.text, proposal?.scheduleTitle, proposal?.summary, proposal?.reason, ...facts.map((fact) => fact.text)];
+		if (needle && !searchable.some((text) => text?.toLowerCase().includes(needle))) return [];
 		return [{ episode, facts }];
 	});
 	const all = memory ? [...memory.goal, ...memory.global] : [];
@@ -245,14 +247,31 @@ function MemoryEpisode({ episode, facts, goalId, view, actions }: {
 					</span>
 				) : null}
 			</header>
-			<blockquote className="memory-episode-text" data-expanded={expanded || !long ? "true" : undefined}>{episode.text}</blockquote>
-			{long ? <button type="button" className="memory-expand" onClick={() => setExpanded((value) => !value)}>{expanded ? t("memory.collapse") : t("memory.expand")}</button> : null}
+			{episode.source === "schedule_proposal" ? <RejectedProposal proposal={episode.scheduleProposal} /> : (
+				<>
+					<blockquote className="memory-episode-text" data-expanded={expanded || !long ? "true" : undefined}>{episode.text}</blockquote>
+					{long ? <button type="button" className="memory-expand" onClick={() => setExpanded((value) => !value)}>{expanded ? t("memory.collapse") : t("memory.expand")}</button> : null}
+				</>
+			)}
 			{facts.length > 0 ? (
 				<ul className="memory-facts">
 					{facts.map((fact) => <MemoryFact key={fact.id} fact={fact} busy={busy} onRun={run} actions={actions} />)}
 				</ul>
 			) : null}
 		</article>
+	);
+}
+
+/** What the user turned down, in the Schedule's own words; the retained extraction text is never shown. */
+function RejectedProposal({ proposal }: { proposal?: RejectedScheduleProposalView }) {
+	const { t } = useTranslation();
+	if (!proposal) return <p className="memory-proposal-gone">{t("memory.proposalGone")}</p>;
+	return (
+		<dl className="memory-proposal" data-testid="memory-rejected-proposal">
+			<div><dt>{t("memory.proposalSchedule")}</dt><dd>{proposal.scheduleTitle}</dd></div>
+			<div><dt>{t("memory.proposalRejected")}</dt><dd>{proposal.summary}</dd></div>
+			<div><dt>{t("memory.proposalReason")}</dt><dd data-empty={proposal.reason ? undefined : "true"}>{proposal.reason ?? t("memory.proposalNoReason")}</dd></div>
+		</dl>
 	);
 }
 
