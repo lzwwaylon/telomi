@@ -294,6 +294,12 @@ database. An external `postgresql://` database is outside it: restore that from
 the same recovery point whenever the new version's release notes say that it
 changed memory storage.
 
+Format version 3 changes long-term memory itself: messages that earlier
+versions made available to every Goal become specific to the Goal they were
+said in, and the first start after the upgrade rewrites them in the memory
+database. With an external database, restore it together with the data
+directory when you go back to an earlier format.
+
 Restore **matching code, configuration, product data and memory database**
 from the same pre-upgrade recovery point, using empty restore destinations rather
 than overlaying old files onto the failed installation. Keep the recorded data

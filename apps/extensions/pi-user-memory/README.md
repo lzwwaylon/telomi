@@ -41,8 +41,11 @@ system prompt, so Pi decides whether memory is relevant and translates only sele
 downstream tasks. The current user message always overrides conflicting history.
 
 After `agent_settled`, the extension asynchronously retains the direct user prompt with an immutable
-document ID. Assistant responses are never retained as user facts. Accepted writes and failures are
-visible on stderr as `HINDSIGHT_MEMORY_RETAINED` and `HINDSIGHT_MEMORY_RETAIN_FAILED`.
+document ID. With `PI_USER_MEMORY_GOAL_ID` the prompt carries only that Goal's tag and is recalled in
+that Goal; recall also admits `scope:global`, which only the user sets (in `telomi`, on the Memory
+page). Without a Goal, prompts are tagged `scope:global` and every session shares them. Assistant
+responses are never retained as user facts. Accepted writes and failures are visible on stderr as
+`HINDSIGHT_MEMORY_RETAINED` and `HINDSIGHT_MEMORY_RETAIN_FAILED`.
 
 `telomi` disables this in-process retain hook. Its server projects canonical Task History and
 explicit Artifact Feedback into Hindsight with stable document IDs, Goal tags, and a durable local

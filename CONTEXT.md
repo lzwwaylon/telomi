@@ -190,6 +190,10 @@ _Avoid_: Memory Fact, chat summary, mutable Profile
 A temporal, source-linked statement extracted from one or more Memory Episodes and returned as a candidate for Agent judgment.
 _Avoid_: current instruction, authoritative command, raw chat message
 
+**Memory Scope**:
+Whether a Memory Episode is recalled only in the Goal it came from, which is the default, or in every Goal because the user made it global on the Memory page. Nothing makes an Episode global automatically, and only the user curates User Memory: Agents read it through recall and never write, edit or delete it.
+_Avoid_: user-level memory, automatic global preference, Agent-curated memory
+
 **Run Context Snapshot**:
 The immutable Runtime identity that binds the Telomi code version, Runtime configuration, Workspace commit and snapshot, Goal Knowledge hash, and evidence schema for one Run.
 _Avoid_: `/context` mount, mutable Profile, unversioned prompt context

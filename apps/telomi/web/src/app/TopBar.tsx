@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookIcon as BookOpenText, TopicPlanIcon as ListTree, SearchIcon as Search, SettingsIcon, ArrowLeftIcon as ArrowLeft } from "@/shared/ui/icons";
+import { BookIcon as BookOpenText, MemoryIcon, TopicPlanIcon as ListTree, SearchIcon as Search, SettingsIcon, ArrowLeftIcon as ArrowLeft } from "@/shared/ui/icons";
 import { PulseBand } from "@/features/home/PulseBand";
 import { ActivityDropdown } from "@/features/home/ActivityDropdown";
 import { NotificationBell } from "@/features/home/NotificationBell";
@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import type { SettingsSection } from "@/features/settings/settings-sections";
 
 export interface TopBarProps {
-	route: "home" | "goal" | "chat" | "wiki";
+	route: "home" | "goal" | "chat" | "wiki" | "memory";
 	goals: GoalSummary[];
 	selectedGoal: GoalSummary | null;
 	snapshot: GoalSnapshot | null;
@@ -26,6 +26,7 @@ export interface TopBarProps {
 	onOpenPalette: () => void;
 	onOpenSettings: (section?: SettingsSection) => void;
 	onOpenWiki?: () => void;
+	onOpenMemory?: () => void;
 	onTopicOpenChange: (open: boolean) => void;
 	onSelectGoal: (goalId: string) => void;
 	onLeaveChat?: () => void;
@@ -45,6 +46,7 @@ export function TopBar({
 	onOpenPalette,
 	onOpenSettings,
 	onOpenWiki,
+	onOpenMemory,
 	onTopicOpenChange,
 	onSelectGoal,
 	onLeaveChat,
@@ -52,8 +54,10 @@ export function TopBar({
 	const { t } = useTranslation();
 	const [activityOpen, setActivityOpen] = useState(false);
 	const pulseWrapRef = useRef<HTMLDivElement>(null);
-	const focusGoalId = route === "goal" || route === "chat" || route === "wiki" ? selectedGoal?.id ?? null : null;
-	const pulseRoute = route === "wiki" ? "goal" : route;
+	const goalPage = route === "wiki" || route === "memory";
+	const focusGoalId = route === "goal" || route === "chat" || goalPage ? selectedGoal?.id ?? null : null;
+	const pulseRoute = goalPage ? "goal" : route;
+	const backLabel = route === "wiki" ? t("topbar.backFromWiki") : route === "memory" ? t("topbar.backFromMemory") : t("topbar.backToGoal");
 	const topicGenerating = Boolean(selectedGoal && !topicPlan && (
 		selectedGoal.fresh || selectedGoal.isStreaming || snapshot?.isStreaming
 	));
@@ -104,19 +108,19 @@ export function TopBar({
 				className="mr-4 flex flex-none items-center gap-2"
 				style={route === "chat" ? undefined : { minWidth: "calc(var(--rail-w) - 20px)" }}
 			>
-				{(route === "chat" || route === "wiki") && selectedGoal && onLeaveChat && (
+				{(route === "chat" || goalPage) && selectedGoal && onLeaveChat && (
 					<button
 						type="button"
 						onClick={onLeaveChat}
-						aria-label={route === "wiki" ? t("topbar.backFromWiki") : t("topbar.backToGoal")}
-						title={route === "wiki" ? t("topbar.backFromWiki") : t("topbar.backToGoal")}
+						aria-label={backLabel}
+						title={backLabel}
 						data-testid="topbar-back-goal"
 						className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[var(--ink-mut)] transition-[background-color,color,transform] duration-150 hover:-translate-x-0.5 hover:bg-[var(--paper-2)] hover:text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-2"
 					>
 						<ArrowLeft className="h-4 w-4" aria-hidden />
 					</button>
 				)}
-				{route !== "chat" && route !== "wiki" && (
+				{route !== "chat" && !goalPage && (
 					<button
 						type="button"
 						onClick={onGoHome}
@@ -188,6 +192,11 @@ export function TopBar({
 				{selectedGoal && onOpenWiki && (
 					<TopBtn label={t("topbar.wiki")} onClick={onOpenWiki} active={route === "wiki"} testid="topbar-wiki">
 						<BookOpenText className="h-4 w-4" aria-hidden />
+					</TopBtn>
+				)}
+				{selectedGoal && onOpenMemory && (
+					<TopBtn label={t("topbar.memory")} onClick={onOpenMemory} active={route === "memory"} testid="topbar-memory">
+						<MemoryIcon className="h-4 w-4" aria-hidden />
 					</TopBtn>
 				)}
 				<NotificationBell

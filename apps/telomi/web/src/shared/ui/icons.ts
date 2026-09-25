@@ -17,6 +17,11 @@ export const BookIcon = createLucideIcon("telomi-wiki", [
 	["path", { d: "M12 6v15M12 6C9 3.5 6 3.5 3 4.5v14c3-1 6-.5 9 2 3-2.5 6-3 9-2v-14c-3-1-6-1-9 1.5Z", key: "0" }],
 ]);
 
+export const MemoryIcon = createLucideIcon("telomi-memory", [
+	["path", { d: "M7 3.5h10a2 2 0 0 1 2 2V20.5l-7-4.2-7 4.2V5.5a2 2 0 0 1 2-2Z", key: "0" }],
+	["path", { d: "M9.5 8.5h5", key: "1" }],
+]);
+
 export const DocumentIcon = createLucideIcon("telomi-report", [
 	["path", { d: "M14 3H7a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V9l-6-6Zm0 0v4a2 2 0 0 0 2 2h4M8 12h8M8 16h5", key: "0" }],
 ]);
