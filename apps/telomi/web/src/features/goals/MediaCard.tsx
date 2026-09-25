@@ -208,6 +208,15 @@ interface MediaChipProps {
 }
 
 function MediaChip({ state, data, goalId, onTrigger, onRedo }: MediaChipProps) {
+	if (state.loading) {
+		return (
+			<button type="button" className="media-chip" data-mode="podcast-ai" data-state="loading" disabled
+				onClick={(e) => e.stopPropagation()} style={{ opacity: 0.45 }}>
+				<span className="ico" aria-hidden>{PODCAST_ICON}</span>
+				<span>{podcastLabel()}</span>
+			</button>
+		);
+	}
 	if (!state.implemented) {
 		return (
 			<button
