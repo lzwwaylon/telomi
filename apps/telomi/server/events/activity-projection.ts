@@ -1,4 +1,6 @@
 import type { ActivityKind, ActivityOutput, ActivityProjection, ActivityProjectionItem, ActivityProjectionSummary, GlobalActivityProjectionSummary } from "../../shared/events/activity-projection.js";
+import { chrome } from "../../shared/events/activity-text.js";
+import type { ActivityDismissalStore } from "./activity-dismissals.js";
 import { compareHistory, revisionFor, withLiveElapsed, withRecordedActivity } from "./projection-helpers.js";
 
 export interface ProjectionContribution {
@@ -15,7 +17,18 @@ export interface ActivityProjectionServiceOptions {
 	readOutput?: (goalId: string, outputRef: string, options?: { line?: string }) => ActivityOutput | null;
 	/** Clock behind `generatedAt` and the elapsed time of running items; one reading per projection. */
 	now?: () => number;
+	/** Without a store, failures offer no dismissal. */
+	dismissals?: ActivityDismissalStore;
 }
+
+/**
+ * Failures to settle without acting: the ones named with the update time the user saw, or every
+ * failure last updated no later than `through`, the `generatedAt` of the projection on screen.
+ * Either way a failure recorded after the user looked keeps its attention.
+ */
+export type ActivityDismissalRequest =
+	| { activities: Array<{ activityId: string; updatedAt: string }> }
+	| { through: string };
 
 const HISTORY_PAGE_SIZE = 20;
 
@@ -35,15 +48,9 @@ export class ActivityProjectionService {
 	getGoal(goalId: string, cursor?: string): ActivityProjection {
 		const now = this.options.now?.() ?? Date.now();
 		const generatedAt = new Date(now).toISOString();
-		const contributions = this.reducers.flatMap((reducer) => reducer(goalId));
-		const ordered = [...contributions].sort((left, right) => {
-			const rank = (source: ActivityKind) => {
-				const index = this.options.itemSources?.indexOf(source) ?? -1;
-				return index < 0 ? Number.MAX_SAFE_INTEGER : index;
-			};
-			return rank(left.source) - rank(right.source);
-		});
-		const items = ordered.flatMap((contribution) => contribution.items).map(withRecordedActivity);
+		const { contributions, items: recorded } = this.project(goalId);
+		const dismissed = this.options.dismissals?.read(goalId);
+		const items = dismissed ? recorded.map((item) => withDismissal(item, goalId, dismissed[item.activityId])) : recorded;
 		const liveActivities = items
 			.filter((item) => item.lifecycle !== "finished")
 			.sort(compareLive);
@@ -83,6 +90,37 @@ export class ActivityProjectionService {
 		};
 	}
 
+	/** Records the dismissal and returns how many failures it settled; dismissals of failures now gone are dropped. */
+	dismiss(goalId: string, request: ActivityDismissalRequest): number {
+		const store = this.options.dismissals;
+		if (!store) throw new Error("Activity dismissal is not available");
+		const failures = new Map(this.project(goalId).items
+			.filter((item) => item.attention?.kind === "failure")
+			.map((item) => [item.activityId, item.timing.updatedAt]));
+		const next = Object.fromEntries(Object.entries(store.read(goalId))
+			.filter(([activityId, updatedAt]) => failures.get(activityId) === updatedAt));
+		const requested = "through" in request
+			? [...failures].filter(([, updatedAt]) => Date.parse(updatedAt) <= Date.parse(request.through))
+			: request.activities.map(({ activityId, updatedAt }) => [activityId, updatedAt] as const)
+				.filter(([activityId, updatedAt]) => failures.get(activityId) === updatedAt);
+		const settled = requested.filter(([activityId, updatedAt]) => next[activityId] !== updatedAt);
+		for (const [activityId, updatedAt] of settled) next[activityId] = updatedAt;
+		store.write(goalId, next);
+		return settled.length;
+	}
+
+	private project(goalId: string): { contributions: ProjectionContribution[]; items: ActivityProjectionItem[] } {
+		const contributions = this.reducers.flatMap((reducer) => reducer(goalId));
+		const ordered = [...contributions].sort((left, right) => {
+			const rank = (source: ActivityKind) => {
+				const index = this.options.itemSources?.indexOf(source) ?? -1;
+				return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+			};
+			return rank(left.source) - rank(right.source);
+		});
+		return { contributions, items: ordered.flatMap((contribution) => contribution.items).map(withRecordedActivity) };
+	}
+
 	getGlobalSummary(): GlobalActivityProjectionSummary {
 		const projections = this.options.listGoalIds().map((goalId) => ({ goalId, projection: this.getGoal(goalId) }));
 		const goals = projections.map(({ goalId, projection }) => {
@@ -109,6 +147,31 @@ export class ActivityProjectionService {
 			system: emptySummary(),
 		};
 	}
+}
+
+/** A dismissed failure drops its attention; any other failure offers the dismissal that would settle it. */
+function withDismissal(item: ActivityProjectionItem, goalId: string, dismissedAt: string | undefined): ActivityProjectionItem {
+	if (item.attention?.kind !== "failure") return item;
+	const { activityId, timing: { updatedAt } } = item;
+	if (dismissedAt === updatedAt) {
+		const { attention: _dismissed, ...rest } = item;
+		return rest;
+	}
+	return {
+		...item,
+		attention: {
+			...item.attention,
+			dismiss: {
+				actionId: `dismiss:${activityId}`,
+				kind: "dismiss",
+				label: chrome("activityChrome.attention.dismiss"),
+				enabled: true,
+				requiresConfirmation: false,
+				href: `/api/goals/${encodeURIComponent(goalId)}/events/activity-projection/dismissals`,
+				requestBody: { activities: [{ activityId, updatedAt }] },
+			},
+		},
+	};
 }
 
 function summarize(items: ActivityProjectionItem[]): ActivityProjectionSummary {

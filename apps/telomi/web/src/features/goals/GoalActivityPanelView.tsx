@@ -17,6 +17,7 @@ import {
 import { useNow } from "@/shared/hooks/useNow";
 import { ActivityDetail } from "@/features/goals/GoalActivityDetail";
 import { activityText } from "@/shared/lib/activity-text";
+import { apiClient } from "@/shared/lib/api-client";
 import { cn } from "@/shared/lib/utils";
 
 export function GoalActivityPanelView({
@@ -70,6 +71,29 @@ export function GoalActivityPanelView({
 	) : null;
 	const attention = connected ? projection?.summary.attention ?? 0 : 0;
 	const running = connected ? projection?.summary.running ?? 0 : 0;
+	// Older history pages may hold attention the list has not loaded yet; those may be failures too.
+	const shownAttention = [...liveActivities, ...historyItems].filter((item) => item.attention);
+	const dismissible = attention > 0
+		&& (shownAttention.some((item) => item.attention?.dismiss) || attention > shownAttention.length);
+	const [dismissing, setDismissing] = useState(false);
+	const [dismissError, setDismissError] = useState<string | null>(null);
+	// Settles every failure recorded up to this projection; one that arrives later still asks for attention.
+	const dismissAll = async () => {
+		if (!projection || projection.scope.kind !== "goal") return;
+		setDismissing(true);
+		setDismissError(null);
+		try {
+			await apiClient.post(
+				`/api/goals/${encodeURIComponent(projection.scope.goalId)}/events/activity-projection/dismissals`,
+				{ through: projection.generatedAt },
+				{ fallbackMessage: (status) => t("goals.goalactivitypanel.actionFailedStatus", { status }) },
+			);
+		} catch (cause) {
+			setDismissError(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			setDismissing(false);
+		}
+	};
 
 	const open = (activityId: string, row: HTMLElement) => {
 		origin.current = { row, restoreScroll: rememberScroll(row) };
@@ -114,6 +138,17 @@ export function GoalActivityPanelView({
 							{attention > 0 && (
 								<span className="is-attention">▲ {t("goalActivity.attentionCount", { count: attention })}</span>
 							)}
+							{dismissible && (
+								<button
+									type="button"
+									className="goal-activity-dismiss-all"
+									data-testid="activity-dismiss-all"
+									disabled={dismissing}
+									onClick={() => void dismissAll()}
+								>
+									{t("goalActivity.dismissAll")}
+								</button>
+							)}
 							{running > 0 && (
 								<span className="is-running">● {t("goalActivity.runningCount", { count: running })}</span>
 							)}
@@ -122,6 +157,7 @@ export function GoalActivityPanelView({
 				</header>
 
 				{banner}
+				{dismissError && <div className="goal-activity-error" role="alert">{dismissError}</div>}
 
 				<div className="goal-activity-filters" role="group" aria-label={t("goalActivity.filter")}>
 					{([

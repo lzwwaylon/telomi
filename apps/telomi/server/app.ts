@@ -74,6 +74,7 @@ import { createResearchSchedulesRouter } from "./research/schedules/api.js";
 import { ResearchScheduleReviewService } from "./research/schedules/review-service.js";
 import { ResearchScheduleScheduler } from "./research/schedules/scheduler.js";
 import { createActivityProjection } from "./app/activity-projection.js";
+import type { ActivityDismissalRequest } from "./events/activity-projection.js";
 import { readIdleVerdict } from "./app/idle-verdict.js";
 import { createTraceRouter } from "./observability/trace-api.js";
 import { createPromptRegistryRouter } from "./agent-runtime/prompt-registry-api.js";
@@ -598,6 +599,33 @@ app.get("/api/goals/:goalId/events/activity-projection/output/:outputRef", (req,
 		res.status(400).json({ error: toErrorMessage(error) });
 	}
 });
+
+app.post("/api/goals/:goalId/events/activity-projection/dismissals", (req, res) => {
+	const goal = goals.getGoal(req.params.goalId);
+	if (!goal) return void res.status(404).json({ error: "Unknown goal" });
+	const request = activityDismissalRequest(req.body);
+	if (!request) return void res.status(400).json({ error: "Expected activities [{ activityId, updatedAt }] or through (ISO time)" });
+	try {
+		const dismissed = activityProjection.dismiss(goal.id, request);
+		if (dismissed === 0) return void res.status(409).json({ error: "The failure changed since it was shown; refresh and try again" });
+		publish({ type: "activity-projection:changed", goalId: goal.id });
+		res.json({ dismissed });
+	} catch (error) {
+		res.status(500).json({ error: toErrorMessage(error) });
+	}
+});
+
+function activityDismissalRequest(body: unknown): ActivityDismissalRequest | null {
+	if (!body || typeof body !== "object") return null;
+	const { activities, through } = body as { activities?: unknown; through?: unknown };
+	if (typeof through === "string") return Number.isFinite(Date.parse(through)) ? { through } : null;
+	if (!Array.isArray(activities) || activities.length === 0 || activities.length > 500) return null;
+	const parsed = activities.map((entry) => {
+		const { activityId, updatedAt } = (entry ?? {}) as { activityId?: unknown; updatedAt?: unknown };
+		return typeof activityId === "string" && typeof updatedAt === "string" ? { activityId, updatedAt } : null;
+	});
+	return parsed.every(Boolean) ? { activities: parsed as Array<{ activityId: string; updatedAt: string }> } : null;
+}
 
 app.get("/api/goals/:goalId/topic-plan", (req, res) => {
 	const goal = goals.getGoal(req.params.goalId);

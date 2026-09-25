@@ -125,7 +125,7 @@ export function ActivityDetail({
 			{item.attention && (
 				<div className="goal-activity-attention">
 					<p>{activityText(item.attention.summary)}</p>
-					{item.attention.actions.length > 0 && (
+					{(item.attention.actions.length > 0 || item.attention.dismiss) && (
 						<div className="goal-activity-attention-actions">
 							{item.attention.actions.map((action) => action.kind === "open" && action.href ? (
 								<a key={action.actionId} href={action.href}>{activityText(action.label)}</a>
@@ -140,6 +140,17 @@ export function ActivityDetail({
 									{runningAction === action.actionId ? uiText("turnCard.processing") : activityText(action.label)}
 								</button>
 							))}
+							{item.attention.dismiss && (
+								<button
+									type="button"
+									className="is-quiet"
+									data-testid="activity-attention-dismiss"
+									disabled={runningAction !== null}
+									onClick={() => void sendAction(item.attention!.dismiss!)}
+								>
+									{runningAction === item.attention.dismiss.actionId ? uiText("turnCard.processing") : activityText(item.attention.dismiss.label)}
+								</button>
+							)}
 						</div>
 					)}
 					{actionError && <p className="goal-activity-attention-error" role="alert">{actionError}</p>}

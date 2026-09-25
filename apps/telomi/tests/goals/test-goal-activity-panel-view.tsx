@@ -528,4 +528,34 @@ const singleSession = renderReplay({ output: { ...replayOutput, lines: replayOut
 assert.match(singleSession, /· 3 条 · <code class="goal-activity-replay-model">gpt-solo<\/code>/u, "a single session names its model in the overlay header");
 assert.doesNotMatch(sectioned, /已截断/u, "rows stay clean; opening a truncated row loads its full content");
 
+// A decision cannot be dismissed, so a panel whose only attention is one offers no dismissal.
+assert.doesNotMatch(connected, /activity-dismiss-all/u);
+const dismissAction = {
+	actionId: "dismiss:podcast_failed", kind: "dismiss" as const, label: "忽略", enabled: true, requiresConfirmation: false,
+	href: "/api/goals/goal_activity/events/activity-projection/dismissals",
+	requestBody: { activities: [{ activityId: "podcast_failed", updatedAt: noon(0) }] },
+};
+const failedPodcast = activity({
+	activityId: "podcast_failed",
+	kind: "podcast",
+	title: "生成播客",
+	outcome: "failed",
+	attention: {
+		kind: "failure",
+		summary: "Podcast 生成失败",
+		actions: [{ actionId: "retry", kind: "retry", label: "重试", enabled: true, requiresConfirmation: false, href: "/api/retry" }],
+		dismiss: dismissAction,
+	},
+});
+const withFailure = projectionOf([], { items: [failedPodcast] }, { attention: 1, running: 0, queued: 0, waiting: 0 });
+const failureList = render({ projection: withFailure });
+assert.match(failureList, /data-testid="activity-dismiss-all"[^>]*>全部忽略</u);
+// The dismissal is its own control, so the row still counts only the actions that fix the failure.
+assert.match(failureList, />1 项操作</u);
+const failureDetail = render({ projection: withFailure, selectedActivityId: "podcast_failed" });
+assert.match(failureDetail, /<button type="button"[^>]*>重试<\/button><button type="button" class="is-quiet" data-testid="activity-attention-dismiss"[^>]*>忽略<\/button>/u,
+	"the dismissal follows the actions that fix the failure");
+// Attention on a history page not loaded yet may be a failure, so the panel still offers to dismiss it.
+assert.match(render({ projection: projectionOf([], { items: [] }, { attention: 2, running: 0, queued: 0, waiting: 0 }) }), /activity-dismiss-all/u);
+
 console.log("Goal activity panel view test passed");

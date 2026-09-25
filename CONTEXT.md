@@ -29,7 +29,7 @@ The terminal result of a finished Activity or Activity Step: succeeded, no chang
 _Avoid_: lifecycle, running state, overloaded status
 
 **Activity Attention**:
-A presentation state indicating that an Activity currently needs a user decision, credential, or input, or has an unhandled failure with a meaningful next action. Running, queued, succeeded, and no-change Activities do not need attention by themselves.
+A presentation state indicating that an Activity currently needs a user decision, credential, or input, or has an unhandled failure with a meaningful next action. Running, queued, succeeded, and no-change Activities do not need attention by themselves. A failure the user dismissed is handled and stays in history as failed; the same Activity failing again needs attention again.
 _Avoid_: notification, unread state, failure outcome, lifecycle
 
 **Activity Projection**:

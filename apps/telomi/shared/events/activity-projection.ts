@@ -32,7 +32,7 @@ export interface ActivityTiming {
 
 export interface ActivityAction {
 	actionId: string;
-	kind: "decision" | "credential" | "input" | "retry" | "cancel" | "continue" | "open";
+	kind: "decision" | "credential" | "input" | "retry" | "cancel" | "continue" | "open" | "dismiss";
 	label: ActivityText;
 	impact?: ActivityText;
 	enabled: boolean;
@@ -54,6 +54,8 @@ export interface ActivityAttention {
 	kind: "decision" | "credential" | "input" | "failure";
 	summary: ActivityText;
 	actions: ActivityAction[];
+	/** Offered on a failure: the user settles it without acting, and it stays in history as failed. */
+	dismiss?: ActivityAction;
 }
 
 export interface ActivityProgress {
