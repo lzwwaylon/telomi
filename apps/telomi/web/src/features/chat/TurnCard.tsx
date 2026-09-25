@@ -281,19 +281,28 @@ function formatToolDisplay(
 }
 
 /** Get the primary preview text for collapsed state */
-function getPreviewText(
+export function getPreviewText(
   activities: ActivityItem[],
   intent?: string,
   isStreaming?: boolean,
   hasResponse?: boolean,
   isComplete?: boolean
 ): string {
+  // A failed step must show on the collapsed header whichever label it carries.
+  const errorCount = activities.filter(a => a.status === 'error').length
+  const recoveredCount = activities.filter(a => a.status === 'recovered').length
+  const statusSuffix = errorCount > 0
+    ? ` · ${i18n.t('turnCard.errorCount', { count: errorCount })}`
+    : recoveredCount > 0
+      ? ` · ${i18n.t('turnCard.recoveredCount', { count: recoveredCount })}`
+      : ''
+
   // If we have an explicit intent, use it
-  if (intent) return intent
+  if (intent) return `${intent}${statusSuffix}`
 
   // Find the most relevant activity intent
   const activityWithIntent = activities.find(a => a.intent)
-  if (activityWithIntent?.intent) return activityWithIntent.intent
+  if (activityWithIntent?.intent) return `${activityWithIntent.intent}${statusSuffix}`
 
   // Check if we're in responding state
   if (isStreaming && hasResponse) return i18n.t('turnCard.responding')
@@ -317,13 +326,6 @@ function getPreviewText(
 
   // Get running and completed tools (not intermediate messages)
   const runningTools = activities.filter(a => a.status === 'running' && a.toolName)
-  const errorCount = activities.filter(a => a.status === 'error').length
-  const recoveredCount = activities.filter(a => a.status === 'recovered').length
-  const statusSuffix = errorCount > 0
-    ? ` · ${i18n.t('turnCard.errorCount', { count: errorCount })}`
-    : recoveredCount > 0
-      ? ` · ${i18n.t('turnCard.recoveredCount', { count: recoveredCount })}`
-      : ''
 
   // Show running tool names
   if (runningTools.length > 0) {

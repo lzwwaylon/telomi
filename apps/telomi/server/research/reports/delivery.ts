@@ -22,8 +22,6 @@ export function scheduleCreatedResponse(language: ResolvedOutputLanguage, title:
 export interface ReportReference {
 	runId: string;
 	title: string;
-	/** The sandbox mount the Main Agent reads the report from. */
-	reportRef: string;
 }
 
 export function reportReference(
@@ -39,7 +37,6 @@ export function reportReference(
 	return {
 		runId: id,
 		title: typeof title === "string" && title.trim() ? title.trim() : "研究报告",
-		reportRef: `/reports/${id}/final.md`,
 	};
 }
 
@@ -47,12 +44,12 @@ export function reportTitle(markdown: string, fallbackTitle?: string): string {
 	return /^#\s+(.+)$/mu.exec(markdown)?.[1]?.trim() || fallbackTitle?.trim() || "研究报告";
 }
 
-/** The receipt the Main Agent keeps in its session; `/reports/<runId>/final.md` is the sandbox mount of the published report. */
-export function reportReceiptText(title: string, runId: string, warning?: string): string {
+/** The receipt the Main Agent keeps in its session; `reportPath` is where the report appears under `/reports`. */
+export function reportReceiptText(title: string, reportPath: string, warning?: string): string {
 	return [
 		"Report published.",
 		`Title: ${title}`,
-		`Report: /reports/${runId}/final.md (read it only when the user asks about its contents)`,
+		`Report: ${reportPath} (read it only when the user asks about its contents)`,
 		warning ? `Warning: ${warning}` : "",
 	].filter(Boolean).join("\n");
 }

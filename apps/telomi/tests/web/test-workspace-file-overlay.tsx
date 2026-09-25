@@ -4,8 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { mergeArtifacts } from "../../web/src/features/chat/ChatRightDock.js";
 import { WorkspaceFileBody, workspaceArtifactName, workspaceFileNaming } from "../../web/src/features/chat/WorkspaceFileOverlay.js";
 
-assert.equal(workspaceArtifactName("/reports/run_1/final.md"), "wiki/runs/run_1/report/final.md");
-assert.equal(workspaceArtifactName("/reports/run_1/chapters/intro.md"), "wiki/runs/run_1/report/chapters/intro.md");
+// Only the server knows which run a report directory names, so citations resolve `/reports` there.
+assert.equal(workspaceArtifactName("/reports/2026-09-25 语音报告/report.md"), "/reports/2026-09-25 语音报告/report.md");
 assert.equal(workspaceArtifactName("/work/notes/topic.md"), "main/notes/topic.md");
 assert.equal(workspaceArtifactName("/artifacts/summary.md"), "summary.md");
 assert.equal(workspaceArtifactName("wiki/runs/run_1/report/final.md"), "wiki/runs/run_1/report/final.md");

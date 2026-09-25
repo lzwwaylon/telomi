@@ -6,14 +6,15 @@ import { basenameNoExt } from "../lib/paths.js";
 import { clipSummary, toErrorMessage } from "../lib/values.js";
 import type { GoalService } from "../goals/service.js";
 import type { ArtifactFeedItem } from "../../shared/types.js";
-import { cardIdFromArtifactName } from "./products-api.js";
 import {
+	cardIdFromArtifactName,
 	isUserFacingArtifact,
 	goalRoot,
 	resolveProductArtifactPath,
 	scanGoalProductArtifacts,
 	scanGoalProductArtifactsToday,
 } from "./product-artifacts.js";
+import { publishedReportForPath, REPORTS_GUEST_PATH } from "./report-view.js";
 import { resolveCitationSourcePreview, resolveMessageCitationSourcePreview, resolveReportCoverAsset, type ReportCoverAsset } from "../citations/preview.js";
 
 const AUDIO_EXTS = new Set(["mp3", "wav", "m4a", "ogg", "flac", "aac", "aiff"]);
@@ -232,12 +233,15 @@ export function createArtifactsRouter(workspaceDir: string, goals: GoalService):
 			return res.status(400).json({ error: "number must be a positive integer" });
 		}
 		try {
+			if (!goals.getGoal(req.params.goalId)) return res.status(404).json({ error: "goal not found" });
 			if (messageId) {
-				if (!goals.getGoal(req.params.goalId)) return res.status(404).json({ error: "goal not found" });
 				const preview = resolveMessageCitationSourcePreview(goalRoot(workspaceDir, req.params.goalId), messageId, url, number);
 				return preview ? res.json(preview) : res.status(404).json({ error: "citation preview not found" });
 			}
-			const reportPath = resolveProductArtifactPath(workspaceDir, req.params.goalId, name);
+			// A report opened from `/reports` cites through its published run, where the citation records live.
+			const reportPath = name.startsWith(`${REPORTS_GUEST_PATH}/`)
+				? publishedReportForPath(goalRoot(workspaceDir, req.params.goalId), name)?.reportFile ?? ""
+				: resolveProductArtifactPath(workspaceDir, req.params.goalId, name);
 			if (!existsSync(reportPath)) return res.status(404).json({ error: `artifact ${name} not found` });
 			const preview = resolveCitationSourcePreview(reportPath, url, number);
 			return preview ? res.json(preview) : res.status(404).json({ error: "citation preview not found" });

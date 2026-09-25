@@ -16,9 +16,12 @@ export interface PodcastState {
 	implemented: boolean;
 	extra?: Record<string, unknown>;
 	progress?: string;
+	/** The server has not answered yet, so nothing, availability included, is known. */
+	loading?: boolean;
 }
 
 const IDLE: PodcastState = { status: "idle", implemented: false };
+const LOADING: PodcastState = { ...IDLE, loading: true };
 
 interface ServerStatusResponse {
 	podcast?: PodcastState;
@@ -53,7 +56,7 @@ interface StatusEvent {
 }
 
 export function useMediaProductStatus(goalId: string, cardId: string) {
-	const [state, setState] = useState<PodcastState>(IDLE);
+	const [state, setState] = useState<PodcastState>(LOADING);
 	const [error, setError] = useState<string | null>(null);
 	const revision = useRef(0);
 
@@ -92,6 +95,7 @@ export function useMediaProductStatus(goalId: string, cardId: string) {
 						? mediaProductPath(goalId, cardId, "media")
 						: current.mediaUrl),
 					implemented: true,
+					loading: false,
 					extra: event.extra ?? current.extra,
 					progress: event.status === "running" ? event.progress ?? current.progress : undefined,
 				}));

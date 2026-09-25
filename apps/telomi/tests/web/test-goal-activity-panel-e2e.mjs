@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -5,7 +6,8 @@ import { fileURLToPath } from "node:url";
 
 const appUrl = process.env.TELOMI_WEB_URL ?? "http://localhost:5174";
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const agentBrowser = path.join(appDir, "node_modules", ".bin", "agent-browser");
+// The workspace hoists agent-browser to the repository root; resolve it the way Node would.
+const agentBrowser = createRequire(import.meta.url).resolve("agent-browser/bin/agent-browser.js");
 const session = `goal-activity-panel-e2e-${process.pid}-${Date.now()}`;
 const screenshots = [];
 const initScriptPath = `/tmp/telomi-goal-activity-panel-e2e-${process.pid}.js`;

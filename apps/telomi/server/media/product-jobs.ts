@@ -11,6 +11,8 @@ export interface MediaProductJob {
 	startedAt: number;
 	updatedAt: number;
 	error?: string;
+	/** The podcast-ai run directory holding this attempt's script and voice segments. */
+	runId?: string;
 }
 
 /** One document per attempt, with the latest attempt projected onto each card. */
@@ -29,7 +31,8 @@ export class MediaProductJobs {
 					&& typeof job.cardId === "string" && Boolean(job.cardId)
 					&& ["running", "failed", "done"].includes(job.status)
 					&& Number.isFinite(job.startedAt) && Number.isFinite(job.updatedAt)
-					&& (job.error === undefined || typeof job.error === "string");
+					&& (job.error === undefined || typeof job.error === "string")
+					&& (job.runId === undefined || (typeof job.runId === "string" && /^[A-Za-z0-9_-]+$/u.test(job.runId)));
 			}).sort((a, b) => a.startedAt - b.startedAt);
 			for (const job of jobs) {
 				if (job.status === "running") {

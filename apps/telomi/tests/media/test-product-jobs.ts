@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -61,22 +61,30 @@ if (process.argv[2] === "start") {
 		assert.deepEqual(createPodcastGenerator(root).status(goalId, cardId), status);
 
 		// An old episode must not mask an interrupted regeneration.
-		mkdirSync(join(root, goalId, ".media-products", cardId), { recursive: true });
-		mkdirSync(join(root, goalId, "podcasts", cardId), { recursive: true });
-		writeFileSync(join(root, goalId, "podcasts", cardId, "episode.mp3"), "existing audio");
-		writeFileSync(join(root, goalId, ".media-products", cardId, "podcast-ai.meta.json"), JSON.stringify({
-			bytes: 14, durationSec: 1, generatedAt: "2026-01-01T00:00:00Z", extra: { slug: cardId },
-		}));
+		const publishOldPodcast = () => {
+			mkdirSync(join(root, goalId, ".media-products", cardId), { recursive: true });
+			mkdirSync(join(root, goalId, "podcasts", cardId), { recursive: true });
+			writeFileSync(join(root, goalId, "podcasts", cardId, "episode.mp3"), "existing audio");
+			writeFileSync(join(root, goalId, ".media-products", cardId, "podcast-ai.meta.json"), JSON.stringify({
+				bytes: 14, durationSec: 1, generatedAt: "2026-01-01T00:00:00Z", extra: { slug: cardId },
+			}));
+		};
+		publishOldPodcast();
 		assert.equal(generator.status(goalId, cardId).status, "failed");
 		const retry = generator.start({ goalId, cardId });
 		assert.notEqual(retry.jobId, job.jobId);
+		assert.equal(existsSync(join(root, goalId, "podcasts", cardId)), false,
+			"a regeneration replaces the old Podcast from the moment it starts");
+		assert.equal(existsSync(join(root, goalId, ".media-products", cardId, "podcast-ai.meta.json")), false);
 		for (let attempt = 0; generator.status(goalId, cardId).status === "running" && attempt < 100; attempt++) {
 			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 		assert.equal(generator.status(goalId, cardId).error, "Preference resolution failed");
 		assert.equal(generationCalls, 1);
 		assert.equal(createPodcastGenerator(root).status(goalId, cardId).error, "Preference resolution failed");
+		assert.equal(existsSync(join(root, goalId, "podcasts", cardId)), false, "a failed regeneration leaves no Podcast");
 		const jobs = new MediaProductJobs(root);
+		publishOldPodcast();
 		jobs.save({ ...retry, status: "done" });
 		assert.equal(new MediaProductJobs(root).get(goalId, cardId)?.status, "done");
 		assert.equal(createPodcastGenerator(root).status(goalId, cardId).status, "done");

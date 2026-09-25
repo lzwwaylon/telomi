@@ -4,7 +4,7 @@ import { chrome } from "../../shared/events/activity-text.js";
 import type { GoalActivityItem } from "../../shared/types.js";
 import { activityTiming } from "../events/projection-helpers.js";
 
-function fromPodcast(item: GoalActivityItem): ActivityProjectionItem {
+function fromPodcast(item: GoalActivityItem, superseded: boolean): ActivityProjectionItem {
 	const lifecycle: ActivityLifecycle = item.status === "queued"
 		? "queued" : item.status === "running" ? "running" : "finished";
 	const outcome: ActivityOutcome | undefined = item.status === "done"
@@ -40,7 +40,8 @@ function fromPodcast(item: GoalActivityItem): ActivityProjectionItem {
 		summary,
 		lifecycle,
 		...(outcome ? { outcome } : {}),
-		...(outcome === "failed" ? {
+		// A failure a later attempt for the same report has replaced stays in history but asks nothing more.
+		...(outcome === "failed" && !superseded ? {
 			attention: {
 				kind: "failure" as const, summary,
 				actions: [{
@@ -75,5 +76,16 @@ function fromPodcast(item: GoalActivityItem): ActivityProjectionItem {
 }
 
 export function mainAgentProjection(listActivities: (goalId: string) => GoalActivityItem[]): ProjectionReducer {
-	return (goalId) => [{ source: "podcast", items: listActivities(goalId).filter((item) => item.kind === "podcast").map(fromPodcast) }];
+	return (goalId) => {
+		const podcasts = listActivities(goalId).filter((item) => item.kind === "podcast");
+		const latestStart = new Map<string, number>();
+		for (const item of podcasts) {
+			if (item.cardId) latestStart.set(item.cardId, Math.max(latestStart.get(item.cardId) ?? 0, item.startedAt ?? 0));
+		}
+		return [{
+			source: "podcast",
+			items: podcasts.map((item) => fromPodcast(item,
+				Boolean(item.cardId) && (item.startedAt ?? 0) < (latestStart.get(item.cardId!) ?? 0))),
+		}];
+	};
 }

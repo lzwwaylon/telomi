@@ -41,7 +41,7 @@ export function createMainAgentTools(
 		createResearchHistoryTool(_opts),
 		asTerminalTool(createMainResearchTool(goalDir, _opts), "research", "external_research_requested"),
 		asTerminalTool(createGenerateReportTool(goalDir, _opts), "generate_report", "wiki_report_generated"),
-		asTerminalTool(createGeneratePodcastTool(_opts.goalId, (request) => {
+		asTerminalTool(createGeneratePodcastTool(_opts.goalId, goalDir, (request) => {
 			if (!_opts.generatePodcast) throw new Error("Podcast generation is not configured");
 			return _opts.generatePodcast(request);
 		}), "generate_podcast", "podcast_generation_requested"),

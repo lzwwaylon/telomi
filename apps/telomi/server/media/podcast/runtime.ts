@@ -1,13 +1,14 @@
-import { existsSync, promises as fsp, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, promises as fsp, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { fileBytes, probeDurationSec, spliceClips } from "../../audio/ffmpeg.js";
 import { speakMany, captureAudioGeneration } from "../../audio/providers/tts.js";
 import { writePrimePodcast } from "./writer.js";
+import { extractMarkdownTitle } from "../product-artifacts.js";
 import { caseCapture } from "../../observability/case-capture.js";
 import type { PodcastGenerationBrief } from "./preferences.js";
 import { inferOutputLanguage, type ResolvedOutputLanguage } from "../../../shared/languages.js";
-import { toErrorMessage } from "../../lib/values.js";
 
 const PODCAST_TTS_BLOCK_CHARS = 900;
 
@@ -108,11 +109,6 @@ function podcastCharacterCount(value: string): number {
 	return Array.from(value).length;
 }
 
-/** The title the report writes for itself, or nothing. A caller that shows it to a user picks its
- * own fallback: an internal identifier is never a title. */
-export function extractMarkdownTitle(source: string): string | undefined {
-	return source.match(/^#\s+(.+)$/mu)?.[1]?.trim() || undefined;
-}
 
 export async function renderPodcastBundle(input: {
 	stagingDir: string;
@@ -132,21 +128,37 @@ export async function renderPodcastBundle(input: {
 	const blocks = input.script.sections.flatMap((section) =>
 		splitPodcastTtsBlocks(section.text).map((text) => ({ sectionId: section.sectionId, text })));
 	if (blocks.length === 0) throw new Error("Podcast Script contains no TTS blocks");
+	// A segment is named by its text and voice, so a resumed attempt reuses exactly the audio that still
+	// matches and never mixes voices. It gets its final name only once complete.
+	const voice = JSON.stringify([audio.connection, audio.baseUrl, audio.model, audio.voice, audio.rate]);
 	const audioSegments = blocks.map((block, index) => {
 		const id = `block-${String(index + 1).padStart(4, "0")}`;
+		const name = createHash("sha256").update(`${voice}\0${block.text}`).digest("hex").slice(0, 32);
 		return {
 			id,
 			text: block.text,
-			outPath: join(segmentsDir, `${id}.mp3`),
+			outPath: join(segmentsDir, `${name}.mp3`),
+			partialPath: join(segmentsDir, `${name}.partial.mp3`),
 		};
 	});
-	const spoken = await speakMany({
-		audio,
-		consumer: "podcast",
-		segments: audioSegments,
-		onSegment: (done, total) => input.emitProgress?.(`合成语音 ${done}/${total}`),
-	});
+	// Repeated text shares one file, so it is spoken once.
+	const pending = [...new Map(audioSegments
+		.filter((segment) => !existsSync(segment.outPath) || statSync(segment.outPath).size <= 0)
+		.map((segment) => [segment.outPath, segment])).values()];
+	const reused = audioSegments.length - pending.length;
+	const spoken = pending.length === 0
+		? { ok: true as const, provider: audio.connection, model: undefined, results: [], errors: [] }
+		: await speakMany({
+			audio,
+			consumer: "podcast",
+			segments: pending.map((segment) => ({ id: segment.id, text: segment.text, outPath: segment.partialPath })),
+			onSegment: (done) => input.emitProgress?.(`合成语音 ${reused + done}/${audioSegments.length}`),
+		});
 	if (!spoken.ok) throw new Error(`Podcast TTS failed (${spoken.provider}): ${spoken.reason}`);
+	for (const result of spoken.results) {
+		const segment = pending.find((candidate) => candidate.id === result.id)!;
+		await fsp.rename(segment.partialPath, segment.outPath);
+	}
 	if (spoken.errors.length > 0) {
 		throw new Error(`Podcast TTS failed (${spoken.provider}): ${spoken.errors.map((entry) => `${entry.id}: ${entry.error}`).join("; ")}`);
 	}
@@ -319,10 +331,17 @@ export async function generateSingleNarratorPodcast(input: {
 	signal: AbortSignal;
 	skillWorkspaceDirectory?: string;
 }): Promise<PodcastGenerationResult> {
+	// The staging directory survives a failed attempt: its finished voice segments are what a resumed attempt reuses.
 	const stagingDir = join(input.sessionDir, "publish");
-	await fsp.rm(stagingDir, { recursive: true, force: true });
 	await fsp.mkdir(stagingDir, { recursive: true });
-	const written = await generateSingleNarratorPodcastScript(input);
+	let written = readPodcastScriptCheckpoint(input.sessionDir, input.sourceText);
+	if (written) {
+		input.emitProgress("沿用已完成的文稿");
+	} else {
+		written = await generateSingleNarratorPodcastScript(input);
+		const checkpoint: PodcastScriptCheckpoint = { sourceSha256: sha256(input.sourceText), written };
+		await fsp.writeFile(scriptCheckpointPath(input.sessionDir), `${JSON.stringify(checkpoint, null, 2)}\n`, "utf-8");
+	}
 	input.emitProgress("合成语音");
 	const rendered = await renderPodcastBundle({
 		stagingDir,
@@ -338,62 +357,39 @@ export async function generateSingleNarratorPodcast(input: {
 	return { stagingDir, scriptModel: written.scriptModel, ...rendered };
 }
 
-export async function publishPodcastBundle(stagingDir: string, podcastDir: string, publishId: string): Promise<void> {
+interface PodcastScriptCheckpoint {
+	sourceSha256: string;
+	written: PodcastWritingResult;
+}
+
+function scriptCheckpointPath(sessionDir: string): string {
+	return join(sessionDir, "written-script.json");
+}
+
+function sha256(value: string): string {
+	return createHash("sha256").update(value).digest("hex");
+}
+
+/** The finished Podcast Script of an earlier attempt in `sessionDir`, when it was written from this exact report. */
+export function readPodcastScriptCheckpoint(sessionDir: string, sourceText: string): PodcastWritingResult | undefined {
+	try {
+		const checkpoint = JSON.parse(readFileSync(scriptCheckpointPath(sessionDir), "utf-8")) as PodcastScriptCheckpoint;
+		return checkpoint.sourceSha256 === sha256(sourceText) && checkpoint.written?.script?.sections?.length
+			? checkpoint.written
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Moves a rendered bundle into the Podcast directory. A regeneration has already removed the previous
+ * Podcast, so nothing is backed up; the caller removes a partly moved bundle when this fails. */
+export async function publishPodcastBundle(stagingDir: string, podcastDir: string): Promise<void> {
 	const names = ["script.json", "transcript.md", "transcript.json", "manifest.json", "episode.mp3"] as const;
 	for (const name of names) {
 		const source = join(stagingDir, name);
 		if (!existsSync(source) || statSync(source).size <= 0) throw new Error(`Podcast bundle is missing ${name}`);
 	}
 	await fsp.mkdir(podcastDir, { recursive: true });
-	const temporary = names.map((name) => ({
-		name,
-		source: join(stagingDir, name),
-		target: join(podcastDir, name),
-		temporary: join(podcastDir, `.${name}.${publishId}.next`),
-		backup: join(podcastDir, `.${name}.${publishId}.previous`),
-	}));
-	const backedUp: typeof temporary = [];
-	const installed: typeof temporary = [];
-	let committed = false;
-	try {
-		for (const file of temporary) await fsp.copyFile(file.source, file.temporary);
-		for (const file of temporary) {
-			if (!existsSync(file.target)) continue;
-			await fsp.rename(file.target, file.backup);
-			backedUp.push(file);
-		}
-		for (const file of temporary) {
-			await fsp.rename(file.temporary, file.target);
-			installed.push(file);
-		}
-		committed = true;
-		await Promise.all([
-			fsp.rm(join(podcastDir, ".chain"), { recursive: true, force: true }),
-			fsp.rm(join(podcastDir, "segments"), { recursive: true, force: true }),
-			...[
-				"episode_plan.json",
-				"outline.json",
-				"episode-decision.json",
-			].map((name) => fsp.rm(join(podcastDir, name), { force: true })),
-		]);
-	} catch (error) {
-		await Promise.all(installed.map((file) => fsp.rm(file.target, { force: true })));
-		const rollbackErrors: string[] = [];
-		for (const file of backedUp.reverse()) {
-			try {
-				await fsp.rename(file.backup, file.target);
-			} catch (rollbackError) {
-				rollbackErrors.push(`${file.name}: ${toErrorMessage(rollbackError)}`);
-			}
-		}
-		if (rollbackErrors.length > 0) {
-			throw new Error(`Podcast publication failed and rollback was incomplete: ${rollbackErrors.join("; ")}`, { cause: error });
-		}
-		throw error;
-	} finally {
-		await Promise.all(temporary.map((file) => fsp.rm(file.temporary, { force: true }).catch(() => undefined)));
-		if (committed) {
-			await Promise.all(temporary.map((file) => fsp.rm(file.backup, { force: true }).catch(() => undefined)));
-		}
-	}
+	for (const name of names) await fsp.rename(join(stagingDir, name), join(podcastDir, name));
 }

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { mainAgentProjection } from "../../server/main-agent/activity-projection.js";
-import { cardIdFromArtifactName, createPodcastGenerator } from "../../server/media/products-api.js";
+import { cardIdFromArtifactName } from "../../server/media/product-artifacts.js";
+import { createPodcastGenerator } from "../../server/media/products-api.js";
 import type { GoalActivityItem } from "../../shared/types.js";
 import i18n from "../../web/src/app/i18n.js";
 import { activityText } from "../../web/src/shared/lib/activity-text.js";
@@ -114,6 +115,17 @@ try {
 		assert.doesNotMatch(activityText(item.summary).replace(ORDINARY_TITLE, ""), INTERNAL);
 		assert.ok(activityText(item.steps[0]!.summary).includes(FAILURE), "the detail view keeps the diagnostic");
 	}
+
+	// Once a later attempt for the same report exists, the earlier failure stays in history without attention.
+	const earlierFailure = ordinary.find((item) => item.status === "error")!;
+	assert.equal(earlierFailure.cardId, ordinaryCardId, "every attempt records the card it belongs to");
+	const later: GoalActivityItem = { ...earlierFailure, id: `${goalId}:podcast:later`, status: "done", startedAt: (earlierFailure.startedAt ?? 0) + 1 };
+	const otherReport: GoalActivityItem = { ...later, id: `${goalId}:podcast:other`, cardId: pathCardId };
+	const [superseded] = mainAgentProjection(() => [earlierFailure, later])(goalId)[0]!.items;
+	assert.equal(superseded!.outcome, "failed");
+	assert.equal(superseded!.attention, undefined);
+	assert.ok(mainAgentProjection(() => [earlierFailure, otherReport])(goalId)[0]!.items[0]!.attention,
+		"another report's attempt does not answer this failure");
 
 	console.log("podcast activity title test passed");
 } finally {

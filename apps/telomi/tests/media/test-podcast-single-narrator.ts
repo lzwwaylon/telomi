@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,6 @@ import { resolvePodcastGenerationBrief } from "../../server/media/podcast/prefer
 import { readPrimePodcastOutput } from "../../server/media/podcast/writer.js";
 import { LEDGER_ARRAY_FIELDS, materializePodcastOutput, SEGMENT_CONTRACT, validatePodcastWorkspace } from "../../server/media/podcast/writer-contract.js";
 import { renderAgentPrompt } from "../../server/agent-runtime/prompt-registry.js";
-import { createGeneratePodcastTool } from "../../server/main-agent/tools/generate-podcast.js";
 
 const podcastWorkerSource = readFileSync(join(import.meta.dirname, "../../server/media/podcast/writer-worker.ts"), "utf-8");
 assert.match(podcastWorkerSource, /session\.waitForRlmQuiescence/u);
@@ -26,24 +25,6 @@ assert.match(readFileSync(join(import.meta.dirname,
 const ttsBlocks = splitPodcastTtsBlocks("适合播报的一句话。".repeat(500));
 assert.ok(ttsBlocks.length > 1);
 assert.ok(ttsBlocks.every((block) => block.length <= 900));
-
-let dispatchedPodcast: unknown;
-const generatePodcast = createGeneratePodcastTool("goal_podcast", (request) => {
-	dispatchedPodcast = request;
-	return { jobId: "job-podcast", cardId: "report" };
-});
-const podcastToolResult = await generatePodcast.execute(
-	"generate-podcast",
-	{ artifact_name: "report.md", instruction: "Keep this episode concise." },
-	new AbortController().signal,
-	() => undefined,
-);
-assert.deepEqual(dispatchedPodcast, {
-	goalId: "goal_podcast",
-	artifactName: "report.md",
-	generationInstruction: "Keep this episode concise.",
-});
-assert.equal((podcastToolResult.details as { jobId?: string }).jobId, "job-podcast");
 
 let failPreferenceResolution = false;
 let reflectBody: Record<string, unknown> | undefined;
@@ -96,22 +77,15 @@ try {
 	const stagingDirectory = join(publicationRoot, "staging");
 	const podcastDirectory = join(publicationRoot, "podcast");
 	mkdirSync(stagingDirectory, { recursive: true });
-	mkdirSync(podcastDirectory, { recursive: true });
-	for (const name of ["script.json", "transcript.md", "transcript.json", "manifest.json", "episode.mp3"]) {
+	for (const name of ["script.json", "transcript.md", "transcript.json", "manifest.json"]) {
 		writeFileSync(join(stagingDirectory, name), `new ${name}`);
-		writeFileSync(join(podcastDirectory, name), `old ${name}`);
 	}
-	await publishPodcastBundle(stagingDirectory, podcastDirectory, "success");
+	await assert.rejects(() => publishPodcastBundle(stagingDirectory, podcastDirectory), /missing episode\.mp3/u);
+	assert.equal(existsSync(podcastDirectory), false, "an incomplete bundle publishes nothing");
+	writeFileSync(join(stagingDirectory, "episode.mp3"), "new episode.mp3");
+	await publishPodcastBundle(stagingDirectory, podcastDirectory);
 	assert.equal(readFileSync(join(podcastDirectory, "episode.mp3"), "utf-8"), "new episode.mp3");
-
-	for (const name of ["script.json", "transcript.md", "transcript.json", "manifest.json", "episode.mp3"]) {
-		writeFileSync(join(stagingDirectory, name), `next ${name}`);
-	}
-	const blockedBackup = join(podcastDirectory, ".manifest.json.failure.previous");
-	mkdirSync(blockedBackup, { recursive: true });
-	writeFileSync(join(blockedBackup, "keep"), "force backup failure");
-	await assert.rejects(() => publishPodcastBundle(stagingDirectory, podcastDirectory, "failure"));
-	assert.equal(readFileSync(join(podcastDirectory, "episode.mp3"), "utf-8"), "new episode.mp3");
+	assert.equal(existsSync(join(stagingDirectory, "episode.mp3")), false, "publishing moves the bundle rather than keeping a copy");
 } finally {
 	rmSync(publicationRoot, { recursive: true, force: true });
 }

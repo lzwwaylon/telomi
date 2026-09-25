@@ -1,10 +1,11 @@
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 
 import { ReportOnlyRuntime } from "../../research/reports/standalone-runtime.js";
 import { reportPublishedResponse, reportReceiptText, reportTitle } from "../../research/reports/delivery.js";
+import { publishedReportGuestPath } from "../../media/report-view.js";
 import { inferOutputLanguage, resolveOutputLanguage, type OutputLanguage } from "../../../shared/languages.js";
 
 const schema = Type.Object({
@@ -38,7 +39,7 @@ export function createGenerateReportTool(goalDir: string, options: {
 			const title = reportTitle(completed.content, input.title);
 			const stableFinalReportPath = `/workspace/wiki/runs/${completed.runId}/${completed.reportRef}`;
 			return {
-				content: [{ type: "text", text: reportReceiptText(title, completed.runId) }],
+				content: [{ type: "text", text: reportReceiptText(title, publishedReportGuestPath(join(workspaceDir, options.goalId), completed.runId)) }],
 				details: {
 					runId: completed.runId,
 					status: "published",

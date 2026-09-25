@@ -247,7 +247,8 @@ for (const leaked of ["traceSummary", "researchHarnessSnapshot", "stageReports",
 	assert.equal(leaked in result, false, `Research Run result must not retransmit '${leaked}'`);
 }
 assert.equal(result.stableFinalReportPath, `/workspace/wiki/runs/${marker.runId}/report/final.md`);
-assert.match(result.receiptText, new RegExp(`Report: /reports/${marker.runId}/final\\.md`, "u"));
+assert.match(result.receiptText, /Report: \/reports\/\d{4}-\d{2}-\d{2} Resumed report\/report\.md /u,
+	"the receipt names the resumed report as `ls /reports` shows it");
 assert.doesNotMatch(result.receiptText, /Completed from the interrupted Agent/u,
 	"the Research Run receipt must not retransmit the published report body");
 assert.equal(new RunStateStore(marker.controlDir).load()?.status, "published");
