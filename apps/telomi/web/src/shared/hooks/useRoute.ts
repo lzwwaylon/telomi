@@ -6,6 +6,7 @@ export type Route =
 	| "artifact"
 	| "chat"
 	| "wiki"
+	| "memory"
 	| "settings";
 
 const ROUTE_STORAGE_KEY = "mom:route";
@@ -15,11 +16,13 @@ const VALID_ROUTES: ReadonlySet<Route> = new Set([
 	"artifact",
 	"chat",
 	"wiki",
+	"memory",
 	"settings",
 ]);
 const GOAL_PATH_PREFIX = "/goal/";
 const CHAT_PATH_PREFIX = "/chat/";
 const WIKI_PATH_PREFIX = "/wiki/";
+const MEMORY_PATH_PREFIX = "/memory/";
 const ARTIFACT_PATH_PREFIX = "/read/";
 
 // Static deep-link path → route. `/` and `""` map to "home" explicitly so that
@@ -38,6 +41,7 @@ const readRoute = (fallback: Route): Route => {
 		if (pathname.startsWith(GOAL_PATH_PREFIX)) return "goal";
 		if (pathname.startsWith(CHAT_PATH_PREFIX)) return "chat";
 		if (pathname.startsWith(WIKI_PATH_PREFIX)) return "wiki";
+		if (pathname.startsWith(MEMORY_PATH_PREFIX)) return "memory";
 		if (pathname.startsWith(ARTIFACT_PATH_PREFIX)) return "artifact";
 		const direct = PATH_ROUTES[pathname];
 		if (direct) return direct;
@@ -65,6 +69,7 @@ const readGoalIdFromPrefix = (prefix: string): string | null => {
 
 export const readChatGoalId = (): string | null => readGoalIdFromPrefix(CHAT_PATH_PREFIX);
 export const readWikiGoalId = (): string | null => readGoalIdFromPrefix(WIKI_PATH_PREFIX);
+export const readMemoryGoalId = (): string | null => readGoalIdFromPrefix(MEMORY_PATH_PREFIX);
 export const readGoalPageGoalId = (): string | null => readGoalIdFromPrefix(GOAL_PATH_PREFIX);
 
 export interface ArtifactRouteState {
@@ -90,7 +95,7 @@ export const readArtifactRoute = (): ArtifactRouteState | null => {
 };
 
 export const readInitialGoalId = (): string | null =>
-	readArtifactRoute()?.goalId ?? readWikiGoalId() ?? readChatGoalId() ?? readGoalPageGoalId();
+	readArtifactRoute()?.goalId ?? readWikiGoalId() ?? readMemoryGoalId() ?? readChatGoalId() ?? readGoalPageGoalId();
 
 export const readActiveTopicId = (): string | null => {
 	if (typeof window === "undefined") return null;
@@ -182,6 +187,8 @@ export function useUrlSync(
 			desired = artifactPath(goalId, artifactFilename);
 		} else if (route === "wiki" && goalId) {
 			desired = `${WIKI_PATH_PREFIX}${encodeURIComponent(goalId)}`;
+		} else if (route === "memory" && goalId) {
+			desired = `${MEMORY_PATH_PREFIX}${encodeURIComponent(goalId)}`;
 		} else if (route === "chat" && goalId) {
 			desired = `${CHAT_PATH_PREFIX}${encodeURIComponent(goalId)}`;
 		} else if (route === "goal" && goalId) {

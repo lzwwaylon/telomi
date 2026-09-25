@@ -119,15 +119,19 @@ const hindsight = createServer((request, response) => {
 	}
 	response.writeHead(200, { "content-type": "application/json" });
 	if (request.method === "GET") {
+		const goalTag = new URL(request.url ?? "/", "http://hindsight").searchParams.get("tags") ?? "";
 		response.end(JSON.stringify({
-			items: [{ id: "goal-memory-document" }],
-			total: 1,
+			items: [
+				{ id: "goal-memory-document", created_at: "2026-09-01T00:00:00Z", tags: [goalTag] },
+				{ id: "global-memory-document", created_at: "2026-09-01T00:00:00Z", tags: [goalTag, "scope:global"] },
+			],
+			total: 2,
 			limit: 100,
 			offset: 0,
 		}));
 		return;
 	}
-	response.end(JSON.stringify({ document_id: "goal-memory-document", deleted: true }));
+	response.end(JSON.stringify({ success: true }));
 });
 await new Promise<void>((resolve) => hindsight.listen(0, "127.0.0.1", resolve));
 const hindsightAddress = hindsight.address();
@@ -147,6 +151,11 @@ try {
 	assert.ok(
 		memoryRequests.includes("DELETE /v1/default/banks/goal-delete-test/documents/goal-memory-document"),
 		"deleting a Goal must cascade to its Hindsight documents",
+	);
+	assert.ok(
+		!memoryRequests.includes("DELETE /v1/default/banks/goal-delete-test/documents/global-memory-document")
+			&& memoryRequests.includes("PATCH /v1/default/banks/goal-delete-test/documents/global-memory-document"),
+		"an Episode the user made global outlives its Goal and only loses the Goal tag",
 	);
 
 	const retryGoal = seedGoal(memoryDataDir, "goal_delete_memory_retry");

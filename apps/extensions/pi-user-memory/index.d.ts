@@ -45,9 +45,46 @@ export declare class HindsightClient {
 	retain(input: RetainInput): Promise<unknown>;
 	recall(query: string, options?: { goalId?: string }): Promise<RecallResult>;
 	reflect(query: string, options?: { goalId?: string }): Promise<ReflectResult>;
-	deleteDocumentsByTag(tag: string): Promise<number>;
+	listDocuments(tags: string[]): Promise<HindsightDocument[]>;
+	getDocument(documentId: string): Promise<HindsightDocumentDetail | undefined>;
+	setDocumentTags(documentId: string, tags: string[]): Promise<void>;
+	deleteDocument(documentId: string): Promise<void>;
+	listMemoryUnits(tags: string[], state: "valid" | "invalidated"): Promise<HindsightMemoryUnit[]>;
+	getMemoryUnit(memoryId: string): Promise<HindsightMemoryUnit | undefined>;
+	updateMemoryUnit(memoryId: string, update: MemoryUnitUpdate): Promise<HindsightMemoryUnit>;
 	deleteBank(): Promise<void>;
 }
+
+export interface HindsightDocument {
+	id: string;
+	created_at: string;
+	tags: string[];
+	document_metadata?: Record<string, string> | null;
+}
+
+export interface HindsightDocumentDetail extends HindsightDocument {
+	original_text: string;
+}
+
+export interface HindsightMemoryUnit {
+	id: string;
+	text: string;
+	fact_type: string;
+	state: "valid" | "invalidated";
+	document_id?: string | null;
+	tags: string[];
+	edited_at?: string | null;
+	invalidated_at?: string | null;
+}
+
+export interface MemoryUnitUpdate {
+	text?: string;
+	state?: "valid" | "invalidated";
+}
+
+export declare const GLOBAL_MEMORY_TAG = "scope:global";
+export declare const MEMORY_UNAVAILABLE_TEXT: string;
+export declare function isMemoryUnavailable(error: unknown): boolean;
 
 export declare function registerPiUserMemory(pi: object, config?: PiUserMemoryConfig): void;
 export declare function resolvePiUserMemoryConfig(config?: PiUserMemoryConfig): ResolvedPiUserMemoryConfig;

@@ -35,6 +35,8 @@ import { getAudioLocalRuntimeManager } from "./audio/local-runtime.js";
 import { listManagedAudioConnection } from "./audio/managed-connection.js";
 import { publish, subscribe } from "./events/event-bus.js";
 import { createTodayRouter } from "./app/today-api.js";
+import { createUserMemoryRouter, userMemoryClient } from "./goals/memory/memory-api.js";
+import { completeGoalScopedUserMemory } from "./goals/memory/goal-scope-migration.js";
 import { FileIngestService } from "./ingestion/service.js";
 import { openSse, type SseConnection } from "./events/sse.js";
 import { listSelectableModels, mountProviderConfigApi } from "./providers/config-api.js";
@@ -144,6 +146,9 @@ try {
 }
 try {
 	await getHindsightRuntimeManager().ensureReady();
+	await completeGoalScopedUserMemory(userMemoryClient(), workspaceDir).catch((error: unknown) => {
+		console.warn(`[memory] Goal scope migration deferred (${error instanceof Error ? error.message : String(error)}); the Memory page retries it`);
+	});
 } catch (error) {
 	if (shutdownPromise) await shutdownPromise;
 	else console.warn(`[memory] Service unavailable (${error instanceof Error ? error.message : String(error)}); model and service settings remain available for recovery`);
@@ -407,6 +412,7 @@ podcastGenerationHandler = ({ goalId, artifactName, generationInstruction }) => 
 	return { jobId: job.jobId, cardId };
 };
 app.use(createMediaProductsRouter(workspaceDir, goals, podcastGenerator));
+app.use(createUserMemoryRouter(workspaceDir, goals));
 app.use(createVoiceRouter(goals, workspaceDir, audioLocalRuntime));
 app.use(createLiveKitTokenRouter(goals));
 app.use(createLiveKitGoalBridgeRouter(goals));

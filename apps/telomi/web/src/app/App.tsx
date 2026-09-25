@@ -34,6 +34,7 @@ import { useTopicInspectorLayout } from "@/shared/lib/use-topic-inspector-layout
 import type { OutputLanguage } from "@shared/languages.js";
 import { uiText } from "@/app/ui-text";
 
+const MemoryPage = lazy(() => import("@/features/memory/MemoryPage").then((module) => ({ default: module.MemoryPage })));
 const WikiExplorer = lazy(() => import("@/features/wiki/WikiExplorer").then((module) => ({ default: module.WikiExplorer })));
 
 function goalPreviewFromMessages(messages: unknown[]): string {
@@ -174,7 +175,7 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 	}, [playerSource, handleOpenArtifact]);
 
 	useEffect(() => {
-		if ((route === "goal" || route === "artifact" || route === "wiki") && !selected) {
+		if ((route === "goal" || route === "artifact" || route === "wiki" || route === "memory") && !selected) {
 			setRoute("home");
 		}
 		if (route === "artifact" && !artifactFilename) {
@@ -285,7 +286,7 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 	}, [stream.snapshot]);
 
 	const selectedGoal = goals?.find((g) => g.id === selected) ?? null;
-	const searchGoalId = route === "goal" || route === "chat" || route === "wiki" || route === "artifact" ? selected : null;
+	const searchGoalId = route === "goal" || route === "chat" || route === "wiki" || route === "memory" || route === "artifact" ? selected : null;
 	const selectedAvatarSignals = useMemo(
 		() => (selected ? goalAvatarSignals(globalActivityProjection.summary?.activities ?? [], selected) : undefined),
 		[globalActivityProjection.summary, selected],
@@ -374,8 +375,9 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 		| "home"
 		| "goal"
 		| "chat"
-		| "wiki";
-	const railRoute = (route === "artifact" || route === "wiki" ? "goal" : route) as
+		| "wiki"
+		| "memory";
+	const railRoute = (route === "artifact" || route === "wiki" || route === "memory" ? "goal" : route) as
 		| "home"
 		| "goal"
 		| "chat";
@@ -416,6 +418,7 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 								setRoute("settings");
 							}}
 							onOpenWiki={() => selected && setRoute("wiki")}
+							onOpenMemory={() => selected && setRoute("memory")}
 							onSelectGoal={handleSelectGoal}
 							onLeaveChat={() => setRoute(selected ? "goal" : "home")}
 						/>
@@ -472,6 +475,10 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 											onSelectedPathChange={setWikiPagePath}
 											onBack={() => setRoute("goal")}
 										/>
+									</Suspense>
+								) : route === "memory" && selected ? (
+									<Suspense fallback={<div className="grid min-h-[calc(100dvh-var(--topbar-h))] place-items-center text-sm text-muted-foreground">{uiText("memory.loading")}</div>}>
+										<MemoryPage goalId={selected} goalTitle={selectedGoal?.title ?? ""} onBack={() => setRoute("goal")} />
 									</Suspense>
 								) : route === "home" || !selected ? (
 									<HomePage

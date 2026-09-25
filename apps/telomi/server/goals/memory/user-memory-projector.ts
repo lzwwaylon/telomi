@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
+	GLOBAL_MEMORY_TAG,
 	HindsightClient,
 	resolvePiUserMemoryConfig,
 	type PiUserMemoryConfig,
@@ -60,6 +61,14 @@ export class UserMemoryProjector {
 		}
 	}
 
+	/** Episodes this Goal has produced that Hindsight has not accepted yet, oldest first. */
+	pendingEpisodes(): Array<{ documentId: string; content: string; occurredAt: string }> {
+		const accepted = this.acceptedDocumentIds();
+		return this.items()
+			.filter((item) => !accepted.has(item.input.documentId))
+			.map(({ input }) => ({ documentId: input.documentId, content: input.content, occurredAt: input.occurredAt }));
+	}
+
 	private items(): Array<{ sourceId: string; input: RetainInput }> {
 		const goalTag = `goal:${this.goalId}`;
 		const tasks = readUserTaskHistory(serverRuntimeDirForGoal(this.goalId, this.workspaceDir))
@@ -76,9 +85,8 @@ export class UserMemoryProjector {
 						`Goal scope: ${this.goalId}.`,
 						"Extract durable user facts only. Treat one-turn formatting and task instructions as episode context unless the user explicitly requests future reuse.",
 					].join(" "),
-					// A user's own words are user-level: recall in any Goal admits `scope:global`, and
-					// without it a preference stated in one Goal was never recalled in another.
-					tags: [goalTag, "scope:global"],
+					// Recalled in this Goal only, until the user makes the Episode global on the Memory page.
+					tags: [goalTag],
 					metadata: {
 						source: "task_history",
 						source_id: record.taskId,
@@ -203,7 +211,21 @@ function appendProjectionRecord(path: string, record: ProjectionRecord): void {
 	appendFileSync(path, `${JSON.stringify(record)}\n`, { encoding: "utf-8", mode: 0o600 });
 }
 
+/**
+ * Removes a deleted Goal's User Memory. An Episode the user made global outlives its Goal: it only
+ * loses the Goal tag.
+ */
 export async function deleteGoalUserMemory(goalId: string, config: PiUserMemoryConfig = {}): Promise<number> {
 	const resolved = resolvePiUserMemoryConfig({ ...config, goalId });
-	return new HindsightClient(resolved.baseUrl, resolved.bankId).deleteDocumentsByTag(`goal:${goalId}`);
+	const client = new HindsightClient(resolved.baseUrl, resolved.bankId);
+	const goalTag = `goal:${goalId}`;
+	const documents = await client.listDocuments([goalTag]);
+	for (const document of documents) {
+		if (document.tags.includes(GLOBAL_MEMORY_TAG)) {
+			await client.setDocumentTags(document.id, document.tags.filter((tag) => tag !== goalTag));
+		} else {
+			await client.deleteDocument(document.id);
+		}
+	}
+	return documents.length;
 }

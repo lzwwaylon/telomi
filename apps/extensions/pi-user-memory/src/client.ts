@@ -37,9 +37,34 @@ export interface MemorySearchOptions {
 	goalId?: string;
 }
 
-interface DocumentListResponse {
-	items: Array<{ id?: unknown }>;
-	total: number;
+/** One retained Memory Episode as Hindsight lists it. */
+export interface HindsightDocument {
+	id: string;
+	created_at: string;
+	tags: string[];
+	document_metadata?: Record<string, string> | null;
+}
+
+/** A retained document with its original text. */
+export interface HindsightDocumentDetail extends HindsightDocument {
+	original_text: string;
+}
+
+/** A Memory Fact or derived observation as Hindsight lists it for curation. */
+export interface HindsightMemoryUnit {
+	id: string;
+	text: string;
+	fact_type: string;
+	state: "valid" | "invalidated";
+	document_id?: string | null;
+	tags: string[];
+	edited_at?: string | null;
+	invalidated_at?: string | null;
+}
+
+export interface MemoryUnitUpdate {
+	text?: string;
+	state?: "valid" | "invalidated";
 }
 
 export class HindsightClient {
@@ -95,29 +120,66 @@ export class HindsightClient {
 		return this.request(`/banks/${encodeURIComponent(this.bankId)}/operations?limit=20`);
 	}
 
-	async deleteDocumentsByTag(tag: string): Promise<number> {
-		if (!tag.trim()) throw new Error("Hindsight document tag is required");
-		const ids: string[] = [];
-		for (let offset = 0; ; offset += 100) {
-			const query = new URLSearchParams({ tags: tag, tags_match: "all_strict", limit: "100", offset: String(offset) });
-			const page = await this.request<DocumentListResponse>(
-				`/banks/${encodeURIComponent(this.bankId)}/documents?${query}`,
-			);
-			ids.push(...page.items.flatMap((item) => typeof item.id === "string" ? [item.id] : []));
-			if (offset + page.items.length >= page.total || page.items.length === 0) break;
-		}
-		for (const id of ids) {
-			await this.request(
-				`/banks/${encodeURIComponent(this.bankId)}/documents/${encodeURIComponent(id)}`,
-				{ method: "DELETE" },
-				[200, 204, 404],
-			);
-		}
-		return ids.length;
+	/** Every document carrying any of `tags`. */
+	async listDocuments(tags: string[]): Promise<HindsightDocument[]> {
+		return this.pages<HindsightDocument>("documents", tags);
+	}
+
+	async getDocument(documentId: string): Promise<HindsightDocumentDetail | undefined> {
+		return this.request<HindsightDocumentDetail>(
+			`/banks/${encodeURIComponent(this.bankId)}/documents/${encodeURIComponent(documentId)}`, undefined, [200, 404],
+		).then((document) => document?.id ? document : undefined);
+	}
+
+	/** Replaces a document's tags; Hindsight propagates them to every memory extracted from it. */
+	async setDocumentTags(documentId: string, tags: string[]): Promise<void> {
+		await this.request(`/banks/${encodeURIComponent(this.bankId)}/documents/${encodeURIComponent(documentId)}`, {
+			method: "PATCH",
+			body: JSON.stringify({ tags }),
+		});
+	}
+
+	/** Deletes a document with every memory extracted from it. */
+	async deleteDocument(documentId: string): Promise<void> {
+		await this.request(
+			`/banks/${encodeURIComponent(this.bankId)}/documents/${encodeURIComponent(documentId)}`,
+			{ method: "DELETE" },
+			[200, 204, 404],
+		);
+	}
+
+	/** Every memory unit in `state` carrying any of `tags`, derived observations included. */
+	async listMemoryUnits(tags: string[], state: "valid" | "invalidated"): Promise<HindsightMemoryUnit[]> {
+		return this.pages<HindsightMemoryUnit>("memories/list", tags, { state });
+	}
+
+	async getMemoryUnit(memoryId: string): Promise<HindsightMemoryUnit | undefined> {
+		return this.request<HindsightMemoryUnit>(
+			`/banks/${encodeURIComponent(this.bankId)}/memories/${encodeURIComponent(memoryId)}`, undefined, [200, 400, 404],
+		).then((unit) => unit?.id ? unit : undefined);
+	}
+
+	/** Edits a fact's text or invalidates/restores it; Hindsight re-derives its observations. */
+	async updateMemoryUnit(memoryId: string, update: MemoryUnitUpdate): Promise<HindsightMemoryUnit> {
+		return this.request(`/banks/${encodeURIComponent(this.bankId)}/memories/${encodeURIComponent(memoryId)}`, {
+			method: "PATCH",
+			body: JSON.stringify(update),
+		});
 	}
 
 	async deleteBank(): Promise<void> {
 		await this.request(`/banks/${encodeURIComponent(this.bankId)}`, { method: "DELETE" }, [200, 204, 404]);
+	}
+
+	private async pages<T>(path: string, tags: string[], extra: Record<string, string> = {}): Promise<T[]> {
+		const items: T[] = [];
+		for (let offset = 0; ; offset += 100) {
+			const query = new URLSearchParams({ ...extra, tags_match: "any_strict", limit: "100", offset: String(offset) });
+			for (const tag of tags) query.append("tags", tag);
+			const page = await this.request<{ items: T[]; total: number }>(`/banks/${encodeURIComponent(this.bankId)}/${path}?${query}`);
+			items.push(...page.items);
+			if (offset + page.items.length >= page.total || page.items.length === 0) return items;
+		}
 	}
 
 	private async request<T>(path: string, init?: RequestInit, expected = [200, 202]): Promise<T> {
@@ -154,10 +216,13 @@ export function renderReflect(result: ReflectResult): string {
 	].join("\n");
 }
 
+/** Admitted by recall in every Goal, on top of that Goal's own tag. */
+export const GLOBAL_MEMORY_TAG = "scope:global";
+
 function scopeFilter(goalId: string | undefined): Record<string, unknown> {
 	if (!goalId) return {};
 	return {
-		tags: [`goal:${goalId}`, "scope:global"],
+		tags: [`goal:${goalId}`, GLOBAL_MEMORY_TAG],
 		tags_match: "any_strict",
 	};
 }

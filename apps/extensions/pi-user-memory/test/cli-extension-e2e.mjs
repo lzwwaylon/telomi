@@ -59,7 +59,7 @@ try {
 	assert.doesNotMatch(retained[0].items[0].content, /ORCHID-731/u);
 	assert.match(retained[0].items[0].context, /e2e-goal/u);
 	assert.match(retained[0].items[0].document_id, /^pi-turn-/u);
-	assert.deepEqual(retained[0].items[0].tags, ["goal:e2e-goal", "scope:global"], "direct user turns are recalled from every Goal");
+	assert.deepEqual(retained[0].items[0].tags, ["goal:e2e-goal"], "a Goal's turns are recalled in that Goal until the user makes them global");
 	console.log("pi CLI called Hindsight memory and retained only the settled user turn");
 } finally {
 	server.close();

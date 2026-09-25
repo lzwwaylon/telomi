@@ -3,7 +3,7 @@ import { userInfo } from "node:os";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { HindsightClient, renderRecall, renderReflect } from "./src/client.js";
+import { GLOBAL_MEMORY_TAG, HindsightClient, renderRecall, renderReflect } from "./src/client.js";
 
 interface PendingTurn {
 	eventId: string;
@@ -97,10 +97,10 @@ export function registerPiUserMemory(pi: ExtensionAPI, config: PiUserMemoryConfi
 		const failed: PendingTurn[] = [];
 		for (const turn of pending) {
 			try {
-				// What the user says is user-level, not Goal-level: recall in any Goal admits `scope:global`,
-				// and without this tag a preference stated in one Goal was never recalled in another.
+				// A Goal's messages are recalled in that Goal only; the user makes an Episode global
+				// explicitly. Without a Goal, every Pi session shares the memory.
 				const goalTag = goalId ? `goal:${goalId}` : undefined;
-				const tags = goalTag ? [goalTag, "scope:global"] : ["scope:global"];
+				const tags = goalTag ? [goalTag] : [GLOBAL_MEMORY_TAG];
 				await client.retain({
 					documentId: `pi-turn-${turn.eventId}`,
 					occurredAt: turn.occurredAt,
@@ -149,5 +149,5 @@ export default function piUserMemory(pi: ExtensionAPI): void {
 	registerPiUserMemory(pi);
 }
 
-export { HindsightClient } from "./src/client.js";
-export type { RetainInput } from "./src/client.js";
+export { GLOBAL_MEMORY_TAG, HindsightClient } from "./src/client.js";
+export type { HindsightDocument, HindsightDocumentDetail, HindsightMemoryUnit, MemoryUnitUpdate, RetainInput } from "./src/client.js";
