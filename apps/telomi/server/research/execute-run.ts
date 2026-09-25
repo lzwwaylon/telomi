@@ -21,6 +21,7 @@ import { createResearchScheduleFromRun } from "./schedules/create-from-run.js";
 import type { ResearchSchedule } from "./schedules/types.js";
 import { RunStateStore, RUN_WORKFLOW_ID, RUN_WORKFLOW_VERSION } from "./run-state.js";
 import { reportPublishedResponse, reportReceiptText, reportTitle, researchSkippedResponse, scheduleCreatedResponse } from "./reports/delivery.js";
+import { publishedReportGuestPath } from "../media/report-view.js";
 import { inferOutputLanguage, resolveGoalOutputLanguage, resolveOutputLanguage, type OutputLanguage, type ResolvedOutputLanguage } from "../../shared/languages.js";
 import { toErrorMessage } from "../lib/values.js";
 
@@ -643,7 +644,7 @@ export async function executeResearchRun(request: ResearchRunRequest): Promise<R
 		stableFinalReportPath,
 		renderFormats: research.renderFormats,
 		receiptText: [
-			reportReceiptText(title, runId, outcomeWarning),
+			reportReceiptText(title, publishedReportGuestPath(goalDir, runId), outcomeWarning),
 			schedule ? `Schedule: ${schedule.title} (${schedule.id})` : "",
 		].filter(Boolean).join("\n"),
 		userResponse: [

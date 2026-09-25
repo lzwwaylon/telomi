@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,11 +9,14 @@ import express from "express";
 const home = mkdtempSync(join(tmpdir(), "telomi-tts-server-defaults-"));
 const previousDataDir = process.env.TELOMI_DATA_DIR;
 process.env.TELOMI_DATA_DIR = home;
+// Batch retries keep their attempt count; only the wait between attempts is removed.
+process.env.TELOMI_AUDIO_TTS_RETRY_BASE_MS = "0";
 
 const { speak, speakMany } = await import("../../server/audio/providers/tts.js");
 const { configureManagedAudioGeneration } = await import("./managed-speech.js");
 const { loadCustomProviders, saveCustomProviders } = await import("../../server/providers/custom-models.js");
 const { mountAudioConfigApi } = await import("../../server/voice/config-api.js");
+const { renderPodcastBundle } = await import("../../server/media/podcast/runtime.js");
 
 const api = express();
 api.use(express.json());
@@ -44,6 +47,8 @@ function wave(): Buffer {
 interface Upstream {
 	baseUrl: string;
 	speech: Array<Record<string, unknown>>;
+	/** Every speech request, including refused ones. */
+	attempts: number;
 	peakInFlight: number;
 	close: () => Promise<void>;
 }
@@ -55,10 +60,15 @@ async function startUpstream(options: {
 	speechDelayMs?: number;
 	/** Absent: any voice speaks. Present: the voices this server really speaks, listed or not. */
 	speaks?: string[];
+	/** Statuses the next speech requests are refused with, one per request. */
+	failStatuses?: number[];
+	/** Speech whose input contains this text is refused with 400. */
+	refuseInput?: string;
 } = {}): Promise<Upstream> {
 	const speech: Array<Record<string, unknown>> = [];
 	let inFlight = 0;
 	let peakInFlight = 0;
+	let attempts = 0;
 	const server: Server = createServer((request, response) => {
 		const chunks: Buffer[] = [];
 		request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
@@ -72,6 +82,10 @@ async function startUpstream(options: {
 			if (request.url !== "/v1/audio/speech") return json(404, { detail: "not found" });
 			const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 			if (options.speaks && typeof body.voice === "string" && !options.speaks.includes(body.voice)) return json(400, { detail: `unknown voice ${body.voice}` });
+			attempts += 1;
+			const refused = options.failStatuses?.shift();
+			if (refused) return json(refused, { error: { message: `Provider returned ${refused}` } });
+			if (options.refuseInput && String(body.input).includes(options.refuseInput)) return json(400, { detail: "refused input" });
 			speech.push(body);
 			inFlight += 1;
 			peakInFlight = Math.max(peakInFlight, inFlight);
@@ -87,6 +101,7 @@ async function startUpstream(options: {
 	return {
 		baseUrl: `http://127.0.0.1:${address.port}/v1`,
 		speech,
+		get attempts() { return attempts; },
 		get peakInFlight() { return peakInFlight; },
 		close: () => {
 			server.closeAllConnections();
@@ -137,6 +152,62 @@ test("batch generation honours the concurrency the server declares, and runs in 
 		assert.ok(parallel.peakInFlight > 1, "without a declared limit a batch is not serialised");
 	} finally {
 		await parallel.close();
+	}
+});
+
+test("a batch waits out throttling and brief outages, and stops at once on any other refusal", async () => {
+	const flakyOptions: { failStatuses?: number[] } = { failStatuses: [429, 503, 429] };
+	const flaky = await startUpstream(flakyOptions);
+	try {
+		await configureManagedAudioGeneration({ connection: "flaky-tts", model: "speaker", voice: "one", rate: 1, baseUrl: flaky.baseUrl, apiKey: "flaky-key" });
+		const spoken = await speakMany({ segments: [{ id: "throttled", text: "Throttled", outPath: join(home, "throttled.wav") }] });
+		assert.equal(spoken.ok && spoken.errors.length, 0, "429s and 5xx are retried until the segment speaks");
+		assert.equal(flaky.attempts, 4);
+
+		const refusedStart = flaky.attempts;
+		flakyOptions.failStatuses = [400];
+		const refused = await speakMany({ segments: [{ id: "refused", text: "Refused", outPath: join(home, "refused.wav") }] });
+		assert.equal(refused.ok && refused.errors.length, 1, "a refusal that retrying cannot change fails the segment");
+		assert.equal(flaky.attempts - refusedStart, 1);
+
+		const throttledStart = flaky.attempts;
+		flakyOptions.failStatuses = [429, 429, 429, 429, 429, 429];
+		const exhausted = await speakMany({ segments: [{ id: "exhausted", text: "Exhausted", outPath: join(home, "exhausted.wav") }] });
+		assert.match(exhausted.ok ? exhausted.errors[0]?.error ?? "" : "", /HTTP 429/u, "retries are bounded");
+		assert.equal(flaky.attempts - throttledStart, 5);
+	} finally {
+		await flaky.close();
+	}
+});
+
+test("a resumed podcast render speaks only the segments its failed attempt left unspoken", async () => {
+	const resumeOptions: { refuseInput?: string } = { refuseInput: "Second" };
+	const upstream = await startUpstream(resumeOptions);
+	try {
+		await configureManagedAudioGeneration({ connection: "resume-tts", model: "speaker", voice: "one", rate: 1, baseUrl: upstream.baseUrl, apiKey: "resume-key" });
+		const stagingDir = join(home, "resumed-podcast");
+		const render = () => renderPodcastBundle({
+			stagingDir,
+			script: { sections: [{ sectionId: "a", text: "First part." }, { sectionId: "b", text: "Second part." }, { sectionId: "c", text: "Third part." }] },
+			sourceSections: [{ sectionId: "a", title: "A" }, { sectionId: "b", title: "B" }, { sectionId: "c", title: "C" }],
+			slug: "resumed", cardId: "card", title: "Resumed", language: "en", writingMode: "prime-multi-agent",
+		});
+		await assert.rejects(render, /Podcast TTS failed/u);
+		assert.equal(upstream.attempts, 3);
+		assert.equal(readdirSync(join(stagingDir, "segments")).filter((name) => name.includes(".partial.")).length, 0,
+			"only complete segments keep a name a later attempt reuses");
+		delete resumeOptions.refuseInput;
+		const rendered = await render();
+		assert.equal(upstream.attempts, 4, "the resumed attempt speaks the one missing segment");
+		assert.equal(rendered.blockCount, 3);
+		assert.ok(rendered.bytes > 0);
+
+		// Another voice must not reuse audio spoken in the old one.
+		await configureManagedAudioGeneration({ connection: "resume-tts", model: "speaker", voice: "two", rate: 1, baseUrl: upstream.baseUrl, apiKey: "resume-key" });
+		await render();
+		assert.equal(upstream.attempts, 7);
+	} finally {
+		await upstream.close();
 	}
 });
 

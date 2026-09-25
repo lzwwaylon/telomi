@@ -129,7 +129,7 @@ try {
 	assert.deepEqual(appended.slice(1), [{
 		text: "报告已生成，可以通过报告卡片查看。",
 		mainRoute: { executionKind: "research_runtime", runId, resumed: true,
-			report: { runId, title: "Resumed report", reportRef: `/reports/${runId}/final.md` } },
+			report: { runId, title: "Resumed report" } },
 	}], "a resumed Run delivers the same reply and report reference as a terminal Tool");
 	snapshot.isStreaming = false;
 	onSnapshot(snapshot);

@@ -1,19 +1,19 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, promises as fsp, readFileSync, statSync, writeFileSync } from "fs";
-import { extname, join, basename } from "path";
+import { existsSync, mkdirSync, promises as fsp, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { join } from "path";
 import type { GoalService } from "../goals/service.js";
 import { probeDurationSec } from "../audio/ffmpeg.js";
 import { daemonRunDir, runIdNow } from "../workspaces/goal-runtime-paths.js";
 import type { GoalActivityItem } from "../events/activity-store.js";
 import { publish } from "../events/event-bus.js";
-import { resolveProductArtifactPath } from "./product-artifacts.js";
+import { extractMarkdownTitle, mediaProductDir, podcastMetaPath, publishedPodcastDir, resolveProductArtifactPath, sourceNameFromCardId } from "./product-artifacts.js";
 import { MediaProductJobs, type MediaProductJob } from "./product-jobs.js";
 import type { MediaProductStatus } from "../../shared/types.js";
 import {
-	extractMarkdownTitle,
 	generateSingleNarratorPodcast,
 	publishPodcastBundle,
+	readPodcastScriptCheckpoint,
 } from "./podcast/runtime.js";
 import {
 	resolvePodcastGenerationBrief,
@@ -55,7 +55,7 @@ interface SseEvent {
 }
 
 function productsDir(workspaceDir: string, goalId: string, cardId: string): string {
-	return join(workspaceDir, goalId, ".media-products", cardId);
+	return mediaProductDir(join(workspaceDir, goalId), cardId);
 }
 
 function safeCardId(raw: string): string | null {
@@ -66,22 +66,6 @@ function safeCardId(raw: string): string | null {
 
 function cleanString(value: unknown): string {
 	return typeof value === "string" ? value.trim() : "";
-}
-
-const PATH_CARD_ID_PREFIX = "path_";
-
-function sourceNameFromCardId(cardId: string): string | null {
-	if (cardId.startsWith(PATH_CARD_ID_PREFIX)) {
-		const encoded = cardId.slice(PATH_CARD_ID_PREFIX.length);
-		try {
-			const decoded = Buffer.from(encoded, "base64url").toString("utf8");
-			if (!decoded || decoded.includes("\\") || decoded.split("/").includes("..")) return null;
-			return `${decoded}.md`;
-		} catch {
-			return null;
-		}
-	}
-	return `${cardId}.md`;
 }
 
 function resolveMarkdownSource(
@@ -108,7 +92,7 @@ function resolveMarkdownSource(
 }
 
 function readMeta(workspaceDir: string, goalId: string, cardId: string): MediaMeta | null {
-	const metaPath = join(productsDir(workspaceDir, goalId, cardId), "podcast-ai.meta.json");
+	const metaPath = podcastMetaPath(join(workspaceDir, goalId), cardId);
 	if (!existsSync(metaPath)) return null;
 	try {
 		const raw = readFileSync(metaPath, "utf-8");
@@ -270,15 +254,54 @@ function sanitizePodcastSlug(cardId: string): string {
 	return slug;
 }
 
+/** A regeneration replaces the card's Podcast. The old one goes when the new one starts, so a failed
+ * or interrupted attempt leaves no Podcast at all rather than an outdated one. */
+function clearPublishedPodcast(goalDir: string, cardId: string): void {
+	const published = publishedPodcastDir(goalDir, cardId);
+	if (published) rmSync(published, { recursive: true, force: true });
+	rmSync(podcastMetaPath(goalDir, cardId), { force: true });
+}
+
+function podcastRunDir(workspaceDir: string, goalId: string, runId: string): string {
+	return daemonRunDir(join(workspaceDir, goalId), "podcast-ai", runId);
+}
+
+function frozenGenerationBrief(sessionDir: string): PodcastGenerationBrief | undefined {
+	try {
+		return JSON.parse(readFileSync(join(sessionDir, "podcast-generation-brief.json"), "utf-8")) as PodcastGenerationBrief;
+	} catch {
+		return undefined;
+	}
+}
+
+/** A failed attempt whose Podcast Script is finished continues from it with its frozen Brief. A changed
+ * report or a new instruction needs a new script, so those start over. */
+function resumableRunId(
+	workspaceDir: string,
+	goalId: string,
+	cardId: string,
+	previous: MediaProductJob | undefined,
+	generationInstruction: string | undefined,
+): string | undefined {
+	if (previous?.status !== "failed" || !previous.runId) return undefined;
+	const sessionDir = podcastRunDir(workspaceDir, goalId, previous.runId);
+	const brief = frozenGenerationBrief(sessionDir);
+	if (!brief || (generationInstruction && generationInstruction !== brief.generationInstruction)) return undefined;
+	const source = resolveMarkdownSource(workspaceDir, goalId, cardId);
+	if (!source) return undefined;
+	return readPodcastScriptCheckpoint(sessionDir, readFileSync(source.abs, "utf-8")) ? previous.runId : undefined;
+}
+
 async function runPodcastAiJob(
 	jobStore: MediaProductJobs,
 	workspaceDir: string,
 	goalId: string,
 	cardId: string,
-	job: MediaProductJob,
+	job: MediaProductJob & { runId: string },
 	cfg: PodcastAiConfig,
 	hooks: MediaProductsActivityHooks = {},
 	generationInstruction?: string,
+	resumed = false,
 ): Promise<void> {
 	const activityId = `${goalId}:podcast:${job.jobId}`;
 	// The one user-facing name of this job, read from the source report once it is loaded. The cardId
@@ -295,6 +318,7 @@ async function runPodcastAiJob(
 			goalId,
 			kind: "podcast",
 			agent: "Podcast AI",
+			cardId,
 			action,
 			status,
 			runId: job.jobId,
@@ -332,7 +356,7 @@ async function runPodcastAiJob(
 	const slug = sanitizePodcastSlug(cardId);
 	const podcastDir = join(goalDir, "podcasts", slug);
 	const episodePath = join(podcastDir, "episode.mp3");
-	const sessionDir = daemonRunDir(goalDir, "podcast-ai", runIdNow());
+	const sessionDir = podcastRunDir(workspaceDir, goalId, job.runId);
 	mkdirSync(sessionDir, { recursive: true });
 
 	let lastProgress = "初始化";
@@ -353,15 +377,18 @@ async function runPodcastAiJob(
 
 	let generated: Awaited<ReturnType<typeof generateSingleNarratorPodcast>>;
 	try {
-		emitProgress("整理播客偏好");
-		const generationBrief = await (cfg.resolveGenerationBrief
-			? cfg.resolveGenerationBrief(goalId, generationInstruction)
-			: resolvePodcastGenerationBrief({ goalId, generationInstruction }));
-		writeFileSync(
-			join(sessionDir, "podcast-generation-brief.json"),
-			`${JSON.stringify(generationBrief, null, 2)}\n`,
-			"utf-8",
-		);
+		let generationBrief = resumed ? frozenGenerationBrief(sessionDir) : undefined;
+		if (!generationBrief) {
+			emitProgress("整理播客偏好");
+			generationBrief = await (cfg.resolveGenerationBrief
+				? cfg.resolveGenerationBrief(goalId, generationInstruction)
+				: resolvePodcastGenerationBrief({ goalId, generationInstruction }));
+			writeFileSync(
+				join(sessionDir, "podcast-generation-brief.json"),
+				`${JSON.stringify(generationBrief, null, 2)}\n`,
+				"utf-8",
+			);
+		}
 		generated = await generateSingleNarratorPodcast({
 			cardId,
 			slug,
@@ -375,12 +402,14 @@ async function runPodcastAiJob(
 			skillWorkspaceDirectory: goalDir,
 		});
 		emitProgress("发布播客");
-		await publishPodcastBundle(generated.stagingDir, podcastDir, job.jobId);
+		await publishPodcastBundle(generated.stagingDir, podcastDir);
 		if (!existsSync(episodePath) || statSync(episodePath).size <= 0) {
 			throw new Error(`Podcast publication produced no episode at ${episodePath}`);
 		}
 		emitProgress("完成");
 	} catch (err) {
+		// A failed generation publishes nothing, not even the files it managed to move.
+		await fsp.rm(podcastDir, { recursive: true, force: true });
 		fail(toErrorMessage(err));
 		return;
 	}
@@ -407,7 +436,7 @@ async function runPodcastAiJob(
 		},
 	};
 	writeFileSync(
-		join(outDir, "podcast-ai.meta.json"),
+		podcastMetaPath(goalDir, cardId),
 		`${JSON.stringify(meta, null, 2)}\n`,
 		"utf-8",
 	);
@@ -453,17 +482,20 @@ export function createPodcastGenerator(
 			}
 			const existing = jobStore.get(goalId, cardId);
 			if (existing?.status === "running") return existing;
-			const job: MediaProductJob = {
+			const resumeRunId = resumableRunId(workspaceDir, goalId, cardId, existing, generationInstruction);
+			clearPublishedPodcast(join(workspaceDir, goalId), cardId);
+			const job: MediaProductJob & { runId: string } = {
 				jobId: `job_${randomUUID()}`,
 				goalId,
 				cardId,
 				updatedAt: Date.now(),
 				status: "running",
 				startedAt: Math.max(Date.now(), (existing?.startedAt ?? 0) + 1),
+				runId: resumeRunId ?? runIdNow(),
 			};
 			jobStore.save(job);
 			broadcast(goalId, cardId, statusEvent(goalId, cardId, "running", { jobId: job.jobId }));
-			void runPodcastAiJob(jobStore, workspaceDir, goalId, cardId, job, cfg, hooks, generationInstruction).catch((error) => {
+			void runPodcastAiJob(jobStore, workspaceDir, goalId, cardId, job, cfg, hooks, generationInstruction, Boolean(resumeRunId)).catch((error) => {
 				const reason = toErrorMessage(error);
 				jobStore.save({ ...job, status: "failed", error: reason });
 				hooks.onActivity?.({
@@ -471,6 +503,7 @@ export function createPodcastGenerator(
 					goalId,
 					kind: "podcast",
 					agent: "Podcast AI",
+					cardId,
 					action: "生成播客失败",
 					status: "error",
 					runId: job.jobId,
@@ -544,15 +577,4 @@ export function createMediaProductsRouter(
 	});
 
 	return router;
-}
-
-// Surfacing the basename-no-ext helper since the frontend computes the same
-// mapping from `.md` artifact filename. Keep both sides on the same rule:
-// take the filename, strip a single trailing `.md` extension.
-export function cardIdFromArtifactName(name: string): string | null {
-	if (extname(name).toLowerCase() !== ".md") return null;
-	const normalized = name.replace(/\\/g, "/");
-	const withoutExt = normalized.slice(0, -".md".length);
-	if (!withoutExt.includes("/")) return basename(name, ".md");
-	return `${PATH_CARD_ID_PREFIX}${Buffer.from(withoutExt, "utf8").toString("base64url")}`;
 }

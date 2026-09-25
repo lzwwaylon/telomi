@@ -70,6 +70,7 @@ try {
 	assert.ok(paths.includes("/work/note.md"), "list must use the same guest paths as Main Agent");
 	assert.ok(paths.includes("/work/many/4000.txt"), "all visible files must be listed beyond the old 4000 cap");
 	assert.ok(paths.includes("/work/topic-plan.json"), "The derived Topic Plan exists even before a work directory is prepared");
+	assert.ok(paths.includes("/reports/Report/report.md"), "the file browser lists a report under the name Main Agent sees");
 	assert.equal(paths.length, 4015);
 	assert.equal(listed.truncated, false);
 	const displayed = new Map(listed.files.map((file) => [file.path, file.displayPath]));
@@ -102,7 +103,7 @@ try {
 		assert.equal(response.headers.get("x-workspace-path"), "/work/note.md");
 		assert.match(await response.text(), /Workspace body/u);
 	}
-	for (const [path, guest] of [["/reports/report_1/final.md", "/reports/report_1/final.md"], ["/attachments/input.txt", "/attachments/input.txt"]]) {
+	for (const [path, guest] of [["/reports/Report/report.md", "/reports/Report/report.md"], ["/attachments/input.txt", "/attachments/input.txt"]]) {
 		const response = await fetch(`${base}/blob?path=${encodeURIComponent(path!)}`);
 		assert.equal(response.status, 200);
 		assert.equal(response.headers.get("x-workspace-path"), guest);

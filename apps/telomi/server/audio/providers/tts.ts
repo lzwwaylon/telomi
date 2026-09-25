@@ -269,12 +269,17 @@ export async function speakMany(req: SpeakManyRequest): Promise<ProviderResult<S
 	const { maxConcurrency } = await audioServiceHealth(audio.baseUrl, audioGenerationKey(audio));
 	let done = 0;
 	const entries = await runLimited(req.segments, ttsBatchConcurrency(maxConcurrency, req.concurrency), async (seg) => {
-		const r = await speak({
+		const speakSegment = () => speak({
 			audio,
 			text: seg.text,
 			outPath: seg.outPath,
 			format: formatFromOutPath(seg.outPath),
 		});
+		let r = await speakSegment();
+		for (let attempt = 1; r.ok === false && attempt < BATCH_SPEECH_ATTEMPTS && transientSpeechFailure(r.reason); attempt++) {
+			await new Promise((resolve) => setTimeout(resolve, batchRetryDelayMs(attempt)));
+			r = await speakSegment();
+		}
 		req.onSegment?.(++done, req.segments.length);
 		if (r.ok === false) {
 			return { error: { id: seg.id, error: r.reason } };
@@ -284,6 +289,21 @@ export async function speakMany(req: SpeakManyRequest): Promise<ProviderResult<S
 	const results = entries.flatMap((entry) => entry.result ? [entry.result] : []);
 	const errors = entries.flatMap((entry) => entry.error ? [entry.error] : []);
 	return { ok: true, provider, model: results.find((entry) => entry.model)?.model, results, errors };
+}
+
+/** A batch is long and costly to restart, so one throttled or briefly unavailable request must not
+ * fail it: 429s, 5xx and dropped connections wait and try again, any other failure stops at once.
+ * Single utterances (playback, live voice) keep failing fast. */
+const BATCH_SPEECH_ATTEMPTS = 5;
+
+function transientSpeechFailure(reason: string): boolean {
+	return /^HTTP (?:429|5\d\d) /u.test(reason) || /^fetch \S+ failed:/u.test(reason);
+}
+
+// ponytail: fixed exponential backoff (2s, 4s, 8s, 16s); honour Retry-After if a provider needs longer.
+function batchRetryDelayMs(attempt: number): number {
+	const base = Number(audioEnv("TTS_RETRY_BASE_MS"));
+	return (Number.isFinite(base) && base >= 0 ? base : 2_000) * 2 ** (attempt - 1);
 }
 
 function formatFromOutPath(outPath: string): AudioFormat | undefined {

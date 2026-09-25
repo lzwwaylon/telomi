@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, realpathSync, statSync, promises as fsp } from "fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, promises as fsp } from "fs";
 import { basename, extname, join } from "path";
 import { ensureWithinRoot, isInsideRoot } from "../lib/paths.js";
 
@@ -33,6 +33,59 @@ export function isUserFacingArtifact(name: string, source: ProductArtifactSource
 	if (source === "workspace-report") return true;
 	return !INTERNAL_ARTIFACT_PATHS.has(normalizeRelPath(name).toLowerCase())
 		&& !AUXILIARY_ARTIFACT_BASENAMES.has(basename(name).toLowerCase());
+}
+
+/** The title the report writes for itself, or nothing. A caller that shows it to a user picks its
+ * own fallback: an internal identifier is never a title. */
+export function extractMarkdownTitle(source: string): string | undefined {
+	return source.match(/^#\s+(.+)$/mu)?.[1]?.trim() || undefined;
+}
+
+const PATH_CARD_ID_PREFIX = "path_";
+
+/** The media card of a Markdown artifact. The frontend computes the same id: a top-level name
+ * keeps its basename, a nested path is encoded so every report gets its own card. */
+export function cardIdFromArtifactName(name: string): string | null {
+	if (extname(name).toLowerCase() !== ".md") return null;
+	const normalized = name.replace(/\\/g, "/");
+	const withoutExt = normalized.slice(0, -".md".length);
+	if (!withoutExt.includes("/")) return basename(name, ".md");
+	return `${PATH_CARD_ID_PREFIX}${Buffer.from(withoutExt, "utf8").toString("base64url")}`;
+}
+
+export function sourceNameFromCardId(cardId: string): string | null {
+	if (cardId.startsWith(PATH_CARD_ID_PREFIX)) {
+		const encoded = cardId.slice(PATH_CARD_ID_PREFIX.length);
+		try {
+			const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+			if (!decoded || decoded.includes("\\") || decoded.split("/").includes("..")) return null;
+			return `${decoded}.md`;
+		} catch {
+			return null;
+		}
+	}
+	return `${cardId}.md`;
+}
+
+export function mediaProductDir(goalDir: string, cardId: string): string {
+	return join(goalDir, ".media-products", cardId);
+}
+
+/** Present only while the card has a published Podcast. */
+export function podcastMetaPath(goalDir: string, cardId: string): string {
+	return join(mediaProductDir(goalDir, cardId), "podcast-ai.meta.json");
+}
+
+/** The published Podcast directory of a card, or null when the card has none. */
+export function publishedPodcastDir(goalDir: string, cardId: string): string | null {
+	try {
+		const slug = (JSON.parse(readFileSync(podcastMetaPath(goalDir, cardId), "utf-8")) as { extra?: { slug?: unknown } }).extra?.slug;
+		if (typeof slug !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/u.test(slug)) return null;
+		const dir = join(goalDir, "podcasts", slug);
+		return existsSync(dir) ? dir : null;
+	} catch {
+		return null;
+	}
 }
 
 function isMarkdown(name: string): boolean {

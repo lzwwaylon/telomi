@@ -8,9 +8,12 @@ import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-
 import { ReportRunService } from "../../server/research/reports/service.js";
 
 const calls: Array<{ goalId: string; reportContext: string; title?: string }> = [];
-const tool = createGenerateReportTool("/tmp/workspace/goal-1", {
+const receiptWorkspace = mkdtempSync(join(tmpdir(), "telomi-generate-report-receipt-"));
+mkdirSync(join(receiptWorkspace, "goal-1", "wiki", "runs", "report-1", "report"), { recursive: true });
+writeFileSync(join(receiptWorkspace, "goal-1", "wiki", "runs", "report-1", "report", "final.md"), "# Selection Report\n");
+const tool = createGenerateReportTool(join(receiptWorkspace, "goal-1"), {
 	goalId: "goal-1",
-	workspaceDir: "/tmp/workspace",
+	workspaceDir: receiptWorkspace,
 	reportRuntime: {
 		generate: async (goalId, request) => {
 			calls.push({ goalId, ...request });
@@ -29,8 +32,10 @@ assert.deepEqual(calls, [{ goalId: "goal-1", reportContext: "Compare ASR models"
 assert.equal(result.content[0]?.type === "text" ? result.content[0].text : "", [
 	"Report published.",
 	"Title: Selection Report",
-	"Report: /reports/report-1/final.md (read it only when the user asks about its contents)",
+	// The receipt names the report as `ls /reports` shows it.
+	"Report: /reports/Selection Report/report.md (read it only when the user asks about its contents)",
 ].join("\n"));
+rmSync(receiptWorkspace, { recursive: true, force: true });
 assert.equal((result.details as { executionKind: string }).executionKind, "report_only");
 assert.deepEqual(result.details, {
 	runId: "report-1",

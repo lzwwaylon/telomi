@@ -26,7 +26,7 @@ import { createArtifactsRouter } from "./media/artifacts-api.js";
 import { createWorkspaceRouter } from "./workspaces/api.js";
 import { createWikiRouter } from "./wiki/api.js";
 import { createPodcastsRouter } from "./media/podcast/api.js";
-import { cardIdFromArtifactName, createMediaProductsRouter, createPodcastGenerator } from "./media/products-api.js";
+import { createMediaProductsRouter, createPodcastGenerator } from "./media/products-api.js";
 import { resolvePodcastGenerationBrief } from "./media/podcast/preferences.js";
 import { createVoiceRouter } from "./voice/api.js";
 import { createLiveKitGoalBridgeRouter } from "./voice/livekit-goal-bridge.js";
@@ -399,13 +399,7 @@ const podcastGenerator = createPodcastGenerator(workspaceDir, {
 }, {
 	onActivity: (item) => podcastActivities.record(item),
 });
-podcastGenerationHandler = ({ goalId, artifactName, generationInstruction }) => {
-	const relativeName = artifactName.replace(/^\/?artifacts\//u, "");
-	const cardId = cardIdFromArtifactName(relativeName);
-	if (!cardId) throw new Error("generate_podcast requires an existing Markdown artifact name");
-	const job = podcastGenerator.start({ goalId, cardId, generationInstruction });
-	return { jobId: job.jobId, cardId };
-};
+podcastGenerationHandler = (request) => ({ jobId: podcastGenerator.start(request).jobId });
 app.use(createMediaProductsRouter(workspaceDir, goals, podcastGenerator));
 app.use(createVoiceRouter(goals, workspaceDir, audioLocalRuntime));
 app.use(createLiveKitTokenRouter(goals));

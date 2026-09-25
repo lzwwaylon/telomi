@@ -79,7 +79,7 @@ try {
 		["/artifacts", "read-only"],
 		["/attachments", "read-only"],
 		["/documents", "read-only"],
-		["/reports/report-1", "read-only"],
+		["/reports", "read-only"],
 		["/capabilities/skills", "read-only"],
 		["/history", "read-only"],
 	]);
@@ -116,7 +116,7 @@ try {
 			{ guestPath: "/artifacts", access: "read-only" },
 			{ guestPath: "/attachments", access: "read-only" },
 			{ guestPath: "/documents", access: "read-only" },
-			{ guestPath: "/reports/report-1", access: "read-only" },
+			{ guestPath: "/reports", access: "read-only" },
 			{ guestPath: "/capabilities/skills", access: "read-only" },
 			{ guestPath: "/history", access: "read-only" },
 		],
@@ -125,7 +125,7 @@ try {
 	assert.equal(readFileSync(join(logicalWorkspace, "artifacts", "research.txt"), "utf-8"), "research artifact\n");
 	assert.equal(existsSync(join(logicalWorkspace, "artifacts", "main")), false, "shadowed /artifacts/main must stay hidden");
 	assert.equal(readFileSync(join(logicalWorkspace, "attachments", "input.txt"), "utf-8"), "attachment\n");
-	assert.equal(readFileSync(join(logicalWorkspace, "reports", "report-1", "final.md"), "utf-8"), "# Published report\n");
+	assert.equal(readFileSync(join(logicalWorkspace, "reports", "Published report", "report.md"), "utf-8"), "# Published report\n");
 	assert.equal(
 		readFileSync(join(logicalWorkspace, "documents", "cache-key-1", "document.md"), "utf-8"),
 		"# Parsed attachment\n",
@@ -203,15 +203,18 @@ WORKSPACE_PYTHON` },
 		signal,
 		update,
 	));
+	const listedReports = await tool("ls").execute("list-reports", { path: "/reports" }, signal, update);
+	assert.match(JSON.stringify(listedReports.content), /Published report/u,
+		"one ls of /reports names every published report by its title");
 	await assert.doesNotReject(() => tool("read").execute(
 		"read-report",
-		{ path: "/reports/report-1/final.md", offset: 1, limit: 20 },
+		{ path: "/reports/Published report/report.md", offset: 1, limit: 20 },
 		signal,
 		update,
 	));
 	await assert.rejects(() => tool("write").execute(
 		"write-report",
-		{ path: "/reports/report-1/final.md", content: "forbidden\n" },
+		{ path: "/reports/Published report/report.md", content: "forbidden\n" },
 		signal,
 		update,
 	));
@@ -290,6 +293,12 @@ WORKSPACE_PYTHON` },
 	await assert.doesNotReject(() => tool("read").execute(
 		"read-topic-document",
 		{ path: "/work/topic-plan.json", offset: 1, limit: 80 },
+		signal,
+		update,
+	));
+	await assert.doesNotReject(() => tool("bash").execute(
+		"list-reports-in-shell",
+		{ command: "ls /reports | grep -qx 'Published report' && grep -q 'Published report' '/reports/Published report/report.md'" },
 		signal,
 		update,
 	));

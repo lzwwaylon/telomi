@@ -118,6 +118,8 @@ export interface GoalActivityItem {
 	/** Title the source report wrote for itself. Content the UI may show next to localized chrome,
 	 * never an addressing identifier such as a cardId or an artifact path. */
 	sourceTitle?: string;
+	/** The media card the attempt belongs to. Groups attempts internally; never shown. */
+	cardId?: string;
 	jsonlPath?: string;
 	inputPath?: string;
 	outputPath?: string;

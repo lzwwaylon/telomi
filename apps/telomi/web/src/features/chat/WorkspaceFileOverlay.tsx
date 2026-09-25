@@ -70,10 +70,10 @@ export function workspaceFileNaming(path: string, displayPath?: string): { title
 	return { title: fileLabel(path, displayPath ?? path), saveAs: downloadName(path, displayPath) };
 }
 
-/** Citation previews address published artifacts, while navigation uses guest paths. */
+/** Citation previews address published artifacts, while navigation uses guest paths. `/reports` paths
+ * stay as they are: only the server knows which run a report directory names. */
 export function workspaceArtifactName(path: string): string {
-	return path.replace(/^\/reports\/([^/]+)\//, "wiki/runs/$1/report/")
-		.replace(/^\/work\//, "main/")
+	return path.replace(/^\/work\//, "main/")
 		.replace(/^\/artifacts\//, "");
 }
 

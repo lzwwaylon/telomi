@@ -1,7 +1,8 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { assertInsideRoot, isInsideRoot } from "../lib/paths.js";
 import { parsedDocumentsDir } from "../workspaces/goal-runtime-paths.js";
+import { REPORTS_GUEST_PATH, syncPublishedReportView } from "../media/report-view.js";
 
 import {
 	SANDBOX_TOOL_NAMES,
@@ -90,7 +91,7 @@ export function createMainAgentBusinessMounts(args: {
 		{ hostPath: artifactsDirectory, guestPath: "/artifacts", access: "read-only", shadowPaths: ["/main"] },
 		{ hostPath: path.join(goalDir, "attachments"), guestPath: MAIN_AGENT_ATTACHMENTS_GUEST_PATH, access: "read-only" },
 		{ hostPath: parsedDocumentsDir(goalDir), guestPath: MAIN_AGENT_PARSED_DOCUMENTS_GUEST_PATH, access: "read-only" },
-		...publishedReportMounts(goalDir),
+		{ hostPath: syncPublishedReportView(goalDir), guestPath: REPORTS_GUEST_PATH, access: "read-only" },
 	];
 	return mounts.filter((mount) => existsSync(mount.hostPath)).map((mount) => {
 		const root = mount.guestPath === "/work" || mount.guestPath === "/artifacts"
@@ -108,26 +109,6 @@ function assertBusinessDirectory(root: string, candidate: string): void {
 		if (lstatSync(current).isSymbolicLink()) throw new Error("Main Agent business mounts cannot contain symbolic links");
 	}
 	assertInsideRoot(requireRealDirectory(root, "Main Agent business root"), realpathSync(candidate), "Main Agent business mount");
-}
-
-function publishedReportMounts(goalDir: string) {
-	const runsDir = path.join(goalDir, "wiki", "runs");
-	if (!existsSync(runsDir)) return [];
-	assertBusinessDirectory(goalDir, runsDir);
-	return readdirSync(runsDir, { withFileTypes: true })
-		.filter((entry) => entry.isDirectory() && /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(entry.name))
-		.sort((left, right) => left.name.localeCompare(right.name))
-		.flatMap((entry) => {
-			const reportDir = path.join(runsDir, entry.name, "report");
-			const finalReport = path.join(reportDir, "final.md");
-			if (!existsSync(finalReport) || !lstatSync(finalReport).isFile()) return [];
-			assertBusinessDirectory(goalDir, reportDir);
-			return [{
-				hostPath: requireRealDirectory(reportDir, "Published Goal report"),
-				guestPath: `/reports/${entry.name}`,
-				access: "read-only" as const,
-			}];
-		});
 }
 
 /**

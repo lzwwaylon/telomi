@@ -7,11 +7,11 @@ import type { GoalService } from "../goals/service.js";
 import { readUserTaskHistory } from "../observability/task-history.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import {
+	cardIdFromArtifactName,
 	isUserFacingArtifact,
 	resolveProductArtifactPath,
 	scanGoalProductArtifacts,
 } from "../media/product-artifacts.js";
-import { cardIdFromArtifactName } from "../media/products-api.js";
 import { toErrorMessage } from "../lib/values.js";
 
 export type ContentSearchKind = "report" | "podcast" | "file" | "question";
