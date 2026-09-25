@@ -12,7 +12,6 @@ import {
 import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import { readUserTaskHistory } from "../../observability/task-history.js";
 import { ResearchScheduleStore } from "../../research/schedules/store.js";
-import { GoalTopicPlanStore } from "../topic-plan/index.js";
 
 interface ProjectionRecord {
 	documentId: string;
@@ -62,11 +61,16 @@ export class UserMemoryProjector {
 	}
 
 	/** Episodes this Goal has produced that Hindsight has not accepted yet, oldest first. */
-	pendingEpisodes(): Array<{ documentId: string; content: string; occurredAt: string }> {
+	pendingEpisodes(): Array<{ documentId: string; content: string; occurredAt: string; metadata?: Record<string, string> }> {
 		const accepted = this.acceptedDocumentIds();
 		return this.items()
 			.filter((item) => !accepted.has(item.input.documentId))
-			.map(({ input }) => ({ documentId: input.documentId, content: input.content, occurredAt: input.occurredAt }));
+			.map(({ input }) => ({
+				documentId: input.documentId,
+				content: input.content,
+				occurredAt: input.occurredAt,
+				...(input.metadata ? { metadata: input.metadata } : {}),
+			}));
 	}
 
 	private items(): Array<{ sourceId: string; input: RetainInput }> {
@@ -97,44 +101,8 @@ export class UserMemoryProjector {
 					async: false,
 				},
 			}));
-		return [...tasks, ...this.topicPlanItem(goalTag), ...this.rejectedProposalItems(goalTag)].sort((left, right) =>
+		return [...tasks, ...this.rejectedProposalItems(goalTag)].sort((left, right) =>
 			left.input.occurredAt.localeCompare(right.input.occurredAt) || left.input.documentId.localeCompare(right.input.documentId));
-	}
-
-	private topicPlanItem(goalTag: string): Array<{ sourceId: string; input: RetainInput }> {
-		const store = new GoalTopicPlanStore(this.goalId, this.workspaceDir);
-		const plan = store.readActive();
-		if (!plan) return [];
-		const confirmedAt = store.readHistory().find((entry) => entry.version === plan.revision)?.confirmed_at;
-		if (!confirmedAt) return [];
-		const sourceId = `topic-plan:${plan.revision}`;
-		return [{
-			sourceId,
-			input: {
-				documentId: `pi-topic-plan-${this.goalId}-${plan.revision}`,
-				occurredAt: confirmedAt,
-				content: [
-					"User-confirmed long-term Goal focus:",
-					...plan.topics.flatMap((topic) => [
-						`Topic: ${topic.title}`,
-						`Intent: ${topic.intent}`,
-						...(topic.include.length ? [`Include: ${topic.include.join("; ")}`] : []),
-						...(topic.exclude.length ? [`Exclude: ${topic.exclude.join("; ")}`] : []),
-					]),
-				].join("\n"),
-				context: "User-confirmed durable Goal Understanding. Extract the user's long-term focus and exclusions as durable facts.",
-				tags: [goalTag],
-				metadata: {
-					source: "topic_plan",
-					goal_id: this.goalId,
-					topic_plan_revision: plan.revision,
-					durability: "durable",
-					memory_kind: "goal_understanding",
-				},
-				observationScopes: [[goalTag]],
-				async: false,
-			},
-		}];
 	}
 
 	/**

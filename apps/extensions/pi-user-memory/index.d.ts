@@ -46,6 +46,7 @@ export declare class HindsightClient {
 	recall(query: string, options?: { goalId?: string }): Promise<RecallResult>;
 	reflect(query: string, options?: { goalId?: string }): Promise<ReflectResult>;
 	listDocuments(tags: string[]): Promise<HindsightDocument[]>;
+	listDocumentsById(idPart: string): Promise<HindsightDocument[]>;
 	getDocument(documentId: string): Promise<HindsightDocumentDetail | undefined>;
 	setDocumentTags(documentId: string, tags: string[]): Promise<void>;
 	deleteDocument(documentId: string): Promise<void>;

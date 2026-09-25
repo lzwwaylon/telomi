@@ -5,6 +5,7 @@ Inputs, already on disk and read-only:
 - `inputs/schedule.json`: the Schedule's confirmed `monitoringScope` and `reportContext`, its question, and `language`, the language this user reads.
 - `inputs/recent-occurrences.json`: the outcomes of its recent occurrences, including skipped and failed ones.
 - `inputs/previous-review.json`: the previous Review and, when there was one, the Proposal it produced with the user's answer and rejection reason. `null` when this Schedule has never been reviewed.
+- `inputs/topic-plan.json`: the Goal's confirmed Topic Plan, the long-term focus the user declared for this Goal. `null` when none is confirmed.
 
 Knowledge interfaces, through the preloaded `schedule_review` Python module:
 
@@ -16,7 +17,7 @@ page = await schedule_review.wiki_read_page(hits["results"][0]["page_ref"])
 related = await schedule_review.wiki_graph_search("<topic>", top_k=10)
 ```
 
-Work in this order: read the three input files, ask memory what this user currently wants from this Goal, check the Wiki for what the Schedule keeps re-establishing or now ignores, then decide.
+Work in this order: read the four input files, ask memory what this user has said they want from this Goal, check the Wiki for what the Schedule keeps re-establishing or now ignores, then decide.
 
 Write your decision as JSON to `review-output/decision.json` and nothing else.
 

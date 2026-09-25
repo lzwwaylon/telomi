@@ -24,14 +24,12 @@ const store = new GoalTopicPlanStore(goalId, root);
 const events: AppEvent[] = [];
 const unsubscribe = subscribe((event) => events.push(event));
 try {
-	// 一次成功的 Topic Plan Confirmation：确认落盘、事件按顺序发布、User Memory 投影和 Wiki reframe 都由完整激活操作驱动。
+	// 一次成功的 Topic Plan Confirmation：确认落盘、事件按顺序发布和 Wiki reframe 都由完整激活操作驱动。
 	const confirmations: Array<{ goalId: string; revision: string; proposalId: string }> = [];
-	const projections: string[] = [];
 	const reframes: Array<{ proposalId: string; revision: string; env: Record<string, string | undefined> }> = [];
 	const activation = new GoalTopicPlanActivation({
 		workspaceDir: root,
 		recordConfirmation: async (input) => { confirmations.push(input); return "recorded" as const; },
-		projectUserMemory: async (id) => { projections.push(id); },
 		goalEnv: () => ({ TELOMI_TEST_GOAL_ENV: "1" }),
 		reframe: async (input) => {
 			reframes.push({
@@ -61,7 +59,6 @@ try {
 		events.filter((event) => event.type === "topic-plan:changed").map((event) => event.status),
 		["activated", "reframed"],
 	);
-	assert.deepEqual(projections, [goalId], "confirmation must reproject User Memory exactly once");
 
 	// 确认覆盖 Discovery Candidate 时，Discovery Resolution 与关闭事件来自同一次激活。
 	const candidate = store.submitDiscovery({
@@ -115,7 +112,6 @@ try {
 			failingConfirmations.add(key);
 			return "recorded" as const;
 		},
-		projectUserMemory: async () => {},
 		goalEnv: () => ({}),
 		reframe: async (input) => {
 			reframeAttempts += 1;
@@ -145,7 +141,6 @@ try {
 	const gated = new GoalTopicPlanActivation({
 		workspaceDir: root,
 		recordConfirmation: async () => "recorded" as const,
-		projectUserMemory: async () => {},
 		goalEnv: () => ({}),
 		reframe: (input) => new Promise((resolve) => {
 			releaseReframe = () => resolve(recordedReframe(input.proposal.proposal_id, "succeeded"));
@@ -192,7 +187,6 @@ try {
 	const confirmationEvents: string[] = [];
 	let breakConfirmation = false;
 	const recoveryReframes: string[] = [];
-	let recoveryProjections = 0;
 	let breakReframe = false;
 	const recovering = new GoalTopicPlanActivation({
 		workspaceDir: root,
@@ -203,7 +197,6 @@ try {
 			confirmationEvents.push(text);
 			return "recorded";
 		},
-		projectUserMemory: async () => { recoveryProjections += 1; },
 		goalEnv: () => ({}),
 		reframe: async (input) => {
 			recoveryReframes.push(input.proposal.proposal_id);
@@ -250,7 +243,6 @@ try {
 		assert.equal(retry.status, 202, "the retry action must complete the interrupted activation");
 		assert.equal(confirmationEvents.length, 1, "the retry must record the confirmation notification once");
 		assert.deepEqual(recoveryReframes, [interrupted.proposal_id]);
-		assert.equal(recoveryProjections, 1, "a newly recorded confirmation projects User Memory once");
 		assert.equal(store.readActive()?.revision, confirmed, "the retry must not confirm a second revision");
 		// 真实 reframe 把 publication 状态记成 message，投影据此给出 no-change 结果。
 		assert.equal(projectionOf(interrupted.proposal_id)?.outcome, "no-change");
@@ -276,10 +268,8 @@ try {
 			(action) => action.href === crashedHref), true);
 
 		breakReframe = false;
-		const projectionsBefore = recoveryProjections;
 		assert.equal((await post(crashedHref)).status, 202);
 		assert.equal(confirmationEvents.length, 2, "the retry must not notify the user a second time");
-		assert.equal(recoveryProjections, projectionsBefore + 1, "a retry must refresh idempotent User Memory even when the confirmation notification already exists");
 		assert.equal(store.readProposal(crashed.proposal_id).reframe?.status, "succeeded");
 		assert.equal(store.readActive()?.revision, store.readProposal(crashed.proposal_id).candidate_plan.revision,
 			"the retry must keep the confirmed revision");

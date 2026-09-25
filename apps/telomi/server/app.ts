@@ -36,7 +36,7 @@ import { listManagedAudioConnection } from "./audio/managed-connection.js";
 import { publish, subscribe } from "./events/event-bus.js";
 import { createTodayRouter } from "./app/today-api.js";
 import { createUserMemoryRouter, userMemoryClient } from "./goals/memory/memory-api.js";
-import { completeGoalScopedUserMemory } from "./goals/memory/goal-scope-migration.js";
+import { completeUserMemoryMigrations } from "./goals/memory/user-memory-migrations.js";
 import { FileIngestService } from "./ingestion/service.js";
 import { openSse, type SseConnection } from "./events/sse.js";
 import { listSelectableModels, mountProviderConfigApi } from "./providers/config-api.js";
@@ -146,8 +146,8 @@ try {
 }
 try {
 	await getHindsightRuntimeManager().ensureReady();
-	await completeGoalScopedUserMemory(userMemoryClient(), workspaceDir).catch((error: unknown) => {
-		console.warn(`[memory] Goal scope migration deferred (${error instanceof Error ? error.message : String(error)}); the Memory page retries it`);
+	await completeUserMemoryMigrations(userMemoryClient(), workspaceDir).catch((error: unknown) => {
+		console.warn(`[memory] User Memory migration deferred (${error instanceof Error ? error.message : String(error)}); the Memory page retries it`);
 	});
 } catch (error) {
 	if (shutdownPromise) await shutdownPromise;
@@ -255,10 +255,6 @@ const topicPlanActivation = new GoalTopicPlanActivation({
 	workspaceDir,
 	recordConfirmation: async ({ goalId, revision, proposalId }) =>
 		await goals.recordGoalEvent(goalId, buildTopicPlanConfirmedEvent(revision, proposalId)) ? "recorded" : "duplicate",
-	projectUserMemory: async (goalId) => {
-		const goal = goals.getGoal(goalId);
-		if (goal) await (await goals.getRunner(goal)).projectUserMemory();
-	},
 	goalEnv: (goalId) => ({ ...process.env, ...goals.getGoalEnvSnapshot(goalId) }),
 });
 // One Review service for both entry points, so "one Reviewer per Schedule" also holds between

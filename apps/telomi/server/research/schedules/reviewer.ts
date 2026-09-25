@@ -15,6 +15,7 @@ import { freezeModelDefinitions, pinTaskModelSelection, trackTaskModelSelection,
 import { spawnPrimeWorker } from "../../agent-runtime/prime-worker.js";
 import { bundledAgentSkillPaths, materializeSkills, snapshotSkills } from "../../agent-runtime/skill-registry.js";
 import { writeJsonAtomic } from "../../lib/fs.js";
+import type { GoalTopicPlan } from "../../goals/topic-plan/index.js";
 import { createGoalLlmWikiTools } from "../../wiki/tools.js";
 import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import type { ResearchSchedule } from "./types.js";
@@ -35,6 +36,8 @@ export interface ScheduleReviewerInput {
 	language: ResolvedOutputLanguage;
 	/** The previous Review with its Proposal and the user's answer, stated as history. */
 	previousReview: unknown;
+	/** The Goal's confirmed Topic Plan, the user's declared long-term focus; absent before one is confirmed. */
+	topicPlan?: GoalTopicPlan;
 	signal: AbortSignal;
 	env?: NodeJS.ProcessEnv;
 	/** Candidate Replay stages the execution outside the Goal's Review directory. */
@@ -73,8 +76,8 @@ export function scheduleReviewToolLog(root: string): string {
  * 启动一个全新的、只读的 Research Schedule Reviewer。
  *
  * 它是 Prime SDK Agent Bundle，只通过唯一的 Prime Worker 入口启动：没有网络，
- * 唯一可写根是自己的 Worker Workspace，知识只来自 Runtime 持有的 User Memory
- * 与 Goal Wiki 只读工具。输出由 Runtime 之后按确定性契约校验。
+ * 唯一可写根是自己的 Worker Workspace，知识只来自 inputs/ 下的文件（含已确认的 Topic Plan）
+ * 以及 Runtime 持有的 User Memory 与 Goal Wiki 只读工具。输出由 Runtime 之后按确定性契约校验。
  */
 async function executeRunPrimeScheduleReviewer(input: ScheduleReviewerInput): Promise<unknown> {
 	const env = input.env ?? process.env;
@@ -102,6 +105,8 @@ async function executeRunPrimeScheduleReviewer(input: ScheduleReviewerInput): Pr
 			...(run.error ? { error: run.error } : {}),
 		})));
 	writeJsonAtomic(join(inputsRoot, "previous-review.json"), input.previousReview ?? null);
+	writeJsonAtomic(join(inputsRoot, "topic-plan.json"), input.topicPlan?.topics.map(({ title, intent, questions, include, exclude }) =>
+		({ title, intent, questions, include, exclude })) ?? null);
 
 	const configuredSkills = bundledAgentSkillPaths("research", "schedule-reviewer");
 	const expectedSkills = configuredSkills.map((path) => basename(path));

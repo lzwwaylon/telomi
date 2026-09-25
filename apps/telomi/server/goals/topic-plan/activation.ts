@@ -14,7 +14,7 @@ export interface GoalTopicPlanActivationGoal {
 	description: string;
 }
 
-/** 组合根提供的外部能力：Goal 日志、User Memory 投影和 Goal 环境快照。 */
+/** 组合根提供的外部能力：Goal 日志和 Goal 环境快照。 */
 export interface GoalTopicPlanActivationCapabilities {
 	workspaceDir: string;
 	/**
@@ -24,8 +24,6 @@ export interface GoalTopicPlanActivationCapabilities {
 	 */
 	recordConfirmation: (input: { goalId: string; revision: string; proposalId: string })
 		=> Promise<"recorded" | "duplicate">;
-	/** 重新投影 Topic-Linked User Memory。 */
-	projectUserMemory: (goalId: string) => Promise<void>;
 	/** Wiki reframe 执行真实模型调用所需的 Goal 环境，含凭证隔离。 */
 	goalEnv: (goalId: string) => Record<string, string | undefined>;
 	reframe?: typeof reframeActivatedGoalWiki;
@@ -40,7 +38,7 @@ export interface GoalTopicPlanActivationResult {
 
 /**
  * 用户确认 Topic Plan 后的完整业务操作：Proposal 状态检查、重复请求保护、发布锁与锁内状态复核、
- * 确认事件、Discovery Resolution、User Memory 投影，以及随后的 Wiki reframe。
+ * 确认事件、Discovery Resolution，以及随后的 Wiki reframe。
  *
  * 只有用户的显式确认请求会调用它；Agent 讨论不激活 Proposal。返回时确认与事件已持久化，
  * reframe 仍在后台运行。确认落盘之后任何一步失败都不回滚已确认的 Topic Plan Revision：
@@ -80,7 +78,7 @@ export class GoalTopicPlanActivation {
 			}
 			// 确认之后的处理由持久状态驱动，而不是这次请求的内存变量：中断后重试从同一个已确认
 			// revision 继续，不会再确认一次。确认通知按持久事件标识去重，所以重试既不会漏掉
-			// 还没写下的通知，也不会重复通知；只有真正新写下通知时才发广播。User Memory 投影在重试时也刷新。
+			// 还没写下的通知，也不会重复通知；只有真正新写下通知时才发广播。
 			const activated = store.readProposal(proposal.proposal_id);
 			const confirmation = await this.capabilities.recordConfirmation({
 				goalId: goal.id,
@@ -96,8 +94,6 @@ export class GoalTopicPlanActivation {
 					publish({ type: "discovery:changed", goalId: goal.id, candidateId, status: "closed", ts: new Date().toISOString() });
 				}
 			}
-			void this.capabilities.projectUserMemory(goal.id)
-				.catch((error: unknown) => console.error(`[telomi][topic-plan] memory projection failed for ${goal.id}`, error));
 			return {
 				goalId: goal.id,
 				proposalId: proposal.proposal_id,

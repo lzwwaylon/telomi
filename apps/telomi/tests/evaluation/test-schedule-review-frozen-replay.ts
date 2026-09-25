@@ -30,6 +30,7 @@ import {
 	type ScheduleReviewer,
 } from "../../server/research/schedules/reviewer.js";
 import { ResearchScheduleStore } from "../../server/research/schedules/store.js";
+import { GoalTopicPlanStore } from "../../server/goals/topic-plan/index.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-schedule-review-frozen-"));
 const workspaceDir = join(root, "data");
@@ -68,6 +69,8 @@ const LIVE_ANSWERS: Record<string, unknown> = {
 const liveAnswer: ScheduleReviewToolAnswer = async (operation) => LIVE_ANSWERS[operation];
 
 let decision: unknown = { decision: "no_change", rationale: "The scope still matches." };
+/** The Topic Plan revision each Reviewer execution received. */
+const seenTopicPlans: Array<string | undefined> = [];
 
 /**
  * A Reviewer that leaves the same execution trace a real one leaves, and consults memory
@@ -76,6 +79,7 @@ let decision: unknown = { decision: "no_change", rationale: "The scope still mat
  */
 const reviewer: ScheduleReviewer = async (input) => {
 	assert.equal(input.env?.TELOMI_SCHEDULE_REVIEW_THINKING_LEVEL, "low");
+	seenTopicPlans.push(input.topicPlan?.revision);
 	const reviewRoot = input.root ?? scheduleReviewRoot(input.goalId, input.workspaceDir, input.reviewId);
 	mkdirSync(join(reviewRoot, "runtime", "session"), { recursive: true });
 	mkdirSync(join(reviewRoot, "agent", "review-output"), { recursive: true });
@@ -124,6 +128,15 @@ try {
 	// -----------------------------------------------------------------------
 	resetCaseCaptureForTest();
 	installCaseCapture({ scheduleReviewer: runScheduleReviewNodeEvaluation } as unknown as CaseCaptureHooks);
+
+	// The Reviewer reads the Goal's confirmed Topic Plan directly, and a Case freezes it.
+	const topics = new GoalTopicPlanStore(goalId, workspaceDir);
+	const topicPlan = topics.activate(topics.proposePatch({ source: "main_agent", patch: {
+		schema_version: 1,
+		base_revision: null,
+		summary: "Confirm one Topic",
+		operations: [{ op: "add", topic: { title: "Releases", intent: "Track product releases", questions: [], include: [], exclude: [] } }],
+	} }).proposal_id);
 
 	const store = new ResearchScheduleStore(goalId, workspaceDir);
 	const schedule = store.create({
@@ -182,6 +195,8 @@ try {
 		mkdirSync(join(rejectedCase, "input"), { recursive: true });
 		const frozen = JSON.parse(readFileSync(join(backtests.caseRoots(goalId, proposeCase.ref).caseDirectory, "input", "request.json"), "utf-8"));
 		assert.equal(typeof frozen.models.thinking, "string", "current Capture freezes thinking");
+		assert.equal(frozen.topic_plan?.revision, topicPlan.revision, "Capture freezes the Topic Plan the Reviewer saw");
+		assert.deepEqual(seenTopicPlans, Array(5).fill(topicPlan.revision), "every Review receives the confirmed Topic Plan");
 		for (const thinking of [undefined, "invalid"]) {
 			writeFileSync(join(rejectedCase, "input", "request.json"), JSON.stringify({ ...frozen, models: { ...frozen.models, thinking } }));
 			await assert.rejects(createScheduleReviewerReplayRecipe().replay({
@@ -233,6 +248,7 @@ try {
 		});
 		const completed = await waitFor(backtests, run.id);
 		assert.equal(completed.status, "awaiting_evaluation", completed.error);
+		assert.equal(seenTopicPlans.at(-1), topicPlan.revision, "a Replay hands the Reviewer the frozen Topic Plan");
 		const execution = completed.executions[0]!;
 		assert.deepEqual(
 			JSON.parse(readFileSync(backtests.artifactFile(goalId, run.id, execution.id, "decision.json"), "utf-8")),

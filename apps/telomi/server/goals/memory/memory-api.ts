@@ -2,6 +2,9 @@
 // the curation the user may apply. Hindsight stays the only store; these routes expose just the
 // operations below, never bank-level deletes or clears, and nothing here lets an Agent write memory.
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { Router, type Response } from "express";
 import {
 	GLOBAL_MEMORY_TAG,
@@ -14,14 +17,17 @@ import {
 
 import type { GoalService } from "../service.js";
 import { UserMemoryProjector } from "./user-memory-projector.js";
-import { completeGoalScopedUserMemory } from "./goal-scope-migration.js";
+import { completeUserMemoryMigrations } from "./user-memory-migrations.js";
 import { toErrorMessage } from "../../lib/values.js";
+import { ResearchScheduleStore } from "../../research/schedules/store.js";
+import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import {
 	USER_MEMORY_UNAVAILABLE,
 	type MemoryEpisodeSource,
 	type MemoryEpisodeStatus,
 	type MemoryEpisodeView,
 	type MemoryFactView,
+	type RejectedScheduleProposalView,
 	type UserMemoryResponse,
 } from "../../../shared/user-memory.js";
 
@@ -51,7 +57,7 @@ export function createUserMemoryRouter(
 			try {
 				if (!goals.getGoal(goalId)) throw new MemoryRequestError(404, `Unknown goal: ${goalId}`);
 				// Startup normally finishes this; it waits here too in case User Memory came up later.
-				await completeGoalScopedUserMemory(client, workspaceDir);
+				await completeUserMemoryMigrations(client, workspaceDir);
 				res.json(await work(`goal:${goalId}`));
 			} catch (error) {
 				if (error instanceof MemoryRequestError) res.status(error.status).json({ error: error.message });
@@ -84,24 +90,24 @@ export function createUserMemoryRouter(
 		}
 		// ponytail: one request per Episode for its original text; page the list once a bank holds thousands.
 		const details = await Promise.all(documents.map((document) => client.getDocument(document.id)));
-		const episodes = documents.map((document, index) =>
-			episodeView(document, details[index]?.original_text ?? "", facts.get(document.id) ?? [], "retained", goals));
+		const episodes = documents.map((document, index) => episodeView(document, {
+			text: details[index]?.original_text ?? "",
+			facts: facts.get(document.id) ?? [],
+			status: "retained",
+			goals,
+			workspaceDir,
+		}));
 		const retained = new Set(documents.map((document) => document.id));
 		const pendingStatus: MemoryEpisodeStatus = goals.getGoal(goalId)?.isStreaming ? "waiting" : "failed";
 		for (const pending of new UserMemoryProjector(workspaceDir, goalId).pendingEpisodes()) {
 			// Accepted by Hindsight but not yet in the ledger (the write raced a restart): it is retained.
 			if (retained.has(pending.documentId)) continue;
-			episodes.push({
-				documentId: pending.documentId,
-				source: sourceOfDocument(pending.documentId),
-				text: pending.content,
-				occurredAt: pending.occurredAt,
-				goalId,
-				goalTitle: goals.getGoal(goalId)?.title,
-				global: false,
-				status: pendingStatus,
-				facts: [],
-			});
+			episodes.push(episodeView({
+				id: pending.documentId,
+				created_at: pending.occurredAt,
+				tags: [goalTag],
+				...(pending.metadata ? { document_metadata: pending.metadata } : {}),
+			}, { text: pending.content, facts: [], status: pendingStatus, goals, workspaceDir }));
 		}
 		episodes.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
 		return { goal: episodes.filter((item) => !item.global), global: episodes.filter((item) => item.global) };
@@ -163,28 +169,54 @@ function factView(unit: HindsightMemoryUnit): MemoryFactView {
 }
 
 function sourceOfDocument(documentId: string, metadataSource?: string): MemoryEpisodeSource {
-	if (metadataSource === "topic_plan" || documentId.startsWith("pi-topic-plan-")) return "topic_plan";
 	if (metadataSource === "research_schedule_proposal" || documentId.startsWith("pi-schedule-proposal-")) return "schedule_proposal";
 	if (/^pi-(?:task|turn)-/u.test(documentId)) return "message";
 	return "other";
 }
 
-function episodeView(
-	document: HindsightDocument,
-	text: string,
-	facts: MemoryFactView[],
-	status: MemoryEpisodeStatus,
-	goals: Pick<GoalService, "getGoal">,
-): MemoryEpisodeView {
+function episodeView(document: HindsightDocument, view: {
+	text: string;
+	facts: MemoryFactView[];
+	status: MemoryEpisodeStatus;
+	goals: Pick<GoalService, "getGoal">;
+	workspaceDir: string;
+}): MemoryEpisodeView {
 	const goalId = document.tags.find((tag) => tag.startsWith("goal:"))?.slice("goal:".length);
+	const source = sourceOfDocument(document.id, document.document_metadata?.source);
+	const scheduleProposal = source === "schedule_proposal" && goalId
+		? rejectedScheduleProposal(view.workspaceDir, goalId, document)
+		: undefined;
 	return {
 		documentId: document.id,
-		source: sourceOfDocument(document.id, document.document_metadata?.source),
-		text,
+		source,
+		// A rejected Proposal's retained text is Telomi's extraction input, never shown as the user's words.
+		text: source === "schedule_proposal" ? "" : view.text,
+		...(scheduleProposal ? { scheduleProposal } : {}),
 		occurredAt: document.created_at,
-		...(goalId ? { goalId, goalTitle: goals.getGoal(goalId)?.title } : {}),
+		...(goalId ? { goalId, goalTitle: view.goals.getGoal(goalId)?.title } : {}),
 		global: document.tags.includes(GLOBAL_MEMORY_TAG),
-		status,
-		facts,
+		status: view.status,
+		facts: view.facts,
 	};
+}
+
+/** The rejected Proposal as its Schedule records it; undefined once the Schedule or its Goal is gone. */
+function rejectedScheduleProposal(workspaceDir: string, goalId: string, document: HindsightDocument): RejectedScheduleProposalView | undefined {
+	const scheduleId = document.document_metadata?.schedule_id;
+	const proposalId = document.document_metadata?.source_id ?? document.id.replace(/^pi-schedule-proposal-/u, "");
+	// Opening the store would create a Schedule database for a Goal that never had one.
+	if (!scheduleId || !existsSync(join(serverRuntimeDirForGoal(goalId, workspaceDir), "research/schedules.sqlite"))) return undefined;
+	const store = new ResearchScheduleStore(goalId, workspaceDir);
+	try {
+		const schedule = store.get(scheduleId);
+		const proposal = schedule ? store.listProposals(scheduleId).find((candidate) => candidate.id === proposalId) : undefined;
+		if (!schedule || !proposal) return undefined;
+		return {
+			scheduleTitle: schedule.title,
+			summary: proposal.summary,
+			...(proposal.rejectionReason ? { reason: proposal.rejectionReason } : {}),
+		};
+	} finally {
+		store.close();
+	}
 }
