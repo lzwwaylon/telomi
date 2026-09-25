@@ -39,6 +39,7 @@ def start_managed_database(url: str) -> tuple[str, Pg0 | None]:
                 f"pg0 instance {parsed.instance_name} is running from {info.data_dir}, not {data_dir}; stop it first"
             )
         return info.uri, database
+    discard_copied_lock(data_dir)
     os.makedirs(os.path.dirname(data_dir), exist_ok=True)
     for attempt in range(1, START_ATTEMPTS + 1):
         try:
@@ -49,3 +50,19 @@ def start_managed_database(url: str) -> tuple[str, Pg0 | None]:
                 raise
             time.sleep(2 * attempt)
     raise AssertionError("unreachable")
+
+
+def discard_copied_lock(data_dir: str) -> None:
+    """Removes a ``postmaster.pid`` that another cluster wrote, as in a copy of a running data directory.
+
+    Its PID is that cluster's postmaster: PostgreSQL refuses to start over it, and pg0 then signals that
+    PID, shutting the other cluster down. PostgreSQL records its own data directory on the second line.
+    """
+    lock = os.path.join(data_dir, "postmaster.pid")
+    try:
+        with open(lock, encoding="utf-8") as file:
+            lines = file.read().splitlines()
+    except FileNotFoundError:
+        return
+    if len(lines) > 1 and os.path.realpath(lines[1]) != os.path.realpath(data_dir):
+        os.remove(lock)

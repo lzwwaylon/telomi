@@ -14,10 +14,14 @@ interface PendingTurn {
 export const MEMORY_UNAVAILABLE_TEXT =
 	"User memory is temporarily unavailable: the memory service is applying a new configuration and restarting. Answer from the current conversation without remembered context, and note to the user that memory was skipped this turn if it would have mattered.";
 
-/** A 503 from the service, or no service at the address, while it is being replaced. */
+/**
+ * A 503 from the service, or no service at the address, while it is being replaced; or a running
+ * service whose database refuses connections, which Hindsight reports as a 500 quoting the errno.
+ */
 export function isMemoryUnavailable(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
-	return /HTTP 503\b/u.test(message) || /ECONNREFUSED|fetch failed/u.test(message);
+	return /HTTP 503\b/u.test(message) || /ECONNREFUSED|fetch failed/u.test(message)
+		|| /HTTP 500\b.*Connection refused/u.test(message);
 }
 
 const memoryToolParameters = {

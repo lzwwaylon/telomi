@@ -1,5 +1,6 @@
 """Deterministic Git/filesystem/process checks; no dependency downloads or Providers."""
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
+import http.server
 import importlib.util
 import io
 import json
@@ -7,6 +8,8 @@ import os
 import shutil
 import signal
 import socket
+import threading
+import urllib.parse
 import urllib.request
 from pathlib import Path
 import subprocess
@@ -561,6 +564,14 @@ class WorktreeTest(unittest.TestCase):
         (source / "goals.json").write_text(json.dumps([{"id": goal, "title": "Historical Goal"}]))
         overlay = wt.isolation_env(self.root, {}, self.identity, range(21000, 21011))
         wt.write_overlay(self.root, overlay)
+        # A file the copy cannot read stands in for one a running Goal removes mid-copy.
+        unreadable = source / goal / "in-flight.json"
+        unreadable.write_text("{}")
+        unreadable.chmod(0)
+        with self.assertRaisesRegex(RuntimeError, "changed while copying"):
+            wt.seed(self.root, goal)
+        self.assertEqual(list((self.root / wt.APP / "data").glob(f"{goal}*")), [])
+        unreadable.unlink()
         wt.seed(self.root, goal)
         copied = self.root / wt.APP / "data" / goal
         self.assertFalse((copied / "linked").exists())
@@ -570,6 +581,78 @@ class WorktreeTest(unittest.TestCase):
             wt.seed(self.root, goal)
         with self.assertRaisesRegex(RuntimeError, "valid Goal"):
             wt.seed(self.root, "../../escape")
+
+    def test_seed_copies_goal_and_memory_from_another_installation(self):
+        installation = Path(self.temporary.name).resolve() / "installation"
+        data = Path(self.temporary.name).resolve() / "installation data"
+        goal = "goal_installed"
+        (data / goal).mkdir(parents=True)
+        (data / "goals.json").write_text(json.dumps([{"id": goal, "title": "Installed Goal"}]))
+        requests = []
+        operations = iter(["processing", "completed"])
+
+        class Hindsight(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def reply(self, body, content_type="application/json"):
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.end_headers()
+                self.wfile.write(body if isinstance(body, bytes) else json.dumps(body).encode())
+
+            def do_GET(self):
+                url = urllib.parse.urlsplit(self.path)
+                query = urllib.parse.parse_qs(url.query)
+                requests.append(("GET", url.path, query))
+                if url.path == "/v1/default/banks/installed/documents":
+                    # One Episode per page, so the listing has to follow the total.
+                    offset = int(query["offset"][0])
+                    self.reply({"items": [{"id": ["episode-goal", "episode-global"][offset]}], "total": 2})
+                elif url.path == "/v1/default/banks/installed/document-transfer":
+                    self.reply(b"transfer archive", "application/zip")
+                else:
+                    self.reply({"status": next(operations), "result_metadata": {"imported": 2}})
+
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                requests.append(("POST", self.path, body))
+                self.reply({"operation_id": "import-1"})
+
+        servers = [http.server.ThreadingHTTPServer(("127.0.0.1", 0), Hindsight) for _ in range(2)]
+        for server in servers:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            self.addCleanup(server.server_close)
+            self.addCleanup(server.shutdown)
+        source_url, target_url = (f"http://127.0.0.1:{server.server_address[1]}/v1/default" for server in servers)
+        (installation / wt.APP).mkdir(parents=True)
+        (installation / wt.APP / ".env.local").write_text(
+            f"TELOMI_DATA_DIR={data}\nHINDSIGHT_URL={source_url}\nHINDSIGHT_BANK_ID=installed\n")
+        overlay = wt.isolation_env(self.root, {}, self.identity, range(21000, 21011))
+        wt.write_overlay(self.root, {**overlay, "HINDSIGHT_URL": target_url})
+
+        with self.assertRaisesRegex(RuntimeError, "Seed goal_installed first"):
+            wt.seed_memory(self.root, goal, str(installation))
+        wt.seed(self.root, goal, str(installation))
+        self.assertTrue((self.root / wt.APP / "data" / goal).is_dir())
+        with redirect_stdout(io.StringIO()):
+            wt.seed_memory(self.root, goal, str(installation), poll=0)
+
+        listing = [query for method, path, query in requests if path.endswith("/documents")]
+        self.assertEqual([query["offset"] for query in listing], [["0"], ["1"]])
+        self.assertEqual(listing[0]["tags"], [f"goal:{goal}", "scope:global"])
+        export = next(query for method, path, query in requests if path.endswith("/document-transfer") and method == "GET")
+        self.assertEqual(export["document_id"], ["episode-goal", "episode-global"])
+        upload = next(body for method, path, body in requests if method == "POST")
+        self.assertIn(b"transfer archive", upload)
+        self.assertIn(("POST", f"/v1/default/banks/telomi-worktree-{self.identity}/document-transfer", upload), requests)
+
+        # A Worktree pointed at the installation's own Hindsight must never import into it.
+        wt.write_overlay(self.root, {**overlay, "HINDSIGHT_URL": source_url})
+        with self.assertRaisesRegex(RuntimeError, "same Hindsight"):
+            wt.seed_memory(self.root, goal, str(installation))
+        with self.assertRaisesRegex(RuntimeError, "Not a Telomi checkout"):
+            wt.seed(self.root, "goal_other", self.temporary.name)
 
     def test_remove_preserves_dirty_or_unmerged_worktrees(self):
         loose = self.root / "unsaved.txt"

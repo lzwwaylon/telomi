@@ -389,6 +389,7 @@ test("the memory tool reports a restarting service instead of failing the turn",
 	const { isMemoryUnavailable, MEMORY_UNAVAILABLE_TEXT } = await import("pi-user-memory");
 	assert.equal(isMemoryUnavailable(new Error('Hindsight /banks/x/recall failed: HTTP 503 {"error":"User Memory configuration is applying; retry shortly"}')), true);
 	assert.equal(isMemoryUnavailable(new TypeError("fetch failed")), true);
+	assert.equal(isMemoryUnavailable(new Error('Hindsight /banks/x/memories/list failed: HTTP 500 {"detail":"[Errno 61] Connection refused"}')), true);
 	assert.equal(isMemoryUnavailable(new Error("Hindsight /banks/x/recall failed: HTTP 500 boom")), false);
 	assert.match(MEMORY_UNAVAILABLE_TEXT, /temporarily unavailable/);
 });

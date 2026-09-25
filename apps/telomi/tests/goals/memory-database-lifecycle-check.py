@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+import tempfile
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,25 @@ def reused_instance_is_owned():
     assert url == "postgresql://reused"
     assert database is pg0.return_value, "a reused instance must still be stopped with the service"
     pg0.return_value.start.assert_not_called()
+
+
+def copied_lock_is_discarded():
+    with tempfile.TemporaryDirectory() as root:
+        data_dir = os.path.join(root, "postgres")
+        os.makedirs(data_dir)
+        lock = os.path.join(data_dir, "postmaster.pid")
+        stopped = MagicMock(running=False)
+        with patch.object(telomi_database, "Pg0") as pg0:
+            pg0.return_value.info.return_value = stopped
+            os.environ["TELOMI_MEMORY_DATABASE_DIR"] = data_dir
+            # A copy of a running cluster: the lock names the original's postmaster and directory.
+            Path(lock).write_text(f"{os.getppid()}\n{os.path.join(root, 'original')}\n")
+            telomi_database.start_managed_database("pg0://telomi-test:5432")
+            assert not os.path.exists(lock), "a lock copied from another cluster must not reach pg0"
+            # A lock this directory wrote stays for PostgreSQL to judge.
+            Path(lock).write_text(f"{os.getppid()}\n{data_dir}\n")
+            telomi_database.start_managed_database("pg0://telomi-test:5432")
+            assert os.path.exists(lock), "this cluster's own lock must be kept"
 
 
 async def app(scope, receive, send):
@@ -59,5 +79,6 @@ def sigterm_stops_database():
 
 
 reused_instance_is_owned()
+copied_lock_is_discarded()
 sigterm_stops_database()
 print("ok")
