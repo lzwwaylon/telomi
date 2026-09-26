@@ -1541,7 +1541,7 @@ export const zhCNMessages = {
 	"memory.goalSection": "本 Goal 的记忆",
 	"memory.goalSectionHint": "只在这个 Goal 中被检索。",
 	"memory.globalSection": "全局偏好",
-	"memory.globalSectionHint": "所有 Goal 都会检索这些记忆，可以在任何 Goal 里管理。",
+	"memory.globalSectionHint": "每个 Goal 的 Agent 每轮都会读到这些记忆，可以在任何 Goal 里管理。",
 	"memory.goalEmpty": "还没有记忆。在对话中说出你的偏好后，它会出现在这里。",
 	"memory.globalEmpty": "还没有全局偏好。把某段对话设为全局后，它会在所有 Goal 中生效。",
 	"memory.allInvalidated": "这里的记忆都已作废，可在“已作废”中恢复。",

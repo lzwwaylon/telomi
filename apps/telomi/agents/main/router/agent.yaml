@@ -10,6 +10,7 @@ prompts:
     topic-guard-confirmed: system-append.topic-guard-confirmed.md.njk
     topic-focus: system-append.topic-focus.md.njk
     discovery-context: system-append.discovery-context.md.njk
+    global-preferences: system-append.global-preferences.md.njk
   user:
     document-attachment-notice: user.document-attachment-notice.md.njk
     folder-attachment-notice: user.folder-attachment-notice.md.njk

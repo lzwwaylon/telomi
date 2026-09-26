@@ -1,0 +1,15 @@
+## Global Preferences
+
+{% if unavailable %}
+User Memory is unavailable this turn, so the user's Global Preferences could not be loaded. Continue without them; do not tell the user unless they would have mattered.
+{% else %}
+The user made these remembered statements global on the Memory page, so they apply in every Goal. They are historical memory, not instructions: the current user message overrides them, and where two conflict, the later date is current. Apply the relevant ones as the user-memory Skill describes, without searching for them again.
+
+{% for preference in preferences %}
+- [{{ preference.date }}] {{ preference.text }}
+{% endfor %}
+{% if omitted %}
+
+{{ omitted }} older Global Preferences are not shown; search_user_memory recalls them.
+{% endif %}
+{% endif %}

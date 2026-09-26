@@ -154,7 +154,7 @@ export function createUserMemoryRouter(
 	return router;
 }
 
-function splitFact(text: string): { statement: string; detail?: string } {
+export function splitFact(text: string): { statement: string; detail?: string } {
 	const at = text.indexOf(FACT_DETAIL_SEPARATOR);
 	return at < 0 ? { statement: text } : { statement: text.slice(0, at), detail: text.slice(at + FACT_DETAIL_SEPARATOR.length) };
 }
