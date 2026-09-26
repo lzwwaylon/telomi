@@ -2,7 +2,7 @@
 
 ## Interface
 
-Main Agent calls `research({ search_question, report_context, report_title?, schedule? })`. `ResearchRuntime.run()` pins the content-version context and executes the sole production path through `Run.run()`.
+Main Agent calls `research({ search_question, report_context, note_focus?, report_title?, schedule? })`. `note_focus` says what the Cornell Notes should record in most detail; it reaches only the Cornell Note stage, never Search or the Wiki. `ResearchRuntime.run()` pins the content-version context and executes the sole production path through `Run.run()`.
 
 ## Agent responsibilities
 
@@ -12,7 +12,7 @@ Main Agent calls `research({ search_question, report_context, report_title?, sch
 | Provider child | Prime child Agent | Root-assigned task for one Provider and its Skill | One Candidate Ledger and the required material |
 | Source Organizer | Prime Agent | New Sources from this execution, historical ungrouped index, and existing Group summaries | Grouping Patch for new Sources only |
 | Cornell Note | Prime Agent | One complete read-only Logical Source, the question, and optional paths of changed members | Cornell Note Sections, Cues, and Evidence line numbers |
-| Report Root | Prime Agent | Question, complete report_context, frozen Cornell Notes or current Goal Wiki, and a read-only index of this Goal's published historical reports (continuity and comparison context only, not citation sources) | Outline, Editorial Plan, Section assignments, and final revised sections |
+| Report Root | Prime Agent | Question, complete report_context, the Run's note_focus as an evidence focus when one was given, frozen Cornell Notes or current Goal Wiki (the Find Out roster names where each Source's Notes anchor their evidence), and a read-only index of this Goal's published historical reports (continuity and comparison context only, not citation sources) | Outline, Editorial Plan, Section assignments, and final revised sections |
 | Section child | Prime child Agent | One Section and assigned Source handles or Wiki paths | Draft and Ledger |
 | Research Schedule Reviewer | Prime Agent SDK | A Research Schedule's two parameters, recent occurrence results, the previous Review, and rejected Proposals | `no_change`, or one Research Schedule Proposal revising monitoring scope and Report Context |
 | Wiki Shard Builder | Two independent Prime Sessions | Goal, Topics, and complete Cornell Notes from the same Source batch | Separate Entity and Concept curation; see [Wiki Shard Builder](wiki-shard-builder.md) |

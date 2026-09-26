@@ -47,6 +47,18 @@ const MAX_CATALOG = 100;
  * a count that happens to fit. Records are measured as indented JSON because that is the widest form
  * any consumer renders.
  */
+/**
+ * Where a Source's Notes anchor their evidence: the Provider segment of each anchor path
+ * (`members/<provider>/...`), such as `github` or `arxiv`. It is the roster's only depth signal:
+ * a Note anchored in a repository can carry implementation detail a paper Note cannot.
+ */
+function evidenceOrigins(notes: readonly NoteWorkspaceItem[]): string[] {
+	return [...new Set(notes.flatMap((note) => note.evidence.flatMap((anchor) => {
+		const match = /^members\/([^/]+)\//u.exec(anchor.source_path);
+		return match ? [match[1]!] : [];
+	})))].sort();
+}
+
 function renderedLength(value: unknown): number {
 	return JSON.stringify(value, null, 2).length;
 }
@@ -128,6 +140,7 @@ export class NoteWorkspace {
 					source_ref: sourceRef,
 					title: notes[0]!.source_title,
 					origins: [...new Set(notes[0]!.source_urls.map(originHost))],
+					evidence_origins: evidenceOrigins(notes),
 					note_count: notes.length,
 					// 两级用同一种形状，详情级只是多几个字段：调用者一套解析代码就够。
 					sections: [...new Set(notes.map((note) => note.section_title))].map((title) => ({ title })),
@@ -138,6 +151,7 @@ export class NoteWorkspace {
 				source_id: notes[0]!.source_id,
 				title: notes[0]!.source_title,
 				source_urls: notes[0]!.source_urls,
+				evidence_origins: evidenceOrigins(notes),
 				note_count: notes.length,
 				sections: [...new Map(notes.map((note) => [note.section_title, {
 					title: note.section_title,

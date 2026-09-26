@@ -14,7 +14,9 @@ finding a specific fact inside a Source, never for deciding which Sources the re
 ```python
 import notes_report
 
-# 1. The whole roster: every Source with its handle, title, origins and Section titles.
+# 1. The whole roster: every Source with its handle, title, origins, evidence_origins and Section titles.
+#    evidence_origins says where the Notes anchor their evidence (a code repository, a paper, a page);
+#    it is the roster's only signal of what depth a Source's Notes can carry.
 #    Page it to the end — this is the only view that shows you everything that exists.
 roster = await notes_report.summary()
 while roster["next_offset"] is not None:
@@ -45,6 +47,7 @@ none remain. Omitted Notes have not been shown and must not be cited as if alrea
 - Read the whole roster before choosing Sources, and choose from the roster. A Source you never
   looked at cannot be judged irrelevant.
 - Treat each Note as one partial Source review, not a complete answer.
+- A Source may serve more than one Section; each Section reads the cues it needs and the editorial plan names the primary one.
 - Cite Notes as `<cite>N123</cite>` using refs returned by `notes_report.get()`. Runtime resolves
   each ref to its Source's canonical URL deterministically; a hand-typed URL can be wrong, a ref
   cannot. Use only claims returned by `notes_report.get()`.

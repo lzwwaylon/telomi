@@ -31,6 +31,8 @@ assert.equal(summary.sources[0]?.sections[0]?.summary, undefined,
 assert.equal(summary.sources[0]?.sections[0]?.title, "Architecture",
 	"both levels expose Sections in the same shape, so one parser handles either");
 assert.ok(summary.next_step?.includes("source="), "the roster must point at the drill-down step");
+assert.ok(Array.isArray((summary.sources[0] as { evidence_origins?: unknown }).evidence_origins),
+	"the roster must say where each Source's Notes anchor their evidence");
 
 // 指定 Source 即进入详情级，并且只回这些 Source。
 const detail = workspace.query({ operation: "summary", source: ["S2"] }) as SummaryPage;

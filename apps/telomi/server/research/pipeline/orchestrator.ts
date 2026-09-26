@@ -471,6 +471,8 @@ export class Run {
 		const writerInput = new StageInputView(join(request.controlDirectory, "input-views", writerStageId));
 		writerInput.writeText("task.md", `${request.reportContext}\n`);
 		writerInput.writeText("search-question.md", `${request.question}\n`);
+		// The note focus the Cornell Notes were written under; the writer reads it to know what depth the Notes carry.
+		if (request.noteFocus) writerInput.writeText("evidence-focus.md", `${request.noteFocus}\n`);
 		writerInput.writeJson(REPORT_WRITER_REQUEST_FILE, { schema_version: 1, language: request.language });
 		// 历史报告只是连续性与对比的上下文，事实仍必须引用当前知识接口；Writer 自己决定读哪几份。
 		const priorReports = request.goalWorkspaceDirectory ? stagePriorReports(writerInput, listPriorReports({
