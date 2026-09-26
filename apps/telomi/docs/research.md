@@ -37,7 +37,7 @@ All three entry points invoke the same operation: the Main Agent's `research` To
 
 The Main Agent is the Pi Coding Agent in Goal conversations. It submits a complete research task and an optional report title or schedule configuration through the `research` Tool.
 
-The Main Agent supplies an independent incremental search task through `search_question`, and user preferences, existing understanding, and report requirements through `report_context`. Runtime preserves both inputs, pins the Goal, server-bundled Harness Snapshot, Topic Plan, Wiki and Skill content versions, temporal constraints, and Run directory, then starts the sole Research Runtime.
+The Main Agent supplies an independent incremental search task through `search_question`, and user preferences, existing understanding, and report requirements through `report_context`. An optional `note_focus` carries what the user wants the evidence notes to record in most detail; it reaches only the Cornell Note stage and never changes the search or the Wiki. Runtime preserves both inputs, pins the Goal, server-bundled Harness Snapshot, Topic Plan, Wiki and Skill content versions, temporal constraints, and Run directory, then starts the sole Research Runtime.
 
 ## 2. Main Agent Search and Report Inputs
 

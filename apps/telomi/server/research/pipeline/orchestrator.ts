@@ -111,6 +111,8 @@ export interface RunRequest {
 	goalLanguage?: ResolvedOutputLanguage;
 	question: string;
 	reportContext: string;
+	/** What the Cornell Notes should record in most detail; Search and the Wiki never see it. */
+	noteFocus?: string;
 	discoveryEnabled: boolean;
 	language: string;
 	workspaceDirectory: string;
@@ -469,6 +471,8 @@ export class Run {
 		const writerInput = new StageInputView(join(request.controlDirectory, "input-views", writerStageId));
 		writerInput.writeText("task.md", `${request.reportContext}\n`);
 		writerInput.writeText("search-question.md", `${request.question}\n`);
+		// The note focus the Cornell Notes were written under; the writer reads it to know what depth the Notes carry.
+		if (request.noteFocus) writerInput.writeText("evidence-focus.md", `${request.noteFocus}\n`);
 		writerInput.writeJson(REPORT_WRITER_REQUEST_FILE, { schema_version: 1, language: request.language });
 		// 历史报告只是连续性与对比的上下文，事实仍必须引用当前知识接口；Writer 自己决定读哪几份。
 		const priorReports = request.goalWorkspaceDirectory ? stagePriorReports(writerInput, listPriorReports({
@@ -1060,6 +1064,7 @@ export class Run {
 				signal: args.request.signal,
 				artifactStore: args.artifactStore,
 				...(args.request.topicPlan ? { topicPlan: args.request.topicPlan } : {}),
+				...(args.request.noteFocus ? { noteFocus: args.request.noteFocus } : {}),
 				onAgentStageCompleted: (usage) => {
 					args.transition(args.state.status, (draft) => {
 						synchronizeAgentUsage(draft, usage, args.request.controlDirectory);

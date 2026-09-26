@@ -56,6 +56,8 @@ export interface ResearchRunRequest {
 	reason: string;
 	question: string;
 	reportContext: string;
+	/** What the Cornell Notes of this Run should record in most detail; it does not reach Search or the Wiki. */
+	noteFocus?: string;
 	reportTitle?: string;
 	schedule?: ResearchScheduleRequest;
 	/** Existing interrupted Run to continue in place. */
@@ -109,6 +111,7 @@ interface ResearchRunResumeRequest {
 	reason: string;
 	question: string;
 	reportContext: string;
+	noteFocus?: string;
 	reportTitle?: string;
 	schedule?: ResearchScheduleRequest;
 	scheduledResearch?: ResearchWorkspaceRunRequest["scheduledResearch"];
@@ -200,6 +203,7 @@ function readResumeRequest(runDir: string): ResearchRunResumeRequest {
 		|| typeof value.question !== "string"
 		|| typeof value.reportContext !== "string"
 		|| !value.reportContext.trim()
+		|| (value.noteFocus !== undefined && typeof value.noteFocus !== "string")
 		|| typeof value.discoveryEnabled !== "boolean"
 	) throw new Error("Research Run has an invalid resume request");
 	return value as ResearchRunResumeRequest;
@@ -383,11 +387,13 @@ export async function executeResearchRun(request: ResearchRunRequest): Promise<R
 	const runSignal = request.signal ?? new AbortController().signal;
 	const question = request.question.trim();
 	const reportContext = request.reportContext.trim();
+	const noteFocus = request.noteFocus?.trim() || undefined;
 	const reason = request.reason.trim();
 	const requestedInput = {
 		reason: request.reason,
 		search_question: request.question,
 		report_context: request.reportContext,
+		...(request.noteFocus ? { note_focus: request.noteFocus } : {}),
 		...(request.reportTitle ? { reportTitle: request.reportTitle } : {}),
 		...(request.schedule ? { schedule: request.schedule } : {}),
 	};
@@ -395,6 +401,7 @@ export async function executeResearchRun(request: ResearchRunRequest): Promise<R
 		reason,
 		search_question: question,
 		report_context: reportContext,
+		...(noteFocus ? { note_focus: noteFocus } : {}),
 		...(request.reportTitle ? { reportTitle: request.reportTitle.trim() } : {}),
 		...(request.schedule ? {
 			schedule: {
@@ -453,6 +460,7 @@ export async function executeResearchRun(request: ResearchRunRequest): Promise<R
 			reason,
 			question,
 			reportContext,
+			...(noteFocus ? { noteFocus } : {}),
 			...(request.reportTitle ? { reportTitle: request.reportTitle } : {}),
 			...(request.schedule ? { schedule: request.schedule } : {}),
 			...(request.scheduledResearch ? { scheduledResearch: request.scheduledResearch } : {}),
@@ -500,6 +508,7 @@ export async function executeResearchRun(request: ResearchRunRequest): Promise<R
 		runId,
 		question,
 		reportContext,
+		...(noteFocus ? { noteFocus } : {}),
 		discoveryEnabled,
 		outputLanguage: runLanguage,
 		goalLanguage: resumed ? readResumeRequest(runDir).goalLanguage ?? goalLanguage : goalLanguage,
@@ -659,7 +668,7 @@ export async function executeResearchRun(request: ResearchRunRequest): Promise<R
 export function resumeResearchRun(
 	request: Omit<
 		ResearchRunRequest,
-		"taskSource" | "scheduledResearch" | "resumeRunId" | "reason" | "question" | "reportContext"
+		"taskSource" | "scheduledResearch" | "resumeRunId" | "reason" | "question" | "reportContext" | "noteFocus"
 		| "reportTitle" | "schedule" | "goalTitle" | "goalDescription" | "discoveryEnabled" | "outputLanguage"
 	> & { runId: string },
 ): Promise<ResearchRunResult> {
@@ -681,6 +690,7 @@ export function resumeResearchRun(
 		reason: persisted.reason,
 		question: persisted.question,
 		reportContext: persisted.reportContext,
+		...(persisted.noteFocus ? { noteFocus: persisted.noteFocus } : {}),
 		...(persisted.reportTitle ? { reportTitle: persisted.reportTitle } : {}),
 		...(persisted.schedule ? { schedule: persisted.schedule } : {}),
 	});

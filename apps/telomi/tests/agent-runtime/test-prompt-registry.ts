@@ -139,6 +139,15 @@ assert.match(cornellPrompt, /"discovery":\{"finding"/u);
 assert.match(cornellPrompt, /T1 \| Multilingual/u);
 assert.match(cornellPrompt, /"topic_refs":\["T1"\]/u);
 assert.doesNotMatch(cornellPrompt, /- multilingual \| Multilingual/u);
+assert.doesNotMatch(cornellPrompt, /## Note focus/u);
+const cornellWithFocus = buildCornellNoteAgentUserPrompt({
+	question: "Track speech generation.",
+	goal: { title: "Become a TTS expert", description: "" },
+	discoveryEnabled: false,
+	noteFocus: "Loss definitions and data pipelines, at the level of PyTorch modules.",
+});
+assert.match(cornellWithFocus, /## Note focus\n\nLoss definitions and data pipelines, at the level of PyTorch modules\./u);
+assert.match(cornellWithFocus, /the focus is an emphasis, not a filter/u);
 const cornellWithoutDiscovery = buildCornellNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "" },

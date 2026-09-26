@@ -31,6 +31,7 @@ export function renderCornellNoteAgentUserPrompt(
 		goal_description: request.goal.description,
 		discovery_enabled: request.discoveryEnabled,
 		topic_plan_context: request.topicPlan ? renderTopicPlan(request.topicPlan) : "",
+		note_focus: request.noteFocus ?? "",
 		source_update_context: request.sourceUpdate ? renderSourceUpdate(request.sourceUpdate) : "",
 	});
 }
@@ -40,6 +41,8 @@ interface CornellPromptRequest {
 	goal: { title: string; description: string };
 	discoveryEnabled: boolean;
 	topicPlan?: GoalTopicPlan;
+	/** What this Run's notes should record in most detail; empty when the user expressed no focus. */
+	noteFocus?: string;
 	sourceUpdate?: { newMemberPaths: string[]; changedMemberPaths: string[] };
 }
 

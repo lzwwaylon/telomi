@@ -7,7 +7,7 @@ import { loadResearchHarnessSnapshot, type ResearchHarnessSnapshot } from "./har
 import type { ResearchExecutionResult, ResearchNodeStatus } from "./types.js";
 import { cornellNoteAgentContractIdentity } from "./cornell-note-agent.js";
 import {
-	hashRuntimeIdentityJson,
+	hashRunContextIdentity,
 	ResearchRuntime,
 } from "./runtime.js";
 import { freezeRunModelSelection, runModelSelection } from "./run-model-selection.js";
@@ -111,6 +111,7 @@ export interface ResearchWorkspaceRunRequest {
 	runId: string;
 	question: string;
 	reportContext: string;
+	noteFocus?: string;
 	discoveryEnabled: boolean;
 	outputLanguage?: ResolvedOutputLanguage;
 	/** Goal-level output language for the Wiki, which outlives this Run. */
@@ -282,6 +283,7 @@ export async function runResearchWorkspace(
 			goal_id: goalId,
 			question: request.question,
 			report_context: request.reportContext,
+			...(request.noteFocus ? { note_focus: request.noteFocus } : {}),
 			discovery_enabled: request.discoveryEnabled,
 		},
 		output: { status: "started" },
@@ -297,6 +299,7 @@ export async function runResearchWorkspace(
 		...(request.topicPlan ? { topicPlan: request.topicPlan } : {}),
 		question: request.question,
 		reportContext: request.reportContext,
+		...(request.noteFocus ? { noteFocus: request.noteFocus } : {}),
 		workspaceDirectory: request.workspaceDirectory,
 		controlDirectory: request.controlDirectory,
 		goalWorkspaceDirectory: stateGoalDir,
@@ -377,7 +380,7 @@ export async function runResearchWorkspace(
 function existingPinnedRunContext(
 	input: Parameters<typeof buildRunContextSnapshotFromHarness>[0],
 	controlDir: string,
-	request: Pick<ResearchWorkspaceRunRequest, "question" | "reportContext">,
+	request: Pick<ResearchWorkspaceRunRequest, "question" | "reportContext" | "noteFocus">,
 ): PinnedRunContext {
 	const current = buildRunContextSnapshotFromHarness(input);
 	const state = new RunStateStore(controlDir).load();
@@ -388,7 +391,7 @@ function existingPinnedRunContext(
 	}
 	const snapshot = JSON.parse(readFileSync(path, "utf-8")) as RunContextSnapshot;
 	if (
-		hashRuntimeIdentityJson({ snapshot, search_question: request.question, report_context: request.reportContext }) !== state.pins.run_context_snapshot
+		hashRunContextIdentity(snapshot, request) !== state.pins.run_context_snapshot
 		|| snapshot.schemaVersion !== 2
 		|| snapshot.goalId !== input.goalId
 		|| snapshot.harnessSnapshotHash !== current.snapshot.harnessSnapshotHash

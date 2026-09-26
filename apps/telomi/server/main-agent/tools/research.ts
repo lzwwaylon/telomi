@@ -12,6 +12,7 @@ const schema = Type.Object({
 		description: "Standalone question for missing or updated evidence, including search constraints and what previous research already covered.",
 	}),
 	report_context: Type.String({ minLength: 1, description: "Complete report brief: user objective, audience, preferences, prior knowledge, relevant conversation, desired depth, format and language. Downstream writers cannot see the conversation." }),
+	note_focus: Type.Optional(Type.String({ minLength: 1, description: "What the evidence notes should record in most detail for this request, from the user's remembered note-taking preferences and the current conversation, such as implementation-level details of specific components. It shapes which findings are noted and how fine-grained they are; it does not widen or narrow the search. Omit when the user expressed no such focus." })),
 	report_title: Type.Optional(Type.String({ minLength: 1 })),
 	schedule: Type.Optional(Type.Union([researchScheduleSchema, Type.Null()])),
 }, { additionalProperties: false });
@@ -31,6 +32,7 @@ export function createMainResearchTool(goalDir: string, options: CreateMainAgent
 			reason: "Main Agent requested new external evidence.",
 			search_question: input.search_question.trim(),
 			report_context: input.report_context.trim(),
+			...(input.note_focus?.trim() ? { note_focus: input.note_focus.trim() } : {}),
 			...(input.report_title?.trim() ? { reportTitle: input.report_title.trim() } : {}),
 			...(input.schedule ? { schedule: input.schedule } : {}),
 		}, signal, onUpdate),

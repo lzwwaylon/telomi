@@ -65,6 +65,7 @@ export interface ResearchRunRequest {
 	goalLanguage?: ResolvedOutputLanguage;
 	question: string;
 	reportContext: string;
+	noteFocus?: string;
 	discoveryEnabled: boolean;
 	workspaceDirectory: string;
 	controlDirectory: string;
@@ -213,6 +214,7 @@ export class ResearchRuntime {
 					...(request.goalLanguage ? { goalLanguage: request.goalLanguage } : {}),
 					question: request.question.trim(),
 					reportContext: request.reportContext,
+					...(request.noteFocus ? { noteFocus: request.noteFocus } : {}),
 					discoveryEnabled: request.discoveryEnabled,
 					language: config.outputLanguage,
 					workspaceDirectory: request.workspaceDirectory,
@@ -318,7 +320,7 @@ function buildIdentityPins(
 		}),
 		workspace_content_hash: request.runContextSnapshot.workspaceContentHash,
 		knowledge_memory_hash: request.runContextSnapshot.knowledgeMemoryHash,
-		run_context_snapshot: hashRuntimeIdentityJson({ snapshot: request.runContextSnapshot, search_question: request.question, report_context: request.reportContext }),
+		run_context_snapshot: hashRunContextIdentity(request.runContextSnapshot, request),
 		pipeline: hashRuntimeIdentityJson(findOutContract),
 		prompt_bundle: hashRuntimeIdentityJson({
 			search_acquisition: primeSearchContract.promptBundle,
@@ -360,6 +362,19 @@ function buildIdentityPins(
 			? { scheduled_research: hashRuntimeIdentityJson(request.scheduledResearch) }
 			: {}),
 	};
+}
+
+/** The Run Context pin. `note_focus` is only present when set, so Runs without one keep their historical pin. */
+export function hashRunContextIdentity(
+	snapshot: unknown,
+	request: { question: string; reportContext: string; noteFocus?: string },
+): string {
+	return hashRuntimeIdentityJson({
+		snapshot,
+		search_question: request.question,
+		report_context: request.reportContext,
+		...(request.noteFocus ? { note_focus: request.noteFocus } : {}),
+	});
 }
 
 export function hashRuntimeIdentityJson(value: unknown): string {
