@@ -29,6 +29,7 @@ export interface CornellNotesMaterializeRequest {
 	signal: AbortSignal;
 	artifactStore?: RunArtifactStore;
 	topicPlan?: GoalTopicPlan;
+	noteFocus?: string;
 	onAgentStageCompleted?: (usage: ResearchModelUsage) => void;
 }
 
@@ -96,6 +97,7 @@ export class RuntimeCornellNotesMaterializer implements CornellNotesMaterializer
 			controlDir: request.controlDir,
 			...(request.artifactStore ? { artifactStore: request.artifactStore } : {}),
 			...(request.topicPlan ? { topicPlan: request.topicPlan } : {}),
+			...(request.noteFocus ? { noteFocus: request.noteFocus } : {}),
 			...(request.onAgentStageCompleted ? { onAgentStageCompleted: request.onAgentStageCompleted } : {}),
 		});
 		const processedIds = [...produced.notes.map((item) => item.source.id), ...produced.failures.map((item) => item.source.id)];

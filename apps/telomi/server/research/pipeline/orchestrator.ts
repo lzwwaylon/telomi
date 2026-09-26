@@ -111,6 +111,8 @@ export interface RunRequest {
 	goalLanguage?: ResolvedOutputLanguage;
 	question: string;
 	reportContext: string;
+	/** What the Cornell Notes should record in most detail; Search and the Wiki never see it. */
+	noteFocus?: string;
 	discoveryEnabled: boolean;
 	language: string;
 	workspaceDirectory: string;
@@ -1060,6 +1062,7 @@ export class Run {
 				signal: args.request.signal,
 				artifactStore: args.artifactStore,
 				...(args.request.topicPlan ? { topicPlan: args.request.topicPlan } : {}),
+				...(args.request.noteFocus ? { noteFocus: args.request.noteFocus } : {}),
 				onAgentStageCompleted: (usage) => {
 					args.transition(args.state.status, (draft) => {
 						synchronizeAgentUsage(draft, usage, args.request.controlDirectory);

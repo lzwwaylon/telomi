@@ -25,6 +25,7 @@ const researchRunSchema = Type.Object({
 	reason: Type.String(),
 	search_question: Type.String({ minLength: 1, description: "Standalone incremental search question, including search constraints and what prior research already covered. Request only missing or updated evidence." }),
 	report_context: Type.String({ minLength: 1, description: "Complete report brief: user objective, audience, preferences, prior knowledge, desired depth, format and language. Include relevant conversation context; downstream writers cannot see the conversation." }),
+	note_focus: Type.Optional(Type.String({ minLength: 1, description: "What the evidence notes should record in most detail for this request; it does not change the search." })),
 	reportTitle: Type.Optional(Type.String()),
 	schedule: Type.Optional(researchScheduleSchema),
 }, { additionalProperties: false });
@@ -96,6 +97,7 @@ export function createResearchRunTool(goalDir: string, opts: ResearchRunToolOpti
 				reason: args.reason,
 				question: args.search_question,
 				reportContext: args.report_context,
+				...(args.note_focus ? { noteFocus: args.note_focus } : {}),
 				...(args.reportTitle ? { reportTitle: args.reportTitle } : {}),
 				...(args.schedule ? { schedule: args.schedule } : {}),
 				routerRunId: toolCallId,

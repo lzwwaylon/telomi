@@ -15,6 +15,16 @@ Description: {{ goal_description }}
 {{ topic_plan_context }}
 {% endif %}
 
+{% if note_focus %}
+## Note focus
+
+{{ note_focus }}
+
+Where this Source covers it, record it at the level of detail it asks for, with Cue Notes at the granularity of the
+components named (for code, functions, classes, and configuration, with their file paths) rather than a summary.
+Everything else relevant to the question is still recorded as usual; the focus is an emphasis, not a filter.
+{% endif %}
+
 {% if source_update_context %}
 ## Source update
 

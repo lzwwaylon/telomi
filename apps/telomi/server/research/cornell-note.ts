@@ -41,6 +41,7 @@ export interface CornellNoteInput {
 	controlDir: string;
 	artifactStore?: RunArtifactStore;
 	topicPlan?: GoalTopicPlan;
+	noteFocus?: string;
 	onAgentStageCompleted?: (usage: ResearchModelUsage) => void;
 }
 

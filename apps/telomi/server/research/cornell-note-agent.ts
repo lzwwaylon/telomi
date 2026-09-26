@@ -45,11 +45,11 @@ export function cornellNoteAgentToolNames(): string[] {
 
 export function cornellNoteAgentContractIdentity(): {
 	id: "research-cornell-note";
-	version: "12";
+	version: "13";
 	sha256: string;
 } {
 	const id = "research-cornell-note" as const;
-	const version = "12" as const;
+	const version = "13" as const;
 	return {
 		id,
 		version,
@@ -158,6 +158,7 @@ export class RuntimeCornellNoteAgentProcessor implements CornellNoteProcessor {
 			goal: input.goal,
 			discoveryEnabled: input.discoveryEnabled,
 			...(input.topicPlan ? { topicPlan: input.topicPlan } : {}),
+			...(input.noteFocus ? { noteFocus: input.noteFocus } : {}),
 			...(document.updateContext ? { sourceUpdate: document.updateContext } : {}),
 		};
 		const systemPrompt = renderCornellNoteAgentSystemPrompt();
