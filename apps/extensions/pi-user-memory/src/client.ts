@@ -58,6 +58,8 @@ export interface HindsightMemoryUnit {
 	state: "valid" | "invalidated";
 	document_id?: string | null;
 	tags: string[];
+	/** When the user said it. */
+	mentioned_at?: string | null;
 	edited_at?: string | null;
 	invalidated_at?: string | null;
 }

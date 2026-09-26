@@ -74,6 +74,7 @@ export interface HindsightMemoryUnit {
 	state: "valid" | "invalidated";
 	document_id?: string | null;
 	tags: string[];
+	mentioned_at?: string | null;
 	edited_at?: string | null;
 	invalidated_at?: string | null;
 }

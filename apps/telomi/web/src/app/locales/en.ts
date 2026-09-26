@@ -1543,7 +1543,7 @@ export const enMessages = {
 	"memory.goalSection": "This Goal's memory",
 	"memory.goalSectionHint": "Recalled in this Goal only.",
 	"memory.globalSection": "Global preferences",
-	"memory.globalSectionHint": "Recalled in every Goal and manageable from any of them.",
+	"memory.globalSectionHint": "Every Goal's Agent reads these on every turn; manage them from any Goal.",
 	"memory.goalEmpty": "No memory yet. State a preference in conversation and it appears here.",
 	"memory.globalEmpty": "No global preferences yet. Make an Episode global to use it in every Goal.",
 	"memory.allInvalidated": "Everything here was invalidated; restore it from Invalidated.",

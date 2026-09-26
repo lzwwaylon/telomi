@@ -80,7 +80,7 @@ import { loadAgentPromptConfig } from "../agent-runtime/prompt-registry.js";
 import { appendNodeExecutionRecord, type WorkspaceSnapshotRecord } from "../observability/run-records.js";
 import { caseCapture, recordCaseCaptureFailure } from "../observability/case-capture.js";
 import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../agent-runtime/workspace-snapshot.js";
-import { registerPiUserMemory } from "pi-user-memory";
+import { HindsightClient, registerPiUserMemory, resolvePiUserMemoryConfig } from "pi-user-memory";
 import { UserMemoryProjector } from "../goals/memory/user-memory-projector.js";
 import type { PodcastGenerationDispatchHandler } from "./tools/generate-podcast.js";
 import {
@@ -88,6 +88,7 @@ import {
 } from "../goals/topic-plan/index.js";
 import { publish } from "../events/event-bus.js";
 import { registerTopicReadinessGuard } from "./topic-readiness-guard.js";
+import { registerGlobalPreferences } from "./global-preferences.js";
 import { MainWikiCitationSession, registerMainWikiCitationCompiler } from "./wiki-citations.js";
 import { isInsideRoot } from "../lib/paths.js";
 import { toErrorMessage } from "../lib/values.js";
@@ -653,6 +654,10 @@ export class GoalRunner {
 					goalId: this.goalId,
 					retainTurns: false,
 				}),
+				(pi) => {
+					const memory = resolvePiUserMemoryConfig({ baseUrl: memoryEnv.HINDSIGHT_URL, bankId: memoryEnv.HINDSIGHT_BANK_ID });
+					registerGlobalPreferences(pi, new HindsightClient(memory.baseUrl, memory.bankId));
+				},
 			],
 		});
 		// Wrap so the system prompt stays dynamic.
