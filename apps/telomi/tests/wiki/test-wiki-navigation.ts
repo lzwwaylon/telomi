@@ -59,6 +59,14 @@ try {
 	const graph = await runtime.buildGraph();
 	assert.equal(graph.edges.length, 1, "explicit relation creates navigable graph edge without a Markdown link");
 	assert.deepEqual(graph.relations, [edge]);
+	const unpublished = await fetch(`${api}?revision=confirmed-but-pending`);
+	assert.equal(unpublished.status, 404, "a confirmed plan need not have a published Edition yet");
+	const publishedWhilePending = await fetch(api);
+	assert.equal(publishedWhilePending.status, 200);
+	assert.equal((await publishedWhilePending.json()).pages.length, 2, "current reading continues to serve the published pages during navigation updates");
+	const pinned = await fetch(`${api}?revision=navigation-test`);
+	assert.equal(pinned.status, 200, "an explicit existing historical revision remains readable");
+	assert.equal((await pinned.json()).edition.revision, "navigation-test");
 	const response = await fetch(`${api}/page?path=concepts/concept.md`);
 	assert.equal(response.status, 200);
 	assert.equal((await response.json()).relations[0].page.pageId, edge.from);

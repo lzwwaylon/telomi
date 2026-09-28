@@ -470,7 +470,7 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 											topics={topics}
 											activeTopicId={activeTopicId}
 											onActiveTopicChange={setActiveTopicId}
-											revision={viewedRevision}
+											revision={historicalRevision}
 											initialPath={wikiPagePath}
 											onSelectedPathChange={setWikiPagePath}
 											onBack={() => setRoute("goal")}

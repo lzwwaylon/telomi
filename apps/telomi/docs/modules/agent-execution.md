@@ -50,6 +50,8 @@ Agent Bundle callers use the registry through:
 
 On Linux, managed Prime kernel setup resolves the interpreter symlink's target to its canonical path while retaining the venv entry point and site-packages. Explicit interpreter overrides are left untouched. This avoids relying on installation aliases hidden by the sparse read-deny mounts.
 
+Linux kernel liveness checks remain within their PID namespaces: the SRT launcher monitors the SDK owner's host PID, while the native Python kernel monitors its parent inside the sandbox. Owner death terminates the kernel without relaxing process isolation.
+
 The Linux runner restores only previously emitted write grants overwritten by a later read-only ancestor mount. It keeps subsequent deny masks in place and declines restoration when explicit denies or earlier restrictive child mounts overlap. Unrecognized wrapper forms fail closed rather than running outside the sandbox.
 
 ## Trace presentation boundaries

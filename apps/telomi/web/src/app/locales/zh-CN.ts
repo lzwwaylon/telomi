@@ -826,7 +826,7 @@ export const zhCNMessages = {
 	"goals.topicinspector.noWiki": "无 Wiki",
 	"goals.topicinspector.resizeTopicPlanSidebar": "调整 Topic Plan 侧栏宽度",
 	"goals.topicinspector.tellTheMainAgentWhichTopicsToSplitMerge": "告诉 Main Agent 要拆分、合并或改写哪些 Topic。",
-	"goals.topicinspector.thisTopicPlanVersionHasNoWikiEditionTo": "该 Topic Plan 版本没有可回看的 Wiki Edition。右上角 Wiki 将继续显示不可用状态。",
+	"goals.topicinspector.thisTopicPlanVersionHasNoWikiEditionTo": "该 Topic Plan 版本尚无可回看的 Wiki Edition。",
 	"goals.topicinspector.topicPlanDraft": "Topic Plan 草案",
 	"goals.topicinspector.topicPlanVersion": "Topic Plan 版本",
 	"goals.topicinspector.initialTopics": "包含 {{count}} 个长期关注方向",

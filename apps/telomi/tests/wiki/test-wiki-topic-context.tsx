@@ -169,6 +169,7 @@ assert.equal(wikiPageBelongsToTopic({ primaryTopicRef: "", topicRefs: ["topic-li
 // Preserve the requested Topic until its plan loads; a resolved fallback loses deep-link intent.
 const appSource = readFileSync(new URL("../../web/src/app/App.tsx", import.meta.url), "utf8");
 assert.match(appSource, /<WikiExplorer[\s\S]*?activeTopicId=\{activeTopicId\}/u);
+assert.match(appSource, /<WikiExplorer[\s\S]*?revision=\{historicalRevision\}/u, "current Wiki follows the published Edition while explicit history stays pinned");
 const explorerSource = readFileSync(new URL("../../web/src/features/wiki/WikiExplorer.tsx", import.meta.url), "utf8");
 assert.match(explorerSource, /onFileClick=\{openUrl\} onUrlClick=\{openUrl\}/u, "file and URL links share the same fragment-aware routing");
 const currentPage = new URL("https://example.test/wiki/goal-one?topic=requested&page=entities%2Fobject.md#chapter-2");

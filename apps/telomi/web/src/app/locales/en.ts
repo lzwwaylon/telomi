@@ -828,7 +828,7 @@ export const enMessages = {
 	"goals.topicinspector.noWiki": "No Wiki",
 	"goals.topicinspector.resizeTopicPlanSidebar": "Resize Topic Plan sidebar",
 	"goals.topicinspector.tellTheMainAgentWhichTopicsToSplitMerge": "Tell the Main Agent which Topics to split, merge, or rewrite.",
-	"goals.topicinspector.thisTopicPlanVersionHasNoWikiEditionTo": "This Topic Plan version has no Wiki Edition to review. Wiki will remain unavailable in the top-right corner.",
+	"goals.topicinspector.thisTopicPlanVersionHasNoWikiEditionTo": "This Topic Plan version does not yet have a Wiki Edition to review.",
 	"goals.topicinspector.topicPlanDraft": "Topic Plan draft",
 	"goals.topicinspector.topicPlanVersion": "Topic Plan version",
 	"goals.topicinspector.initialTopics": "Includes {{count}} long-term focus areas",

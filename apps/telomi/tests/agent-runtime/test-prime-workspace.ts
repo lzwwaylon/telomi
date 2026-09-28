@@ -115,7 +115,8 @@ def denied(path, mode="r"):
 `;
 	const boundaryCheck = `
 from pathlib import Path
-import os, subprocess, sys, ssl, sqlite3, rlm
+import os, subprocess, sys, ssl, sqlite3, shutil, rlm
+assert Path(shutil.which("python3")).parent == Path(sys.executable).parent, "bare Python must resolve to the selected interpreter directory"
 ${deny}
 ssl.create_default_context()
 with sqlite3.connect("work/check.sqlite") as db:
