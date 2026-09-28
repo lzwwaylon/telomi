@@ -227,6 +227,7 @@ class WorktreeTest(unittest.TestCase):
         stranger = subprocess.Popen([*sleep, f"--remote-debugging-port={chrome_port}", f"--user-data-dir={other / 'browser-profile'}"],
                                     start_new_session=True)
         for process in (chrome, stranger):
+            self.addCleanup(process.wait, timeout=5)
             self.addCleanup(lambda process=process: process.poll() is None and process.kill())
         wt.save(data / ".pi/runtime/chrome-debug/chrome-debug.json", {"pid": chrome.pid, "port": chrome_port})
         for name, files in (("telomi-0123456789ab", data / "user-memory/postgres"), ("telomi-ba9876543210", other / "user-memory/postgres")):
@@ -421,16 +422,35 @@ class WorktreeTest(unittest.TestCase):
             self.assertIn("main started", result.stdout)
 
     def test_interrupted_command_exits_clean_without_hiding_failures(self):
-        for body, expected in (("signal.signal(signal.SIGINT, lambda *_: sys.exit(130))", 0),
+        # If CI stalls, retain both Python stacks without changing the 30s exit deadline.
+        supervisor = ("import faulthandler,runpy,sys; faulthandler.dump_traceback_later(20); "
+                      "sys.argv=sys.argv[1:]; runpy.run_path(sys.argv[0], run_name='__main__')")
+        for body, expected in (("signal.signal(signal.SIGINT, lambda *_: (os.write(2, b'payload SIGINT -> 130\\n'), sys.exit(130)))", 0),
                                ("signal.signal(signal.SIGINT, signal.SIG_DFL)", 0),
-                               ("signal.signal(signal.SIGINT, lambda *_: sys.exit(1))", 1)):
+                               ("signal.signal(signal.SIGINT, lambda *_: (os.write(2, b'payload SIGINT -> 1\\n'), sys.exit(1)))", 1)):
             with self.subTest(body=body):
-                child = subprocess.Popen([sys.executable, str(SCRIPT), "--root", str(self.main), "run", "--", sys.executable,
-                                          "-c", f"import signal,sys,time; {body}; print('ready', flush=True); time.sleep(30)"],
+                child = subprocess.Popen([sys.executable, "-c", supervisor, str(SCRIPT), "--root", str(self.main), "run", "--", sys.executable,
+                                          "-c", "import faulthandler,os,signal,sys,time; faulthandler.dump_traceback_later(20); "
+                                          f"{body}; print('ready', os.getpid(), flush=True); time.sleep(30)"],
                                          stdout=subprocess.PIPE, text=True)
-                self.assertEqual(child.stdout.readline().strip(), "ready")
-                child.send_signal(signal.SIGINT)
-                self.assertEqual(child.wait(timeout=30), expected)
+                payload = None
+                try:
+                    ready = child.stdout.readline().split()
+                    self.assertEqual(ready[:1], ["ready"])
+                    payload = int(ready[1])
+                    child.send_signal(signal.SIGINT)
+                    self.assertEqual(child.wait(timeout=30), expected)
+                finally:
+                    if child.poll() is None:
+                        # Only this fixture's own-session payload; never leave a failed test running.
+                        if payload is not None:
+                            try:
+                                os.killpg(payload, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                        child.kill()
+                        child.wait(timeout=5)
+                    child.stdout.close()
         result = self.cli("run", "--", sys.executable, "-c", "import sys; sys.exit(130)", root=self.main)
         self.assertEqual(result.returncode, 130, "an uninterrupted 130 is a real failure")
         result = self.cli("run", "--", sys.executable, "-c", "import os,signal; os.kill(os.getpid(), signal.SIGTERM)", root=self.main)
