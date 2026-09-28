@@ -68,6 +68,8 @@ Recovery Evidence is fail-closed. A Case with no output and missing terminal sta
 
 The contract describes the response shapes actually projected by the Service and never includes absolute host paths. Artifacts expose only Run-relative `ref` and `sha256`/`byteLength`/`directory`; file contents come from file-reading routes. Open-ended parts remain intentional: additional `Execution.refs` keys depend on the Recipe and cannot be exhaustively enumerated; complete Case Manifest semantics belong to Case Bundles, because freezing them into the HTTP contract would make every Capture change a protocol break. Independent Judgments, semantic Summaries, and Attestations remain exclusively in the external evaluation environment.
 
+Replay file reads reuse a bounded projection of the most recent settled Run while its manifest bytes remain unchanged; queued, running, and still-draining executions stay live. This read-only cache does not alter persisted evidence or response fields, and every file request still validates its allowed reference, regular-file status, hard links, and canonical path. Returned Run objects are independent copies.
+
 ## Status and Case API
 
 ```text

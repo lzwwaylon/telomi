@@ -48,6 +48,7 @@ const MAX_CASES = 20;
 const MAX_REPETITIONS = 5;
 const MAX_PROMPT_CHARACTERS = 200_000;
 const INLINE_ARTIFACT_BYTES = 1_000_000;
+const MAX_CACHED_PROJECTION_BYTES = 32 * 1024 * 1024;
 
 export type NodeBacktestStatus =
 	| "queued"
@@ -265,6 +266,13 @@ export interface NodeBacktestServiceOptions {
 	concurrency?: number;
 }
 
+interface ReplayReadProjection {
+	path: string;
+	source: string;
+	run: NodeBacktestRun;
+	allowed: Set<string>;
+}
+
 interface QueueRef {
 	goalId: string;
 	runId: string;
@@ -281,6 +289,8 @@ export class NodeBacktestService {
 	private readonly active = new Map<string, Promise<void>>();
 	private readonly controllers = new Map<string, AbortController>();
 	private stopped = true;
+	// ponytail: cache one settled Run up to 32 MiB serialized; add LRU only if concurrent archives thrash it.
+	private replayReadCache?: ReplayReadProjection;
 
 	constructor(private readonly options: NodeBacktestServiceOptions) {
 		this.module = new NodeEvaluationModule(options.recipes);
@@ -300,6 +310,7 @@ export class NodeBacktestService {
 
 	stop(): void {
 		this.stopped = true;
+		this.replayReadCache = undefined;
 		for (const controller of this.controllers.values()) controller.abort();
 	}
 
@@ -433,10 +444,31 @@ export class NodeBacktestService {
 	}
 
 	read(goalId: string, runId: string): NodeBacktestRun | null {
+		const projection = this.readProjection(goalId, runId);
+		return projection ? structuredClone(projection.run) : null;
+	}
+
+	private readProjection(goalId: string, runId: string): ReplayReadProjection | null {
 		try {
-			const run = parseRun(readFileSync(this.runPath(goalId, runId), "utf-8"));
+			const path = this.runPath(goalId, runId);
+			const source = readFileSync(path, "utf-8");
+			const active = this.active.has(this.activeKey(goalId, runId));
+			const cached = this.replayReadCache;
+			// Compare manifest bytes, not timestamps. A cancelled execution may still be draining.
+			if (!active && cached?.path === path && cached.source === source) return cached;
+			if (cached?.path === path) this.replayReadCache = undefined;
+			const run = parseRun(source);
 			if (!run) return null;
-			return projectFrozenRun(run, this.runDirectory(goalId, runId));
+			const projected = projectFrozenRun(run, this.runDirectory(goalId, runId));
+			const projection = { path, source, run: projected, allowed: new Set([
+				...projected.executions.flatMap(execution => Object.values(execution.refs ?? {})),
+				...Object.values(projected.activeExecution?.refs ?? {}),
+			].filter((ref): ref is string => Boolean(ref))) };
+			if (!active && run.status !== "queued" && run.status !== "running"
+				&& Buffer.byteLength(source) + Buffer.byteLength(JSON.stringify(projected)) <= MAX_CACHED_PROJECTION_BYTES) {
+				this.replayReadCache = projection;
+			}
+			return projection;
 		} catch {
 			return null;
 		}
@@ -892,19 +924,18 @@ export class NodeBacktestService {
 	}
 
 	replayFile(goalId: string, runId: string, ref: string): string {
-		const run = this.requireRun(goalId, runId);
-		const allowed = new Set([
-			...run.executions.flatMap((execution) => Object.values(execution.refs ?? {})),
-			...Object.values(run.activeExecution?.refs ?? {}),
-		].filter((value): value is string => Boolean(value)));
-		if (!allowed.has(ref)) throw new Error(`Unknown Node Backtest file ref '${ref}'`);
+		const projection = this.readProjection(goalId, runId);
+		if (!projection) throw new Error(`Unknown Node Backtest '${runId}'`);
+		if (!projection.allowed.has(ref)) throw new Error(`Unknown Node Backtest file ref '${ref}'`);
 		const root = realpathSync(this.runDirectory(goalId, runId));
 		const path = resolve(root, ref);
 		const rel = relative(root, path);
 		if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error("Trace ref escapes its run");
 		const stat = lstatSync(path);
 		if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Trace ref is not a safe regular file");
-		return realpathSync(path);
+		const real = realpathSync(path);
+		if (real !== path) throw new Error("Trace ref contains a symbolic link");
+		return real;
 	}
 
 	cancel(goalId: string, runId: string): NodeBacktestRun {

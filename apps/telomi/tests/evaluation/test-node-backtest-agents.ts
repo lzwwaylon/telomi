@@ -19,7 +19,7 @@ import { createCaseBundle } from "../../server/evaluation/case-bundle.js";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
 import { createMainAgentReplayRecipe } from "../../server/evaluation/main-agent-replay.js";
 import { createOperationsRouter } from "../../server/evaluation/api.js";
-import { NodeBacktestService } from "../../server/evaluation/node-backtest.js";
+import { NodeBacktestService, nodeBacktestRunsDirectory } from "../../server/evaluation/node-backtest.js";
 import {
 	beginNodeEvaluationCase,
 	finishNodeEvaluationCase,
@@ -304,6 +304,7 @@ assert.equal(finishNodeEvaluationCase(primeDraft, {
 let frozenPrimeHold: Promise<void> | undefined;
 let notifyFrozenPrimeStarted: (() => void) | undefined;
 let holdFrozenPrime = false;
+let frozenPrimeHoldAfter = 0;
 let failingPrimeCaseId: string | undefined;
 let primeReplayCalls = 0;
 const frozenPrimeReplayRecipe: NodeReplayRecipe = {
@@ -331,7 +332,7 @@ const frozenPrimeReplayRecipe: NodeReplayRecipe = {
 			mkdirSync(dirname(path), { recursive: true });
 			writeFileSync(path, content);
 		}
-		if (holdFrozenPrime) {
+		if (holdFrozenPrime && primeReplayCalls > frozenPrimeHoldAfter) {
 			const liveProviderWork = join(input.recordDirectory, "workspaces", "search-batch-1", "agent", "provider-executions", "sub-live", "work");
 			mkdirSync(liveProviderWork, { recursive: true });
 			writeFileSync(join(liveProviderWork, ".provider-assignment"), "github\n");
@@ -346,7 +347,7 @@ const frozenPrimeReplayRecipe: NodeReplayRecipe = {
 				content: [{ type: "toolCall" }],
 			},
 		})}\n`);
-		if (holdFrozenPrime) {
+		if (holdFrozenPrime && primeReplayCalls > frozenPrimeHoldAfter) {
 			notifyFrozenPrimeStarted?.();
 			await frozenPrimeHold;
 		}
@@ -677,12 +678,19 @@ try {
 	const cancelledPrimeStarted = new Promise<void>((resolve) => { notifyFrozenPrimeStarted = resolve; });
 	holdFrozenPrime = true;
 	const callsBeforeCancel = primeReplayCalls;
+	frozenPrimeHoldAfter = callsBeforeCancel + 1;
 	const cancelledBatch = service.enqueue(goalId, {
 		agentId: "prime-search", cases: batchCases, candidate: {}, repetitions: 1, rubricId: "cancel-stops-batch",
 	});
 	try {
 		await cancelledPrimeStarted;
-		service.cancel(goalId, cancelledBatch.id);
+		const cancelled = service.cancel(goalId, cancelledBatch.id);
+		assert.equal(cancelled.executions.length, 1, "First execution completed before the second was cancelled");
+		const lateRef = `executions/${cancelled.executions[0]!.id}/late-shutdown.jsonl`;
+		writeFileSync(join(nodeBacktestRunsDirectory(workspaceDir, goalId), cancelled.id, lateRef), "{}\n");
+		const draining = service.read(goalId, cancelled.id)!;
+		assert.ok(Object.values(draining.executions[0]!.refs ?? {}).includes(lateRef),
+			"A terminal cancellation still draining an active execution must not cache stale Trace refs");
 	} finally {
 		releaseCancelledPrime();
 		frozenPrimeHold = undefined;
@@ -691,7 +699,8 @@ try {
 	}
 	while (service.status().active > 0) await new Promise((resolve) => setTimeout(resolve, 5));
 	assert.equal(service.read(goalId, cancelledBatch.id)?.status, "cancelled");
-	assert.equal(primeReplayCalls, callsBeforeCancel + 1, "cancellation must stop the remaining Cases");
+	assert.equal(primeReplayCalls, callsBeforeCancel + 2, "cancellation must stop the remaining Cases");
+	frozenPrimeHoldAfter = 0;
 	const candidateSnapshot = service.createCapabilitySnapshot(goalId, harnesses.candidate);
 	assert.throws(() => service.enqueue(goalId, {
 		agentId: "cornell-note",
