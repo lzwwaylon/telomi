@@ -12,6 +12,7 @@ import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
 import { requireWikiGoalContext, validateGoalTopicPlan, type GoalTopicPlan, type WikiCompilationRequest, type WikiCompilationResult, type WikiGoalContext } from "../wiki/contracts.js";
 import { NoteFirstWikiCompiler, type NoteFirstReindexRequest, type NoteFirstReindexResult } from "../wiki/note-first-compiler.js";
 import { hashWikiDirectory } from "../wiki/files.js";
+import { PAGE_TOPIC_MODEL, PAGE_TOPIC_THINKING } from "../wiki/page-topic-stage.js";
 import { hashJson } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
@@ -125,6 +126,9 @@ async function captureProduction<T>(input: {
 
 function prepareCapture(input: { recordDirectory: string; directory: string; runId: string; signal: AbortSignal; capabilitySnapshotId?: string }) {
 	const frozen = readWikiCompilationCaseInput(join(input.directory, "input"));
+	const navigationOnly = frozen.request.operation === "reindex";
+	const model = navigationOnly ? PAGE_TOPIC_MODEL : frozen.request.models.root;
+	const thinking = navigationOnly ? PAGE_TOPIC_THINKING : frozen.request.models.thinking;
 	const store = new RunArtifactStore(input.recordDirectory);
 	const evidence = join(input.directory, "evidence");
 	mkdirSync(evidence);
@@ -133,13 +137,13 @@ function prepareCapture(input: { recordDirectory: string; directory: string; run
 	const stage: AgentStageRequest<unknown> = { runId: input.runId, stageId: RECIPE.id, attemptId: basename(input.directory), role: "wiki_compilation",
 		evaluation: { agentId: RECIPE.id, recipe: RECIPE, recipeInput: { operation: frozen.request.operation },
 			inputRelativePath: relative(input.recordDirectory, join(input.directory, "input")).split(sep).join("/"), harnessMounts: [], liveExternalState: false },
-		session: { key: RECIPE.id, policy: "fresh" }, modelPolicy: { preferred: [frozen.request.models.root], fallback: [], reasoning: frozen.request.models.thinking },
+		session: { key: RECIPE.id, policy: "fresh" }, modelPolicy: { preferred: [model], fallback: [], reasoning: thinking },
 		systemPrompt: "", userPrompt: JSON.stringify(frozen.request.goalContext), workDirectory: evidence,
 		readonlyMounts: [], controlDirectory: input.directory, artifactStore: store,
 		output: { kind: "stage_report", publishRelativePath: "output", validate: () => ({}) }, signal: input.signal };
 	const draft = beginNodeEvaluationCase({ request: stage, recordDirectory: input.recordDirectory,
 		promptConfig: { domain: "wiki", id: "note-first", sandboxRole: "wiki.note-first" },
-		sessionContextFile: join(input.directory, ".no-prior-session"), composedSystemPrompt: "", actualModel: frozen.request.models.root,
+		sessionContextFile: join(input.directory, ".no-prior-session"), composedSystemPrompt: "", actualModel: model,
 		...(input.capabilitySnapshotId ? { capabilitySnapshotId: input.capabilitySnapshotId } : {}) });
 	if (!draft) throw new Error("Wiki compilation Case capture did not start");
 	return { ...input, store, draft, evidence, trace, startedAt: Date.now() };
@@ -262,7 +266,7 @@ function collectEvidence(root: string, store: RunArtifactStore, prefix: string):
 			if (entry.isDirectory()) { walk(path); continue; }
 			const rel = relative(root, path);
 			if (!entry.isFile() || !/\.(?:json|jsonl|md)$/u.test(entry.name)) continue;
-			if (entry.name.endsWith(".jsonl") || /^(?:result|accepted|accepted-result|submitted-result|agent-context|receipts|input|failures|partial-result|checkpoint|plan|effective-system-prompt|tool-definitions|mounted-skills|model-metadata|.*contract|.*prompt)\.(?:json|md)$/u.test(entry.name)
+			if (entry.name.endsWith(".jsonl") || /^(?:result|accepted|accepted-result|submitted-result|agent-context|response|failure|receipts|input|failures|partial-result|checkpoint|plan|effective-system-prompt|tool-definitions|mounted-skills|model-metadata|.*contract|.*prompt)\.(?:json|md)$/u.test(entry.name)
 				|| rel.split("/").some((part) => ["input", "work", "decisions", "results"].includes(part))) store.publishFile(path, `${prefix}/${rel}`);
 		}
 	};

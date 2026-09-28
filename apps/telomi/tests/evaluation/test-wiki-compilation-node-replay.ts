@@ -20,6 +20,8 @@ const topicPlan = { schema_version: 1 as const, goal_id: "goal", revision: "v1",
 const usage = { inputTokens: 10, outputTokens: 20, costUsd: 0, calls: 1 };
 const signal = new AbortController().signal;
 const executionMetadata: Record<string, string> = {
+	"response.json": JSON.stringify({ role: "assistant", content: [{ type: "text", text: "{}" }], stopReason: "stop" }),
+	"failure.json": JSON.stringify({ executionMode: "single-completion", error: "injected classification failure" }),
 	"effective-system-prompt.md": "Full effective system prompt with SDK and stage instructions.\n",
 	"tool-definitions.json": JSON.stringify([{ name: "ipython", description: "Execute Python" }]),
 	"mounted-skills.json": JSON.stringify([{ name: "wiki", description: "Read Wiki pages" }]),
@@ -117,6 +119,8 @@ try {
 	await runWikiReindexNodeEvaluation({ knowledgeRoot: join(observedRequest.goalDir, "wiki", "knowledge"), topicPlan, goalContext, env, signal, workRoot: join(root, "reindex-work") },
 		{ recordDirectory: reindexRecord, runId: "reindex", execute: reindex });
 	const reindexCase = cases(reindexRecord)[0]!;
+	assert.equal(reindexCase.value.request.actualModel, "openai-codex/gpt-6-luna");
+	assert.deepEqual(reindexCase.value.request.modelPolicy?.preferred, ["openai-codex/gpt-6-luna"]);
 	assert.equal(readWikiCompilationCaseInput(join(dirname(reindexCase.path), "input")).request.operation, "reindex");
 	assert.equal(existsSync(join(dirname(reindexCase.path), "input", "evidence.json")), false);
 	await recipe.replay(replayInput(reindexCase, join(root, "reindex-candidate")));

@@ -2055,7 +2055,7 @@ function wikiCompilationCaseTraceKind(ref: string): string | undefined {
 	if (/\/(?:tool-definitions|mounted-skills|model-metadata)\.json$/u.test(ref)) return "execution_metadata";
 	if (/\/(?:system|user)-prompt\.md$/u.test(ref)) return "agent_prompt";
 	if (/\/(?:input|work)\/.*\.(?:json|md)$/u.test(ref)) return "agent_file_contract";
-	if (/\/(?:input|result|accepted|accepted-result|submitted-result|agent-context|receipts|failures|partial-result|checkpoint|plan)\.json$/u.test(ref)) return "runtime_result";
+	if (/\/(?:input|result|accepted|accepted-result|submitted-result|agent-context|response|failure|receipts|failures|partial-result|checkpoint|plan)\.json$/u.test(ref)) return "runtime_result";
 	return undefined;
 }
 

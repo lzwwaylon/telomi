@@ -123,6 +123,7 @@ assert.deepEqual(primeModuleResolvers, [
 	"research/pipeline/prime-search-batch.ts",
 	"research/pipeline/provider-child-executor.ts", // Uses the same runPrime launcher and isolated Agent Directory.
 	"wiki/note-wiki-maintainer.ts",
+	"wiki/page-topic-stage.ts", // Uses the native model registry and message log, without an Agent session.
 ], "every Prime entry is enumerated here");
 assert.doesNotMatch(readFileSync(join(serverRoot, "research", "pipeline", "prime-search-batch.ts"), "utf-8"), /await import\(/u,
 	"Search Batch only records the module path in Launch Conditions; it does not load Prime itself");
@@ -139,7 +140,12 @@ const stagingCallers = sourceFiles(serverRoot)
 	.filter((path) => readFileSync(path, "utf-8").includes("stagePrimeAgentDirectory("))
 	.map((path) => relative(serverRoot, path))
 	.sort();
-assert.deepEqual(stagingCallers, ["agent-runtime/prime-worker.ts", "wiki/note-wiki-maintainer.ts"]);
+assert.deepEqual(stagingCallers, ["agent-runtime/prime-worker.ts", "wiki/note-wiki-maintainer.ts", "wiki/page-topic-stage.ts"]);
+const pageTopicSource = readFileSync(join(serverRoot, "wiki/page-topic-stage.ts"), "utf-8");
+assert.match(pageTopicSource, /createPrimeModelRegistry\(/u);
+assert.match(pageTopicSource, /tools: \[\]/u);
+assert.doesNotMatch(pageTopicSource, /createAgentSession|spawnPrimeWorker|DefaultResourceLoader/u,
+	"Page Topic classification is a direct completion, with no Agent or tool runtime");
 assert.match(readFileSync(join(serverRoot, "agent-runtime", "prime-worker.ts"), "utf-8"),
 	/settings\.autoRefine\?\.enabled !== PRIME_AUTO_REFINE_ENABLED/u, "the launcher asserts the staged Auto Refine value");
 

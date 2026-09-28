@@ -74,6 +74,13 @@ function result(input: NoteFirstInput, rename = false): NoteFirstResult {
   case "topic":
    assert.equal(input.topics.length, 1, "each worker receives one Topic");
    return { kind: "topic", topicId: input.topics[0]!.id, matches: input.sections.map(section => ({ sectionRef: section.ref, reason: "Relevant model conditions" })), gaps: [] };
+  case "page-topics":
+   assert.equal(input.pages.length, 1, "one matching call receives one complete page");
+   assert.deepEqual(input.previousRelations, [], "matching needs only the body and Topic definitions");
+   assert.ok(input.sections.every(section => section.pageId === input.pages[0]!.page.id));
+   assert.deepEqual(new Set(input.entries.map(entry => entry.id)), new Set(objectFirstEntries(input.pages[0]!.page.body)));
+   return { kind: "page-topics", sections: input.sections.map(section => ({ sectionRef: section.ref,
+    matches: input.topics.map(topic => ({ topicId: topic.id, reason: `Relevant ${topic.id} conditions` })) })) };
  }
  return { kind: "pages", value, consideredPages };
 }
@@ -99,6 +106,8 @@ try {
   return outcome(input);
  } });
  const initialRequest = request("initial");
+ const progress: Array<{ stageIndex: number; totalStages: number }> = [];
+ initialRequest.onStageProgress = event => { progress.push(event); };
  const compiling = compiler.compile(initialRequest);
  // A stuck first task must not prevent slot replenishment when another task finishes.
  let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -111,21 +120,27 @@ try {
  if (queueError) throw queueError;
  assert.equal(maximum, 4);
  assert.equal(objectsStarted.length, 6);
- assert.equal(stages.filter(stage => stage === "topic").length, 2);
+ assert.equal(stages.filter(stage => stage === "page-topics").length, 7);
+ assert.ok(!stages.includes("plan-topics") && !stages.includes("topic"), "navigation bypasses Planner and Topic workers");
  assert.equal(initial.pageCount, 7);
  assert.deepEqual(initial.failedBatches, []);
  assert.equal(initial.publicationReady, true);
- const finalRelations = result(initialInputs.find(input => input.stage === "relations")!);
- assert.equal(finalRelations.kind, "relations");
- if (finalRelations.kind !== "relations") throw new Error("Wrong relation output");
- for (const input of initialInputs.filter(input => input.stage === "plan-topics" || input.stage === "topic")) {
-  assert.deepEqual(input.previousRelations, finalRelations.relations, "Both Topic planning and linking receive the finalized relationship graph");
-  assert.equal(input.pages.filter(page => page.page.kind === "entity").length, 6);
-  assert.equal(input.pages.filter(page => page.page.kind === "concept").length, 1);
- }
+ assert.ok(progress.every(event => event.stageIndex < event.totalStages));
+ assert.equal(Math.max(...progress.map(event => event.totalStages)), initialInputs.filter(input => input.stage !== 'objects').length,
+  'Final progress counts page classification calls, not Topics or a removed planner');
+ const navigationInputs = initialInputs.filter(input => input.stage === "page-topics");
+ assert.equal(new Set(navigationInputs.map(input => input.pages[0]!.page.id)).size, 7, "each final page is matched exactly once");
+ assert.equal(navigationInputs.filter(input => input.pages[0]!.page.kind === "entity").length, 6);
+ assert.equal(navigationInputs.filter(input => input.pages[0]!.page.kind === "concept").length, 1);
+ for (const input of navigationInputs) assert.deepEqual(input.topics, plan.topics);
  const knowledge = initial.knowledge.absolutePath, originalHash = hashWikiDirectory(knowledge);
  const topicIndex = JSON.parse(read(join(knowledge, ".topic-index.json")));
  assert.equal(topicIndex.topics.length, 2);
+ for (const topic of topicIndex.topics) {
+  assert.deepEqual(new Set(topic.sections), new Set(topicIndex.sections.map((section: { ref: string }) => section.ref)), "all page results aggregate into each matched Topic");
+  assert.deepEqual(topic.gaps, [], "per-page matching does not infer global gaps");
+  assert.ok(topic.matches.every((match: { reason: string }) => match.reason === `Relevant ${topic.topicId} conditions`));
+ }
  assert.match(read(join(knowledge, "README.md")), /entities\/source-0\.md#training/u);
  const registry = JSON.parse(read(join(knowledge, ".note-registry.json")));
  for (const entry of registry.entries) assert.ok(entry.anchors.length > 0, "every Cue preserves evidence positions");
@@ -195,12 +210,40 @@ try {
  assert.ok(migratedPages.pages.some(page => page.id === "concept:conditions" && objectFirstEntries(page.body).includes(conceptOnlyCue.id)), "Historical concept evidence survives the object-layer repair");
 
  const reindexStages: NoteFirstInput[] = [];
- const indexed = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => { reindexStages.push(input); return outcome(input); } }).reindex({ knowledgeRoot: knowledge, topicPlan: { ...plan, revision: "v2" }, goalContext: initialRequest.goalContext, workRoot: join(root, "reindex"), env, signal: initialRequest.signal });
- assert.deepEqual(reindexStages.map(input => input.stage).sort(), ["plan-topics", "topic", "topic"]);
+ const pageFour = latch(), pageFive = latch(), holdPage = latch();
+ let activePages = 0, maximumPages = 0;
+ const reindexRequest = { knowledgeRoot: knowledge, topicPlan: { ...plan, revision: "v2" }, goalContext: initialRequest.goalContext, workRoot: join(root, "reindex"), env, signal: initialRequest.signal };
+ const reindexing = new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+  reindexStages.push(input); activePages++; maximumPages = Math.max(maximumPages, activePages);
+  const position = reindexStages.length;
+  if (position === 4) pageFour.release();
+  if (position === 5) pageFive.release();
+  try { if (position === 1) await holdPage.promise; else if (position <= 4) await pageFour.promise; return outcome(input); }
+  finally { activePages--; }
+ } }).reindex(reindexRequest);
+ let pageQueueError: unknown;
+ try { await Promise.race([pageFive.promise, reindexing.then(() => { throw new Error("Reindex finished before fifth page started"); }), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Page queue did not replenish a free slot")), 3000); })]); }
+ catch (error) { pageQueueError = error; }
+ finally { clearTimeout(timeout); holdPage.release(); }
+ const indexed = await reindexing;
+ if (pageQueueError) throw pageQueueError;
+ assert.equal(maximumPages, 4, "page matching uses the bounded fair queue");
+ assert.deepEqual(reindexStages.map(input => input.stage), Array(7).fill("page-topics"));
  for (const file of ["entities/source-0.md", "concepts/conditions.md", ".note-registry.json", ".object-first-relations.json"]) assert.equal(read(join(indexed.knowledgeRoot, file)), read(join(knowledge, file)), "Topic reindex preserves knowledge and evidence bytes");
  assert.equal(hashWikiDirectory(knowledge), originalHash);
- const savedRelations = JSON.parse(read(join(knowledge, ".object-first-relations.json")));
- for (const input of reindexStages) assert.deepEqual(input.previousRelations, savedRelations, "Topic-only reindex restores the same graph for planning and workers");
+ for (const input of reindexStages) assert.deepEqual(input.previousRelations, [], "Topic-only matching does not receive graph metadata");
+
+ const noCalls = new NoteFirstWikiCompiler({ runStage: async () => { throw new Error("Empty navigation must not call a model"); } });
+ await assert.rejects(noCalls.reindex({ ...reindexRequest, topicPlan: { ...plan, topics: [] }, workRoot: join(root, "no-topics") }), /Goal Topic Plan is invalid/u,
+  "an empty active Topic Plan fails validation before any model call");
+ const noPagesRoot = join(root, "no-pages-seed");
+ writeObjectFirstEdition(noPagesRoot, [], [], empty(), { pages: [], entries: [], files: new Map(), relations: [] });
+ const noPages = await noCalls.reindex({ ...reindexRequest, knowledgeRoot: noPagesRoot, workRoot: join(root, "no-pages") });
+ assert.deepEqual(noPages.failedTopics, []);
+ assert.equal(noPages.usage.calls, 0);
+ const emptyTopics = JSON.parse(read(join(noPages.knowledgeRoot, ".topic-index.json"))).topics;
+ assert.equal(emptyTopics.length, 2);
+ assert.ok(emptyTopics.every((topic: { status: string; sections: string[]; gaps: string[] }) => topic.status === "succeeded" && !topic.sections.length && !topic.gaps.length));
 
  const failedNotes: string[] = [];
  let failNote = true;
@@ -260,19 +303,22 @@ try {
  const topicRetryInputs: NoteFirstInput[] = [];
  const topicRetryCompiler = new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
   topicRetryInputs.push(input);
-  if (input.stage === "topic" && input.topics[0]!.id === "training" && failTopic) throw Object.assign(new Error("Injected Topic failure"), { usage: failureUsage, sessionPaths: ["failed-topic-session"] });
+  if (input.stage === "page-topics" && input.pages[0]!.page.id === "entity:source-0" && failTopic) throw Object.assign(new Error("Injected Topic failure"), { usage: failureUsage, sessionPaths: ["failed-topic-session"] });
   return outcome(input);
  } });
  const topicRetryRequest = { knowledgeRoot: knowledge, topicPlan: plan, goalContext: initialRequest.goalContext, workRoot: join(root, "topic-failure"), env, signal: initialRequest.signal };
  const topicFailure = await topicRetryCompiler.reindex(topicRetryRequest);
- assert.equal(topicFailure.failedTopics.length, 1);
- assert.equal(topicFailure.usage.calls, 2 + failureUsage.calls, "Reindex counts failed Topic usage as well as successful planning/linking");
+ assert.deepEqual(topicFailure.failedTopics.map(topic => topic.topicId).sort(), ["evaluation", "training"], "one page failure leaves every Topic incomplete exactly once");
+ assert.equal(topicRetryInputs.length, 7, "a failed page does not stop queued pages");
+ assert.equal(topicFailure.usage.calls, 6 + failureUsage.calls, "Reindex counts a failed page once, alongside successful pages");
  assert.equal(topicFailure.usage.costUsd, failureUsage.costUsd);
  assert.ok(topicFailure.sessionPaths.includes("failed-topic-session"));
  const partialIndex = JSON.parse(read(join(topicFailure.knowledgeRoot, ".topic-index.json")));
- assert.equal(partialIndex.topics.find((topic: { topicId: string }) => topic.topicId === "training").status, "failed");
- assert.match(read(join(topicFailure.knowledgeRoot, 'README.md')), /Topic indexing failed: Injected Topic failure/u, 'a failed Topic is not rendered as an empty coverage result');
- assert.ok(partialIndex.topics.find((topic: { topicId: string }) => topic.topicId === "evaluation").sections.length > 0, "one Topic failure does not suppress successful Topic navigation");
+ for (const topic of partialIndex.topics) {
+  assert.equal(topic.status, "failed");
+  assert.equal(topic.sections.length, 11, "successful pages remain inspectable for every Topic");
+ }
+ assert.match(read(join(topicFailure.knowledgeRoot, 'README.md')), /Topic indexing failed:.*Injected Topic failure/u, 'a failed Topic is not rendered as an empty coverage result');
  const partialTopicHash = hashWikiDirectory(topicFailure.knowledgeRoot);
  failTopic = false;
  const topicRecovered = await topicRetryCompiler.reindex(topicRetryRequest);
@@ -283,15 +329,15 @@ try {
  for (const file of ["entities/source-0.md", "concepts/conditions.md", ".note-registry.json", ".object-first-relations.json", ".object-first-pages.json"]) {
   assert.equal(read(join(topicRecovered.knowledgeRoot, file)), read(join(knowledge, file)), "Retry only rebuilds Topic navigation; page bodies and graph stay byte-identical");
  }
- assert.ok(topicRetryInputs.every(input => input.stage === "plan-topics" || input.stage === "topic"));
+ assert.ok(topicRetryInputs.every(input => input.stage === "page-topics"));
 
  const incompleteNavigation = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
-  if (input.stage === "topic" && input.topics[0]!.id === "training") throw Object.assign(new Error("Navigation incomplete"), { usage: failureUsage });
+  if (input.stage === "page-topics" && input.pages[0]!.page.kind === "entity") throw Object.assign(new Error("Navigation incomplete"), { usage: failureUsage });
   return outcome(input);
  } }).compile(request("incomplete-navigation", evidence(1)));
  assert.equal(incompleteNavigation.publicationReady, false, "Complete pages do not make a candidate publishable when Topic navigation failed");
- assert.equal(incompleteNavigation.failedBatches.length, 1);
- assert.deepEqual(incompleteNavigation.failedBatches[0]!.sourceIds, ["training"]);
+ assert.equal(incompleteNavigation.failedBatches.length, 2);
+ assert.deepEqual(incompleteNavigation.failedBatches.flatMap(failure => failure.sourceIds).sort(), ["evaluation", "training"]);
  assert.equal(JSON.parse(read(join(incompleteNavigation.knowledge.absolutePath, ".note-first-status.json"))).complete, false);
 
  // Only genuinely empty directory trees can omit the registry. Any file or link

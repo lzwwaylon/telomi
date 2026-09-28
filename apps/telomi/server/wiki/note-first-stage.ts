@@ -59,6 +59,7 @@ export function noteFirstTraceUsage(root: string): ResearchModelUsage {
 
 export async function runNoteFirstStage(request: NoteFirstStageRequest): Promise<NoteFirstOutcome> {
  request.signal.throwIfAborted();
+ if (request.input.stage === "page-topics") return (await import("./page-topic-stage.js")).runPageTopicStage(request);
  const adapt = request.input.stage === "topic" ? skillPrompt : (value: string) => value;
  const system = adapt(stagePrompt(renderAgentPrompt("wiki", "note-first", "system-append", {}).content, request.input.stage));
  const user = adapt(renderAgentPrompt("wiki", "note-first", "user", { stage: request.input.stage }).content);
@@ -125,10 +126,12 @@ function sessionPaths(root: string): string[] {
 /** Compiler and stage checkpoints share the registered Prompt/Skill/code identity. */
 export function noteFirstCapabilityIdentity(): string {
  const files = ["note-first-stage.ts", "prime-note-first-worker.ts", "note-first-contract.ts", "note-first-workspace.ts",
-  "note-first-search.ts", "note-first-topic-skill.ts", "note-first-prompt.ts", "object-first-contract.ts", "object-first-edition.ts"];
+  "note-first-search.ts", "note-first-topic-skill.ts", "note-first-prompt.ts", "object-first-contract.ts", "object-first-edition.ts",
+  "page-topic-stage.ts", "page-topic-contract.ts"];
  const semantics = files.map(path => sha256(readFileSync(fileURLToPath(new URL(path, import.meta.url)))));
  const system = renderAgentPrompt("wiki", "note-first", "system-append", {});
  return hashJson({ semantics, system: system.content, registration: system.configSha256,
+  pageTopics: renderAgentPrompt("wiki", "note-first", "system", {}, "page-topics").content,
   users: ["objects", "merge-objects", "plan-concepts", "concepts", "merge-concepts", "relations", "plan-topics", "topic"]
    .map(stage => renderAgentPrompt("wiki", "note-first", "user", { stage }).content),
   skills: snapshotSkills(bundledAgentSkillPaths("wiki", "note-first")).sha256 });
