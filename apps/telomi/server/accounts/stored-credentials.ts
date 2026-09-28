@@ -2,7 +2,6 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
-	writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
 import type { Credential } from "@earendil-works/pi-ai";
@@ -55,13 +54,7 @@ export function modifyStoredCredentials(
 	update: (current: StoredCredentials) => StoredCredentials | undefined,
 ): boolean {
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-	if (!existsSync(path)) {
-		try {
-			writeFileSync(path, "{}\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
-		} catch (error) {
-			if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") throw error;
-		}
-	}
+	// realpath:false also locks a missing target; publish its first contents atomically below.
 	const release = acquireLock(path);
 	try {
 		const next = update(readStoredCredentials(path));

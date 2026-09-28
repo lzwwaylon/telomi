@@ -70,6 +70,7 @@ function outputMarkdown(root: string, file: string, field: string): string {
 
 /** Agent-facing aliases stay local; only this Runtime closure sees durable identities. */
 export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: string): NoteFirstWorkspace {
+ if (input.stage === 'page-topics') throw new Error('Page Topic classification uses its direct completion contract');
  const inputVersion = hashJson(input);
  const pages = new Map(input.pages.map((page, i) => [`P${i + 1}`, page]));
  const entries = new Map(input.entries.map((entry, i) => [`N${i + 1}`, entry]));

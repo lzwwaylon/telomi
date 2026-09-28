@@ -8,6 +8,7 @@ import type { CornellNotesSnapshot } from '../../server/cornell/contracts.js';
 import type { WikiCompilationRequest } from '../../server/wiki/contracts.js';
 import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
 import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
+import { createPageTopicTask } from '../../server/wiki/page-topic-contract.js';
 import { objectFirstSections, type ObjectFirstPage } from '../../server/wiki/object-first-contract.js';
 import type { ObjectFirstEntry } from '../../server/wiki/object-first-edition.js';
 
@@ -175,6 +176,13 @@ try {
  };
  const proposals: string[] = [];
  const compiler = new NoteFirstWikiCompiler({ runStage: async ({ input: stage, workRoot }) => {
+  if (stage.stage === 'page-topics') {
+   const task = createPageTopicTask(stage);
+   const result = { kind: 'page-topics' as const, sections: task.validate({ sections: stage.sections.map((_, index) => ({
+    section_ref: `S${index + 1}`, matches: [{ topic_ref: 'T1', reason: 'Explains Loss' }],
+   })) }) };
+   return { result, usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, calls: 1 }, sessionPaths: [] };
+  }
   const w = createNoteFirstWorkspace(stage, join(workRoot, 'input'));
   const out = join(workRoot, 'output'); mkdirSync(join(out, 'pages'), { recursive: true });
   let manifest: unknown;

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,6 +50,37 @@ try {
 		assert.throws(() => loadCodexAccountsConfig());
 	}
 	saveCodexAccountsConfig(config);
+	const { readStoredCredentials, writeStoredCredential } = await import("../../server/accounts/stored-credentials.js");
+	const firstWritePath = join(root, "first-write.json");
+	const originalOpen = fs.openSync;
+	const originalWrite = fs.writeFileSync;
+	let observedCreates = 0;
+	// Buffer writes expose the open/write boundary that Node's native UTF-8 fast path hides.
+	fs.writeFileSync = (file, data, options) => originalWrite(file, typeof data === "string" ? Buffer.from(data) : data, options);
+	syncBuiltinESMExports();
+	// Simulate another reader running after exclusive file creation, before its first write.
+	fs.openSync = (...args) => {
+		const fd = originalOpen(...args);
+		if (args[1] === "wx") {
+			try {
+				assert.deepEqual(readStoredCredentials(firstWritePath), {});
+				observedCreates += 1;
+			} catch (error) {
+				fs.closeSync(fd);
+				throw error;
+			}
+		}
+		return fd;
+	};
+	try {
+		writeStoredCredential(firstWritePath, "first", { type: "api_key", key: "first-key" });
+	} finally {
+		fs.openSync = originalOpen;
+		fs.writeFileSync = originalWrite;
+		syncBuiltinESMExports();
+	}
+	assert.ok(observedCreates > 0, "a reader must observe the initial write in progress");
+	assert.deepEqual(readStoredCredentials(firstWritePath), { first: { type: "api_key", key: "first-key" } });
 	await Promise.all(Array.from({ length: 12 }, (_, index) => runWorker(index)));
 	const authPath = join(root, ".pi", "agent", "auth.json");
 	assert.equal(statSync(authPath).mode & 0o777, 0o600);

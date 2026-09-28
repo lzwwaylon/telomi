@@ -2,6 +2,8 @@ schema_version: 2
 id: note-first
 skills: [wiki]
 prompts:
+  system:
+    page-topics: system.page-topics.md.njk
   system-append:
     default: system.md.njk
   user:

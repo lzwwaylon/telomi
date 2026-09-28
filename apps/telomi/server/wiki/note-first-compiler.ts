@@ -154,7 +154,7 @@ export class NoteFirstWikiCompiler {
     throw error;
    }
   };
-  let curationStages = 5 + topics.topics.length;
+  let curationStages = 4;
   const globalStage = async (input: NoteFirstInput, index: number) => {
    const progress = { kind: 'curation' as const, stageIndex: index, totalStages: curationStages, pageCount: 0, usage: zero(),
     traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
@@ -252,6 +252,7 @@ export class NoteFirstWikiCompiler {
   }
   relationships = remapRelations(relationships, mergeConceptInput, mergedConcepts);
   const pages = [...objects, ...concepts];
+  curationStages += topics.topics.length ? pages.length : 0;
   const allRefs = pageInputs(pages, 'context');
   const relationInput = make('relations', 'relations', { entries: usable, pages: allRefs, requiredPages: allRefs.map(p => p.ref), previousRelations: relationships });
   const relationResult = expect(await globalStage(relationInput, 3 + conceptPlan.jobs.length), 'relations');
@@ -259,7 +260,7 @@ export class NoteFirstWikiCompiler {
   const ids = new Set(pages.map(p => p.id));
   for (const edge of relationResult.relations) if (!ids.has(edge.from) || !ids.has(edge.to) || edge.from === edge.to) throw new Error('Invalid final relationship');
   const sections = sectionEvidence(pages), knowledgeHash = hashJson({ pages, entries });
-  const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, 4 + conceptPlan.jobs.length + ordinal), pages, sections, topics, relations: relationResult.relations, knowledgeHash,
+  const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, 4 + conceptPlan.jobs.length + ordinal), pages, sections, topics, knowledgeHash,
    onFailure: (index, id, error) => fail(evidence.notes.length + conceptPlan.jobs.length + index, [id], error), signal: request.signal });
   const refs = cited(pages);
   if ([...finalDiscards.keys()].some(id => refs.has(id))) throw new Error('Finally discarded Cue reappeared in knowledge');
@@ -288,20 +289,38 @@ export class NoteFirstWikiCompiler {
  }
 
  private async index(input: { make: (stage: NoteFirstInput['stage'], key: string, patch?: Partial<NoteFirstInput>) => NoteFirstInput;
-  run: (input: NoteFirstInput, ordinal: number) => Promise<NoteFirstOutcome>; pages: ObjectFirstPage[]; sections: ObjectFirstSection[]; topics: GoalTopicPlan; relations: NoteFirstRelation[];
+  run: (input: NoteFirstInput, ordinal: number) => Promise<NoteFirstOutcome>; pages: ObjectFirstPage[]; sections: ObjectFirstSection[]; topics: GoalTopicPlan;
   knowledgeHash: string; onFailure: (index: number, topic: string, error: unknown) => void; signal: AbortSignal }): Promise<ObjectFirstTopicResult> {
-  const context = { pages: pageInputs(input.pages, 'context'), sections: input.sections, topics: input.topics.topics, previousRelations: input.relations };
-  const plan = expect(await input.run(input.make('plan-topics', 'plan-topics', context), 0), 'topic-plan');
-  assertPartition(plan.jobs.map(job => job.topicId), input.topics.topics.map(topic => topic.id), 'Topic assignment');
-  const topics = await mapConcurrentFairly(plan.jobs, 4, async (job, index) => {
+  if (!input.topics.topics.length) return { knowledgeHash: input.knowledgeHash, topicPlanRevision: input.topics.revision, topics: [] };
+  const topicIds = new Set(input.topics.topics.map(topic => topic.id));
+  const results = await mapConcurrentFairly(input.pages, 4, async (page, index) => {
+   const pageEntries = new Set(objectFirstEntries(page.body));
+   const task = input.make('page-topics', `page-topics/${hashJson(page.id).slice(0, 16)}`, {
+    pages: pageInputs([page], 'context'), sections: input.sections.filter(section => section.pageId === page.id), topics: input.topics.topics });
+   task.entries = task.entries.filter(entry => pageEntries.has(entry.id));
    try {
-    const result = expect(await input.run(input.make('topic', `topics/${hashJson(job.topicId).slice(0, 16)}`, { ...context,
-     topics: input.topics.topics.filter(topic => topic.id === job.topicId), instructions: job.instructions }), index + 1), 'topic');
-    if (result.topicId !== job.topicId || result.matches.some(m => !input.sections.some(s => s.ref === m.sectionRef))) throw new Error('Topic returned an unknown or stale reference');
-    return { topicId: job.topicId, sections: result.matches.map(m => m.sectionRef), gaps: result.gaps, matches: result.matches, status: 'succeeded' as const };
-   } catch (error) { input.signal.throwIfAborted(); input.onFailure(index, job.topicId, error);
-    return { topicId: job.topicId, sections: [], gaps: [], matches: [], status: 'failed' as const, error: toErrorMessage(error) }; }
+    const result = expect(await input.run(task, index), 'page-topics');
+    assertPartition(result.sections.map(section => section.sectionRef), task.sections.map(section => section.ref), 'Page Topic section coverage');
+    for (const section of result.sections) {
+     if (new Set(section.matches.map(match => match.topicId)).size !== section.matches.length
+      || section.matches.some(match => !topicIds.has(match.topicId) || !match.reason.trim())) throw new Error('Page Topic returned invalid or duplicate Topic matches');
+    }
+    return { sections: result.sections, error: null };
+   } catch (error) {
+    input.signal.throwIfAborted();
+    return { sections: [], error: `${page.id}: ${toErrorMessage(error)}` };
+   }
   }, input.signal);
+  const errors = results.flatMap(result => result.error ? [result.error] : []);
+  // A failed page may match any Topic. Preserve partial matches but never publish them as complete.
+  const error = errors.length ? `Page Topic matching failed: ${errors.join('; ')}` : undefined;
+  const topics = input.topics.topics.map((topic, index) => {
+   const matches = results.flatMap(result => result.sections.flatMap(section => section.matches
+    .filter(match => match.topicId === topic.id).map(match => ({ sectionRef: section.sectionRef, reason: match.reason }))));
+   if (error) input.onFailure(index, topic.id, new Error(error));
+   return { topicId: topic.id, sections: matches.map(match => match.sectionRef), matches, gaps: [],
+    status: error ? 'failed' as const : 'succeeded' as const, ...(error ? { error } : {}) };
+  });
   return { knowledgeHash: input.knowledgeHash, topicPlanRevision: input.topics.revision, topics };
  }
 
@@ -314,7 +333,7 @@ export class NoteFirstWikiCompiler {
   const make = (stage: NoteFirstInput['stage'], key: string, patch: Partial<NoteFirstInput> = {}): NoteFirstInput => ({ stage, key,
    language: wikiLanguage(goal), goal, entries: previous.entries, pages: [], requiredEntries: [], requiredPages: [], topics: [], sections: [], instructions: '', previousRelations: [], ...patch });
   const sections = sectionEvidence(previous.pages);
-  const index = await this.index({ make, pages: previous.pages, sections, topics, relations: previousRelations(previous), knowledgeHash: hashJson({ pages: previous.pages, entries: previous.entries }),
+  const index = await this.index({ make, pages: previous.pages, sections, topics, knowledgeHash: hashJson({ pages: previous.pages, entries: previous.entries }),
    run: async stage => {
     try {
      const outcome = await (this.options.runStage ?? runNoteFirstStage)({ input: stage, workRoot: join(input.workRoot, stage.key), env, signal: input.signal });
