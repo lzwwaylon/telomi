@@ -94,6 +94,30 @@ async function kernel() {
  const loader = new prime.DefaultResourceLoader({cwd: work, agentDir, settingsManager, noExtensions: true, noSkills: true, bundledSkillsDir: null,
   noPromptTemplates: true, noThemes: true, noContextFiles: true, skillsOverride: () => skills, appendSystemPrompt: ['Deterministic Cue Topic Skill test. No model calls.']});
  await loader.reload();
+ let diagnosed = false;
+ const diagnoseKernel = () => {
+  if (diagnosed) return;
+  diagnosed = true;
+  // Observe the same sandbox without a model call or a Kernel restart. Native
+  // startup can reject outside tool.execute, so a monitor keeps the original exit.
+  const probe = spawnSync(process.env.PRIME_AGENT_KERNEL_PYTHON!, ['-c', `import json, os, sys
+result = {'pid': os.getpid(), 'ppid': os.getppid(), 'owner': int(os.environ['PRIME_AGENT_KERNEL_OWNER_PID']), 'python': sys.executable}
+try:
+ os.kill(result['owner'], 0)
+ result['owner_visible'] = True
+except OSError as error:
+ result['owner_visible'] = False
+ result['owner_errno'] = error.errno
+try:
+ import rlm, wiki
+ result['protocol'] = __import__('rlm.repl', fromlist=['PROTOCOL_VERSION']).PROTOCOL_VERSION
+ result['wiki_import'] = wiki.__file__
+except Exception as error:
+ result['import_error'] = str(error)
+print(json.dumps(result))`], { env: { ...process.env, PRIME_AGENT_KERNEL_OWNER_PID: String(process.pid) }, encoding: 'utf8', timeout: 15000 });
+  console.error('[wiki-kernel-startup-probe]', JSON.stringify({ status: probe.status, error: probe.error?.message, stdout: probe.stdout, stderr: probe.stderr }));
+ };
+ process.once('uncaughtExceptionMonitor', diagnoseKernel);
  const {session} = await prime.createAgentSession({cwd: work, agentDir, authStorage, modelRegistry, settingsManager, resourceLoader: loader,
   sessionManager: prime.SessionManager.inMemory(work), model: modelRegistry.getAll()[0], thinkingLevel: 'off',
   tools: ['ipython', 'submit_note_first'], customTools: [{name: 'submit_note_first', label: 'Validate', description: 'Deterministic output validation',
@@ -142,12 +166,13 @@ async function kernel() {
   const accepted = await submit.execute('post-read', {}, new AbortController().signal, undefined, undefined);
   assert.ok(!accepted.isError, 'The same session can repair missing read receipts');
   await cell('cue-capability', `assert not any(k.startswith('N') for k in wiki._data()['reads'])\ntry:\n wiki.read('N1')\nexcept ValueError:\n pass\nelse:\n raise AssertionError('standalone N read allowed')\nfrom pathlib import Path\nassert not Path(${JSON.stringify(join(inputRoot, 'evidence'))}).exists()\nassert not Path(${JSON.stringify(join(inputRoot, 'evidence.md'))}).exists()`);
-  await cell('permissions', `from pathlib import Path\nimport errno\nfor target in [${JSON.stringify(join(inputRoot, 'index.md'))}, wiki.__file__]:\n original = Path(target).read_bytes()\n try:\n  Path(target).write_bytes(b'mutation')\n except OSError as error:\n  assert error.errno in (errno.EPERM, errno.EACCES, errno.EROFS)\n else:\n  raise AssertionError('input or Skill writable')\n assert Path(target).read_bytes() == original\ntry:\n Path(${JSON.stringify(join(runtime, 'sentinel.txt'))}).read_text()\nexcept OSError as error:\n assert error.errno in (errno.EPERM, errno.EACCES)\nelse:\n raise AssertionError('private runtime readable')`);
+  await cell('permissions', `from pathlib import Path\nimport errno\nfor target in [${JSON.stringify(join(inputRoot, 'index.md'))}, wiki.__file__]:\n original = Path(target).read_bytes()\n try:\n  Path(target).write_bytes(b'mutation')\n except OSError as error:\n  assert error.errno in (errno.EPERM, errno.EACCES, errno.EROFS)\n else:\n  raise AssertionError('input or Skill writable')\n assert Path(target).read_bytes() == original\ntry:\n Path(${JSON.stringify(join(runtime, 'sentinel.txt'))}).read_text()\nexcept OSError as error:\n assert error.errno in (errno.EPERM, errno.EACCES, errno.ENOENT)\nelse:\n raise AssertionError('private runtime readable')`);
   assert.equal(session.messages.filter((m: any) => m.role === 'assistant').length, 0);
   const result = {passed: true, modelCalls: 0, persistentVariables: true, overviewApi: true, overviewHasNoReceipts: true, visibleSectionGate: true, repairInSameSession: true,
    readonlyInputAndSkill: true, privateRuntimeDenied: true, activeTools: session.getActiveToolNames(),
    skillNames: loader.getSkills().skills.map((s: any) => s.name), receipts: workspace.receipts(), observations: workspace.observations()};
   writeFileSync(join(runtime, 'check.json'), JSON.stringify(result, null, 2) + '\n');
   writeFileSync(join(runtime, 'result.json'), JSON.stringify({usage: {input_tokens: 0, output_tokens: 0, cost_usd: 0, model_calls: 0}, ...result}));
- } finally {await session.disposeAsync({kernelSnapshot: false});}
+ } catch (error) { diagnoseKernel(); throw error; }
+ finally { process.off('uncaughtExceptionMonitor', diagnoseKernel); await session.disposeAsync({kernelSnapshot: false}); }
 }

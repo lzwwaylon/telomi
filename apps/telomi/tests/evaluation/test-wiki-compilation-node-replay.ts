@@ -19,6 +19,12 @@ const goalContext = { title: "Topic navigation", description: "Evidence-grounded
 const topicPlan = { schema_version: 1 as const, goal_id: "goal", revision: "v1", status: "active" as const, topics: [{ id: "methods", title: "Methods", intent: "Reusable methods", questions: [], include: [], exclude: [] }] };
 const usage = { inputTokens: 10, outputTokens: 20, costUsd: 0, calls: 1 };
 const signal = new AbortController().signal;
+const executionMetadata: Record<string, string> = {
+	"effective-system-prompt.md": "Full effective system prompt with SDK and stage instructions.\n",
+	"tool-definitions.json": JSON.stringify([{ name: "ipython", description: "Execute Python" }]),
+	"mounted-skills.json": JSON.stringify([{ name: "wiki", description: "Read Wiki pages" }]),
+	"model-metadata.json": JSON.stringify({ provider: "test", id: "root", thinking: "low" }),
+};
 const json = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 const write = (path: string, text: string) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); };
 const cases = (record: string) => readdirSync(join(record, "node-evaluation", "cases")).map(id => {
@@ -38,6 +44,7 @@ function trace(directory: string): string {
 	const path = join(directory, "sessions", "native.jsonl");
 	write(path, `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "call1", name: "ipython" }] } })}\n`);
 	write(join(directory, "runtime", "input.json"), JSON.stringify({ page: "P1" }));
+	for (const [name, content] of Object.entries(executionMetadata)) write(join(directory, "runtime", name), content);
 	write(join(directory, "runtime", "credentials", "secret.json"), "secret");
 	write(join(directory, "runtime", "agent", "auth.json"), "secret");
 	return path;
@@ -127,6 +134,27 @@ try {
 			assert.ok(files.some(file => file.kind === "agent_trace" && file.ref.endsWith("native.jsonl")));
 			assert.ok(files.some(file => file.kind === "runtime_result" && file.ref.endsWith("runtime/input.json")));
 			assert.ok(!files.some(file => /credentials|auth\.json/u.test(file.ref)));
+			for (const [name, content] of Object.entries(executionMetadata)) {
+				const file = files.find(file => file.ref.endsWith(`/runtime/${name}`));
+				assert.ok(file, `Capture must expose ${name}`);
+				assert.equal(readFileSync(service.caseFile(goalId, item.ref, file.ref), "utf8"), content);
+			}
+
+		}
+		service.start();
+		const replay = service.enqueue(goalId, { agentId: "wiki-compilation", cases: [listed.find(item => item.ref.sourceRunId === observedRequest.runId)!.ref],
+			candidate: {}, repetitions: 1, rubricId: "wiki-compilation-v1" });
+		let completed = service.read(goalId, replay.id)!;
+		while (!["awaiting_evaluation", "failed", "cancelled"].includes(completed.status)) {
+			await new Promise(resolve => setTimeout(resolve, 10));
+			completed = service.read(goalId, replay.id)!;
+		}
+		assert.equal(completed.status, "awaiting_evaluation", completed.error);
+		const execution = completed.executions[0]!;
+		for (const [name, content] of Object.entries(executionMetadata)) {
+			const ref = Object.values(execution.refs ?? {}).find(ref => ref.endsWith(`/runtime/${name}`));
+			assert.ok(ref, `Replay refs must expose ${name}`);
+			assert.equal(readFileSync(service.replayFile(goalId, replay.id, ref), "utf8"), content);
 		}
 	} finally { service.stop(); }
 

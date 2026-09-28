@@ -262,7 +262,7 @@ function collectEvidence(root: string, store: RunArtifactStore, prefix: string):
 			if (entry.isDirectory()) { walk(path); continue; }
 			const rel = relative(root, path);
 			if (!entry.isFile() || !/\.(?:json|jsonl|md)$/u.test(entry.name)) continue;
-			if (entry.name.endsWith(".jsonl") || /^(?:result|accepted|accepted-result|submitted-result|agent-context|receipts|input|failures|partial-result|checkpoint|plan|.*contract|.*prompt)\.(?:json|md)$/u.test(entry.name)
+			if (entry.name.endsWith(".jsonl") || /^(?:result|accepted|accepted-result|submitted-result|agent-context|receipts|input|failures|partial-result|checkpoint|plan|effective-system-prompt|tool-definitions|mounted-skills|model-metadata|.*contract|.*prompt)\.(?:json|md)$/u.test(entry.name)
 				|| rel.split("/").some((part) => ["input", "work", "decisions", "results"].includes(part))) store.publishFile(path, `${prefix}/${rel}`);
 		}
 	};

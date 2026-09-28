@@ -77,7 +77,7 @@ for target, mode in [(${JSON.stringify(parentFile)}, "r"), (${JSON.stringify(pri
         with open(target, mode) as f:
             if mode == "r": f.read()
     except OSError as error:
-        assert error.errno in (errno.EPERM, errno.EACCES, errno.EROFS)
+        assert error.errno in (errno.EPERM, errno.EACCES) or (mode == "r" and error.errno == errno.ENOENT) or (mode != "r" and error.errno == errno.EROFS)
     else:
         raise AssertionError("nested sandbox leaked " + target)
 print("nested native runtime verified")

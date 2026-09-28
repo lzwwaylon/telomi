@@ -2020,6 +2020,8 @@ function wikiCompilationCaseTraceKind(ref: string): string | undefined {
 	if (ref.split("/").some(part => part.startsWith(".") || ["agent", "sdk", "skills", "node-evaluation", "credentials"].includes(part))) return undefined;
 	if (!/^(?:stages|sessions)\//u.test(ref)) return undefined;
 	if (ref.endsWith(".jsonl")) return "agent_trace";
+	if (/\/effective-system-prompt\.md$/u.test(ref)) return "effective_system_prompt";
+	if (/\/(?:tool-definitions|mounted-skills|model-metadata)\.json$/u.test(ref)) return "execution_metadata";
 	if (/\/(?:system|user)-prompt\.md$/u.test(ref)) return "agent_prompt";
 	if (/\/(?:input|work)\/.*\.(?:json|md)$/u.test(ref)) return "agent_file_contract";
 	if (/\/(?:input|result|accepted|accepted-result|submitted-result|agent-context|receipts|failures|partial-result|checkpoint|plan)\.json$/u.test(ref)) return "runtime_result";
