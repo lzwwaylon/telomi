@@ -69,6 +69,8 @@ export function createWikiUpdateTool(options: {
 				rebuild: input.rebuild,
 				env: options.getEnv(),
 			});
+			// Runtime persists the failed Activity; observe its rejection without delaying this start receipt.
+			if (!started.reused) void started.execution.catch(() => undefined);
 			return {
 				content: [{
 					type: "text" as const,

@@ -96,6 +96,26 @@ export function llmWikiCompilerContractIdentity(): { promptBundle: string; schem
 	};
 }
 
+/** Pin once per Wiki Update so recovery keeps its original model selection. */
+export function pinWikiModelSelection(controlDirectory: string, environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const selectionPath = join(controlDirectory, "wiki-model-selection.json");
+	const saved = existsSync(selectionPath) ? JSON.parse(readFileSync(selectionPath, "utf-8")) : undefined;
+	if (saved !== undefined && (!isRecord(saved) || Object.keys(saved).length !== 3
+		|| ![saved.TELOMI_WIKI_MAINTAINER_MODEL, saved.TELOMI_PRIME_AGENT_CHILD_MODEL]
+		.every((model) => typeof model === "string" && /^[^/]+\/.+$/u.test(model))
+		|| !isThinkingLevel(saved.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL))) {
+		throw new Error("Invalid persisted Wiki model selection");
+	}
+	const pinned = pinTaskModelSelection(["wikiMaintainer", "primeChild"], { ...(environment), ...saved });
+	mkdirSync(controlDirectory, { recursive: true });
+	writeJsonAtomic(selectionPath, {
+		TELOMI_WIKI_MAINTAINER_MODEL: pinned.TELOMI_WIKI_MAINTAINER_MODEL,
+		TELOMI_PRIME_AGENT_CHILD_MODEL: pinned.TELOMI_PRIME_AGENT_CHILD_MODEL,
+		TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: pinned.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL,
+	});
+	return freezeModelDefinitions(pinned, controlDirectory);
+}
+
 export class LlmWikiCompiler {
 		constructor(private readonly options: {
 			maintain?: typeof runPrimeNoteWikiMaintainer;
@@ -110,22 +130,7 @@ export class LlmWikiCompiler {
 		goalTails.set(key, current);
 		await previous;
 		try {
-			const selectionPath = join(request.controlDirectory, "wiki-model-selection.json");
-			const saved = existsSync(selectionPath) ? JSON.parse(readFileSync(selectionPath, "utf-8")) : undefined;
-			if (saved !== undefined && (!isRecord(saved) || Object.keys(saved).length !== 3
-				|| ![saved.TELOMI_WIKI_MAINTAINER_MODEL, saved.TELOMI_PRIME_AGENT_CHILD_MODEL]
-				.every((model) => typeof model === "string" && /^[^/]+\/.+$/u.test(model))
-				|| !isThinkingLevel(saved.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL))) {
-				throw new Error("Invalid persisted Wiki model selection");
-			}
-			const pinned = pinTaskModelSelection(["wikiMaintainer", "primeChild"], { ...(request.env ?? process.env), ...saved });
-			mkdirSync(request.controlDirectory, { recursive: true });
-			writeJsonAtomic(selectionPath, {
-				TELOMI_WIKI_MAINTAINER_MODEL: pinned.TELOMI_WIKI_MAINTAINER_MODEL,
-				TELOMI_PRIME_AGENT_CHILD_MODEL: pinned.TELOMI_PRIME_AGENT_CHILD_MODEL,
-				TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: pinned.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL,
-			});
-			const env = freezeModelDefinitions(pinned, request.controlDirectory);
+			const env = pinWikiModelSelection(request.controlDirectory, request.env ?? process.env);
 			const stopTracking = trackTaskModelSelection(["wikiMaintainer", "primeChild"], env, ["wikiMaintainer.maintenance"]);
 			try { return await this.compileLocked({ ...request, env }); } finally { stopTracking(); }
 		} finally {
@@ -477,7 +482,7 @@ export class LlmWikiCompiler {
 	}
 }
 
-function sessionTraceRef(
+export function sessionTraceRef(
 	controlDirectory: string,
 	name: string,
 	sessions: ReadonlyArray<{ path: string; label: string }>,

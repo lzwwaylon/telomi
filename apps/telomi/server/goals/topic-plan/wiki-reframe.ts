@@ -3,7 +3,9 @@ import { join } from "node:path";
 
 import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import { hashWikiDirectory } from "../../wiki/files.js";
-import { curateWikiEdition } from "../../wiki/wiki-shard-merge.js";
+import { NoteFirstWikiCompiler } from "../../wiki/note-first-compiler.js";
+import type { WikiGoalContext } from "../../wiki/contracts.js";
+import { caseCapture } from "../../observability/case-capture.js";
 import type { ResearchModelUsage } from "../../agent-runtime/model-usage.js";
 import { RunArtifactStore } from "../../agent-runtime/artifact-store.js";
 import { publishCompilation } from "../../wiki/publication.js";
@@ -16,10 +18,11 @@ export async function reframeActivatedGoalWiki(input: {
 	goalDir: string;
 	workspaceDir: string;
 	goal: string;
+	goalContext: WikiGoalContext;
 	proposal: GoalTopicPlanProposal;
 	env: Record<string, string | undefined>;
 	signal: AbortSignal;
-	curate?: typeof curateWikiEdition;
+	reindex?: NoteFirstWikiCompiler["reindex"];
 	publish?: typeof publishCompilation;
 }): Promise<{
 	status: "promoted" | "no_change" | "no_wiki";
@@ -36,20 +39,30 @@ export async function reframeActivatedGoalWiki(input: {
 	store.recordReframe(input.proposal.proposal_id, { status: "running", updated_at: new Date().toISOString() });
 	const workRoot = join(serverRuntimeDirForGoal(input.goalId, input.workspaceDir), "topic-plan", "reframes", input.proposal.proposal_id);
 	mkdirSync(workRoot, { recursive: true });
+	const baseKnowledgeSha256 = hashWikiDirectory(knowledgeRoot);
 	try {
-		const curated = await (input.curate ?? curateWikiEdition)({
-			operation: "reframe",
-			goal: input.goal,
+		const request = {
+			knowledgeRoot,
+			goalContext: input.goalContext,
 			topicPlan: input.proposal.candidate_plan,
-			previousEditionRoot: knowledgeRoot,
-			draftRoots: [],
 			workRoot: join(workRoot, "work"),
-			sessionRoot: join(workRoot, "sessions"),
+			env: input.env,
 			signal: input.signal,
-		});
+		};
+		const execute = input.reindex ?? ((request) => new NoteFirstWikiCompiler().reindex(request));
+		const capture = caseCapture()?.wikiReindex;
+		const curated = await (capture ? capture(request, {
+			recordDirectory: workRoot, runId: input.proposal.proposal_id, execute,
+		}) : execute(request));
+		if (curated.failedTopics.length) throw new Error(`Wiki navigation has ${curated.failedTopics.length} unfinished Topics; retry to complete publication`);
 		const artifactStore = new RunArtifactStore(workRoot);
-		const knowledge = artifactStore.publishDirectory(curated.knowledgeRoot, "artifacts/knowledge", curated.knowledgeRoot);
-		const compilationId = `wiki-curator-${input.proposal.candidate_plan.revision}`;
+		const knowledge = existsSync(join(workRoot, "artifacts/knowledge"))
+			? artifactStore.describeDirectory("artifacts/knowledge")
+			: artifactStore.publishDirectory(curated.knowledgeRoot, "artifacts/knowledge", curated.knowledgeRoot);
+		if (hashWikiDirectory(knowledge.absolutePath) !== hashWikiDirectory(curated.knowledgeRoot)) {
+			throw new Error("Wiki navigation artifact changed across publication retry");
+		}
+		const compilationId = `wiki-navigation-${input.proposal.candidate_plan.revision}`;
 		const publication = await (input.publish ?? publishCompilation)({
 			goalId: input.goalId,
 			goalDir: input.goalDir,
@@ -57,7 +70,7 @@ export async function reframeActivatedGoalWiki(input: {
 			compilation: {
 				status: "compiled",
 				compilationId,
-				baseKnowledgeSha256: hashWikiDirectory(knowledgeRoot),
+				baseKnowledgeSha256,
 				knowledge,
 				pageCount: curated.pageCount,
 				usage: curated.usage,

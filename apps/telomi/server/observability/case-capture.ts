@@ -13,6 +13,7 @@
  */
 import type { withResearchNodeEvaluationCapture, withCornellNoteCapture } from "../agent-runtime/recorded-stage-replay.js";
 import type { withPrimeSearchNodeEvaluationCapture } from "../evaluation/prime-search-replay.js";
+import type { runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "../evaluation/wiki-compilation-node-replay.js";
 import type { runWikiCuratorNodeEvaluation, runWikiShardNodeEvaluation } from "../evaluation/wiki-replay.js";
 import type { runPodcastWriterNodeEvaluation } from "../evaluation/podcast-replay.js";
 import type { runScheduleReviewNodeEvaluation } from "../evaluation/schedule-review-replay.js";
@@ -24,6 +25,8 @@ export interface CaseCaptureHooks {
 	cornellNote: typeof withCornellNoteCapture;
 	primeSearchBatch: typeof withPrimeSearchNodeEvaluationCapture;
 	wikiShard: typeof runWikiShardNodeEvaluation;
+	wikiCompilation: typeof runWikiCompilationNodeEvaluation;
+	wikiReindex: typeof runWikiReindexNodeEvaluation;
 	wikiCurator: typeof runWikiCuratorNodeEvaluation;
 	podcastWriter: typeof runPodcastWriterNodeEvaluation;
 	scheduleReviewer: typeof runScheduleReviewNodeEvaluation;

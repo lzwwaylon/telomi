@@ -110,15 +110,14 @@ try {
 		goalDir,
 		workspaceDir: root,
 		goal: "Topic gated research",
+		goalContext: { title: "Topic gated research", description: "" },
 		proposal: store.readProposal(initial.proposal_id),
 		env: {},
 		signal: new AbortController().signal,
-		curate: async (input) => {
-			observedReframe = input.operation === "reframe"
-				&& input.previousEditionRoot === knowledgeRoot
-				&& input.draftRoots.length === 0
+		reindex: async (input) => {
+			observedReframe = input.knowledgeRoot === knowledgeRoot
 				&& input.topicPlan.revision === v1.revision;
-			return { knowledgeRoot, pageCount: 0, usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, calls: 1 }, sessionPaths: [] };
+			return { knowledgeRoot, pageCount: 0, usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, calls: 1 }, sessionPaths: [], failedTopics: [] };
 		},
 		publish: async () => ({
 			status: "no_change",
@@ -128,7 +127,7 @@ try {
 			changedPaths: [],
 		}),
 	});
-	assert.equal(observedReframe, true, "Topic activation must run the same Wiki Curator in reframe mode");
+	assert.equal(observedReframe, true, "Topic activation must run navigation-only reindex");
 	assert.equal(reframed.status, "no_change");
 	assert.equal(store.readProposal(initial.proposal_id).reframe?.status, "succeeded");
 

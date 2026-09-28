@@ -38,6 +38,7 @@ const GoalTopicPlanSchema = Type.Object({
 
 export const WikiUpdateJobSchema = Type.Object({
 	schema_version: Type.Literal(1),
+	compiler: Type.Optional(Type.Union([Type.Literal("note-first"), Type.Literal("legacy")])),
 	status: Type.Union([
 		Type.Literal("queued"),
 		Type.Literal("running"),
@@ -152,6 +153,7 @@ export class WikiUpdateJobStore {
 	}
 
 	start(input: {
+		compiler?: "note-first" | "legacy";
 		goalId: string;
 		runId: string;
 		goal: string;
@@ -170,6 +172,7 @@ export class WikiUpdateJobStore {
 		const previous = this.load();
 		const job: WikiUpdateJob = {
 			schema_version: 1,
+			...(input.compiler || previous?.compiler ? { compiler: input.compiler ?? previous!.compiler! } : {}),
 			status: "queued",
 			goal_id: input.goalId,
 			run_id: input.runId,
@@ -315,7 +318,11 @@ export class WikiUpdateJobStore {
 			...previous,
 			status: "running",
 			updated_at: now,
-			progress: { ...progress, stages },
+			progress: {
+				...progress,
+				stages,
+				page_count: input.kind === "publication" ? input.pageCount : progress.page_count,
+			},
 		};
 		this.write(job);
 		return job;
@@ -431,5 +438,6 @@ function stageOrder(kind: "curation" | "publication"): number {
 }
 
 export function canResumeWikiUpdateJob(job: WikiUpdateJob): boolean {
-	return job.status === "interrupted" && job.attempts < MAX_WIKI_UPDATE_ATTEMPTS;
+	return (job.status === "interrupted" || job.compiler === "note-first" && job.status === "failed")
+		&& job.attempts < MAX_WIKI_UPDATE_ATTEMPTS;
 }

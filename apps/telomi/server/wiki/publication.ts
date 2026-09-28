@@ -23,6 +23,7 @@ export async function publishCompilation(input: {
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
 }): Promise<WikiPublicationResult> {
+	if (input.compilation.publicationReady === false) throw new Error("Incomplete Wiki candidate cannot be published; resume its Wiki Update");
 	const publication = await new GoalWorkspacePublicationLock(input.goalId, input.workspaceDir).withLock("wiki", async (): Promise<WikiPublicationResult> => {
 		validateCompilationArtifact(input.compilation);
 		const target = join(input.goalDir, "wiki", "knowledge");
@@ -91,4 +92,3 @@ function fileDigests(root: string): Array<{ relativePath: string; sha256: string
 		return { relativePath, sha256: sha256(content), byteLength: content.byteLength };
 	});
 }
-

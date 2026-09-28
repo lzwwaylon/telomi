@@ -84,6 +84,8 @@ export interface WikiCompilationStageProgress {
 
 export interface WikiCompilationResult {
 	status: "compiled" | "reused";
+	/** Partial candidates remain inspectable but cannot replace the published Edition. */
+	publicationReady?: boolean;
 	compilationId: string;
 	baseKnowledgeSha256: string;
 	knowledge: PublishedArtifactDirectoryRef;

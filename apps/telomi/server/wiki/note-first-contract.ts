@@ -1,0 +1,37 @@
+import type { ResearchModelUsage } from '../agent-runtime/model-usage.js';
+import type { GoalTopicPlan, WikiGoalContext } from './contracts.js';
+import type { ObjectFirstPage, ObjectFirstPagesResult, ObjectFirstSection } from './object-first-contract.js';
+import type { ObjectFirstEntry } from './object-first-edition.js';
+
+export type NoteFirstStage = 'objects' | 'merge-objects' | 'plan-concepts' | 'concepts' | 'merge-concepts' | 'relations' | 'plan-topics' | 'topic';
+export interface NoteFirstPageInput {
+ ref: string;
+ page: ObjectFirstPage;
+ previous: boolean;
+ role: 'member' | 'context';
+}
+export interface NoteFirstRelation { from: string; to: string; label: string; entryIds: string[] }
+export interface NoteFirstInput {
+ stage: NoteFirstStage;
+ key: string;
+ language: string;
+ goal: WikiGoalContext;
+ entries: ObjectFirstEntry[];
+ pages: NoteFirstPageInput[];
+ requiredEntries: string[];
+ requiredPages: string[];
+ topics: GoalTopicPlan['topics'];
+ sections: ObjectFirstSection[];
+ instructions: string;
+ previousRelations: NoteFirstRelation[];
+ unplacedEntries?: Array<{ entryId: string; reason: string }>;
+}
+export interface NoteFirstConceptJob { pageRefs: string[]; entryIds: string[]; instructions: string }
+export type NoteFirstResult =
+ | { kind: 'pages'; value: ObjectFirstPagesResult; consideredPages: Array<{ pageRef: string; reason: string }> }
+ | { kind: 'concept-plan'; jobs: NoteFirstConceptJob[] }
+ | { kind: 'relations'; relations: NoteFirstRelation[]; reviewedPages: Array<{ pageRef: string; reason: string }> }
+ | { kind: 'topic-plan'; jobs: Array<{ topicId: string; instructions: string }> }
+ | { kind: 'topic'; topicId: string; matches: Array<{ sectionRef: string; reason: string }>; gaps: string[] };
+export interface NoteFirstOutcome { result: NoteFirstResult; usage: ResearchModelUsage; sessionPaths: string[] }
+export interface NoteFirstStageRequest { input: NoteFirstInput; workRoot: string; env: NodeJS.ProcessEnv; signal: AbortSignal; onAttemptStarted?: (attemptRoot: string) => void }

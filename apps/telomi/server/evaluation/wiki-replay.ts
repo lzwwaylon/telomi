@@ -557,9 +557,9 @@ function validatedResult(
 	};
 }
 
-interface FrozenWikiModels { root: string; child: string; thinking: ThinkingLevel }
+export interface FrozenWikiModels { root: string; child: string; thinking: ThinkingLevel }
 
-function wikiModels(env: NodeJS.ProcessEnv): FrozenWikiModels {
+export function wikiModels(env: NodeJS.ProcessEnv): FrozenWikiModels {
 	const root = resolveLLMConfig({
 		envVarName: TASK_MODEL_ROLE_INFO.wikiMaintainer.legacyEnvVar,
 		taskModelRole: "wikiMaintainer",
@@ -573,7 +573,7 @@ function wikiModels(env: NodeJS.ProcessEnv): FrozenWikiModels {
 	};
 }
 
-function frozenWikiEnv(models: FrozenWikiModels): NodeJS.ProcessEnv {
+export function frozenWikiEnv(models: FrozenWikiModels): NodeJS.ProcessEnv {
 	return {
 		...process.env,
 		TELOMI_WIKI_MAINTAINER_MODEL: models.root,

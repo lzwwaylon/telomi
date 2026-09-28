@@ -762,7 +762,7 @@ export class NodeBacktestService {
 			for (const wikiTraceDirectory of wikiCaseTraceDirectories(value)) {
 				if (existsSync(join(sourceRunDirectory, wikiTraceDirectory))) {
 					// Wiki Curator 的 Runtime 目录与 Worker Workspace 并列；按 Runtime 内的相对路径分类。
-					const kind = basename(wikiTraceDirectory) === "curator-runtime"
+					const kind = value.agentId === "wiki-compilation" ? wikiCompilationCaseTraceKind : basename(wikiTraceDirectory) === "curator-runtime"
 						? (relativePath: string) => wikiCaseTraceKind(`runtime/${relativePath}`)
 						: wikiCaseTraceKind;
 					addDirectory("run", sourceRunDirectory, wikiTraceDirectory, kind);
@@ -1703,6 +1703,7 @@ export function capturedCaseRunRoots(workspaceDir: string, goalId: string): stri
 		join(root, "runs"),
 		join(root, "main-agent", "runs"),
 		join(root, "wiki-updates"),
+		join(root, "topic-plan", "reframes"),
 		// One terminal Evolution Run is one captured Case, written into the Run's own record
 		// directory. It is a Capture-owned Run root like any other, so retention treats the
 		// Case the same way and never touches the Evolution Run record around it.
@@ -1825,6 +1826,7 @@ function projectFrozenRun(run: NodeBacktestRun, runDirectory: string): NodeBackt
 			...(run.agentId === "report-writer" ? reportWriterTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "podcast-writer" ? podcastWriterTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "main-agent" ? mainAgentTraceRefs(runDirectory, execution) : {}),
+			...(run.agentId === "wiki-compilation" ? wikiCompilationTraceRefs(runDirectory, execution) : {}),
 			...(["wiki-shard-builder", "wiki-curator"].includes(run.agentId)
 				? wikiTraceRefs(runDirectory, execution) : {}),
 		}).filter((entry): entry is [string, string] => Boolean(entry[1])));
@@ -1998,6 +2000,30 @@ function mainAgentTraceRefs(
 		...(ref("publication.json") ? { publication: ref("publication.json") } : {}),
 		...(ref("session.json") ? { session: ref("session.json") } : {}),
 	};
+}
+
+/** Only the sanitized capture tree is exposed after settlement; live reads use stage contracts. */
+function wikiCompilationTraceRefs(runDirectory: string, execution: { id: string }): NodeExecutionRefs {
+	const root = join(runDirectory, "executions", execution.id, "wiki-compilation");
+	if (!existsSync(root)) return {};
+	const files = listFilesRecursive(root, { absolute: true, strict: true });
+	return Object.fromEntries(files.flatMap((path, index) => {
+		const ref = relative(root, path).split(sep).join("/");
+		const kind = ref.startsWith("evidence/") ? wikiCompilationCaseTraceKind(ref.slice("evidence/".length))
+			: ref.startsWith("control/") ? wikiCompilationCaseTraceKind(`stages/${ref.slice("control/".length)}`) : undefined;
+		return kind ? [[`wikiCompilation${index + 1}`, relative(runDirectory, path).split(sep).join("/")]] : [];
+	}));
+}
+
+function wikiCompilationCaseTraceKind(ref: string): string | undefined {
+	if (ref === "lifecycle.jsonl") return "runtime_trace";
+	if (ref.split("/").some(part => part.startsWith(".") || ["agent", "sdk", "skills", "node-evaluation", "credentials"].includes(part))) return undefined;
+	if (!/^(?:stages|sessions)\//u.test(ref)) return undefined;
+	if (ref.endsWith(".jsonl")) return "agent_trace";
+	if (/\/(?:system|user)-prompt\.md$/u.test(ref)) return "agent_prompt";
+	if (/\/(?:input|work)\/.*\.(?:json|md)$/u.test(ref)) return "agent_file_contract";
+	if (/\/(?:input|result|accepted|accepted-result|submitted-result|agent-context|receipts|failures|partial-result|checkpoint|plan)\.json$/u.test(ref)) return "runtime_result";
+	return undefined;
 }
 
 function wikiTraceRefs(
@@ -2191,7 +2217,7 @@ function primeSearchCaseTraceKind(relativePath: string): string | undefined {
 }
 
 function wikiCaseTraceDirectories(value: NodeEvaluationCase): string[] {
-	if (!["wiki-shard-builder", "wiki-curator"].includes(value.agentId)
+	if (!["wiki-shard-builder", "wiki-curator", "wiki-compilation"].includes(value.agentId)
 		|| value.observed.trace?.root !== "run") return [];
 	const recorded = value.observed.traceDirectories?.filter((directory) => directory.root === "run")
 		.map((directory) => directory.ref) ?? [];

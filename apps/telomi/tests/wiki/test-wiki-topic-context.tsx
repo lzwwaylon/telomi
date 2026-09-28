@@ -8,6 +8,7 @@ import "../web/setup-ui-locale.js";
 import { TopBar } from "../../web/src/app/TopBar.js";
 import { TopicPlanReadyNotice } from "../../web/src/features/chat/ChatPage.js";
 import { TopicInspector } from "../../web/src/features/goals/TopicInspector.js";
+import { wikiPageAnchor } from "../../web/src/shared/hooks/useRoute.js";
 import { wikiPageBelongsToTopic } from "../../web/src/features/wiki/wiki-model.js";
 import type { GoalSnapshot, GoalSummary } from "../../shared/types.js";
 
@@ -163,6 +164,16 @@ assert.equal(wikiPageBelongsToTopic({
 	primaryTopicRef: "topic-license",
 	topicRefs: ["topic-license"],
 }, topics[1]!), true);
-assert.equal(wikiPageBelongsToTopic({ topicRefs: ["topic-license"] }, topics[0]!), false);
+assert.equal(wikiPageBelongsToTopic({ primaryTopicRef: "", topicRefs: ["topic-license"] }, topics[0]!), false);
 
-console.log("Wiki Topic inspector and filtering passed");
+// Preserve the requested Topic until its plan loads; a resolved fallback loses deep-link intent.
+const appSource = readFileSync(new URL("../../web/src/app/App.tsx", import.meta.url), "utf8");
+assert.match(appSource, /<WikiExplorer[\s\S]*?activeTopicId=\{activeTopicId\}/u);
+const explorerSource = readFileSync(new URL("../../web/src/features/wiki/WikiExplorer.tsx", import.meta.url), "utf8");
+assert.match(explorerSource, /onFileClick=\{openUrl\} onUrlClick=\{openUrl\}/u, "file and URL links share the same fragment-aware routing");
+const currentPage = new URL("https://example.test/wiki/goal-one?topic=requested&page=entities%2Fobject.md#chapter-2");
+assert.equal(wikiPageAnchor(currentPage, "/wiki/goal-one", "entities/object.md"), "#chapter-2", "query synchronization retains the same page's chapter");
+assert.equal(wikiPageAnchor(currentPage, "/wiki/goal-one", "concepts/other.md"), "", "a different page must not inherit the chapter");
+assert.equal(wikiPageAnchor(currentPage, "/wiki/goal-two", "entities/object.md"), "", "another Goal must not inherit the chapter");
+assert.equal(wikiPageAnchor(new URL("https://example.test/wiki/goal-one?page=entities%2Fobject.md#evidence-3"), "/wiki/goal-one", "entities/object.md"), "#evidence-3");
+console.log("Wiki Topic inspector, filtering and deep-link intent passed");

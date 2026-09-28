@@ -52,7 +52,8 @@ export function primeKernelEnv(input: {
 	const runtimeEnv = primeRuntimeEnv(env);
 	return {
 		...runtimeEnv,
-		PATH: [dirname(agentPythonExecutable(env)), ...runtimeTools().binPaths, runtimeEnv.PATH].filter(Boolean).join(delimiter),
+		// Business callers may supply only Goal settings, without a host PATH. The SRT launcher uses env node.
+		PATH: [dirname(process.execPath), dirname(agentPythonExecutable(env)), ...runtimeTools().binPaths, runtimeEnv.PATH].filter(Boolean).join(delimiter),
 		PRIME_AGENT_KERNEL_PYTHON: SRT_PYTHON,
 		PRIME_AGENT_KERNEL_FORKSERVER: "0",
 		TELOMI_SRT_KERNEL_REAL_PYTHON: primeKernelPython(env),

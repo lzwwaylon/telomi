@@ -1,0 +1,8 @@
+schema_version: 2
+id: note-first
+skills: [wiki]
+prompts:
+  system-append:
+    default: system.md.njk
+  user:
+    default: user.md.njk

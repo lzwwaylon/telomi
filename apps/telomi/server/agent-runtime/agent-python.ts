@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const SRT_PYTHON = fileURLToPath(new URL("../../../extensions/telomi-srt/srt-python.mjs", import.meta.url));
 const DEFAULT_AGENT_PYTHON_VENV = fileURLToPath(new URL("../../.prime-kernel", import.meta.url));
 const pythonRoots = new Map<string, string[]>();
 
@@ -14,7 +15,17 @@ export function agentPythonVenv(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function agentPythonExecutable(env: NodeJS.ProcessEnv = process.env): string {
-	const python = resolve(env.PRIME_AGENT_KERNEL_PYTHON?.trim() || join(agentPythonVenv(env), "bin", "python"));
+	let configured = env.PRIME_AGENT_KERNEL_PYTHON?.trim();
+	// A host launched under Prime can start another Worker. Unwrap only our known
+	// launcher; arbitrary explicit interpreter overrides retain their meaning.
+	if (configured && existsSync(configured) && realpathSync(configured) === realpathSync(SRT_PYTHON)) {
+		const real = env.TELOMI_SRT_KERNEL_REAL_PYTHON?.trim();
+		if (!real || !existsSync(real) || realpathSync(real) === realpathSync(SRT_PYTHON)) {
+			throw new Error("SRT Python launcher requires a distinct existing real Python interpreter");
+		}
+		configured = real;
+	}
+	const python = resolve(configured || join(agentPythonVenv(env), "bin", "python"));
 	// Resolve the containing directory, not the executable symlink into system Python.
 	return existsSync(dirname(python)) ? join(realpathSync(dirname(python)), basename(python)) : python;
 }

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { LlmWikiCompiler } from "./compiler.js";
+import { NoteFirstWikiCompiler } from "./note-first-compiler.js";
+import { caseCapture } from "../observability/case-capture.js";
 import type { GoalTopicPlan, WikiCompilationRequest, WikiCompilationResult, WikiGoalContext } from "./contracts.js";
 import {
 	canResumeWikiUpdateJob,
@@ -73,9 +75,13 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 	onSettled?: (status: WikiUpdateJob["status"], message?: string) => void;
 }): Promise<WikiUpdateExecution> {
 	const jobs = new WikiUpdateJobStore(input.controlDirectory);
+	const previousJob = jobs.load();
+	const compilerKind = previousJob ? previousJob.compiler ?? "legacy" : "note-first";
 	let publicationStarted = false;
 	let publicationPageCount = 0;
+	let compilation: WikiCompilationResult | undefined;
 	jobs.start({
+		compiler: compilerKind,
 		goalId: input.goalId,
 		runId: input.runId,
 		goal: input.goal,
@@ -90,10 +96,14 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 		...(input.rebuild !== undefined ? { rebuild: input.rebuild } : {}),
 	});
 	try {
-		const compile = input.dependencies?.compile
-			?? ((request: WikiCompilationRequest) => new LlmWikiCompiler().compile(request));
+		const compile = input.dependencies?.compile ?? ((request: WikiCompilationRequest) => {
+			if (compilerKind === "legacy") return new LlmWikiCompiler().compile(request);
+			const execute = (pinned: WikiCompilationRequest) => new NoteFirstWikiCompiler().compile(pinned);
+			const capture = caseCapture()?.wikiCompilation;
+			return capture ? capture(request, { execute }) : execute(request);
+		});
 		const publish = input.dependencies?.publish ?? publishCompilation;
-		const compilation = await compile({
+		compilation = await compile({
 			env: input.env,
 			goalDir: input.goalDir,
 			goal: input.goal,
@@ -109,6 +119,9 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 			onBatchProgress: (progress) => jobs.recordBatch(progress),
 			onStageProgress: (progress) => jobs.recordStage(progress),
 		});
+		if (compilation.publicationReady === false) {
+			throw new Error(`Wiki 有 ${compilation.failedBatches.length} 个步骤未完成，成功步骤已保留；继续运行后发布。`);
+		}
 		publicationPageCount = compilation.pageCount;
 		jobs.recordStage({
 			kind: "publication",
@@ -145,18 +158,19 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 			failedBatches: compilation.failedBatches,
 		};
 		// 结果产物是不可变的：上一次可能已经写过它，但没来得及结算任务记录。
-		if (!existsSync(join(input.runDirectory, RESULT_ARTIFACT))) {
-			new RunArtifactStore(input.runDirectory).publishText(`${JSON.stringify({
+		{
+			recordUpdateResult(input.runDirectory, jobs.load()!.attempts, {
 				schema_version: 1,
 				status: execution.status,
 				compilation_id: execution.compilationId,
+				knowledge_ref: compilation.knowledge.relativePath,
 				publication_status: execution.publicationStatus,
 				page_count: execution.pageCount,
 				changed_paths: execution.changedPaths,
 				usage: execution.usage,
 				failed_batches: execution.failedBatches,
 				finished_at: new Date().toISOString(),
-			}, null, 2)}\n`, RESULT_ARTIFACT);
+			});
 		}
 		jobs.settle(execution.status, {
 			compilationId: execution.compilationId,
@@ -191,18 +205,32 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 			usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 },
 			message,
 		});
-		jobs.settle(status, { message });
-		if (!existsSync(join(input.runDirectory, RESULT_ARTIFACT))) {
-			new RunArtifactStore(input.runDirectory).publishText(`${JSON.stringify({
+		jobs.settle(status, { message, ...(compilation ? {
+			compilationId: compilation.compilationId,
+			failedBatches: compilation.failedBatches.map(failure => ({ batch_index: failure.batchIndex,
+				source_ids: failure.sourceIds, message: failure.message, usage: {
+					input_tokens: failure.usage.inputTokens, output_tokens: failure.usage.outputTokens,
+					cost_usd: failure.usage.costUsd, model_calls: failure.usage.calls,
+				} })),
+		} : {}) });
+		{
+			recordUpdateResult(input.runDirectory, jobs.load()!.attempts, {
 				schema_version: 1,
 				status,
 				message,
 				finished_at: new Date().toISOString(),
-			}, null, 2)}\n`, RESULT_ARTIFACT);
+			});
 		}
 		input.onSettled?.(status, message);
 		throw error;
 	}
+}
+
+function recordUpdateResult(root: string, attempt: number, value: unknown): void {
+ const store = new RunArtifactStore(root);
+ for (const path of [RESULT_ARTIFACT, `artifacts/wiki-update/attempt-${attempt}/result.json`]) {
+  if (!existsSync(join(root, path))) store.publishText(`${JSON.stringify(value, null, 2)}\n`, path);
+ }
 }
 
 /**
@@ -232,6 +260,7 @@ export function startWikiUpdateActivity(input: {
 			.flatMap((entry) => {
 				const job = new WikiUpdateJobStore(entry.controlDirectory).load();
 				return job
+					&& job.compiler === "note-first"
 					&& job.source_run_id === input.sourceRunId
 					&& job.topic_plan.revision === input.topicPlan.revision
 					&& job.goal_context.title === input.goalContext.title

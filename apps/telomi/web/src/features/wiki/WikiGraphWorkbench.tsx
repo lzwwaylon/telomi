@@ -26,6 +26,7 @@ import { uiText } from "@/app/ui-text";
 
 export function WikiGraphWorkbench({
 	cacheKey,
+	fitToView = false,
 	graph,
 	query,
 	selectedId,
@@ -34,6 +35,8 @@ export function WikiGraphWorkbench({
 	onClear,
 }: {
 	cacheKey: string;
+	/** Use the existing compact layout for embedded comparison panes. */
+	fitToView?: boolean;
 	graph: WikiGraph;
 	query: string;
 	selectedId: string | null;
@@ -46,7 +49,7 @@ export function WikiGraphWorkbench({
 	const [filters, setFilters] = useState<WikiGraphFilters>(DEFAULT_WIKI_GRAPH_FILTERS);
 	const [filterOpen, setFilterOpen] = useState(false);
 	const [insightsOpen, setInsightsOpen] = useState(false);
-	const [nodeScale, setNodeScale] = useState(1);
+	const [nodeScale, setNodeScale] = useState(fitToView ? 1.2 : 1);
 	const [spacing, setSpacing] = useState(1);
 	const [focusIds, setFocusIds] = useState<ReadonlySet<string>>(() => new Set());
 	const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
@@ -87,6 +90,7 @@ export function WikiGraphWorkbench({
 			<WikiGraphView
 				ref={graphRef}
 				cacheKey={cacheKey}
+				fitToView={fitToView}
 				graph={filtered}
 				selectedId={selectedId}
 				theme={theme}

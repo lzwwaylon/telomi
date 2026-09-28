@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { fairlyScheduled } from "../../server/accounts/stream-fallback.js";
-import { mapConcurrentFairly } from "../../server/research/pipeline/fair-concurrency.js";
+import { mapConcurrentFairly } from "../../server/lib/fair-concurrency.js";
 
 async function* burst(size: number): AsyncGenerator<number> {
 	for (let index = 0; index < size; index += 1) yield index;

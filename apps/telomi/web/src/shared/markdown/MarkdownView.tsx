@@ -1,6 +1,7 @@
-import { createContext, memo, useContext, useMemo, type ReactNode } from "react";
+import { createContext, memo, useContext, useId, useMemo, type ReactNode } from "react";
 import { uiText } from "@/app/ui-text";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import type { Element, Root } from "hast";
 import { Globe } from "lucide-react";
 import remarkGfm from "remark-gfm";
 // CommonMark refuses to close `**` when CJK punctuation sits inside and a CJK letter follows
@@ -202,7 +203,7 @@ function MarkdownAnchor({
 		if (target.startsWith("#")) {
 			let id = target.slice(1);
 			try { id = decodeURIComponent(id); } catch { /* Literal fragment is still a valid id. */ }
-			const root = e.currentTarget.closest('[data-testid="markdown-pane-content"]');
+			const root = e.currentTarget.closest("[data-markdown-view]");
 			const heading = Array.from(root?.querySelectorAll<HTMLElement>("[id]") ?? []).find((node) => node.id === id);
 			if (heading) { e.preventDefault(); heading.scrollIntoView({ block: "start" }); }
 			return;
@@ -343,7 +344,39 @@ function dispatchBlockCode(
 
 const REMARK_PLUGINS_BASE = [remarkGfm, remarkCjkFriendly, [remarkMath, MARKDOWN_MATH_OPTIONS]] as const;
 const REMARK_PLUGINS_WITH_CITE = [...REMARK_PLUGINS_BASE, remarkIndexedCitations] as const;
-const REHYPE_PLUGINS = [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex] as const;
+// Sanitization prefixes IDs and ARIA references but leaves fragment URLs untouched.
+// Keep that protection and bind references to unique IDs in this rendered document.
+function rehypeScopedAnchors(scope: string) {
+	return (tree: Root) => {
+		const elements: Element[] = [];
+		function collect(node: Root | Element) {
+			for (const child of node.children) {
+				if (child.type === "element") { elements.push(child); collect(child); }
+			}
+		}
+		collect(tree);
+		const ids = new Map<string, string>();
+		const prefix = sanitizeSchema.clobberPrefix ?? "user-content-";
+		for (const { properties } of elements) {
+			if (typeof properties.id !== "string") continue;
+			const id = properties.id;
+			properties.id = `${id}-${scope}`;
+			ids.set(id, properties.id);
+		}
+		for (const { properties } of elements) {
+			if (typeof properties.href === "string" && properties.href.startsWith("#")) {
+				let id = properties.href.slice(1);
+				try { id = decodeURIComponent(id); } catch { /* Keep literal malformed fragments. */ }
+				const target = ids.get(`${prefix}${id}`);
+				if (target) properties.href = `#${target}`;
+			}
+			for (const key of ["ariaDescribedBy", "ariaLabelledBy"]) {
+				const references = properties[key];
+				if (Array.isArray(references)) properties[key] = references.map((id) => ids.get(String(id)) ?? id);
+			}
+		}
+	};
+}
 
 function remarkPluginsForMode(mode: MarkdownMode) {
 	// terminal 模式保持纯文本观感,不把索引引用转换成 chip。
@@ -352,7 +385,7 @@ function remarkPluginsForMode(mode: MarkdownMode) {
 
 const COMMON_HANDLERS = {
 	img: MarkdownImage,
-	a({ children, href, ...props }: { children?: ReactNode; href?: string }) {
+	a({ children, href, node: _node, ...props }: { children?: ReactNode; href?: string; node?: unknown }) {
 		return (
 			<MarkdownAnchor href={href} {...props}>
 				{children}
@@ -584,11 +617,12 @@ function getComponents(mode: MarkdownMode) {
  *   - per-block path (streaming, where each completed block is memoized
  *     by content hash).
  */
-function renderMarkdown(text: string, mode: MarkdownMode): ReactNode {
+function MarkdownContent({ text, mode }: { text: string; mode: MarkdownMode }): ReactNode {
+	const scope = useId();
 	return (
 		<ReactMarkdown
 			remarkPlugins={remarkPluginsForMode(mode) as never}
-			rehypePlugins={REHYPE_PLUGINS as never}
+			rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema], [rehypeScopedAnchors, scope], rehypeKatex] as never}
 			components={getComponents(mode) as never}
 			urlTransform={markdownUrlTransform}
 		>
@@ -605,7 +639,7 @@ function renderMarkdown(text: string, mode: MarkdownMode): ReactNode {
  */
 const MemoBlock = memo(
 	function MemoBlock({ content, mode }: { content: string; mode: MarkdownMode }) {
-		return <>{renderMarkdown(content, mode)}</>;
+		return <MarkdownContent text={content} mode={mode} />;
 	},
 	(prev, next) => prev.content === next.content && prev.mode === next.mode,
 );
@@ -626,7 +660,7 @@ const MemoMarkdownBody = memo(
 		mode: MarkdownMode;
 		className: string;
 	}) {
-		return <div className={className}>{renderMarkdown(content, mode)}</div>;
+		return <div data-markdown-view="" className={className}><MarkdownContent text={content} mode={mode} /></div>;
 	},
 	(prev, next) =>
 		prev.content === next.content && prev.mode === next.mode && prev.className === next.className,
@@ -734,7 +768,7 @@ export const MarkdownView = memo(function MarkdownView({
 	const body = !splitBlocks ? (
 		<MemoMarkdownBody content={processedText} mode={mode} className={containerClass} />
 	) : (
-		<div className={containerClass}>
+		<div data-markdown-view="" className={containerClass}>
 			{blocks.map((block, i) => {
 				const isLastBlock = i === blocks.length - 1;
 				// 流式时:最后一块用 positional key,允许 token 增长重渲染。
