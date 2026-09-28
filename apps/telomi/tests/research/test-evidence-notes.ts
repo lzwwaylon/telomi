@@ -21,6 +21,9 @@ import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { PRIME_MODEL_DEFINITIONS_ENV } from "../../server/agent-runtime/prime-agent-paths.js";
 import { RunStateStore } from "../../server/research/run-state.js";
 
+import { installCaseCapture } from "../../server/observability/case-capture.js";
+
+let removeCapture: (() => void) | undefined;
 const root = mkdtempSync(join(tmpdir(), "telomi-cornell-notes-"));
 try {
 	const documents: LogicalSource[] = [
@@ -163,11 +166,11 @@ try {
 	writeFileSync(join(root, "parent-model-definitions.json"), "{}\n");
 	let writerCalls = 0;
 	let wikiEnvironment: NodeJS.ProcessEnv | undefined;
+	removeCapture = installCaseCapture({ wikiCompilation: async request => {
+		wikiEnvironment = request.env;
+		throw new Error("Controlled Wiki compiler stop after configuration handoff");
+	} });
 	const degradedRun = new Run({
-		wikiAgent: { async compile(request) {
-			wikiEnvironment = request.env;
-			throw new Error("Controlled Wiki compiler stop after configuration handoff");
-		} },
 		publishWikiCompilation: async () => { throw new Error("Unexpected Wiki publication"); },
 		stageRunner: {
 			async runStage<T>(stageRequest: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
@@ -313,7 +316,7 @@ try {
 		signal: new AbortController().signal,
 	};
 	const degradedResult = await degradedRun.run(degradedRequest as never);
-	assert.ok(wikiEnvironment, "Research must start the independent Wiki Update");
+	assert.ok(wikiEnvironment, "Research must use the default Note-first compiler through formal Case Capture");
 	assert.equal(wikiEnvironment.TELOMI_PRIME_AGENT_CHILD_MODEL, undefined, "Wiki must resolve current child configuration");
 	assert.equal(wikiEnvironment.TELOMI_PRIME_AGENT_ROOT_MODEL, undefined);
 	assert.equal(wikiEnvironment.TELOMI_RESEARCH_CORNELL_NOTE_MODEL, undefined);
@@ -373,6 +376,7 @@ try {
 	assert.equal(new RunStateStore(emptyControl).load()!.failure?.failed_stage, "evidence_materializing");
 	console.log("Cornell Note materialization tests passed");
 } finally {
+	removeCapture?.();
 	rmSync(root, { recursive: true, force: true });
 }
 

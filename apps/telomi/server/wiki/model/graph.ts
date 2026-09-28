@@ -3,11 +3,14 @@ import path from "node:path";
 import { UndirectedGraph } from "graphology";
 import louvain from "graphology-communities-louvain";
 
+import { readWikiNavigation, type WikiSection, type WikiRelation } from "./navigation.js";
 import { splitFrontmatter } from "./frontmatter.js";
 import { listWikiMarkdown, readWikiText, toWikiPath } from "./files.js";
 
 export interface WikiNode {
 	id: string;
+	pageId: string;
+	sections: WikiSection[];
 	title: string;
 	type: string;
 	description: string;
@@ -32,6 +35,7 @@ export interface WikiGraph {
 	nodes: WikiNode[];
 	edges: WikiEdge[];
 	communities: WikiCommunity[];
+	relations: WikiRelation[];
 }
 
 const MARKDOWN_LINK = /\]\(([^)\s]+\.md)(?:#[^)]*)?\)/gu;
@@ -48,6 +52,8 @@ export async function buildWikiGraph(root: string): Promise<WikiGraph> {
 			?? path.basename(file, ".md");
 		return {
 			id,
+			pageId: scalar(fields?.page_id) ?? id,
+			sections: [],
 			title,
 			type: scalar(fields?.type) ?? (isIndex ? "Section" : "Reference"),
 			description: scalar(fields?.description) ?? "",
@@ -63,7 +69,8 @@ export async function buildWikiGraph(root: string): Promise<WikiGraph> {
 			community: 0,
 		};
 	}));
-	const edges = linkNodes(nodes, root);
+	const relations = await readWikiNavigation(root, nodes);
+	const edges = linkNodes(nodes, root, relations);
 	const communities = analyzeGraph(nodes, edges);
 	return {
 		generatedAt: new Date().toISOString(),
@@ -71,10 +78,11 @@ export async function buildWikiGraph(root: string): Promise<WikiGraph> {
 		nodes,
 		edges,
 		communities,
+		relations,
 	};
 }
 
-function linkNodes(nodes: WikiNode[], root: string): WikiEdge[] {
+function linkNodes(nodes: WikiNode[], root: string, relations: WikiRelation[]): WikiEdge[] {
 	const byId = new Map(nodes.map((node) => [node.id, node]));
 	const aliases = buildAliases(nodes);
 	const directedLinks = new Set<string>();
@@ -99,6 +107,14 @@ function linkNodes(nodes: WikiNode[], root: string): WikiEdge[] {
 			node.links.push(target);
 			targetNode.backlinks.push(node.id);
 		}
+	}
+	const byPageId = new Map(nodes.map(node => [node.pageId, node]));
+	for (const relation of relations) {
+		const from = byPageId.get(relation.from)!;
+		const to = byPageId.get(relation.to)!;
+		if (!from.links.includes(to.id)) from.links.push(to.id);
+		if (!to.backlinks.includes(from.id)) to.backlinks.push(from.id);
+		connectedPairs.add([from.id, to.id].sort().join("\n"));
 	}
 	for (const node of nodes) {
 		node.links.sort();

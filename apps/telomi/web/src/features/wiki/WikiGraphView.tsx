@@ -73,15 +73,15 @@ function fitCompactGraph(instance: GraphInstance, container: HTMLElement): void 
 	const maxX = Math.max(1, ...nodes.map((node) => Math.abs(node.fx ?? node.x ?? 0)));
 	const maxY = Math.max(1, ...nodes.map((node) => Math.abs(node.fy ?? node.y ?? 0)));
 	const scale = Math.max(0.45, Math.min(1.5,
-		(container.clientWidth - 320) / (maxX * 2),
+		(container.clientWidth - 64) / (maxX * 2),
 		(container.clientHeight - 42) / (maxY * 2),
 	));
 	instance.centerAt(0, 0, 0).zoom(scale, 0);
 }
 
-function fitGraph(instance: GraphInstance, maxZoom = Number.POSITIVE_INFINITY): void {
+function fitGraph(instance: GraphInstance): void {
 	instance.zoomToFit(280, 48);
-	if (Number.isFinite(maxZoom)) window.setTimeout(() => instance.zoom(Math.min(instance.zoom(), maxZoom), 180), 420);
+	window.setTimeout(() => instance.zoom(Math.min(instance.zoom(), 2), 180), 420);
 }
 
 export const WikiGraphView = forwardRef<WikiGraphViewHandle, WikiGraphViewProps>(function WikiGraphView({
@@ -252,7 +252,7 @@ export const WikiGraphView = forwardRef<WikiGraphViewHandle, WikiGraphViewProps>
 					if (fitToView && instanceRef.current && containerRef.current) fitCompactGraph(instanceRef.current, containerRef.current);
 					else if (pendingInitialFitRef.current && instanceRef.current) {
 						pendingInitialFitRef.current = false;
-						fitGraph(instanceRef.current, instanceRef.current.graphData().nodes.length <= 4 ? 1.5 : Number.POSITIVE_INFINITY);
+						fitGraph(instanceRef.current);
 					}
 				})
 				.onNodeClick((node) => selectRef.current(node.id))
@@ -352,7 +352,7 @@ export const WikiGraphView = forwardRef<WikiGraphViewHandle, WikiGraphViewProps>
 			else if (firstLoad) {
 				instance.zoom((4 / Math.cbrt(nodes.length || 1)) * 1.35);
 				window.setTimeout(() => {
-					if (instanceRef.current === instance) fitGraph(instance, nodes.length <= 4 ? 1.5 : Number.POSITIVE_INFINITY);
+					if (instanceRef.current === instance) fitGraph(instance);
 				}, 900);
 			}
 			topologyRef.current = topology;

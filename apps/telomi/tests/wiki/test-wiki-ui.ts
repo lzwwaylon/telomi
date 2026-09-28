@@ -3,6 +3,7 @@ import test from "node:test";
 import {
 	colorsForWikiTypes,
 	defaultWikiPage,
+	wikiPageAfterNavigation,
 	filterWikiPages,
 	groupWikiPagesByType,
 	normalizeWikiFrontmatter,
@@ -115,4 +116,17 @@ test("Wiki status pill only reflects queued or running Wiki updates and Topic Pl
 	assert.equal(wikiStatusFromActivities([{ kind: "topic-plan", lifecycle: "running" }]), "rebuilding");
 	assert.equal(wikiStatusFromActivities([{ kind: "topic-plan", lifecycle: "waiting" }]), null);
 	assert.equal(wikiStatusFromActivities([{ kind: "topic-plan", lifecycle: "running" }, { kind: "wiki-update", lifecycle: "running" }]), "updating");
+});
+
+
+test("Wiki refresh preserves related pages while Topic changes choose a matching page", () => {
+	const concept: WikiPageSummary = { path: "concepts/principle.md", title: "Principle", type: "concept", description: "", primaryTopicRef: "", topicRefs: ["topic-one"] };
+	const related: WikiPageSummary = { path: "entities/example.md", title: "Example", type: "entity", description: "", primaryTopicRef: "", topicRefs: [] };
+	const all = [concept, related];
+	assert.equal(wikiPageAfterNavigation(related.path, [...all], [concept], false), related.path, "a new index array and initial deep link retain a valid related page");
+	assert.equal(wikiPageAfterNavigation(related.path, all, [concept], true), concept.path, "explicit Topic change selects a matching page");
+	assert.equal(wikiPageAfterNavigation(concept.path, all, [concept], true), concept.path);
+	assert.equal(wikiPageAfterNavigation("entities/removed.md", [concept], [concept], false), concept.path, "removed pages fall back safely");
+	assert.equal(wikiPageAfterNavigation(null, all, [concept], false), concept.path);
+	assert.equal(wikiPageAfterNavigation(related.path, all, [], true), null, "an empty Topic does not keep the old reader selection");
 });

@@ -1,0 +1,340 @@
+/** Note-scoped Wiki construction with Runtime-owned evidence and navigation. */
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
+import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
+import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
+import { hashJson } from "../lib/hash.js";
+import { writeJsonAtomic } from "../lib/fs.js";
+import { toErrorMessage } from "../lib/values.js";
+import { mapConcurrentFairly } from "../lib/fair-concurrency.js";
+import { pinWikiModelSelection, projectWikiEvidence, sessionTraceRef } from "./compiler.js";
+import { requireWikiGoalContext, validateGoalTopicPlan, wikiLanguage, type WikiCompilationRequest, type WikiCompilationResult,
+ type WikiCompilationBatchFailure, type GoalTopicPlan, type WikiGoalContext } from "./contracts.js";
+import { hashWikiDirectory } from "./files.js";
+import { noteWikiEntries } from "./note-wiki-maintainer.js";
+import { objectFirstEntries, objectFirstSections, type ObjectFirstPage, type ObjectFirstPagesResult, type ObjectFirstSection, type ObjectFirstTopicResult } from "./object-first-contract.js";
+import { readObjectFirstPrevious, writeObjectFirstEdition, writeObjectFirstIndex, type ObjectFirstPrevious } from "./object-first-edition.js";
+import { noteFirstCapabilityIdentity, runNoteFirstStage } from "./note-first-stage.js";
+import type { NoteFirstInput, NoteFirstOutcome, NoteFirstPageInput, NoteFirstRelation, NoteFirstResult, NoteFirstStageRequest } from "./note-first-contract.js";
+export type { NoteFirstStageRequest } from "./note-first-contract.js";
+
+const zero = (): ResearchModelUsage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 });
+const empty = (): ObjectFirstPagesResult => ({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] });
+const codeIdentity = () => hashJson({ stages: noteFirstCapabilityIdentity(), compiler:
+ ['./note-first-compiler.ts', './object-first-contract.ts', './object-first-edition.ts', '../lib/fair-concurrency.ts']
+ .map(path => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')) });
+const cited = (pages: ObjectFirstPage[]) => new Set(pages.flatMap(page => objectFirstEntries(page.body)));
+const sumUsage = (outcomes: Array<Pick<NoteFirstOutcome, 'usage'>>) => outcomes.reduce((a, { usage: b }) => ({ inputTokens: a.inputTokens + b.inputTokens,
+ outputTokens: a.outputTokens + b.outputTokens, costUsd: a.costUsd + b.costUsd, calls: a.calls + b.calls }), zero());
+function expect<K extends NoteFirstResult['kind']>(outcome: NoteFirstOutcome, kind: K): Extract<NoteFirstResult, { kind: K }> {
+ if (outcome.result.kind !== kind) throw new Error(`Note-first expected ${kind}, received ${outcome.result.kind}`);
+ return outcome.result as Extract<NoteFirstResult, { kind: K }>;
+}
+function pageInputs(pages: ObjectFirstPage[], role: 'member' | 'context', previous = false, prefix: string = role): NoteFirstPageInput[] {
+ return pages.map(page => ({ ref: `${prefix}:${page.id}`, page, role, previous }));
+}
+function materialize(input: NoteFirstInput, result: ObjectFirstPagesResult): ObjectFirstPage[] {
+ const members = new Map(input.pages.filter(p => p.role === 'member').map(p => [p.ref, p]));
+ const used = [...result.pages.flatMap(p => p.member_refs), ...result.retained_refs, ...result.discarded_refs.map(p => p.ref)];
+ if (new Set(used).size !== used.length || used.length !== members.size || used.some(ref => !members.has(ref))) {
+  throw new Error('Note-first merge must account for every member exactly once');
+ }
+ for (const member of members.values()) {
+  if (!member.previous) continue;
+  const target = result.retained_refs.includes(member.ref) ? member.page : result.pages.find(p => p.member_refs.includes(member.ref));
+  if (!target || objectFirstEntries(member.page.body).some(ref => !objectFirstEntries(target.body).includes(ref))) {
+   throw new Error('Note-first previous Page lost its identity disposition or citations');
+  }
+ }
+ const pages = [...result.pages.map(({ member_refs: _refs, ...page }) => page), ...result.retained_refs.map(ref => members.get(ref)!.page)];
+ if (new Set(pages.map(p => p.id)).size !== pages.length) throw new Error('Note-first duplicate final Page ID');
+ const known = new Set(input.entries.map(e => e.id)), refs = cited(pages), deferred = new Set(result.deferred_entries.map(e => e.entry_ref));
+ if ([...refs].some(ref => !known.has(ref)) || [...deferred].some(ref => !known.has(ref) || refs.has(ref))) throw new Error('Note-first invalid evidence disposition');
+ if (input.requiredEntries.some(ref => !refs.has(ref) && !deferred.has(ref))) throw new Error('Note-first required evidence missing');
+ return pages;
+}
+function remapRelations(relations: NoteFirstRelation[], input: NoteFirstInput, output: ObjectFirstPagesResult): NoteFirstRelation[] {
+ const aliases = new Map<string, string>();
+ for (const page of output.pages) for (const ref of page.member_refs) aliases.set(input.pages.find(p => p.ref === ref)!.page.id, page.id);
+ const mapped = relations.map(edge => ({ ...edge, from: aliases.get(edge.from) ?? edge.from, to: aliases.get(edge.to) ?? edge.to }));
+ return [...new Map(mapped.filter(edge => edge.from !== edge.to).map(edge => [JSON.stringify([edge.from, edge.to, edge.label]), edge])).values()];
+}
+function sectionEvidence(pages: ObjectFirstPage[]): Array<ObjectFirstSection & { entryIds: string[] }> {
+ return objectFirstSections(pages).map(section => ({ ...section, entryIds: objectFirstEntries(
+  pages.find(page => page.id === section.pageId)!.body.split('\n').slice(section.startLine - 1, section.endLine).join('\n')) }));
+}
+function previousRelations(previous: ObjectFirstPrevious): NoteFirstRelation[] {
+ return previous.relations.map(edge => ({ ...edge, entryIds: 'entryIds' in edge && Array.isArray(edge.entryIds) ? edge.entryIds as string[]
+  : [...new Set(previous.pages.filter(p => [edge.from, edge.to].includes(p.id)).flatMap(p => objectFirstEntries(p.body)))] }));
+}
+
+export interface NoteFirstReindexRequest {
+ knowledgeRoot: string; topicPlan: GoalTopicPlan; goalContext: WikiGoalContext;
+ workRoot: string; env?: NodeJS.ProcessEnv; signal: AbortSignal;
+}
+export interface NoteFirstReindexResult {
+ knowledgeRoot: string; pageCount: number; usage: ResearchModelUsage; sessionPaths: string[];
+ failedTopics: Array<{ topicId: string; error: string }>;
+}
+
+export class NoteFirstWikiCompiler {
+ constructor(private readonly options: { runStage?: (request: NoteFirstStageRequest) => Promise<NoteFirstOutcome> } = {}) {}
+
+ async compile(request: WikiCompilationRequest): Promise<WikiCompilationResult> {
+  request.signal.throwIfAborted();
+  const goal = requireWikiGoalContext(request.goalContext), topics = validateGoalTopicPlan(request.topicPlan);
+  const store = new RunArtifactStore(request.runDirectory), artifact = store.openFile(request.cornellNotesSnapshot);
+  const evidence = projectWikiEvidence(validateCornellNotesSnapshot(JSON.parse(readFileSync(artifact.absolutePath, 'utf8'))));
+  const base = join(request.goalDir, 'wiki', 'knowledge'), baseKnowledgeSha256 = hashWikiDirectory(base);
+  const priorStatus = join(base, '.note-first-status.json');
+  if (!request.rebuild && existsSync(priorStatus) && JSON.parse(readFileSync(priorStatus, 'utf8')).complete !== true) {
+   throw new Error('Incomplete Note-first output cannot seed a new Edition; resume its original compilation to retry failed tasks');
+  }
+  const previous: ObjectFirstPrevious = request.rebuild ? { pages: [], entries: [], files: new Map(), relations: [] } : await readObjectFirstPrevious(base);
+  const env = pinWikiModelSelection(request.controlDirectory, request.env ?? process.env);
+  const compilationId = `note-first-${hashJson({ notes: artifact.sha256, baseKnowledgeSha256, goal, topics, rebuild: request.rebuild === true,
+   model: env.TELOMI_WIKI_MAINTAINER_MODEL, thinking: env.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL, contract: 3, implementation: codeIdentity() }).slice(0, 24)}`;
+  const workRoot = join(request.controlDirectory, 'note-first', compilationId);
+  mkdirSync(workRoot, { recursive: true });
+  const record = join(workRoot, 'result.json');
+  if (existsSync(record)) {
+   const saved = JSON.parse(readFileSync(record, 'utf8')) as WikiCompilationResult;
+   if (store.describeDirectory(saved.knowledge.relativePath).sha256 !== saved.knowledge.sha256) throw new Error('Note-first published artifact changed');
+   return { ...saved, status: 'reused' };
+  }
+  const incoming = noteWikiEntries(evidence, topics.revision), registry = new Map(previous.entries.map(e => [e.id, e]));
+  for (const entry of incoming) {
+   if (registry.has(entry.id) && registry.get(entry.id)!.revisionSha256 !== entry.revisionSha256) throw new Error('Note-first conflicting Entry revision');
+   registry.set(entry.id, entry);
+  }
+  const entries = [...registry.values()];
+  const outcomes: NoteFirstOutcome[] = [], failedAttempts: Array<{ usage: ResearchModelUsage; sessionPaths: string[] }> = [];
+  const failures: WikiCompilationBatchFailure[] = [];
+  const finalDiscards = new Map<string, { entry_ref: string; reason: string }>();
+  const discardedPath = join(base, '.discarded-cues.json');
+  if (!request.rebuild && existsSync(discardedPath)) {
+   const saved: unknown = JSON.parse(readFileSync(discardedPath, 'utf8'));
+   if (!Array.isArray(saved)) throw new Error('Invalid final Cue discard ledger');
+   for (const row of saved) {
+    if (!row || typeof row.entry_id !== 'string' || typeof row.reason !== 'string' || !row.reason.trim()
+     || !registry.has(row.entry_id) || finalDiscards.has(row.entry_id) || cited(previous.pages).has(row.entry_id)) {
+     throw new Error('Final Cue discard ledger conflicts with previous knowledge');
+    }
+    finalDiscards.set(row.entry_id, { entry_ref: row.entry_id, reason: row.reason });
+   }
+  }
+  const unplacedReasons = new Map<string, string>();
+  const priorAccounted = cited(previous.pages);
+  for (const id of finalDiscards.keys()) priorAccounted.add(id);
+  const deferredPath = join(base, '.deferred-notes.json');
+  if (!request.rebuild && existsSync(deferredPath)) for (const row of JSON.parse(readFileSync(deferredPath, 'utf8'))) priorAccounted.add(row.entry_id);
+  const pendingEntries = new Set<string>(), available = new Set(previous.entries.map(e => e.id));
+  const fail = (index: number, ids: string[], error: unknown) => {
+   request.signal.throwIfAborted();
+   const details = error as { usage?: ResearchModelUsage };
+   failures.push({ batchIndex: index, sourceIds: ids, message: toErrorMessage(error), usage: details?.usage ?? zero() });
+   writeJsonAtomic(join(workRoot, 'failures.json'), failures);
+  };
+  const make = (stage: NoteFirstInput['stage'], key: string, patch: Partial<NoteFirstInput> = {}): NoteFirstInput => ({
+   stage, key, language: wikiLanguage(goal), goal, entries, pages: [], requiredEntries: [], requiredPages: [], topics: [], sections: [], instructions: '', previousRelations: [], unplacedEntries: [], ...patch });
+  const run = async (input: NoteFirstInput) => {
+   request.signal.throwIfAborted();
+   try {
+    const outcome = await (this.options.runStage ?? runNoteFirstStage)({ input, workRoot: join(workRoot, input.key, hashJson(input).slice(0, 24)), env, signal: request.signal,
+     onAttemptStarted: attemptRoot => sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16),
+      [{ path: join(attemptRoot, 'runtime', 'sessions'), label: input.stage }]) });
+    request.signal.throwIfAborted();
+    outcomes.push(outcome);
+    return outcome;
+   } catch (error) {
+    const details = error as { usage?: ResearchModelUsage; sessionPaths?: string[] };
+    failedAttempts.push({ usage: details?.usage ?? zero(), sessionPaths: details?.sessionPaths ?? [] });
+    throw error;
+   }
+  };
+  let curationStages = 5 + topics.topics.length;
+  const globalStage = async (input: NoteFirstInput, index: number) => {
+   const progress = { kind: 'curation' as const, stageIndex: index, totalStages: curationStages, pageCount: 0, usage: zero(),
+    traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
+   request.onStageProgress?.({ ...progress, status: 'running' });
+   try {
+    const outcome = await run(input);
+    request.onStageProgress?.({ ...progress, status: 'succeeded', usage: outcome.usage,
+     pageCount: outcome.result.kind === 'pages' ? outcome.result.value.pages.length + outcome.result.value.retained_refs.length : 0 });
+    return outcome;
+   } catch (error) { request.onStageProgress?.({ ...progress, status: 'failed', message: toErrorMessage(error), usage: (error as { usage?: ResearchModelUsage })?.usage ?? zero() }); throw error; }
+  };
+  writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-cornell-note', concurrency: 4,
+   scheduling: 'dynamic-queue', cueDispositionOwner: 'merge-objects', conceptEvidence: 'accepted-objects-only',
+   data: 'object-notes; unplaced-cues-at-object-merge; downstream-page-and-section-views', diagnosticOnly: false });
+  request.onStarted?.(evidence.notes.length);
+  const drafts = await mapConcurrentFairly(evidence.notes, 4, async (note, index) => {
+   const noteEntries = incoming.filter(e => e.sourceId === note.note.source_id);
+   const key = `objects/${hashJson({ source: note.note.source_id, revision: note.source_revision_sha256 }).slice(0, 24)}`;
+   const input = make('objects', key, { entries: noteEntries, requiredEntries: noteEntries.map(e => e.id),
+    instructions: `Process this one complete Cornell Note: ${note.title}. Its sections and all Cue details are supplied in full.` });
+   const progress = { batchIndex: index, totalBatches: evidence.notes.length, pageCount: 0, usage: zero(), reused: false, traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
+   if (noteEntries.length && noteEntries.every(entry => priorAccounted.has(entry.id))) {
+    request.onBatchProgress?.({ ...progress, status: 'succeeded', reused: true });
+    return [];
+   }
+   request.onBatchProgress?.({ ...progress, status: 'running' });
+   try {
+    const outcome = await run(input), result = expect(outcome, 'pages');
+    materialize(input, result.value);
+    for (const row of result.value.deferred_entries) unplacedReasons.set(row.entry_ref, row.reason);
+    noteEntries.forEach(e => available.add(e.id));
+    request.onBatchProgress?.({ ...progress, status: 'succeeded', pageCount: result.value.pages.length, usage: outcome.usage });
+    return result.value.pages.map(({ member_refs: _refs, ...page }) => ({ ref: `${key}:${page.id}`, page, previous: false, role: 'member' as const }));
+   } catch (error) {
+    noteEntries.filter(e => !available.has(e.id)).forEach(e => pendingEntries.add(e.id));
+    fail(index, [note.note.source_id], error);
+    request.onBatchProgress?.({ ...progress, status: 'failed', message: toErrorMessage(error), usage: (error as { usage?: ResearchModelUsage })?.usage ?? zero() });
+    return [];
+   }
+  }, request.signal);
+  const usable = entries.filter(e => available.has(e.id));
+  const objectMembers = [...pageInputs(previous.pages.filter(p => p.kind === 'entity'), 'member', true, 'previous'), ...drafts.flat()];
+  const objectDraftCues = cited(objectMembers.map(p => p.page));
+  const unplaced = usable.filter(e => !objectDraftCues.has(e.id) && !finalDiscards.has(e.id));
+  const historicalConcepts = pageInputs(previous.pages.filter(p => p.kind === 'concept'), 'context', true, 'history');
+  const mergeObjectsInput = make('merge-objects', 'merge-objects', { entries: usable, pages: [...objectMembers, ...historicalConcepts],
+   requiredEntries: [...new Set([...objectDraftCues, ...unplaced.map(e => e.id)])],
+   unplacedEntries: unplaced.map(e => ({ entryId: e.id, reason: unplacedReasons.get(e.id) ?? 'Not yet represented in an accepted object page; resolve its object placement or final disposition.' })),
+   previousRelations: previousRelations(previous) });
+  const mergedObjects = expect(await globalStage(mergeObjectsInput, 0), 'pages').value;
+  const objects = materialize(mergeObjectsInput, mergedObjects);
+  const objectCues = cited(objects);
+  for (const row of mergedObjects.deferred_entries) finalDiscards.set(row.entry_ref, row);
+  for (const entry of usable) {
+   if (objectCues.has(entry.id) === finalDiscards.has(entry.id)) throw new Error(`Cue must be adopted into objects or finally discarded: ${entry.id}`);
+  }
+  if ([...cited(historicalConcepts.map(row => row.page))].some(id => !objectCues.has(id))) {
+   throw new Error('Historical concept evidence must be repaired into objects before concept processing');
+  }
+  writeJsonAtomic(join(workRoot, 'object-cue-disposition.json'), { adoptedEntryIds: [...objectCues],
+   incomingUnplacedEntries: mergeObjectsInput.unplacedEntries, discarded: [...finalDiscards.values()] });
+  let relationships = remapRelations(previousRelations(previous), mergeObjectsInput, mergedObjects);
+  const objectRefs = pageInputs(objects, 'context');
+  const planInput = make('plan-concepts', 'plan-concepts', { entries: usable, pages: [...objectRefs, ...historicalConcepts],
+   requiredPages: objectRefs.map(p => p.ref) });
+  const conceptPlan = expect(await globalStage(planInput, 1), 'concept-plan');
+  assertPartition(conceptPlan.jobs.flatMap(job => job.pageRefs), planInput.requiredPages, 'concept object assignment');
+  assertPartition(conceptPlan.jobs.flatMap(job => job.entryIds), planInput.requiredEntries, 'concept residual assignment');
+  if (conceptPlan.jobs.some(job => job.pageRefs.length > 8 || !job.instructions.trim() || !job.pageRefs.length && !job.entryIds.length)) throw new Error('Invalid concept workset');
+  curationStages += conceptPlan.jobs.length;
+  const conceptResults = await mapConcurrentFairly(conceptPlan.jobs, 4, async (job, index) => {
+   const input = make('concepts', `concepts/${hashJson(job).slice(0, 24)}`, { entries: usable, pages: planInput.pages,
+    requiredPages: job.pageRefs, instructions: job.instructions, previousRelations: relationships });
+   try {
+    const result = expect(await globalStage(input, 2 + index), 'pages');
+    materialize(input, result.value);
+    if (result.value.deferred_entries.length || [...cited(result.value.pages)].some(id => !objectCues.has(id))) {
+     throw new Error('Concept proposals must derive their evidence from accepted objects');
+    }
+    assertPartition(result.consideredPages.map(p => p.pageRef), job.pageRefs, 'concept considered objects');
+    return { input, result };
+   } catch (error) { job.entryIds.forEach(ref => pendingEntries.add(ref)); fail(evidence.notes.length + index, job.pageRefs, error); return null; }
+  }, request.signal);
+  const successfulConcepts = conceptResults.filter(row => row !== null);
+  const conceptMembers = [...pageInputs(previous.pages.filter(p => p.kind === 'concept'), 'member', true, 'previous'),
+   ...successfulConcepts.flatMap(({ input, result }) => result.value.pages.map(({ member_refs: _refs, ...page }) => ({
+    ref: `${input.key}:${page.id}`, page, previous: false, role: 'member' as const })))];
+  const requiredConceptEntries = [...cited(conceptMembers.map(p => p.page))];
+  const mergeConceptInput = make('merge-concepts', 'merge-concepts', { entries: usable, pages: [...conceptMembers, ...objectRefs],
+   requiredEntries: requiredConceptEntries, previousRelations: relationships });
+  const mergedConcepts = expect(await globalStage(mergeConceptInput, 2 + conceptPlan.jobs.length), 'pages').value;
+  const concepts = materialize(mergeConceptInput, mergedConcepts);
+  if (mergedConcepts.deferred_entries.length || [...cited(concepts)].some(id => !objectCues.has(id))) {
+   throw new Error('Final concepts must retain evidence backed by accepted objects');
+  }
+  relationships = remapRelations(relationships, mergeConceptInput, mergedConcepts);
+  const pages = [...objects, ...concepts];
+  const allRefs = pageInputs(pages, 'context');
+  const relationInput = make('relations', 'relations', { entries: usable, pages: allRefs, requiredPages: allRefs.map(p => p.ref), previousRelations: relationships });
+  const relationResult = expect(await globalStage(relationInput, 3 + conceptPlan.jobs.length), 'relations');
+  assertPartition(relationResult.reviewedPages.map(p => p.pageRef), relationInput.requiredPages, 'relationship page review');
+  const ids = new Set(pages.map(p => p.id));
+  for (const edge of relationResult.relations) if (!ids.has(edge.from) || !ids.has(edge.to) || edge.from === edge.to) throw new Error('Invalid final relationship');
+  const sections = sectionEvidence(pages), knowledgeHash = hashJson({ pages, entries });
+  const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, 4 + conceptPlan.jobs.length + ordinal), pages, sections, topics, relations: relationResult.relations, knowledgeHash,
+   onFailure: (index, id, error) => fail(evidence.notes.length + conceptPlan.jobs.length + index, [id], error), signal: request.signal });
+  const refs = cited(pages);
+  if ([...finalDiscards.keys()].some(id => refs.has(id))) throw new Error('Finally discarded Cue reappeared in knowledge');
+  for (const entry of entries) if (!refs.has(entry.id) && !pendingEntries.has(entry.id) && !finalDiscards.has(entry.id)) {
+   throw new Error(`Note-first unaccounted evidence ${entry.id}`);
+  }
+  request.signal.throwIfAborted();
+  if (hashWikiDirectory(base) !== baseKnowledgeSha256) throw new Error('Previous Wiki changed during note-first compilation');
+  const discarded = [...finalDiscards.values()];
+  const candidateRoot = join(workRoot, `knowledge-${hashJson({ pages, relations: relationResult.relations, indexed, discarded, failures }).slice(0, 24)}`);
+  writeObjectFirstEdition(candidateRoot, pages, entries, { ...empty(), relations: relationResult.relations }, previous);
+  writeJsonAtomic(join(candidateRoot, '.discarded-cues.json'), discarded.map(row => ({ entry_id: row.entry_ref, reason: row.reason })));
+  writeObjectFirstIndex(candidateRoot, pages, indexed, sections, topics, previous);
+  writeJsonAtomic(join(candidateRoot, '.note-first-status.json'), { version: 3, complete: failures.length === 0, cueDispositionOwner: 'merge-objects',
+   discardedCueCount: discarded.length,
+   failures, pendingEntryIds: [...pendingEntries].filter(id => !refs.has(id)), objectNotes: evidence.notes.length, conceptJobs: conceptPlan.jobs.length });
+  const candidateHash = new RunArtifactStore(workRoot).describeDirectory(candidateRoot.slice(workRoot.length + 1)).sha256;
+  const outputPath = `artifacts/wiki-compilations/${compilationId}/knowledge-${candidateHash.slice(0, 24)}`;
+  const knowledge = existsSync(join(request.runDirectory, outputPath)) ? store.describeDirectory(outputPath) : store.publishDirectory(candidateRoot, outputPath);
+  if (knowledge.sha256 !== candidateHash) throw new Error('Note-first publication differs from candidate');
+  const result: WikiCompilationResult = { status: 'compiled', publicationReady: failures.length === 0, compilationId, baseKnowledgeSha256, knowledge, pageCount: pages.length,
+   usage: sumUsage([...outcomes, ...failedAttempts]), agentStages: outcomes.length + failedAttempts.length, sessionPaths: [...outcomes, ...failedAttempts].flatMap(outcome => outcome.sessionPaths), failedBatches: failures };
+  if (!failures.length) writeJsonAtomic(record, result);
+  else writeJsonAtomic(join(workRoot, 'partial-result.json'), result);
+  return result;
+ }
+
+ private async index(input: { make: (stage: NoteFirstInput['stage'], key: string, patch?: Partial<NoteFirstInput>) => NoteFirstInput;
+  run: (input: NoteFirstInput, ordinal: number) => Promise<NoteFirstOutcome>; pages: ObjectFirstPage[]; sections: ObjectFirstSection[]; topics: GoalTopicPlan; relations: NoteFirstRelation[];
+  knowledgeHash: string; onFailure: (index: number, topic: string, error: unknown) => void; signal: AbortSignal }): Promise<ObjectFirstTopicResult> {
+  const context = { pages: pageInputs(input.pages, 'context'), sections: input.sections, topics: input.topics.topics, previousRelations: input.relations };
+  const plan = expect(await input.run(input.make('plan-topics', 'plan-topics', context), 0), 'topic-plan');
+  assertPartition(plan.jobs.map(job => job.topicId), input.topics.topics.map(topic => topic.id), 'Topic assignment');
+  const topics = await mapConcurrentFairly(plan.jobs, 4, async (job, index) => {
+   try {
+    const result = expect(await input.run(input.make('topic', `topics/${hashJson(job.topicId).slice(0, 16)}`, { ...context,
+     topics: input.topics.topics.filter(topic => topic.id === job.topicId), instructions: job.instructions }), index + 1), 'topic');
+    if (result.topicId !== job.topicId || result.matches.some(m => !input.sections.some(s => s.ref === m.sectionRef))) throw new Error('Topic returned an unknown or stale reference');
+    return { topicId: job.topicId, sections: result.matches.map(m => m.sectionRef), gaps: result.gaps, matches: result.matches, status: 'succeeded' as const };
+   } catch (error) { input.signal.throwIfAborted(); input.onFailure(index, job.topicId, error);
+    return { topicId: job.topicId, sections: [], gaps: [], matches: [], status: 'failed' as const, error: toErrorMessage(error) }; }
+  }, input.signal);
+  return { knowledgeHash: input.knowledgeHash, topicPlanRevision: input.topics.revision, topics };
+ }
+
+ async reindex(input: NoteFirstReindexRequest): Promise<NoteFirstReindexResult> {
+  const goal = requireWikiGoalContext(input.goalContext), topics = validateGoalTopicPlan(input.topicPlan);
+  const before = hashWikiDirectory(input.knowledgeRoot), previous = await readObjectFirstPrevious(input.knowledgeRoot);
+  const env = pinWikiModelSelection(input.workRoot, input.env ?? process.env);
+  const outcomes: NoteFirstOutcome[] = [], failedAttempts: Array<{ usage: ResearchModelUsage; sessionPaths: string[] }> = [];
+  const failedTopics: Array<{ topicId: string; error: string }> = [];
+  const make = (stage: NoteFirstInput['stage'], key: string, patch: Partial<NoteFirstInput> = {}): NoteFirstInput => ({ stage, key,
+   language: wikiLanguage(goal), goal, entries: previous.entries, pages: [], requiredEntries: [], requiredPages: [], topics: [], sections: [], instructions: '', previousRelations: [], ...patch });
+  const sections = sectionEvidence(previous.pages);
+  const index = await this.index({ make, pages: previous.pages, sections, topics, relations: previousRelations(previous), knowledgeHash: hashJson({ pages: previous.pages, entries: previous.entries }),
+   run: async stage => {
+    try {
+     const outcome = await (this.options.runStage ?? runNoteFirstStage)({ input: stage, workRoot: join(input.workRoot, stage.key), env, signal: input.signal });
+     input.signal.throwIfAborted(); outcomes.push(outcome); return outcome;
+    } catch (error) {
+     const details = error as { usage?: ResearchModelUsage; sessionPaths?: string[] };
+     failedAttempts.push({ usage: details?.usage ?? zero(), sessionPaths: details?.sessionPaths ?? [] });
+     throw error;
+    }
+   },
+   onFailure: (_index, topicId, error) => failedTopics.push({ topicId, error: toErrorMessage(error) }), signal: input.signal });
+  input.signal.throwIfAborted();
+  if (hashWikiDirectory(input.knowledgeRoot) !== before) throw new Error('Wiki changed during Topic reindex');
+  const knowledgeRoot = mkdtempSync(join(input.workRoot, 'knowledge-'));
+  cpSync(input.knowledgeRoot, knowledgeRoot, { recursive: true });
+  if (hashWikiDirectory(knowledgeRoot) !== before) throw new Error('Wiki changed while copying Topic input');
+  writeObjectFirstIndex(knowledgeRoot, previous.pages, index, sections, topics, previous);
+  return { knowledgeRoot, pageCount: previous.pages.length, usage: sumUsage([...outcomes, ...failedAttempts]), sessionPaths: [...outcomes, ...failedAttempts].flatMap(o => o.sessionPaths), failedTopics };
+ }
+}
+function assertPartition(actual: string[], expected: string[], label: string) {
+ if (new Set(actual).size !== actual.length || actual.length !== expected.length || actual.some(ref => !expected.includes(ref))) throw new Error(`Invalid ${label}: every input must be assigned exactly once`);
+}

@@ -22,7 +22,7 @@ import {
 	renderCornellNoteAgentSystemPrompt,
 	renderCornellNoteAgentUserPrompt,
 } from "./pipeline/cornell-note-agent-prompt.js";
-import { mapConcurrentFairly } from "./pipeline/fair-concurrency.js";
+import { mapConcurrentFairly } from "../lib/fair-concurrency.js";
 import { caseCapture } from "../observability/case-capture.js";
 import { cornellNoteArtifactPath, RuntimeCornellNotesMaterializer } from "./pipeline/cornell-notes.js";
 import { isReadableTextContent, materializeAgentSourceView } from "./pipeline/agent-source-view.js";

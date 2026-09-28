@@ -129,12 +129,13 @@ const topicPlan = {
 	status: "active" as const,
 	topics: [{ id: "focus", title: "Focus", intent: "Track the Goal focus", questions: [], include: [], exclude: [] }],
 };
-const startJob = (wikiUpdateId: string, attempts = 1) => {
+const startJob = (wikiUpdateId: string, attempts = 1, compiler?: "note-first") => {
 	const controlDirectory = wikiUpdateRecordDir(workspaceDir, goalId, wikiUpdateId);
 	mkdirSync(controlDirectory, { recursive: true });
 	const jobs = new WikiUpdateJobStore(controlDirectory);
 	for (let attempt = 0; attempt < attempts; attempt += 1) {
 		jobs.start({
+			...(compiler ? { compiler } : {}),
 			goalId,
 			runId: wikiUpdateId,
 			wikiUpdateId,
@@ -147,6 +148,8 @@ const startJob = (wikiUpdateId: string, attempts = 1) => {
 	return { controlDirectory, jobs };
 };
 const interrupted = startJob("wiki_interrupted");
+const failedNoteFirst = startJob("wiki_failed_note_first", 1, "note-first");
+failedNoteFirst.jobs.settle("failed", { message: "A Note failed; successful checkpoints are retained" });
 interrupted.jobs.markInterrupted(new Date("2026-09-16T12:10:00.000Z"));
 const partial = startJob("wiki_partial");
 partial.jobs.settle("partial", {
@@ -173,6 +176,9 @@ const wikiItems = new WikiActivityProjection({ workspaceDir }, new Observability
 	.project(goalId)[0]!.items;
 const interruptedItem = wikiItems.find((item) => item.sourceRef === "wiki-update:wiki_interrupted")!;
 const partialItem = wikiItems.find((item) => item.sourceRef === "wiki-update:wiki_partial")!;
+const failedNoteFirstItem = wikiItems.find((item) => item.sourceRef === "wiki-update:wiki_failed_note_first")!;
+assert.equal(failedNoteFirstItem.attention?.actions[0]?.enabled, true, "Failed Note-first Updates expose their supported resume action");
+assert.equal(failedNoteFirstItem.resultLinks?.length, 0, "An unpublished candidate does not claim a new Wiki result");
 await en();
 assert.equal(assertRendered(interruptedItem.title, "wiki title"), "Update Goal Wiki");
 assert.equal(

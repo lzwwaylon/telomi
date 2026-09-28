@@ -58,10 +58,20 @@ const child = spawn(process.execPath, [runner], {
 const terminate = () => child.kill("SIGTERM");
 process.once("SIGTERM", terminate);
 process.once("SIGINT", terminate);
+// Linux's PID namespace cannot see the SDK owner's host PID. Keep that death
+// check outside the namespace; the native Kernel watches its in-sandbox parent.
+const ownerPid = Number(process.env.PRIME_AGENT_KERNEL_OWNER_PID);
+const ownerWatch = process.platform === "linux" && Number.isSafeInteger(ownerPid) && ownerPid > 0
+	? setInterval(() => {
+		try { process.kill(ownerPid, 0); }
+		catch (error) { if (error.code === "ESRCH") terminate(); }
+	}, 1000) : undefined;
+ownerWatch?.unref();
 const code = await new Promise((resolveExit, reject) => {
 	child.once("error", reject);
 	child.once("exit", (exitCode) => resolveExit(exitCode ?? 1));
 });
+if (ownerWatch) clearInterval(ownerWatch);
 process.exitCode = code;
 
 function kernelEnv(env) {
@@ -72,6 +82,7 @@ function kernelEnv(env) {
 			|| name.startsWith("RLM_")
 			|| name.startsWith("PRIME_AGENT_")) result[name] = value;
 	}
+	if (process.platform === "linux") delete result.PRIME_AGENT_KERNEL_OWNER_PID;
 	const scratch = executionWorkspace ? join(executionWorkspace, ".prime-kernel") : required("TELOMI_SRT_KERNEL_SCRATCH");
 	return {
 		...result,

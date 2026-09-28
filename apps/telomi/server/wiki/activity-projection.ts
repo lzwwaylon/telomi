@@ -215,6 +215,13 @@ export class WikiActivityProjection {
 					},
 				} : {}),
 			} : {}),
+			...(job.status === "failed" && canResumeWikiUpdateJob(job) ? {
+				attention: {
+					kind: "failure" as const,
+					summary: chrome("activityChrome.wiki.failedGeneric"),
+					actions: [resumeAction],
+				},
+			} : {}),
 			...(progress ? { progress: { completed: progress.completed_batches, total: progress.total_batches, label: chrome("activityChrome.wiki.batches") } } : {}),
 			timing: activityTiming(job.started_at, job.updated_at, job.finished_at),
 			resultLinks: job.status === "succeeded" || job.status === "partial" ? [{

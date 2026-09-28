@@ -29,6 +29,7 @@ import { liveProviderChildReplayRecipe } from "./provider-child-replay.js";
 import { livePrimeSearchReplayRecipe } from "./prime-search-replay.js";
 import { podcastWriterReplayRecipe } from "./podcast-replay.js";
 import { scheduleReviewerReplayRecipe, runScheduleReviewNodeEvaluation } from "./schedule-review-replay.js";
+import { wikiCompilationReplayRecipe, runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "./wiki-compilation-node-replay.js";
 import { wikiCuratorReplayRecipe, wikiShardReplayRecipe } from "./wiki-replay.js";
 import {
 	recordedStageReplayRecipes,
@@ -71,6 +72,8 @@ export function createOperationsRuntime(options: {
 		cornellNote: withCornellNoteCapture,
 		primeSearchBatch: withPrimeSearchNodeEvaluationCapture,
 		wikiShard: runWikiShardNodeEvaluation,
+		wikiCompilation: runWikiCompilationNodeEvaluation,
+		wikiReindex: runWikiReindexNodeEvaluation,
 		wikiCurator: runWikiCuratorNodeEvaluation,
 		podcastWriter: runPodcastWriterNodeEvaluation,
 		scheduleReviewer: runScheduleReviewNodeEvaluation,
@@ -87,6 +90,7 @@ export function createOperationsRuntime(options: {
 			podcastWriterReplayRecipe,
 			scheduleReviewerReplayRecipe,
 			wikiShardReplayRecipe,
+			wikiCompilationReplayRecipe,
 			wikiCuratorReplayRecipe,
 			evolutionReplayRecipe,
 			...recordedStageReplayRecipes,

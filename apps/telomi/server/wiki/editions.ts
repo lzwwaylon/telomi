@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { isInsideRoot } from "../lib/paths.js";
 
 import { GoalTopicPlanStore } from "../goals/topic-plan/index.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
@@ -18,15 +19,21 @@ export function listWikiEditions(workspaceDir: string, goalId: string): WikiEdit
 
 	const updatesRoot = join(goalDir, "wiki", "updates");
 	for (const updateId of directories(updatesRoot)) {
-		const resultPath = join(updatesRoot, updateId, "artifacts", "wiki-update", "result.json");
+		const updateRoot = join(updatesRoot, updateId);
+		const resultsRoot = join(updateRoot, "artifacts", "wiki-update");
+		const results = [join(resultsRoot, "result.json"), ...directories(resultsRoot)
+			.filter(name => /^attempt-\d+$/u.test(name)).map(name => join(resultsRoot, name, "result.json"))];
+		for (const resultPath of results) {
 		if (!existsSync(resultPath)) continue;
 		const result = JSON.parse(readFileSync(resultPath, "utf-8")) as {
-			status?: unknown; compilation_id?: unknown; finished_at?: unknown;
+			status?: unknown; compilation_id?: unknown; finished_at?: unknown; knowledge_ref?: unknown;
 		};
 		if (!["succeeded", "partial"].includes(String(result.status)) || typeof result.compilation_id !== "string") continue;
-		addEdition(candidates, join(
-			updatesRoot, updateId, "artifacts", "wiki-compilations", result.compilation_id, "knowledge",
-		), "wiki_update", typeof result.finished_at === "string" ? result.finished_at : undefined);
+		const root = typeof result.knowledge_ref === "string" ? join(updateRoot, result.knowledge_ref)
+			: join(updateRoot, "artifacts", "wiki-compilations", result.compilation_id, "knowledge");
+		if (!isInsideRoot(updateRoot, root, { rejectDotPrefix: true, allowRoot: false })) throw new Error("Wiki Edition path escapes its update");
+		addEdition(candidates, root, "wiki_update", typeof result.finished_at === "string" ? result.finished_at : undefined);
+		}
 	}
 
 	const store = new GoalTopicPlanStore(goalId, workspaceDir);

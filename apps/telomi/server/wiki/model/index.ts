@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import { ensureWikiRoot, readWikiText, resolveExistingPage, toWikiPath } from "./files.js";
 import { splitFrontmatter } from "./frontmatter.js";
+import type { WikiSection, WikiRelation } from "./navigation.js";
 import { buildWikiGraph, type WikiGraph } from "./graph.js";
 import {
 	projectWikiBodyEvidenceLinks,
@@ -14,6 +15,8 @@ import { validateGoalTopicPlan } from "../../goals/topic-plan/index.js";
 export type { WikiEdge, WikiGraph, WikiNode } from "./graph.js";
 
 export interface WikiPageSummary {
+	pageId: string;
+	sections: WikiSection[];
 	path: string;
 	title: string;
 	type: string;
@@ -34,6 +37,7 @@ export interface WikiPage extends WikiPageSummary {
 	links: string[];
 	backlinks: string[];
 	missingLinks: string[];
+	relations: Array<WikiRelation & { direction: "incoming" | "outgoing"; page: Omit<WikiPageSummary, "sections" | "primaryTopicRef" | "topicRefs"> }>;
 }
 
 export interface WikiRuntime {
@@ -55,8 +59,10 @@ export function createWikiRuntime(rootDir: string, options: { goalDir?: string }
 			const [wikiGraph, topics] = await Promise.all([graph(), readTopics(wikiRoot)]);
 			return {
 				topics,
-				pages: wikiGraph.nodes.map(({ id, title, type, description, primaryTopicRef, topicRefs }) => ({
+				pages: wikiGraph.nodes.map(({ id, pageId, sections, title, type, description, primaryTopicRef, topicRefs }) => ({
 					path: `${id}.md`,
+					pageId,
+					sections,
 					title,
 					type,
 					description,
@@ -78,6 +84,8 @@ export function createWikiRuntime(rootDir: string, options: { goalDir?: string }
 				: [];
 			return {
 				path: `${node.id}.md`,
+				pageId: node.pageId,
+				sections: node.sections,
 				title: node.title,
 				type: node.type,
 				description: node.description,
@@ -89,6 +97,12 @@ export function createWikiRuntime(rootDir: string, options: { goalDir?: string }
 				links: node.links,
 				backlinks: node.backlinks,
 				missingLinks: node.missingLinks,
+				relations: wikiGraph.relations.filter(edge => edge.from === node.pageId || edge.to === node.pageId).map(edge => {
+					const outgoing = edge.from === node.pageId;
+					const other = wikiGraph.nodes.find(candidate => candidate.pageId === (outgoing ? edge.to : edge.from))!;
+					return { ...edge, direction: outgoing ? "outgoing" as const : "incoming" as const,
+						page: { path: `${other.id}.md`, pageId: other.pageId, title: other.title, type: other.type, description: other.description } };
+				}),
 			};
 		},
 		buildGraph: graph,

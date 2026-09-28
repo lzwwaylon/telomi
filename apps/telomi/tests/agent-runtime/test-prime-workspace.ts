@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DefaultResourceLoader, formatSkillsForPrompt, getPythonSkillRuntimeInfo } from "prime-agent";
-import { agentPythonVenv } from "../../server/agent-runtime/agent-python.js";
+import { agentPythonExecutable, agentPythonVenv } from "../../server/agent-runtime/agent-python.js";
 import { createRlmChildLogicalWorkspaceSnapshotter } from "../../server/agent-runtime/logical-workspace-snapshot.js";
 import { primeKernelEnv } from "../../server/agent-runtime/prime-agent-srt.js";
 import { primeExecutionToken } from "../../../extensions/telomi-srt/prime-workspace.js";
@@ -50,6 +50,38 @@ try {
 		privateRoots: [runtime], env: { ...process.env, TELOMI_DATA_DIR: fixture, PRIME_AGENT_KERNEL_VENV: venvLink,
 			PRIME_AGENT_KERNEL_PYTHON: join(venvLink, "bin", "python") } });
 	assert.equal(env.VIRTUAL_ENV, realpathSync(venvLink), "SRT and Python agree on a linked venv's path");
+	// A product Tool can launch another Prime Worker from an already sandbox-configured host.
+	// Rebuild the child policy while preserving the real interpreter, never the parent wrapper.
+	const nestedRoot = join(fixture, "nested-agent");
+	const nestedRuntime = join(fixture, "nested-runtime");
+	mkdirSync(nestedRoot); mkdirSync(nestedRuntime);
+	const nested = primeKernelEnv({ cwd: nestedRoot, readonlyRoots: [skill], writableRoots: [nestedRoot],
+		privateRoots: [runtime, nestedRuntime], env });
+	assert.equal(nested.TELOMI_SRT_KERNEL_REAL_PYTHON, env.TELOMI_SRT_KERNEL_REAL_PYTHON,
+		"Nested launch retains the original Python interpreter rather than executing the SRT wrapper as Python");
+	assert.notEqual(nested.TELOMI_SRT_KERNEL_REAL_PYTHON, nested.PRIME_AGENT_KERNEL_PYTHON);
+	assert.throws(() => agentPythonExecutable({ ...env, TELOMI_SRT_KERNEL_REAL_PYTHON: undefined }), /distinct existing real Python/);
+	assert.throws(() => agentPythonExecutable({ ...env, TELOMI_SRT_KERNEL_REAL_PYTHON: env.PRIME_AGENT_KERNEL_PYTHON }), /distinct existing real Python/);
+	assert.equal(agentPythonExecutable({ ...env, PRIME_AGENT_KERNEL_PYTHON: env.TELOMI_SRT_KERNEL_REAL_PYTHON,
+		TELOMI_SRT_KERNEL_REAL_PYTHON: "/missing/stale-parent-python" }), env.TELOMI_SRT_KERNEL_REAL_PYTHON,
+		"An explicit real interpreter wins over an unrelated inherited SRT marker");
+	assert.match(execFileSync(nested.PRIME_AGENT_KERNEL_PYTHON!, ["-c", `
+from pathlib import Path
+import errno, rlm
+assert callable(rlm.run) and callable(rlm.host_request)
+assert Path.cwd() == Path(${JSON.stringify(nestedRoot)})
+assert Path(${JSON.stringify(join(skill, "references/example.txt"))}).read_text() == "skill reference\\n"
+Path("result.txt").write_text("nested sandbox")
+for target, mode in [(${JSON.stringify(parentFile)}, "r"), (${JSON.stringify(privateFile)}, "r"), (${JSON.stringify(join(skill, "SKILL.md"))}, "w")]:
+    try:
+        with open(target, mode) as f:
+            if mode == "r": f.read()
+    except OSError as error:
+        assert error.errno in (errno.EPERM, errno.EACCES) or (mode == "r" and error.errno == errno.ENOENT) or (mode != "r" and error.errno == errno.EROFS)
+    else:
+        raise AssertionError("nested sandbox leaked " + target)
+print("nested native runtime verified")
+`], { env: nested, encoding: "utf8" }), /nested native runtime verified/);
 	const inspectRunner = join(fixture, "inspect-runner.mjs");
 	writeFileSync(inspectRunner, `
 import assert from "node:assert/strict";
@@ -83,7 +115,8 @@ def denied(path, mode="r"):
 `;
 	const boundaryCheck = `
 from pathlib import Path
-import os, subprocess, sys, ssl, sqlite3, rlm
+import os, subprocess, sys, ssl, sqlite3, shutil, rlm
+assert Path(shutil.which("python3")).parent == Path(sys.executable).parent, "bare Python must resolve to the selected interpreter directory"
 ${deny}
 ssl.create_default_context()
 with sqlite3.connect("work/check.sqlite") as db:

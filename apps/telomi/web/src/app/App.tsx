@@ -468,9 +468,9 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 										<WikiExplorer
 											goalId={selected}
 											topics={topics}
-											activeTopicId={selectedTopicId}
+											activeTopicId={activeTopicId}
 											onActiveTopicChange={setActiveTopicId}
-											revision={viewedRevision}
+											revision={historicalRevision}
 											initialPath={wikiPagePath}
 											onSelectedPathChange={setWikiPagePath}
 											onBack={() => setRoute("goal")}

@@ -839,8 +839,7 @@ export class Run {
 		evidence: CornellNotesSnapshot;
 		cornellNotesArtifact: PublishedArtifactRef;
 	}): void {
-		if (!this.dependencies.wikiAgent
-			|| !this.dependencies.publishWikiCompilation
+		if (!this.dependencies.publishWikiCompilation
 			|| !input.request.goalWorkspaceDirectory
 				|| !input.request.workspaceRootDirectory
 				|| !input.request.topicPlan
@@ -875,7 +874,7 @@ export class Run {
 			reason: "Research Run 产出新的 Cornell Notes",
 			env: wikiEnv,
 			dependencies: {
-				compile: (compilation) => this.dependencies.wikiAgent!.compile(compilation),
+				...(this.dependencies.wikiAgent ? { compile: (compilation: WikiCompilationRequest) => this.dependencies.wikiAgent!.compile(compilation) } : {}),
 				publish: this.dependencies.publishWikiCompilation!,
 			},
 		});

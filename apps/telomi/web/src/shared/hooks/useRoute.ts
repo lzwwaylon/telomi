@@ -172,6 +172,10 @@ function artifactPath(goalId: string, filename: string): string {
 	return `${ARTIFACT_PATH_PREFIX}${encodeURIComponent(goalId)}/${encodedFile}`;
 }
 
+export function wikiPageAnchor(current: URL, nextPath: string, nextPage?: string | null): string {
+	return current.pathname === nextPath && current.searchParams.get("page") === nextPage ? current.hash : "";
+}
+
 export function useUrlSync(
 	route: Route,
 	goalId: string | null | undefined,
@@ -211,8 +215,10 @@ export function useUrlSync(
 		const current = `${window.location.pathname || "/"}${window.location.search || ""}`;
 		if (current === desired) return;
 		try {
-			// Evidence anchors (#evidence-N) belong to one Wiki page; drop them when the page changes.
-			const hash = route === "wiki" ? "" : window.location.hash || "";
+			// Page anchors survive Topic query synchronization, but never follow a different page or Goal.
+			const hash = route === "wiki"
+				? wikiPageAnchor(new URL(window.location.href), desired.split("?", 1)[0]!, wikiPage)
+				: window.location.hash || "";
 			window.history.replaceState(null, "", `${desired}${hash}`);
 		} catch {
 			/* ignore */

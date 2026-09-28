@@ -28,7 +28,7 @@ import { WikiSourcePreview } from "@/features/wiki/WikiSourcePreview";
 import { WikiEvidenceDossier } from "@/features/wiki/WikiEvidenceDossier";
 import {
 	colorsForWikiTypes,
-	defaultWikiPage,
+	wikiPageAfterNavigation,
 	filterWikiPages,
 	graphIdForPath,
 	groupWikiPagesByType,
@@ -45,6 +45,7 @@ import {
 	type WikiGraph,
 	type WikiPage,
 	type WikiPageSummary,
+	type WikiSection,
 } from "@/features/wiki/wiki-model";
 import "@/features/wiki/wiki.css";
 
@@ -70,6 +71,15 @@ function asStrings(value: unknown): string[] {
 	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function sectionsFromUnknown(value: unknown): WikiSection[] {
+	return Array.isArray(value) ? value.flatMap(item => {
+		if (!item || typeof item !== "object") return [];
+		const row = item as Record<string, unknown>;
+		return typeof row.id === "string" && typeof row.heading === "string" && typeof row.anchor === "string"
+			? [{ id: row.id, heading: row.heading, anchor: row.anchor, topicRefs: asStrings(row.topicRefs) }] : [];
+	}) : [];
+}
+
 function summaryFromUnknown(value: unknown): WikiPageSummary | null {
 	if (!value || typeof value !== "object") return null;
 	const row = value as Record<string, unknown>;
@@ -77,6 +87,8 @@ function summaryFromUnknown(value: unknown): WikiPageSummary | null {
 	if (!path) return null;
 	return {
 		path,
+		pageId: typeof row.pageId === "string" ? row.pageId : path,
+		sections: sectionsFromUnknown(row.sections),
 		title: typeof row.title === "string" && row.title.trim() ? row.title : path.split("/").pop()?.replace(/\.md$/iu, "") ?? path,
 		type: typeof row.type === "string" && row.type.trim() ? row.type : /(^|\/)index\.md$/iu.test(path) ? "Section" : "Reference",
 		description: typeof row.description === "string" ? row.description : "",
@@ -147,6 +159,13 @@ function normalizePage(value: unknown, fallback: WikiPageSummary): WikiPage {
 		: {};
 	return {
 		...summary,
+		relations: Array.isArray(row.relations) ? row.relations.flatMap(item => {
+			if (!item || typeof item !== "object") return [];
+			const edge = item as Record<string, unknown>;
+			const linked = summaryFromUnknown(edge.page);
+			return linked && typeof edge.from === "string" && typeof edge.to === "string" && typeof edge.label === "string" && (edge.direction === "incoming" || edge.direction === "outgoing")
+				? [{ from: edge.from, to: edge.to, label: edge.label, direction: edge.direction, page: linked }] : [];
+		}) : [],
 		content: stripDuplicateLeadingHeading(content, summary.title),
 		frontmatter: normalizeWikiFrontmatter(frontmatter),
 		sources: asStrings(frontmatter.sources),
@@ -204,7 +223,7 @@ function WikiPageGroups({ groups, colors, selectedPath, onSelect }: {
 			<div><span style={{ background: colors[group.type] }} />{group.type === "concept" ? uiText("wiki.explorer.concepts") : uiText("wiki.explorer.entities")}<small>{group.pages.length}</small></div>
 			{group.pages.map((item) => (
 				<button type="button" key={item.path} className="wiki-index-page" data-active={item.path === selectedPath ? "true" : undefined} onClick={() => onSelect(item.path)} aria-current={item.path === selectedPath ? "page" : undefined} aria-label={item.title} title={item.path}>
-					<span style={{ background: colors[group.type] }} /><strong>{item.title}</strong>
+					<span style={{ background: colors[group.type] }} /><span className="wiki-index-page-copy"><strong>{item.title}</strong>{item.description && <small>{item.description}</small>}</span>
 				</button>
 			))}
 		</div>
@@ -213,6 +232,7 @@ function WikiPageGroups({ groups, colors, selectedPath, onSelect }: {
 
 function WikiNavigation({
 	pages,
+	relatedPages,
 	topics,
 	activeTopicId,
 	selectedPath,
@@ -221,6 +241,7 @@ function WikiNavigation({
 	onTopicSelect,
 }: {
 	pages: WikiPageSummary[];
+	relatedPages: WikiPageSummary[];
 	topics: WikiTopicOption[];
 	activeTopicId: string | null;
 	selectedPath: string | null;
@@ -277,6 +298,7 @@ function WikiNavigation({
 						: <p className="wiki-index-empty">{uiText("wiki.explorer.noMatchingPages")}</p>)}
 				</section>;
 			})}
+			{relatedPages.length > 0 && <details className="wiki-topic-related"><summary>{uiText("wiki.explorer.relatedOnly")} <small>{relatedPages.length}</small></summary><p>{uiText("wiki.explorer.relatedExplanation")}</p><WikiPageGroups groups={groupWikiPagesByType(filterWikiPages(relatedPages, query))} colors={typeColors} selectedPath={selectedPath} onSelect={onSelect} /></details>}
 			{topics.length === 0 && <WikiPageGroups groups={groups} colors={typeColors} selectedPath={selectedPath} onSelect={onSelect} />}
 			{topics.length === 0 && groups.length === 0 && <p className="wiki-index-empty">{uiText("wiki.explorer.noMatchingPages")}</p>}
 		</nav>
@@ -337,7 +359,7 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 			}) : []);
 			setGraph(normalizedGraph);
 			setGeneratedAt(normalizedGraph?.generatedAt ?? "");
-			setSelectedPath((current) => current && nextPages.some((item) => item.path === current) ? current : defaultWikiPage(nextPages));
+			setSelectedPath((current) => current && nextPages.some((item) => item.path === current) ? current : null);
 		} catch (reason) {
 			setError(reason instanceof Error ? reason.message : uiText("wiki.explorer.wikiIsTemporarilyUnavailable"));
 			if (!background) {
@@ -471,6 +493,24 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, []);
 
+	const [pendingSection, setPendingSection] = useState<{ path: string; anchor: string } | null>(() => {
+		if (!initialPath || typeof window === "undefined" || !window.location.hash) return null;
+		try { return { path: initialPath, anchor: decodeURIComponent(window.location.hash.slice(1)) }; } catch { return null; }
+	});
+	useLayoutEffect(() => {
+		if (!page || loadingPage || sourcePath) return;
+		const headings = Array.from(readerRef.current?.querySelectorAll<HTMLElement>(".wiki-markdown h2") ?? []);
+		(page.sections ?? []).forEach((section, index) => {
+			const heading = headings[index];
+			if (heading) { heading.id = section.anchor; heading.tabIndex = -1; }
+		});
+		if (pendingSection?.path === page.path) {
+			const heading = headings.find(node => node.id === pendingSection.anchor);
+			if (heading) { heading.scrollIntoView({ block: "start" }); heading.focus({ preventScroll: true }); }
+			setPendingSection(null);
+		}
+	}, [page, loadingPage, pendingSection, sourcePath, view]);
+
 	const [pendingEvidence, setPendingEvidence] = useState<{ path: string; index: number } | null>(null);
 	useEffect(() => {
 		if (!pendingEvidence || view !== "explore" || loadingPage || page?.path !== pendingEvidence.path) return;
@@ -482,7 +522,8 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 		setPendingEvidence(null);
 	}, [pendingEvidence, view, loadingPage, page]);
 
-	const selectPage = useCallback((path: string, evidenceIndex?: number) => {
+	const selectPage = useCallback((path: string, evidenceIndex?: number, anchor?: string) => {
+		setPendingSection(anchor ? { path, anchor } : null);
 		setPendingEvidence(evidenceIndex ? { path, index: evidenceIndex } : null);
 		setView("explore");
 		setSourcePath(null);
@@ -493,11 +534,21 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 		setSelectedPath(path);
 	}, [selectedPath]);
 
-	const availableTopics = topics.length > 0 ? topics : wikiTopics;
+	const selectSection = (anchor: string) => {
+		if (page) setPendingSection({ path: page.path, anchor });
+	};
+
+	const availableTopics = wikiTopics.length > 0 ? wikiTopics : topics;
 	const activeTopic = availableTopics.find((topic) => topic.id === activeTopicId) ?? availableTopics[0];
 	const topicPages = useMemo(() => activeTopic
 		? pages.filter((item) => wikiPageBelongsToTopic(item, activeTopic))
 		: pages, [activeTopic, pages]);
+	const relatedPages = useMemo(() => {
+		if (!activeTopic || !graph) return [];
+		const direct = new Set(topicPages.map(item => graphIdForPath(item.path)));
+		const related = new Set(graph.edges.flatMap(edge => direct.has(edge.source) ? [edge.target] : direct.has(edge.target) ? [edge.source] : []));
+		return listedWikiPages(pages.filter(item => related.has(graphIdForPath(item.path)) && !direct.has(graphIdForPath(item.path))));
+	}, [activeTopic, graph, topicPages, pages]);
 	const topicGraph = useMemo(() => {
 		if (!graph || !activeTopic) return graph;
 		const nodes = graph.nodes.filter((node) => wikiPageBelongsToTopic(node, activeTopic));
@@ -517,12 +568,14 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 		if (activeTopic && activeTopic.id !== activeTopicId) onActiveTopicChange(activeTopic.id);
 	}, [activeTopic, activeTopicId, onActiveTopicChange]);
 
+	const selectionTopicRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
-		if (topicPages.length === 0) return;
-		setSelectedPath((current) => current && topicPages.some((item) => item.path === current)
-			? current
-			: defaultWikiPage(topicPages));
-	}, [topicPages]);
+		if (loadingIndex) return;
+		const topicKey = `${goalId}:${activeTopic?.id ?? ""}`;
+		const changed = selectionTopicRef.current !== undefined && selectionTopicRef.current !== topicKey;
+		selectionTopicRef.current = topicKey;
+		setSelectedPath(current => wikiPageAfterNavigation(current, pages, topicPages, changed));
+	}, [goalId, activeTopic?.id, loadingIndex, pages, topicPages]);
 
 	const openUrl = useCallback((target: string) => {
 		if (target.startsWith("#")) {
@@ -534,20 +587,16 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 			return;
 		}
 		const internalPath = selectedPath ? resolveWikiLink(selectedPath, target) : null;
-		if (internalPath && topicPages.some((item) => item.path === internalPath)) {
-			selectPage(internalPath);
+		if (internalPath && pages.some((item) => item.path === internalPath)) {
+			let anchor = target.split("#")[1];
+			try { if (anchor) anchor = decodeURIComponent(anchor); } catch { /* Retain a literal fragment. */ }
+			selectPage(internalPath, undefined, anchor);
 			return;
 		}
 		if (/^https?:/iu.test(target)) window.open(target, "_blank", "noopener,noreferrer");
-	}, [selectPage, selectedPath, topicPages]);
+	}, [selectPage, selectedPath, pages]);
 
-	const openFile = useCallback((target: string) => {
-		if (!selectedPath) return;
-		const path = resolveWikiLink(selectedPath, target);
-		if (path && topicPages.some((item) => item.path === path)) selectPage(path);
-	}, [selectPage, selectedPath, topicPages]);
-
-	const pagesById = useMemo(() => new Map(topicPages.map((item) => [graphIdForPath(item.path), item])), [topicPages]);
+	const pagesById = useMemo(() => new Map(pages.map((item) => [graphIdForPath(item.path), item])), [pages]);
 	const pageLinks = page ? [...new Set(page.links)].flatMap((id) => pagesById.get(id.replace(/\.md$/iu, "")) ?? []).filter((item) => item.type.toLocaleLowerCase() !== "source") : [];
 	const pageBacklinks = page ? [...new Set(page.backlinks)].flatMap((id) => pagesById.get(id.replace(/\.md$/iu, "")) ?? []).filter((item) => item.type.toLocaleLowerCase() !== "source") : [];
 	const renderedContent = page?.content ?? "";
@@ -605,7 +654,7 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 							<span className="sr-only">{uiText("wiki.explorer.filterPages")}</span>
 							<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={uiText("wiki.explorer.filterPages")} />
 						</label>
-						<WikiNavigation pages={pages} topics={availableTopics} activeTopicId={activeTopic?.id ?? null} selectedPath={selectedPath} query={query} onSelect={selectPage} onTopicSelect={onActiveTopicChange} />
+						<WikiNavigation pages={pages} relatedPages={relatedPages} topics={availableTopics} activeTopicId={activeTopic?.id ?? null} selectedPath={selectedPath} query={query} onSelect={selectPage} onTopicSelect={onActiveTopicChange} />
 				</aside>
 
 					<section className="wiki-graph-stage" aria-label={uiText("wiki.explorer.wikiGraph")}>
@@ -630,22 +679,29 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 							<div className="wiki-state"><BookOpenText aria-hidden /><p>{uiText("wiki.explorer.selectAPageToReadOrExploreTheGraph")}</p></div>
 					) : (
 						<article className="wiki-detail-document">
-							<div className="wiki-page-kicker"><span className="wiki-page-type">{page.type}</span><span>{String(selectedPageIndex + 1).padStart(2, "0")} / {String(detailPages.length).padStart(2, "0")}</span></div>
+							<div className="wiki-page-kicker"><span className="wiki-page-type">{page.type}</span><span>{selectedPageIndex >= 0 ? `${selectedPageIndex + 1} / ${detailPages.length}` : uiText("wiki.explorer.relatedOnly")}</span></div>
 							<h1>{page.title}</h1>
 							{page.description && <p className="wiki-page-description">{page.description}</p>}
 							<hr />
+							{(page.sections?.length ?? 0) > 0 && <nav className="wiki-section-index" aria-label={uiText("wiki.explorer.sections")}><h2>{uiText("wiki.explorer.sections")}</h2>{page.sections!.map(section => <button type="button" key={section.id} onClick={() => selectSection(section.anchor)}>{section.heading}{activeTopic && section.topicRefs.includes(activeTopic.id) && <small>{uiText("wiki.explorer.directMatch")}</small>}</button>)}</nav>}
 								{page.sources.length > 0 && page.evidence.length === 0 && <section className="wiki-source-evidence" aria-label={uiText("wiki.explorer.sourceEvidenceCount", { count: page.sources.length })}>
 									<header><Database aria-hidden /><h2>{uiText("common.sourceEvidence")}</h2><span>{page.sources.length}</span></header>
 									<div>{page.sources.map((source) => <button type="button" key={source} onClick={() => openSource(source)}><code>{source}</code><small>{uiText("wiki.explorer.openOriginal")}</small></button>)}</div>
 							</section>}
 							{pageLinks.length > 0 || pageBacklinks.length > 0 ? <section className="wiki-page-connections" aria-labelledby="wiki-page-connections-title">
 									<header><Network aria-hidden /><h2 id="wiki-page-connections-title">{uiText("wiki.explorer.connections")}</h2></header>
-									<PageLinks key={`${page.path}:related`} title={uiText("common.relatedPages")} icon={Link2} pages={pageLinks} onSelect={selectPage} />
-									<PageLinks key={`${page.path}:backlinks`} title={uiText("common.referencedBy")} icon={CornerUpLeft} pages={pageBacklinks} onSelect={selectPage} />
+									{(["incoming", "outgoing"] as const).map(direction => {
+										const relations = page.relations.filter(edge => edge.direction === direction);
+										return relations.length > 0 ? <details className="wiki-page-links wiki-semantic-relations" key={`${page.path}:${direction}`}><summary><Link2 aria-hidden /><strong>{uiText(direction === "incoming" ? "wiki.explorer.incomingRelation" : "wiki.explorer.outgoingRelation")}</strong><small>{relations.length}</small><ChevronRight aria-hidden /></summary><div>{relations.map(edge => <button type="button" key={`${edge.from}:${edge.to}:${edge.label}`} onClick={() => selectPage(edge.page.path)}>
+											<span><strong>{edge.page.title}</strong><small>{edge.page.description}</small></span><span>{edge.label}</span>
+										</button>)}</div></details> : null;
+									})}
+									<PageLinks key={`${page.path}:related`} title={uiText("common.relatedPages")} icon={Link2} pages={pageLinks.filter(linked => !page.relations.some(edge => edge.direction === "outgoing" && edge.page.path === linked.path))} onSelect={selectPage} />
+									<PageLinks key={`${page.path}:backlinks`} title={uiText("common.referencedBy")} icon={CornerUpLeft} pages={pageBacklinks.filter(linked => !page.relations.some(edge => edge.direction === "incoming" && edge.page.path === linked.path))} onSelect={selectPage} />
 							</section> : null}
 							<MissingLinks targets={page.missingLinks} />
 							<WikiMetadata entries={page.frontmatter} />
-							<MarkdownView text={renderedContent} mode="document" linkify={false} goalId={goalId} onFileClick={openFile} onUrlClick={openUrl} className="wiki-markdown" />
+							<MarkdownView text={renderedContent} mode="document" linkify={false} goalId={goalId} onFileClick={openUrl} onUrlClick={openUrl} className="wiki-markdown" />
 							<WikiEvidenceDossier goalId={goalId} evidence={page.evidence} revision={revision} onOpenSource={openSource} />
 								<nav className="wiki-detail-pager" aria-label={uiText("wiki.explorer.adjacentKnowledgePages")}>
 									{selectedPageIndex > 0 ? <button type="button" onClick={() => selectPage(detailPages[selectedPageIndex - 1]!.path)}><ChevronLeft aria-hidden /><span><small>{uiText("wiki.explorer.previous")}</small>{detailPages[selectedPageIndex - 1]!.title}</span></button> : <span />}

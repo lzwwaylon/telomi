@@ -51,7 +51,7 @@ import type { ScheduledResearchContext } from "./scheduled-research-context.js";
 import type { ResearchProgressEvent, ResearchRuntimeConfig } from "./research-types.js";
 import type { RunContextSnapshot } from "./run-context.js";
 import type { GoalTopicPlan } from "../goals/topic-plan/index.js";
-import { createGoalLlmWikiTools, LlmWikiCompiler,
+import { createGoalLlmWikiTools,
 	type WikiCompilationResult } from "../wiki/index.js";
 import { publishCompilation } from "../wiki/publication.js";
 import { materializeSkills } from "../agent-runtime/skill-registry.js";
@@ -203,7 +203,6 @@ export class ResearchRuntime {
 				evidenceMaterializer,
 				validateCitationUrls: (markdown, signal) =>
 					getResearchSourceServiceClient().validateCitationUrls(markdown, signal),
-				wikiAgent: new LlmWikiCompiler(),
 				publishWikiCompilation: publishCompilation,
 			});
 			const result = await run.run({

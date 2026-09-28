@@ -546,3 +546,29 @@
 }
 
 .wiki-result-title:focus-visible, .wiki-search-error button:focus-visible, .wiki-search button:focus-visible { outline: 2px solid var(--wiki-blue); outline-offset: 2px; }
+
+/* The directory discloses summaries; only a selected page exposes its sections. */
+.wiki-index-page > .wiki-index-page-copy { width: auto; height: auto; min-width: 0; flex: 1; border-radius: 0; }
+.wiki-index-page-copy strong, .wiki-index-page-copy small { display: block; }
+.wiki-index-page-copy small { margin-top: 4px; color: var(--wiki-muted); font-size: 11px; line-height: 1.5; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.wiki-topic-related { margin: 16px 0; border-top: 1px solid var(--wiki-edge); padding-top: 12px; }
+.wiki-topic-related > summary { cursor: pointer; color: var(--wiki-text); font-size: 13px; }
+.wiki-topic-related > p { color: var(--wiki-muted); font-size: 12px; line-height: 1.6; padding: 0 10px; }
+.wiki-section-index { margin: 0 0 24px; }
+.wiki-section-index h2 { font-size: 14px; margin: 0 0 8px; }
+.wiki-section-index button { display: flex; align-items: baseline; gap: 12px; width: 100%; padding: 8px 0; text-align: left; color: var(--wiki-text); border-bottom: 1px solid var(--wiki-edge); font-size: 13px; }
+.wiki-section-index button small { flex: none; margin-left: auto; color: var(--wiki-blue); }
+.wiki-semantic-relations button { display: flex; flex-wrap: wrap; gap: 8px 16px; width: 100%; padding: 12px 0; text-align: left; border-top: 1px solid var(--wiki-edge); color: var(--wiki-text); font-size: 12px; }
+.wiki-semantic-relations button > span:first-child { flex: 1 1 240px; }
+.wiki-semantic-relations strong, .wiki-semantic-relations small { display: block; }
+.wiki-semantic-relations small { margin-top: 4px; color: var(--wiki-muted); line-height: 1.6; }
+.wiki-semantic-relations button > span:last-child { color: var(--wiki-muted); }
+.wiki-section-index button:hover, .wiki-semantic-relations button:hover { color: var(--wiki-blue); }
+.wiki-section-index button:focus-visible, .wiki-semantic-relations button:focus-visible, .wiki-topic-related > summary:focus-visible { outline: 2px solid var(--wiki-blue); outline-offset: 2px; }
+.wiki-semantic-relations button strong { white-space: normal; font-size: 13px; overflow-wrap: anywhere; }
+.wiki-semantic-relations button small { font-size: 12px; }
+.wiki-semantic-relations button > span:last-child { flex: 1 1 160px; line-height: 1.6; }
+.wiki-markdown h2 { scroll-margin-top: 16px; }
+@media (max-width: 820px) {
+  .wiki-markdown h2 { scroll-margin-top: 120px; }
+}

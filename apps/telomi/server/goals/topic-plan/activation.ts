@@ -138,6 +138,7 @@ export class GoalTopicPlanActivation {
 				goalDir: join(workspaceDir, goal.id),
 				workspaceDir,
 				goal: [goal.title, goal.description].filter(Boolean).join("\n\n"),
+				goalContext: { title: goal.title, description: goal.description },
 				proposal,
 				env: this.capabilities.goalEnv(goal.id),
 				signal: new AbortController().signal,

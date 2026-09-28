@@ -14,7 +14,8 @@ When changing module responsibilities or interfaces, read the relevant documents
 | Workspace Knowledge Pinning | Pinning the Goal Knowledge used by Research | [Workspace Knowledge Pinning](workspace-knowledge-runtime.md) |
 | Utility Agents | Model connectivity, voice cleanup, podcast generation, and voice entry | [Utility Agents](utility-agents.md) |
 | Localization | Independent contracts for UI language, Goal output language, and voice language | [Localization](localization.md) |
-| Wiki Shard Builder | Curating candidate Entities and Concepts per Source batch | [Wiki Shard Builder](wiki-shard-builder.md) |
+| Wiki Compilation | Complete-Note object construction, concepts, relations, Topic navigation and recovery | [Wiki Compilation](wiki-compilation.md) |
+| Legacy Wiki Shard Builder | Historical Source-batch curation and Replay compatibility | [Wiki Shard Builder](wiki-shard-builder.md) |
 | Evolution | Triggers, inner loop, and automatic application of Goal-scoped Browser Skill evolution | [Evolution Module](../evolution-module-design.md) |
 
 ## Runtime modules
@@ -40,4 +41,5 @@ The table below records only ownership relationships that are not apparent from 
 | `research/prime-search` | Prime Search and Source Organizer |
 | `research/cornell-note`, `research/report-writer`, `research/find-out-report-writer`, `research/schedule-reviewer` | Research Agents |
 | `wiki/wiki-shard-builder`, `wiki/wiki-curator` | Respective Wiki Roots |
+| `wiki/note-first` | Wiki Compilation stages and Topic Python Skill |
 | `evolution/browser-skill-evolution` | [Evolution Module](../evolution-module-design.md) |

@@ -48,6 +48,7 @@ const MAX_CASES = 20;
 const MAX_REPETITIONS = 5;
 const MAX_PROMPT_CHARACTERS = 200_000;
 const INLINE_ARTIFACT_BYTES = 1_000_000;
+const MAX_CACHED_PROJECTION_BYTES = 32 * 1024 * 1024;
 
 export type NodeBacktestStatus =
 	| "queued"
@@ -265,6 +266,13 @@ export interface NodeBacktestServiceOptions {
 	concurrency?: number;
 }
 
+interface ReplayReadProjection {
+	path: string;
+	source: string;
+	run: NodeBacktestRun;
+	allowed: Set<string>;
+}
+
 interface QueueRef {
 	goalId: string;
 	runId: string;
@@ -281,6 +289,8 @@ export class NodeBacktestService {
 	private readonly active = new Map<string, Promise<void>>();
 	private readonly controllers = new Map<string, AbortController>();
 	private stopped = true;
+	// ponytail: cache one settled Run up to 32 MiB serialized; add LRU only if concurrent archives thrash it.
+	private replayReadCache?: ReplayReadProjection;
 
 	constructor(private readonly options: NodeBacktestServiceOptions) {
 		this.module = new NodeEvaluationModule(options.recipes);
@@ -300,6 +310,7 @@ export class NodeBacktestService {
 
 	stop(): void {
 		this.stopped = true;
+		this.replayReadCache = undefined;
 		for (const controller of this.controllers.values()) controller.abort();
 	}
 
@@ -433,10 +444,31 @@ export class NodeBacktestService {
 	}
 
 	read(goalId: string, runId: string): NodeBacktestRun | null {
+		const projection = this.readProjection(goalId, runId);
+		return projection ? structuredClone(projection.run) : null;
+	}
+
+	private readProjection(goalId: string, runId: string): ReplayReadProjection | null {
 		try {
-			const run = parseRun(readFileSync(this.runPath(goalId, runId), "utf-8"));
+			const path = this.runPath(goalId, runId);
+			const source = readFileSync(path, "utf-8");
+			const active = this.active.has(this.activeKey(goalId, runId));
+			const cached = this.replayReadCache;
+			// Compare manifest bytes, not timestamps. A cancelled execution may still be draining.
+			if (!active && cached?.path === path && cached.source === source) return cached;
+			if (cached?.path === path) this.replayReadCache = undefined;
+			const run = parseRun(source);
 			if (!run) return null;
-			return projectFrozenRun(run, this.runDirectory(goalId, runId));
+			const projected = projectFrozenRun(run, this.runDirectory(goalId, runId));
+			const projection = { path, source, run: projected, allowed: new Set([
+				...projected.executions.flatMap(execution => Object.values(execution.refs ?? {})),
+				...Object.values(projected.activeExecution?.refs ?? {}),
+			].filter((ref): ref is string => Boolean(ref))) };
+			if (!active && run.status !== "queued" && run.status !== "running"
+				&& Buffer.byteLength(source) + Buffer.byteLength(JSON.stringify(projected)) <= MAX_CACHED_PROJECTION_BYTES) {
+				this.replayReadCache = projection;
+			}
+			return projection;
 		} catch {
 			return null;
 		}
@@ -762,7 +794,7 @@ export class NodeBacktestService {
 			for (const wikiTraceDirectory of wikiCaseTraceDirectories(value)) {
 				if (existsSync(join(sourceRunDirectory, wikiTraceDirectory))) {
 					// Wiki Curator 的 Runtime 目录与 Worker Workspace 并列；按 Runtime 内的相对路径分类。
-					const kind = basename(wikiTraceDirectory) === "curator-runtime"
+					const kind = value.agentId === "wiki-compilation" ? wikiCompilationCaseTraceKind : basename(wikiTraceDirectory) === "curator-runtime"
 						? (relativePath: string) => wikiCaseTraceKind(`runtime/${relativePath}`)
 						: wikiCaseTraceKind;
 					addDirectory("run", sourceRunDirectory, wikiTraceDirectory, kind);
@@ -892,19 +924,18 @@ export class NodeBacktestService {
 	}
 
 	replayFile(goalId: string, runId: string, ref: string): string {
-		const run = this.requireRun(goalId, runId);
-		const allowed = new Set([
-			...run.executions.flatMap((execution) => Object.values(execution.refs ?? {})),
-			...Object.values(run.activeExecution?.refs ?? {}),
-		].filter((value): value is string => Boolean(value)));
-		if (!allowed.has(ref)) throw new Error(`Unknown Node Backtest file ref '${ref}'`);
+		const projection = this.readProjection(goalId, runId);
+		if (!projection) throw new Error(`Unknown Node Backtest '${runId}'`);
+		if (!projection.allowed.has(ref)) throw new Error(`Unknown Node Backtest file ref '${ref}'`);
 		const root = realpathSync(this.runDirectory(goalId, runId));
 		const path = resolve(root, ref);
 		const rel = relative(root, path);
 		if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error("Trace ref escapes its run");
 		const stat = lstatSync(path);
 		if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error("Trace ref is not a safe regular file");
-		return realpathSync(path);
+		const real = realpathSync(path);
+		if (real !== path) throw new Error("Trace ref contains a symbolic link");
+		return real;
 	}
 
 	cancel(goalId: string, runId: string): NodeBacktestRun {
@@ -1703,6 +1734,7 @@ export function capturedCaseRunRoots(workspaceDir: string, goalId: string): stri
 		join(root, "runs"),
 		join(root, "main-agent", "runs"),
 		join(root, "wiki-updates"),
+		join(root, "topic-plan", "reframes"),
 		// One terminal Evolution Run is one captured Case, written into the Run's own record
 		// directory. It is a Capture-owned Run root like any other, so retention treats the
 		// Case the same way and never touches the Evolution Run record around it.
@@ -1825,6 +1857,7 @@ function projectFrozenRun(run: NodeBacktestRun, runDirectory: string): NodeBackt
 			...(run.agentId === "report-writer" ? reportWriterTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "podcast-writer" ? podcastWriterTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "main-agent" ? mainAgentTraceRefs(runDirectory, execution) : {}),
+			...(run.agentId === "wiki-compilation" ? wikiCompilationTraceRefs(runDirectory, execution) : {}),
 			...(["wiki-shard-builder", "wiki-curator"].includes(run.agentId)
 				? wikiTraceRefs(runDirectory, execution) : {}),
 		}).filter((entry): entry is [string, string] => Boolean(entry[1])));
@@ -1998,6 +2031,32 @@ function mainAgentTraceRefs(
 		...(ref("publication.json") ? { publication: ref("publication.json") } : {}),
 		...(ref("session.json") ? { session: ref("session.json") } : {}),
 	};
+}
+
+/** Only the sanitized capture tree is exposed after settlement; live reads use stage contracts. */
+function wikiCompilationTraceRefs(runDirectory: string, execution: { id: string }): NodeExecutionRefs {
+	const root = join(runDirectory, "executions", execution.id, "wiki-compilation");
+	if (!existsSync(root)) return {};
+	const files = listFilesRecursive(root, { absolute: true, strict: true });
+	return Object.fromEntries(files.flatMap((path, index) => {
+		const ref = relative(root, path).split(sep).join("/");
+		const kind = ref.startsWith("evidence/") ? wikiCompilationCaseTraceKind(ref.slice("evidence/".length))
+			: ref.startsWith("control/") ? wikiCompilationCaseTraceKind(`stages/${ref.slice("control/".length)}`) : undefined;
+		return kind ? [[`wikiCompilation${index + 1}`, relative(runDirectory, path).split(sep).join("/")]] : [];
+	}));
+}
+
+function wikiCompilationCaseTraceKind(ref: string): string | undefined {
+	if (ref === "lifecycle.jsonl") return "runtime_trace";
+	if (ref.split("/").some(part => part.startsWith(".") || ["agent", "sdk", "skills", "node-evaluation", "credentials"].includes(part))) return undefined;
+	if (!/^(?:stages|sessions)\//u.test(ref)) return undefined;
+	if (ref.endsWith(".jsonl")) return "agent_trace";
+	if (/\/effective-system-prompt\.md$/u.test(ref)) return "effective_system_prompt";
+	if (/\/(?:tool-definitions|mounted-skills|model-metadata)\.json$/u.test(ref)) return "execution_metadata";
+	if (/\/(?:system|user)-prompt\.md$/u.test(ref)) return "agent_prompt";
+	if (/\/(?:input|work)\/.*\.(?:json|md)$/u.test(ref)) return "agent_file_contract";
+	if (/\/(?:input|result|accepted|accepted-result|submitted-result|agent-context|receipts|failures|partial-result|checkpoint|plan)\.json$/u.test(ref)) return "runtime_result";
+	return undefined;
 }
 
 function wikiTraceRefs(
@@ -2191,7 +2250,7 @@ function primeSearchCaseTraceKind(relativePath: string): string | undefined {
 }
 
 function wikiCaseTraceDirectories(value: NodeEvaluationCase): string[] {
-	if (!["wiki-shard-builder", "wiki-curator"].includes(value.agentId)
+	if (!["wiki-shard-builder", "wiki-curator", "wiki-compilation"].includes(value.agentId)
 		|| value.observed.trace?.root !== "run") return [];
 	const recorded = value.observed.traceDirectories?.filter((directory) => directory.root === "run")
 		.map((directory) => directory.ref) ?? [];

@@ -1,7 +1,12 @@
 import type { ActivityProjectionItem } from "@shared/events/activity-projection";
 import { uiText } from "@/app/ui-text";
 
+export interface WikiSection { id: string; heading: string; anchor: string; topicRefs: string[] }
+export interface WikiRelation { from: string; to: string; label: string; direction: "incoming" | "outgoing"; page: WikiPageSummary }
+
 export interface WikiPageSummary {
+	pageId?: string;
+	sections?: WikiSection[];
 	path: string;
 	title: string;
 	type: string;
@@ -11,6 +16,7 @@ export interface WikiPageSummary {
 }
 
 export interface WikiPage extends WikiPageSummary {
+	relations: WikiRelation[];
 	content: string;
 	frontmatter: WikiFrontmatterEntry[];
 	sources: string[];
@@ -72,6 +78,8 @@ export interface WikiFrontmatterEntry {
 }
 
 export interface WikiGraphNode {
+	pageId?: string;
+	sections?: WikiSection[];
 	id: string;
 	title: string;
 	type: string;
@@ -282,6 +290,12 @@ export function defaultWikiPage(pages: WikiPageSummary[]): string | null {
 		if (match) return match.path;
 	}
 	return listed[0]?.path ?? null;
+}
+
+/** A same-Topic refresh must retain a deliberately opened related page. */
+export function wikiPageAfterNavigation(current: string | null, pages: WikiPageSummary[], topicPages: WikiPageSummary[], topicChanged: boolean): string | null {
+	return current && (topicChanged ? topicPages : pages).some(page => page.path === current)
+		? current : defaultWikiPage(topicPages);
 }
 
 export function wikiSearchSnippetParts(content: string): Array<{ text: string; evidenceIndex?: number }> {

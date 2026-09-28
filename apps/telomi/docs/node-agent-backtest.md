@@ -15,6 +15,7 @@ Directory Artifacts and Capability Snapshots accept only content Hashes using th
 | `report-writer` | Yes | Production Research runs |
 | `provider-child` | Yes; pins one Provider Child's task and pre-execution files and reruns only that child | Derived from a specified execution in a complete Prime Search Case |
 | `prime-search` | Yes; v4 pins the Search question and captured context and reruns Provider operations; the Root may use general search | Production Research runs |
+| `wiki-compilation` | Yes; freezes the complete Notes, Goal, Topic Plan and base Wiki, or the base Wiki and Topic Plan for reindex | Production Wiki Updates and Topic reindex runs |
 | `wiki-shard-builder` | Yes; freezes Cornell Evidence and Topic Plan | Production Wiki Update runs |
 | `wiki-curator` | Yes; freezes Wiki Edition, Shards, and Topic Plan | Production Wiki Update runs |
 | `podcast-writer` | Yes; freezes Canonical Report, generation requirements, and models | Production Podcast generation runs |
@@ -67,6 +68,8 @@ Recovery Evidence is fail-closed. A Case with no output and missing terminal sta
 
 The contract describes the response shapes actually projected by the Service and never includes absolute host paths. Artifacts expose only Run-relative `ref` and `sha256`/`byteLength`/`directory`; file contents come from file-reading routes. Open-ended parts remain intentional: additional `Execution.refs` keys depend on the Recipe and cannot be exhaustively enumerated; complete Case Manifest semantics belong to Case Bundles, because freezing them into the HTTP contract would make every Capture change a protocol break. Independent Judgments, semantic Summaries, and Attestations remain exclusively in the external evaluation environment.
 
+Replay file reads reuse a bounded projection of the most recent settled Run while its manifest bytes remain unchanged; queued, running, and still-draining executions stay live. This read-only cache does not alter persisted evidence or response fields, and every file request still validates its allowed reference, regular-file status, hard links, and canonical path. Returned Run objects are independent copies.
+
 ## Status and Case API
 
 ```text
@@ -90,6 +93,7 @@ The status endpoint returns the currently registered Recipes:
     "podcast-writer@1",
     "report-writer@2",
     "schedule-reviewer@1",
+    "wiki-compilation@1",
     "wiki-curator@1",
     "wiki-shard-builder@1"
   ]
@@ -156,6 +160,16 @@ Main Agent Cases freeze the Goal directory tree and the logical Workspace visibl
 
 If a Case freezes Topic Plan context but lacks the history required to restore it, such as an old Case or an uncaptured pending Proposal, Replay fails explicitly rather than proceeding with an empty Topic Plan.
 
+### Wiki Compilation
+
+`wiki-compilation@1` captures the complete Note-first pipeline through the optional Wiki Compilation Hook. Compile Cases freeze the Cornell Notes Snapshot, structured Goal context, confirmed Topic Plan, previous Wiki Edition, rebuild flag and resolved model/thinking settings. Topic-only reindex Cases freeze the same Goal, Topic Plan and base Edition without adding Notes that the reindex operation never consumes. The operation is explicit in the frozen request; a rebuild preserves the previous Edition as the publication base while the compiler starts its candidate content empty.
+
+Replay invokes the production `NoteFirstWikiCompiler.compile()` or `.reindex()` in an isolated Goal restored exclusively from these frozen business inputs. The Candidate process supplies the bundled Agent Prompts, Skills, Tools and Runtime implementation; the existing Runtime Build and Agent Bundle identity checks apply. The Capability Snapshot identity is recorded, but its current Goal Wiki never replaces the Case's frozen base. This Recipe rejects node Prompt overrides, including historical business Prompts used as a Candidate substitute.
+
+Capture remains fail-open for product results. Candidate Evidence is fail-closed. Failed, cancelled and partially failed executions retain a Recovery Case with sanitized stage inputs, outputs, native sessions and terminal error. Credentials and SDK environment directories are excluded. Successful artifacts contain the Knowledge directory, metrics and evaluation rubric. Direct Topic matches and related-page navigation must be assessed separately.
+
+Historical `wiki-shard-builder`, `wiki-curator` and private `wiki-compilation-diagnostic` Cases do not have this formal boundary and are rejected by this Recipe. They cannot be relabeled or supplemented from live state. Capture the first semantic Case through a real Wiki Update or Topic reindex, then export and replay it through Operations before claiming Attestation.
+
 ### Wiki Shard Builder and Wiki Curator
 
 Wiki Shard Cases pin the Goal, Cornell Evidence Snapshot, Topic Plan, Batch, and model. Wiki Curator Cases pin the operation, previous Wiki Edition, input Shards, Topic Plan, and model. Their Replays call production `runPrimeNoteWikiMaintainer()` and `curateWikiEdition()` respectively, without reusing the Prime Search Recipe.
@@ -213,6 +227,7 @@ npm test -- tests/evaluation/test-main-agent-replay-topic-plan.ts
 npm test -- tests/evaluation/test-main-agent-replay-goal-registration.ts
 npm test -- tests/evaluation/test-prime-search-live-replay.ts
 npm test -- tests/evaluation/test-wiki-frozen-replay.ts
+npm test -- tests/evaluation/test-wiki-compilation-node-replay.ts
 npm test -- tests/evaluation/test-podcast-frozen-replay.ts
 npm test -- tests/evaluation/test-schedule-review-frozen-replay.ts
 ```
