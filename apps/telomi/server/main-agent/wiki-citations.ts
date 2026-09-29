@@ -33,7 +33,6 @@ export function registerMainWikiCitationCompiler(
 }
 
 export class MainWikiCitationSession {
-	readonly tools: AgentTool[];
 	private adapter?: WikiReportReferenceAdapter;
 	private revision?: string;
 	private knowledgeSha256?: string;
@@ -42,15 +41,7 @@ export class MainWikiCitationSession {
 		goalDir: string;
 		goalId: string;
 		workspaceDir: string;
-	}) {
-		this.tools = this.rawTools().map((template): AgentTool => ({
-			...template,
-			execute: async (...args) => {
-				const tool = this.currentAdapter().tools.find((candidate) => candidate.name === template.name)!;
-				return tool.execute(...args);
-			},
-		}));
-	}
+	}) {}
 
 	beginTurn(): void {
 		this.adapter = undefined;

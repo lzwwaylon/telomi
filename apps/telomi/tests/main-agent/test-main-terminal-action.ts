@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { validateToolArguments } from "@earendil-works/pi-ai";
@@ -10,10 +13,24 @@ import {
 	parseMainTerminalDetails,
 } from "../../server/main-agent/tools/terminal-action.js";
 import { createMainResearchTool } from "../../server/main-agent/tools/research.js";
+import { createDeliverInvestigationTool, createInvestigateTool } from "../../server/main-agent/tools/investigate.js";
+import { createMainAgentTools } from "../../server/main-agent/tools/index.js";
+import { serverRuntimeDirForGoalDir } from "../../server/workspaces/server-runtime-paths.js";
 
 const signal = new AbortController().signal;
 const update = () => undefined;
 const researchTool = createMainResearchTool("/tmp/goal", { goalId: "goal-test" });
+const investigateTool = createInvestigateTool("/tmp/goal", { goalId: "goal-test" });
+const mainToolNames = createMainAgentTools("/tmp/goal", () => [], { goalId: "goal-test" }).map((tool) => tool.name);
+assert.ok(mainToolNames.includes("investigate") && mainToolNames.includes("wiki_update"));
+assert.deepEqual(mainToolNames.filter((name) => ["wiki_search", "wiki_read_page", "wiki_graph_search"].includes(name)), []);
+assert.equal(validateToolArguments(investigateTool, {
+	type: "toolCall", id: "missing-scope", name: "investigate", arguments: { question: "Check saved materials." },
+}).source_scope, undefined);
+assert.equal(validateToolArguments(investigateTool, {
+	type: "toolCall", id: "local-scope", name: "investigate",
+	arguments: { question: "Check saved materials.", source_scope: "local_only" },
+}).source_scope, "local_only");
 assert.deepEqual(validateToolArguments(researchTool, {
 	type: "toolCall",
 	id: "research-null-schedule",
@@ -59,15 +76,35 @@ const conciseResult = await concise.execute("research", {}, signal, update);
 assert.equal(conciseResult.details.userResponse, "Research complete. Short summary.");
 
 const cited = "A=8+n-1 <cite>deep-search:read-1:cue-1</cite>";
-const investigation = asTerminalTool({
+const investigationDelivery = asTerminalTool({
 	...taskScopeBase,
-	name: "investigate",
+	name: "deliver_investigation",
 	execute: async () => ({ content: [{ type: "text", text: JSON.stringify({ answer: cited }) }],
 		details: { userResponse: cited } }),
-}, "investigate", "local_knowledge_investigated");
-const investigationResult = await investigation.execute("investigate", {}, signal, update);
-assert.equal(investigationResult.terminate, true);
-assert.equal(parseMainTerminalDetails(investigationResult.details)?.userResponse, cited);
+}, "deliver_investigation", "local_knowledge_delivered");
+const deliveryResult = await investigationDelivery.execute("deliver_investigation", {}, signal, update);
+assert.equal(deliveryResult.terminate, true);
+assert.equal(parseMainTerminalDetails(deliveryResult.details)?.userResponse, cited);
+assert.equal(parseMainTerminalDetails({ ...deliveryResult.details, action: "investigate",
+	trace: { coarseAction: "investigate", reasonCode: "local_knowledge_investigated" } })?.action, "investigate");
+
+const root = mkdtempSync(join(tmpdir(), "main-investigation-delivery-"));
+try {
+	const goalDir = join(root, "goal_test");
+	const id = "a".repeat(24);
+	const runDir = join(serverRuntimeDirForGoalDir(goalDir), "research", "investigations", id);
+	mkdirSync(runDir, { recursive: true });
+	writeFileSync(join(runDir, "request.json"), JSON.stringify({ id, question: "Check the loss." }));
+	writeFileSync(join(runDir, "result.json"), JSON.stringify({ id, question: "Check the loss.",
+		answer: cited, citation_refs: ["deep-search:read-1:cue-1"], gaps: [], wiki_sha256: "hash" }));
+	const delivery = createDeliverInvestigationTool(goalDir);
+	const stored = await delivery.execute("deliver", { investigation_id: id }, signal, update);
+	assert.equal(stored.details.userResponse, cited);
+	assert.throws(() => validateToolArguments(delivery, { type: "toolCall", id: "bad-id",
+		name: "deliver_investigation", arguments: { investigation_id: "../elsewhere" } }), /investigation_id/u);
+} finally {
+	rmSync(root, { recursive: true, force: true });
+}
 
 for (const invalid of [
 	undefined,

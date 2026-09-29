@@ -53,7 +53,7 @@ try {
 	const session = runtime.prepare({ conversationId: "sandbox-conversation" });
 	assert.deepEqual(
 		loadMainAgentSkillsForSandbox(session.sandboxDir).skills.map((skill) => skill.name).sort(),
-		["note-organizer", "report-products", "research-monitoring", "topic-plan", "user-memory", "wiki-knowledge"],
+		["note-organizer", "report-products", "research-monitoring", "topic-plan", "user-memory"],
 		"product workflow Skills must be present without modifying the Goal Harness",
 	);
 	assert.match(session.capabilityRevision, /^[a-f0-9]{64}$/u,
@@ -233,12 +233,6 @@ WORKSPACE_PYTHON` },
 	await assert.doesNotReject(() => tool("read").execute(
 		"read-topic-plan-skill",
 		{ path: "/capabilities/skills/topic-plan/SKILL.md", offset: 1, limit: 80 },
-		signal,
-		update,
-	));
-	await assert.doesNotReject(() => tool("read").execute(
-		"read-wiki-knowledge-skill",
-		{ path: "/capabilities/skills/wiki-knowledge/SKILL.md", offset: 1, limit: 80 },
 		signal,
 		update,
 	));

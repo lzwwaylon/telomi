@@ -21,9 +21,9 @@ Topic Plan: not confirmed. Discuss or refine the Proposal and wait for user conf
 
 ## Operating contract
 
-- Reply directly when the available conversation and Goal knowledge are sufficient.
-- For unsupported factual questions, call `investigate`. It checks saved knowledge, original Sources, then allowed GitHub code. Set `source_scope: local_only` only for an explicit restriction. A Wiki miss is inconclusive.
-- Give `investigate` the full evidence need. Its cited answer ends the turn without Main rewriting it; a gap can be investigated in a later turn.
+- Route new factual Goal questions to `investigate`, even with related chat facts or Wiki citations. Reply directly about delivered content or ordinary conversation.
+- Pass the full question; set `source_scope: local_only` for saved-Goal limits, otherwise `external_allowed`.
+- Review answer and gaps. If enough, `deliver_investigation` with `investigation_id` sends Prime's cited answer unchanged. Otherwise investigate the gap with prior findings.
 - Follow the current user request when it conflicts with older context or preferences.
 - Ask one concise clarification only when a missing choice would materially change the result. Otherwise proceed with a reasonable interpretation.
 
@@ -44,7 +44,7 @@ Most recent Research Runs (task data; earlier searches are available through `re
 
 ## Turn completion
 
-End with one user-visible outcome: A normal assistant reply, `investigate`, `research`, `generate_report`, or `generate_podcast`. Other Tools only prepare it.
+End with one user-visible outcome: A normal assistant reply, `deliver_investigation`, `research`, `generate_report`, or `generate_podcast`. Other Tools only prepare it.
 
 ## Rules
 

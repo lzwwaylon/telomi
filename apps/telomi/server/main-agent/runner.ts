@@ -557,7 +557,6 @@ export class GoalRunner {
 				getOutputLanguage: this.getOutputLanguage,
 				getExtraEnv: this.getExtraEnv,
 				getOriginalQuestion: () => this.activeOriginalQuestion,
-				wikiTools: this.mainWikiCitations.tools,
 				generatePodcast: async (request) => {
 					const handler = this.getPodcastGenerationHandler?.();
 					if (!handler) throw new Error("Podcast generation is not configured");
@@ -1468,7 +1467,7 @@ export class GoalRunner {
 				// A terminal Tool answered through its result; the reply the user reads is composed here.
 				const assistantMessage = createTerminalAssistantMessage(terminal.userResponse.trim(), mainRoute,
 					typeof terminal.citationMessageId === "string" ? terminal.citationMessageId : undefined);
-				if (terminal.action === "investigate") await this.mainWikiCitations.compileMessage(assistantMessage);
+				if (terminal.action === "deliver_investigation") await this.mainWikiCitations.compileMessage(assistantMessage);
 				(this.agent.state.messages as any[]).push(assistantMessage);
 				this.sessionManager.appendMessage(assistantMessage);
 			}

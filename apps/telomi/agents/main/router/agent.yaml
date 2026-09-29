@@ -1,6 +1,6 @@
 schema_version: 2
 id: router
-skills: [wiki-knowledge, report-products, research-monitoring, topic-plan, user-memory]
+skills: [report-products, research-monitoring, topic-plan, user-memory]
 prompts:
   system:
     default: system.md.njk
@@ -20,4 +20,4 @@ prompts:
 sandbox:
   role: main.router
   network: deny
-  tools: [investigate, research, generate_report, generate_podcast, wiki_search, wiki_read_page, wiki_graph_search, wiki_update, research_schedule, read, write, edit, bash, ls, find, grep]
+  tools: [investigate, deliver_investigation, research, generate_report, generate_podcast, wiki_update, research_schedule, read, write, edit, bash, ls, find, grep]
