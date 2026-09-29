@@ -4,14 +4,18 @@
 
 Main Agent calls `research({ search_question, report_context, note_focus?, report_title?, schedule? })`. `note_focus` says what the Cornell Notes should record in most detail; it reaches only the Cornell Note stage, never Search or the Wiki. `ResearchRuntime.run()` pins the content-version context and executes the sole production path through `Run.run()`.
 
+For a factual follow-up, Main calls `investigate({ question, context?, source_scope? })`. Prime uses one Goal knowledge lookup as its overview. That lookup combines the pinned Wiki with historical Cornell Cues, including Cues not adopted by a Wiki page, and saved question-specific Deep Search Cues. It ranks Cue bodies across both stores and returns matching Topic leads. Prime may invoke `deep_search(question)` through its Python Skill when those results lack detail. Runtime grants the Cornell reader the saved original Source corpus, validates exact file revisions and line ranges, and saves question-specific Cues separately from the published Wiki. For an unresolved implementation detail when external access is allowed, Prime may pin versioned files through the GitHub Provider and ask Cornell to read them. A later investigation can find saved Cues without rebuilding the Wiki. Prime sees Wiki citations as `C1` and Cue citations as investigation-local `N1`; Runtime maps the latter back to durable Cue identities, validates them, and compiles display numbers. This path does not require a report stage.
+
 ## Agent responsibilities
 
 | Agent | Runtime | Input | Output |
 |---|---|---|---|
 | Prime Search Root | Prime Agent SDK | Standalone search question, time, Topic Plan, scheduled context, available Provider Catalog | Root-only general search, Provider routing, Provider child orchestration, and coverage checks |
+| Prime local investigation | Prime Agent SDK | Main's saved-knowledge question, frozen Wiki edition, saved Cues | Cited conversational answer and unresolved gaps; invokes Cornell Deep Search only for missing detail |
 | Provider child | Prime child Agent | Root-assigned task for one Provider and its Skill | One Candidate Ledger and the required material |
 | Source Organizer | Prime Agent | New Sources from this execution, historical ungrouped index, and existing Group summaries | Grouping Patch for new Sources only |
 | Cornell Note | Prime Agent | One complete read-only Logical Source, the question, and optional paths of changed members | Cornell Note Sections, Cues, and Evidence line numbers |
+| Cornell Deep Search | Prime Agent | One question and read-only original Sources selected from the Goal by the reader | Durable question-specific Cues with validated Source revision, file path, and line ranges |
 | Report Root | Prime Agent | Question, complete report_context, the Run's note_focus as an evidence focus when one was given, frozen Cornell Notes or current Goal Wiki (the Find Out roster names where each Source's Notes anchor their evidence), and a read-only index of this Goal's published historical reports (continuity and comparison context only, not citation sources) | Outline, Editorial Plan, Section assignments, and final revised sections |
 | Section child | Prime child Agent | One Section and assigned Source handles or Wiki paths | Draft and Ledger |
 | Research Schedule Reviewer | Prime Agent SDK | A Research Schedule's two parameters, recent occurrence results, the previous Review, and rejected Proposals | `no_change`, or one Research Schedule Proposal revising monitoring scope and Report Context |

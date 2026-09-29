@@ -46,10 +46,10 @@ interface CornellPromptRequest {
 	sourceUpdate?: { newMemberPaths: string[]; changedMemberPaths: string[] };
 }
 
-export function renderPrimeCornellNoteUserPrompt(taskPrompt: string): string {
+export function renderPrimeCornellNoteUserPrompt(taskPrompt: string, variant: "prime-execution" | "deep-search" = "prime-execution"): string {
 	return renderAgentPrompt("research", "cornell-note", "user", {
 		task_prompt: taskPrompt,
-	}, "prime-execution").content;
+	}, variant).content;
 }
 
 function renderTopicPlan(plan: GoalTopicPlan): string {

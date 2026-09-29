@@ -26,6 +26,9 @@ const image = renderToStaticMarkup(<WorkspaceFileBody
 	goalId="goal_test" path="/workspace/chart.png" url="/blob" content={null} error={null}
 />);
 assert.ok(image.includes('src="/blob"'), "Non-Markdown previews retain their binary renderer");
+const missing = renderToStaticMarkup(<WorkspaceFileBody goalId="goal_test" path="/work/missing.py"
+	url="/blob" content={null} error="HTTP 404" />);
+assert.ok(missing.includes("当前 Goal 未保存此文件") || missing.includes("This file is not saved in the current Goal"));
 
 // The preview names the file the way the list does, and still saves the file that was fetched.
 // The overlay header itself renders into a portal, so its naming is pinned here as a function.

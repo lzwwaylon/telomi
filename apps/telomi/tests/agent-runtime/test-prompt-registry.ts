@@ -89,6 +89,7 @@ assert.deepEqual(loadAgentPromptConfig("evolution", "browser-skill-evolution").s
 	tools: ["read", "write", "edit", "bash", "ls", "find", "grep", "run_browser_replay", "submit_stage_output"],
 });
 assert.deepEqual(loadAgentPromptConfig("main", "router").sandbox?.tools, [
+	"investigate",
 	"research",
 	"generate_report",
 	"generate_podcast",

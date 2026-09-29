@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { relative, sep } from "node:path";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -26,9 +26,14 @@ export const RECORDED_STAGE_RECIPE_VERSIONS = {
 	"report-writer": 2,
 } as const;
 
-export const recordedStageReplayRecipes: readonly NodeReplayRecipe[] = RECORDED_STAGE_AGENT_IDS.map(
-	(agentId) => createRecordedStageReplayRecipe(agentId, recipeVersion(agentId)),
-);
+type DeepSearchValidator = (value: unknown, question: string, invocationId: string, corpusDir: string) => unknown;
+
+export function createRecordedStageReplayRecipes(deepSearchValidator?: DeepSearchValidator): readonly NodeReplayRecipe[] {
+	return RECORDED_STAGE_AGENT_IDS.map((agentId) => createRecordedStageReplayRecipe(agentId,
+		recipeVersion(agentId), deepSearchValidator));
+}
+
+export const recordedStageReplayRecipes = createRecordedStageReplayRecipes();
 
 /** Optional Cornell observer: product execution supplies context, Capture owns the Replay contract. */
 export function withCornellNoteCapture(
@@ -92,6 +97,7 @@ export function withResearchNodeEvaluationCapture(
 function createRecordedStageReplayRecipe(
 	agentId: typeof RECORDED_STAGE_AGENT_IDS[number],
 	version: number,
+	deepSearchValidator?: DeepSearchValidator,
 ): NodeReplayRecipe {
 	return {
 		identity: { id: agentId, version },
@@ -113,6 +119,12 @@ function createRecordedStageReplayRecipe(
 			const output = value.request.outputContract;
 			const inputGuestPath = value.mounts.find((mount) => mount.kind === "run")?.guestPath;
 			const interactionReplay = createInteractionReplay(casePath, value.request.interactions);
+			const readonlyMounts = resolveNodeEvaluationMounts(
+				casePath, value, sourceRunDirectory, harnessWorkspaceDirectory);
+			const deepSearchContext = value.recipeInput && typeof value.recipeInput === "object"
+				&& (value.recipeInput as { mode?: unknown }).mode === "deep-search"
+				? value.recipeInput as { mode: "deep-search"; question: string; invocationId: string }
+				: undefined;
 			const stage = await runner.runStage({
 				runId: candidateCase?.sourceRunId ?? value.runId,
 				stageId: value.nodeId,
@@ -126,12 +138,7 @@ function createRecordedStageReplayRecipe(
 				systemPrompt: readNodeEvaluationFile(casePath, value.request.systemPrompt),
 				userPrompt: readNodeEvaluationFile(casePath, value.request.userPrompt),
 				workDirectory,
-				readonlyMounts: resolveNodeEvaluationMounts(
-					casePath,
-					value,
-					sourceRunDirectory,
-					harnessWorkspaceDirectory,
-				),
+				readonlyMounts,
 				controlDirectory: recordDirectory,
 				artifactStore,
 				evaluation: {
@@ -154,7 +161,15 @@ function createRecordedStageReplayRecipe(
 					...(output.entryRelativePath ? { entryRelativePath: output.entryRelativePath } : {}),
 					...(output.rootRelativePath ? { rootRelativePath: output.rootRelativePath } : {}),
 					...(output.guestEntryPath ? { guestEntryPath: output.guestEntryPath } : {}),
-					validate: ({ entryPath }) => validateRecordedOutput(output.kind, entryPath),
+					validate: ({ entryPath }) => {
+						if (!deepSearchContext || !deepSearchValidator) return validateRecordedOutput(output.kind, entryPath);
+						const corpus = readonlyMounts.find((mount) => mount.guestPath === "/source");
+						if (!corpus) throw new Error("Deep Search Replay has no captured Source corpus");
+						const normalized = deepSearchValidator(JSON.parse(readFileSync(entryPath, "utf-8")) as unknown,
+							deepSearchContext.question, deepSearchContext.invocationId, corpus.hostPath);
+						writeFileSync(entryPath, `${JSON.stringify(normalized, null, 2)}\n`);
+						return normalized;
+					},
 				},
 				...(value.request.executionProfile ? { executionProfile: value.request.executionProfile } : {}),
 				...(interactionReplay.tools.length > 0 ? { additionalTools: interactionReplay.tools } : {}),

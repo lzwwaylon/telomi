@@ -5,6 +5,8 @@ import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces
 import { loadReportNoteWorkspace, type NoteWorkspaceItem } from "../research/notes/workspace.js";
 import { readWikiMessageCitations } from "./wiki-message-store.js";
 import { readJson } from "../lib/fs.js";
+import { resolveDeepSearchCue } from "../research/deep-search.js";
+import { resolveSavedCornellCue } from "../research/saved-cornell-cues.js";
 
 interface CitationRecord {
 	number?: unknown;
@@ -45,7 +47,8 @@ export interface CitationSourcePreview {
 		page?: WikiPagePreview;
 		cue: string;
 		note: string;
-		excerpts: Array<{ path: string; startLine: number; endLine: number; text: string }>;
+		excerpts: Array<{ path: string; startLine: number; endLine: number; text: string;
+			sourceId?: string; sourceRevisionSha256?: string; contentSha256?: string }>;
 		assets: Array<{ sourceId: string; path: string; alt: string; width?: number; height?: number }>;
 	}>;
 }
@@ -190,13 +193,41 @@ export function resolveMessageCitationSourcePreview(
 	requestedUrl: string,
 	requestedNumber?: number,
 ): CitationSourcePreview | null {
-	const url = normalizeUrl(requestedUrl);
-	if (!url) return null;
 	const record = readWikiMessageCitations(goalDir, messageId);
-	const citation = record?.citations.find((item) => typeof item.url === "string"
-		&& normalizeUrl(item.url) === url
-		&& (requestedNumber === undefined || item.number === requestedNumber));
-	return citation ? wikiCitationPreview(citation, url) : null;
+	const url = requestedUrl ? normalizeUrl(requestedUrl) : null;
+	if (requestedUrl && !url) return null;
+	const citation = record?.citations.find((item) =>
+		(requestedNumber === undefined || item.number === requestedNumber)
+		&& (url ? typeof item.url === "string" && normalizeUrl(item.url) === url : !item.url));
+	if (!citation) return null;
+	if (url) return wikiCitationPreview(citation, url);
+	if (requestedNumber === undefined) return null;
+	const [ref] = citationRefs(citation);
+	if (!ref || citationRefs(citation).length !== 1) return null;
+	const cue = ref.startsWith("cornell:")
+		? resolveSavedCornellCue(goalDir, ref)
+		: resolveDeepSearchCue(goalDir, ref);
+	if (!cue) return null;
+	const sourceUrl = "canonical_locator" in cue ? cue.canonical_locator : cue.evidence[0]?.url ?? "";
+	return {
+		title: cue.cue,
+		url: sourceUrl,
+		sourceId: cue.evidence[0]?.source_id ?? "",
+		clues: [{
+			cue: cue.cue,
+			note: cue.note,
+			excerpts: cue.evidence.map((item) => ({
+				path: item.source_path,
+				startLine: item.start_line,
+				endLine: item.end_line,
+				text: item.excerpt,
+				sourceId: item.source_id,
+				sourceRevisionSha256: item.source_revision_sha256,
+				contentSha256: item.content_sha256,
+			})),
+			assets: [],
+		}],
+	};
 }
 
 function citationRefs(citation: CitationRecord): string[] {

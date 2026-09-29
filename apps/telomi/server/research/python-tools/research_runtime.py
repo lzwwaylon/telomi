@@ -170,6 +170,51 @@ def search_general_web(
     return rows
 
 
+def knowledge_search(query: str, *, limit: int = 10) -> dict[str, Any]:
+    """Find previously organized Goal knowledge before deciding whether original reading is needed."""
+    if execution_id() != "root":
+        raise ValueError("knowledge_search is available only to the Search Root")
+    if not isinstance(query, str) or not query.strip():
+        raise ValueError("query is required")
+    if not isinstance(limit, int) or not 1 <= limit <= 20:
+        raise ValueError("limit must be an integer from 1 to 20")
+    return _post("/v1/knowledge-search", {
+        "agent_session_id": "root",
+        "query": query.strip(),
+        "limit": limit,
+    })
+
+
+def deep_search(question: str) -> dict[str, Any]:
+    """Ask the Cornell reader to inspect saved original materials for one question."""
+    if execution_id() != "root":
+        raise ValueError("deep_search is available only to the Search Root")
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("question is required")
+    return _post("/v1/deep-search", {
+        "agent_session_id": "root",
+        "question": question.strip(),
+    })
+
+
+def github_read(question: str, repository: str, ref: str, paths: list[str]) -> dict[str, Any]:
+    """Pin official repository files through GitHub Provider and have Cornell verify the question against them."""
+    if execution_id() != "root":
+        raise ValueError("github_read is available only to the Search Root")
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("question is required")
+    if not isinstance(repository, str) or not repository.strip():
+        raise ValueError("repository is required")
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError("ref is required")
+    if not isinstance(paths, list) or not paths or any(not isinstance(path, str) for path in paths):
+        raise ValueError("paths must be a non-empty list of strings")
+    return _post("/v1/github-read", {
+        "agent_session_id": "root", "question": question.strip(),
+        "repository": repository.strip(), "ref": ref.strip(), "paths": paths,
+    })
+
+
 def report_provider_fallback(from_source: str, to_source: str) -> None:
     """Persist the Search Root's selected fallback before dispatching its replacement child."""
     if execution_id() != "root":
