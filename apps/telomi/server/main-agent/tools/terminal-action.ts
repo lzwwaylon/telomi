@@ -1,6 +1,7 @@
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
 export const MAIN_TERMINAL_ACTIONS = [
+	"investigate",
 	"research",
 	"generate_report",
 	"generate_podcast",

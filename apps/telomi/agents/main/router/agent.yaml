@@ -20,4 +20,4 @@ prompts:
 sandbox:
   role: main.router
   network: deny
-  tools: [research, generate_report, generate_podcast, wiki_search, wiki_read_page, wiki_graph_search, wiki_update, research_schedule, read, write, edit, bash, ls, find, grep]
+  tools: [investigate, research, generate_report, generate_podcast, wiki_search, wiki_read_page, wiki_graph_search, wiki_update, research_schedule, read, write, edit, bash, ls, find, grep]

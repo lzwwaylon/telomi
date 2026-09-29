@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { resolveMessageCitationSourcePreview } from "../../server/citations/preview.js";
 import { MainWikiCitationSession } from "../../server/main-agent/wiki-citations.js";
 import { compileStandaloneCitationMarkdown } from "../../server/research/pipeline/citation-compiler.js";
+import { sha256 } from "../../server/lib/hash.js";
+import { createInvestigationCitationScope } from "../../server/research/investigation-citations.js";
 
 const wiki = {
 	ref: "C1",
@@ -61,6 +63,27 @@ assert.equal(compiled.markdown, [
 	"",
 ].join("\n"));
 
+const distinctCues = compileStandaloneCitationMarkdown({
+	markdown: "First. <cite>deep-search:run1:cue-1</cite> Second. <cite>deep-search:run1:cue-2</cite>",
+	citationRegistry: {
+		schemaVersion: 1,
+		knowledgeSha256: "",
+		entries: [1, 2].map((index) => ({
+			ref: `deep-search:run1:cue-${index}`,
+			numberKey: `deep-search:run1:cue-${index}`,
+			url: "",
+			title: `Cue ${index}`,
+			provenance: "source:paper",
+			fileRefs: ["paper.md"],
+		})),
+	},
+});
+assert.deepEqual(distinctCues.citations.map((item) => [item.number, item.refs, item.url]), [
+	[1, ["deep-search:run1:cue-1"], undefined],
+	[2, ["deep-search:run1:cue-2"], undefined],
+], "distinct Cue refs must keep distinct preview numbers even when the Source is shared");
+assert.match(distinctCues.markdown, /First\. \[\[1\]\] Second\. \[\[2\]\]/u);
+
 assert.throws(() => compileStandaloneCitationMarkdown({
 	markdown: "Unsupported. <cite>C2</cite>",
 	citationRegistry: compiledRegistry(),
@@ -77,6 +100,7 @@ try {
 	writeFileSync(join(sourceSequence, "manifest.json"), JSON.stringify({
 		sources: [{
 			source_id: "source:paper",
+			revision_sha256: "d".repeat(64),
 			title: "Paper source",
 			path: "sources/paper",
 			members: [{
@@ -182,6 +206,75 @@ try {
 	const merged = resolveMessageCitationSourcePreview(goalDir, sameSource.citationMessageId, "https://example.test/paper", 1);
 	assert.deepEqual(merged?.clues.map((clue) => clue.cue), ["Finding", "Limitation"],
 		"the shared number previews every cited Evidence of that Source");
+
+	const deepSearchDir = join(goalDir, "artifacts", "deep-search");
+	mkdirSync(deepSearchDir, { recursive: true });
+	const deepRef = "deep-search:run1:cue-1";
+	writeFileSync(join(deepSearchDir, "run1.json"), JSON.stringify({
+		schema_version: 1,
+		question: "What does the paper say?",
+		status: "found",
+		summary: "Exact evidence.",
+		gaps: [],
+		cues: [{
+			ref: deepRef,
+			section_title: "Evidence",
+			cue: "Exact finding",
+			note: "The paper has exact evidence.",
+			evidence: [{
+				source_run_id: "run-001",
+				source_id: "source:paper",
+				source_revision_sha256: "d".repeat(64),
+				source_path: "members/web/paper.md",
+				start_line: 1,
+				end_line: 1,
+				content_sha256: sha256("Exact evidence.\n"),
+			}],
+		}],
+	}));
+	const shortCitations = createInvestigationCitationScope();
+	assert.equal(shortCitations.projectCues([{
+		ref: deepRef, section_title: "Evidence", cue: "Exact finding", note: "The paper has exact evidence.",
+		evidence: [{ source_path: "members/web/paper.md", start_line: 1, end_line: 1 }],
+	}])[0]?.ref, "N1");
+	shortCitations.allowWikiRef("C1");
+	const deepMessage = {
+		role: "assistant",
+		timestamp: 1_788_000_000_002,
+		content: [{ type: "text", text: shortCitations.restore({
+			answer: "The paper has exact evidence. <cite>N1</cite>", citation_refs: ["N1"],
+		}).answer }],
+	};
+	assert.equal(await session.compileMessage(deepMessage), true);
+	assert.match(deepMessage.content[0]!.text, /\[\[1\]\]/u);
+	const deepPreview = resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 1);
+	assert.equal(deepPreview?.clues[0]?.cue, "Exact finding");
+	assert.deepEqual(deepPreview?.clues[0]?.excerpts, [{
+		path: "members/web/paper.md",
+		startLine: 1,
+		endLine: 1,
+		text: "Exact evidence.",
+		sourceId: "source:paper",
+		sourceRevisionSha256: "d".repeat(64),
+		contentSha256: sha256("Exact evidence.\n"),
+	}]);
+	assert.equal(resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 2), null);
+	const mixedMessage = {
+		role: "assistant",
+		timestamp: 1_788_000_000_003,
+		content: [{ type: "text", text: shortCitations.restore({
+			answer: "Wiki context <cite>C1</cite>; original detail <cite>N1</cite>.", citation_refs: ["C1", "N1"],
+		}).answer }],
+	};
+	assert.equal(await session.compileMessage(mixedMessage), true);
+	assert.match(mixedMessage.content[0]!.text, /Wiki context \[\[1\]\]\(https:\/\/example\.test\/paper\); original detail \[\[2\]\]/u);
+	assert.equal(resolveMessageCitationSourcePreview(goalDir, mixedMessage.citationMessageId,
+		"https://example.test/paper", 1)?.clues[0]?.cue, "Finding");
+	assert.equal(resolveMessageCitationSourcePreview(goalDir, mixedMessage.citationMessageId,
+		"", 2)?.clues[0]?.cue, "Exact finding");
+	writeFileSync(join(sourceSequence, "sources", "paper", "members", "web", "paper.md"), "Changed evidence.\n");
+	assert.throws(() => resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 1),
+		/Deep Search evidence changed/u);
 } finally {
 	rmSync(workspace, { recursive: true, force: true });
 }

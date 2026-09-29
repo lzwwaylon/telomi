@@ -106,9 +106,11 @@ export class PrimeCornellNoteStageRunner implements AgentStageRunner {
 		mkdirSync(agentRoot, { recursive: true });
 		snapshotSourceDirectory(source.hostPath, join(agentRoot, "source"));
 		writeFileSync(join(runtimeRoot, "system-prompt.md"), request.systemPrompt);
-		writeFileSync(join(runtimeRoot, "user-prompt.md"), `${renderPrimeCornellNoteUserPrompt(request.userPrompt)}\n`);
+		writeFileSync(join(runtimeRoot, "user-prompt.md"), `${renderPrimeCornellNoteUserPrompt(request.userPrompt,
+			request.promptConfig?.userVariant === "deep-search" ? "deep-search" : "prime-execution")}\n`);
 		writeFileSync(join(runtimeRoot, "repair-prompt.md"),
-			renderAgentPrompt("research", "cornell-note", "user", {}, "repair").content);
+			renderAgentPrompt("research", "cornell-note", "user", {},
+				request.promptConfig?.userVariant === "deep-search" ? "deep-search-repair" : "repair").content);
 		const workerPath = join(runtimeRoot, "worker.mjs");
 		copyFileSync(WORKER, workerPath);
 		const systemPromptFile = writeAgentSystemPrompt(

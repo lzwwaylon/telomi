@@ -15,6 +15,7 @@ Directory Artifacts and Capability Snapshots accept only content Hashes using th
 | `report-writer` | Yes | Production Research runs |
 | `provider-child` | Yes; pins one Provider Child's task and pre-execution files and reruns only that child | Derived from a specified execution in a complete Prime Search Case |
 | `prime-search` | Yes; v4 pins the Search question and captured context and reruns Provider operations; the Root may use general search | Production Research runs |
+| `prime-investigation` | Yes; pins the question, prompt, model policy, Wiki snapshot, and exact successful knowledge/deep-search responses seen by the Root | Main-triggered local investigations |
 | `wiki-compilation` | Yes; freezes the complete Notes, Goal, Topic Plan and base Wiki, or the base Wiki and Topic Plan for reindex | Production Wiki Updates and Topic reindex runs |
 | `wiki-shard-builder` | Yes; freezes Cornell Evidence and Topic Plan | Production Wiki Update runs |
 | `wiki-curator` | Yes; freezes Wiki Edition, Shards, and Topic Plan | Production Wiki Update runs |
@@ -145,6 +146,8 @@ The Recipe pins the parent-assigned task, pre-execution writable files, actual m
 Each Candidate executes only one native Provider Child, retaining the production sandbox, Provider bridge, and ledger validation. There are no Root model calls, other Provider children, or Organizer. External pages and Provider data remain live; repetitions expose this residual variance. The Case Bundle contains the child's own Trace, material, and Provider call records without depending on a parent Run directory or another Replay record in the external evaluation environment. Failures and cancellations retain Recovery Evidence within the same scope.
 
 ### Prime Search External Data Boundary
+
+Prime Investigation is a separate Root stage. Its Case captures the bounded Wiki snapshot, successful knowledge-search and Cornell reading results, any GitHub Provider calls, the native Prime Trace and Session, and the validated answer with frozen citation excerpts. Candidate Replay reruns the Prime Root against frozen Tool results in call order; it permits reworded knowledge/reading questions but requires the same repository, ref, and file set for a frozen GitHub acquisition. A new operation or different GitHub Source identity fails closed. Cornell Deep Search has its own Case for testing each reading stage. The bridge bearer token and process environment are never Case inputs.
 
 Prime Search Cases pin the Search Question, captured Schedule and Topic Plan context, Temporal Context, available Provider IDs, and model selections. Replay builds the production Provider Registry from the Candidate Harness and reruns Provider operations. The current Recipe neither provides a frozen external corpus nor replays historical query responses. Upstream data, login state, and availability can change; blind evaluation must distinguish these changes from Candidate capability differences.
 

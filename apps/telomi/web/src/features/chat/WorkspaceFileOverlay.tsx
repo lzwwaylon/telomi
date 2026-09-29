@@ -46,7 +46,7 @@ export function WorkspaceFileOverlay({ goalId, path, line, anchor, displayPath, 
 		<LinkClickContext.Provider value={linkContext}>
 			<OverlayShell open onClose={onClose} title={title}
 				badge={{ icon: FileText, label: uiText("search.groups.file") }}
-				headerActions={<a href={url} download={saveAs}
+				headerActions={content.error === "HTTP 404" ? undefined : <a href={url} download={saveAs}
 					title={uiText("artifacts.preview.downloadFilename", { filename: saveAs })}
 					aria-label={uiText("artifacts.preview.downloadFilename", { filename: saveAs })}
 					className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--ink-mut)] hover:bg-[var(--paper-2)]">
@@ -88,7 +88,7 @@ export function WorkspaceFileBody({ goalId, path, url, line, anchor, content, er
 		target?.scrollIntoView({ block: "start" });
 	}, [anchor, content]);
 	return <div ref={root}><ArtifactPreview renderAudio={(audioUrl, filename) => <AudioArtifact url={audioUrl} filename={filename} />} filename={path.split("/").pop() || path} url={url}
-		content={content} error={error} highlightLine={line}
+		content={content} error={error === "HTTP 404" ? uiText("workspace.fileUnavailable") : error} highlightLine={line}
 		renderMarkdown={(text) => <MarkdownLineLocator highlightLine={line}>
 			<MarkdownPane content={text} goalId={goalId} artifactName={workspaceArtifactName(path)} messageId={path} />
 		</MarkdownLineLocator>}

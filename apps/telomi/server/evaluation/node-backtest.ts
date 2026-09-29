@@ -1741,6 +1741,8 @@ export function capturedCaseRunRoots(workspaceDir: string, goalId: string): stri
 		join(root, "evolution", "runs"),
 		// One Research Schedule Review is one recorded execution with its own Case.
 		join(root, "research", "schedule-reviews"),
+		join(root, "research", "investigations"),
+		join(workspaceDir, requiredSegment(goalId, "Goal id"), ".pi", "runtime", "deep-search"),
 		daemonRunsDirByName(join(workspaceDir, requiredSegment(goalId, "Goal id")), "podcast-ai"),
 	];
 }

@@ -126,6 +126,8 @@ assert.deepEqual(
 	[],
 	"Case ownership never reaches into the evaluation/ tree",
 );
+assert.ok(capturedCaseRunRoots(workspaceDir, goalId).includes(join(runtimeDir, "research", "investigations")));
+assert.ok(capturedCaseRunRoots(workspaceDir, goalId).includes(join(workspaceDir, goalId, ".pi", "runtime", "deep-search")));
 
 // A Bundle export owns the Case until its tar is complete, even when the Case is otherwise expired.
 writeCapturedCase("run-exporting", "case-exporting", now - 90 * DAY, 100);
