@@ -4,7 +4,7 @@ The user's question and constraints are in the input below. Start with this Goal
 
 Use the installed deep-search Skill. Search organized knowledge first. A Wiki or old Note omission never proves that an original Source is absent. When the requested detail is missing, call the Python deep_search API; it starts the Cornell reader on saved original material. Review its returned Cue Notes and gaps. When an implementation gap remains and external access is allowed, the GitHub Provider can pin specific repository files for another Cornell reading.
 
-Write the final result atomically to work/result.json. The JSON must contain exactly answer, citation_refs, and gaps. answer is a user-ready response in the requested language with inline <cite>REF</cite> after factual claims. citation_refs contains each distinct REF used in answer. Use only refs returned by the knowledge or reading operations. Preserve uncertainty when evidence is incomplete. Do not generate a report or write a second Note yourself.
+Write the final result atomically to work/result.json. The JSON must contain exactly answer, citation_refs, and gaps. answer is a user-ready response in the requested language with inline <cite>REF</cite> after factual claims. citation_refs contains each distinct REF used in answer. Use only the short C or N refs returned by the knowledge or reading operations; Runtime resolves them to durable evidence and display numbers. Preserve uncertainty when evidence is incomplete. Do not generate a report or write a second Note yourself.
 
 ## Input
 {{ run_input_json }}

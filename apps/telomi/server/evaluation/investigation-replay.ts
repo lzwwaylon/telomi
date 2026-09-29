@@ -14,6 +14,7 @@ import { sha256 } from "../lib/hash.js";
 import { toErrorMessage } from "../lib/values.js";
 import { recordCaseCaptureFailure } from "../observability/case-capture.js";
 import { validateInvestigationResult, type InvestigationResult } from "../research/investigate.js";
+import { createInvestigationCitationScope, type InvestigationCitationCue } from "../research/investigation-citations.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { runPrime, startPrimeSourceBridge } from "../research/pipeline/prime-search-batch.js";
 import { ResearchSourceRegistry } from "../research/sources/registry.js";
@@ -241,6 +242,7 @@ async function executeProductionInvestigationReplay(
 	const signal = input.signal;
 	let unmatchedInteraction: Error | undefined;
 	let nextInteraction = 0;
+	const citationsScope = createInvestigationCitationScope();
 	const replayCall = (name: "knowledge_search" | "deep_search" | "github_read", request: unknown): unknown => {
 		const observed = frozen[nextInteraction];
 		if (!observed || observed.name !== name) {
@@ -261,9 +263,22 @@ async function executeProductionInvestigationReplay(
 		}
 		nextInteraction++;
 		// The user's question and frozen evidence are fixed; Prime may word its Tool query differently on replay.
-		const response = observed.result;
+		const response = observed.result as {
+			cues?: InvestigationCitationCue[];
+			pages?: Array<{ evidence?: Array<{ cite_ref?: string }> }>;
+			reading?: { cues?: InvestigationCitationCue[] };
+			sources?: Array<{ title: string; url: string }>;
+		};
 		appendFileSync(join(input.recordDirectory, "interactions.jsonl"), `${JSON.stringify({ operation: name, request, response })}\n`);
-		return response;
+		for (const page of response.pages ?? []) for (const evidence of page.evidence ?? []) {
+			if (evidence.cite_ref) citationsScope.allowWikiRef(evidence.cite_ref);
+		}
+		const projected = response.cues ? { ...response, cues: citationsScope.projectCues(response.cues) }
+			: response.reading?.cues ? { ...response,
+				reading: { ...response.reading, cues: citationsScope.projectCues(response.reading.cues) } } : response;
+		return name === "github_read" && response.sources
+			? { ...projected, sources: response.sources.map(({ title, url }) => ({ title, url })) }
+			: projected;
 	};
 	const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Set(), {
 		workspaceDirectory: root,
@@ -319,22 +334,11 @@ async function executeProductionInvestigationReplay(
 					throw new Error(run.rootError ?? "Prime Investigation did not write a valid result file");
 				}
 				const draft = JSON.parse(readFileSync(output, "utf-8")) as Record<string, unknown>;
-				const result = validateInvestigationResult({ ...draft, id: basename(input.workDirectory),
+				const authored = validateInvestigationResult({ ...draft, id: basename(input.workDirectory),
 					question: captured.question, wiki_sha256: captured.wiki_sha256 },
 					basename(input.workDirectory), captured.question);
-				const refs = result.citation_refs;
-				const allowed = new Set(interactions.flatMap((item): string[] => {
-					if (item.kind !== "tool") return [];
-					const response = item.result as { cues?: Array<{ ref?: string }>; pages?: Array<{ evidence?: Array<{ cite_ref?: string }> }>;
-						reading?: { cues?: Array<{ ref?: string }> } };
-					return [ ...(response.cues ?? []).flatMap((cue) => cue.ref ? [cue.ref] : []),
-						...(response.reading?.cues ?? []).flatMap((cue) => cue.ref ? [cue.ref] : []),
-						...(response.pages ?? []).flatMap((page) => (page.evidence ?? []).flatMap((evidence) => evidence.cite_ref ? [evidence.cite_ref] : [])) ];
-				}));
-				if (refs.some((ref) => typeof ref !== "string" || !allowed.has(ref))) {
-					throw new Error("Prime Investigation cited unknown frozen evidence");
-				}
-				return result;
+				return validateInvestigationResult(citationsScope.restore(authored),
+					basename(input.workDirectory), captured.question);
 			},
 		});
 	} finally {

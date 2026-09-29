@@ -26,6 +26,7 @@ import { listSavedCornellCues, rankSavedCues } from "./saved-cornell-cues.js";
 import { resolveSavedCornellCue } from "./saved-cornell-cues.js";
 import { resolveDeepSearchCue } from "./deep-search.js";
 import { readExternalGithub } from "./external-github.js";
+import { createInvestigationCitationScope } from "./investigation-citations.js";
 
 export interface InvestigationResult {
 	id: string;
@@ -91,10 +92,10 @@ export async function executeInvestigation(input: {
 		createGoalLlmWikiTools({ goalDir: input.goalDir, knowledgeRoot }));
 	const searchTool = wikiAdapter.tools.find((tool) => tool.name === "wiki_search")!;
 	const readTool = wikiAdapter.tools.find((tool) => tool.name === "wiki_read_page")!;
-	const allowedRefs = new Set<string>();
+	const citationsScope = createInvestigationCitationScope();
 	let deepSearchCount = 0;
 	let githubReadCount = 0;
-	let firstKnowledgeSearch: { key: string; result: unknown } | undefined;
+	let firstKnowledgeSearch: { key: string; result: unknown; recorded: unknown } | undefined;
 	const recordInteraction = (operation: string, request: unknown, response: unknown) => {
 		appendFileSync(join(runDir, "interactions.jsonl"), `${JSON.stringify({ operation, request, response })}\n`);
 	};
@@ -125,7 +126,7 @@ export async function executeInvestigation(input: {
 				const key = JSON.stringify({ query, limit });
 				if (firstKnowledgeSearch) {
 					if (firstKnowledgeSearch.key !== key) throw new Error("This investigation already searched Goal knowledge; use its result or deep_search for a missing detail");
-					recordInteraction("knowledge_search", { query, limit }, firstKnowledgeSearch.result);
+					recordInteraction("knowledge_search", { query, limit }, firstKnowledgeSearch.recorded);
 					return firstKnowledgeSearch.result;
 				}
 				const searched = await searchTool.execute("investigation-search", { query, top_k: limit }, signal);
@@ -135,7 +136,7 @@ export async function executeInvestigation(input: {
 					: []));
 				const projectedPages = pages.map((value) => {
 					const page = value as { page_ref: string; title: string; content: string; evidence?: Array<{ cite_ref?: string }> };
-					for (const evidence of page.evidence ?? []) if (evidence.cite_ref) allowedRefs.add(evidence.cite_ref);
+				for (const evidence of page.evidence ?? []) if (evidence.cite_ref) citationsScope.allowWikiRef(evidence.cite_ref);
 					return { page_ref: page.page_ref, title: page.title, content: page.content.slice(0, 6_000),
 						evidence: (page.evidence ?? []).slice(0, 12).map((item) => {
 						const { cite_ref, cue, note } = item as { cite_ref?: string; cue?: string; note?: string };
@@ -143,25 +144,24 @@ export async function executeInvestigation(input: {
 						}) };
 				});
 				const cues = rankSavedCues(catalog, query, limit);
-				for (const cue of cues) allowedRefs.add(cue.ref);
 				const topicIds = [...new Set(cues.flatMap((cue) => "topic_refs" in cue ? cue.topic_refs : []))];
 				const topicLeads = topicIds.slice(0, 4).flatMap((id) => {
 				const topic = topicPlan.topics?.find((item) => item.id === id);
 				return topic ? [{ id, title: topic.title, intent: topic.intent ?? "" }] : [];
 				});
 				const result = { wiki: { ...wiki, results: (wiki.results ?? []).slice(0, limit) },
-					pages: projectedPages, cues, topic_leads: topicLeads };
-				firstKnowledgeSearch = { key, result };
-				recordInteraction("knowledge_search", { query, limit }, result);
+					pages: projectedPages, cues: citationsScope.projectCues(cues), topic_leads: topicLeads };
+				const recorded = { ...result, cues };
+				firstKnowledgeSearch = { key, result, recorded };
+				recordInteraction("knowledge_search", { query, limit }, recorded);
 				return result;
 			},
 			deepSearch: async (deepQuestion) => {
 				signal.throwIfAborted();
 				const note = await executeDeepSearch({ goalDir: input.goalDir, goalId: input.goalId,
 					question: deepQuestion, invocationId: `${id}-${++deepSearchCount}`, signal });
-				for (const cue of note.cues) allowedRefs.add(cue.ref);
 				recordInteraction("deep_search", { question: deepQuestion }, note);
-				return note;
+				return { ...note, cues: citationsScope.projectCues(note.cues) };
 			},
 			githubRead: async (externalQuestion, repository, ref, paths) => {
 				signal.throwIfAborted();
@@ -171,9 +171,9 @@ export async function executeInvestigation(input: {
 				const result = await readExternalGithub({ goalDir: input.goalDir, goalId: input.goalId,
 					runDir, investigationId: id, sequence: ++githubReadCount,
 					question: externalQuestion, repository, ref, paths, signal, env });
-				for (const cue of result.cues) allowedRefs.add(cue.ref);
 				recordInteraction("github_read", { question: externalQuestion, repository, ref, paths }, result);
-				return result;
+				return { ...result, cues: citationsScope.projectCues(result.cues),
+					sources: result.sources.map(({ title, url }) => ({ title, url })) };
 			},
 		},
 	});
@@ -206,8 +206,8 @@ export async function executeInvestigation(input: {
 			throw new Error(run.rootError ?? "Prime investigation did not write a valid result file");
 		}
 		const value = JSON.parse(readFileSync(outputPath, "utf8"));
-		const result = validateInvestigationResult({ ...value, id, question, wiki_sha256: wikiSha256 }, id, question);
-		for (const ref of result.citation_refs) if (!allowedRefs.has(ref)) throw new Error(`Prime cited unknown evidence '${ref}'`);
+		const draft = validateInvestigationResult({ ...value, id, question, wiki_sha256: wikiSha256 }, id, question);
+		const result = validateInvestigationResult(citationsScope.restore(draft), id, question);
 		const wikiRefs = result.citation_refs.filter((ref) => /^C[1-9][0-9]*$/u.test(ref));
 		if (wikiRefs.length) await wikiAdapter.hydrateCitationRefs(wikiRefs, signal);
 		const citations = result.citation_refs.map((ref) => {
