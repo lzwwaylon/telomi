@@ -1,5 +1,6 @@
 schema_version: 2
 id: prime-search
+skills: [deep-search]
 prompts:
   system-append:
     scheduled: system-append.scheduled.md.njk
@@ -7,3 +8,4 @@ prompts:
     scheduled-context: user.scheduled-context.md.njk
     acquire: user.acquire.md.njk
     organize: user.organize.md.njk
+    investigate: user.investigate.md.njk

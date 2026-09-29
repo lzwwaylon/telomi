@@ -33,6 +33,8 @@ export interface KnowledgeCitationRegistry {
 	knowledgeSha256: string;
 	entries: Array<{
 		ref?: string;
+		/** Distinct Cue citations can share a Source URL without sharing one displayed number. */
+		numberKey?: string;
 		url: string;
 		title: string;
 		provenance: string;
@@ -49,7 +51,7 @@ export interface ChapterInput {
 
 type RegistryEntry = KnowledgeCitationRegistry["entries"][number];
 
-/** Citation numbers keyed by Source URL; each keeps the registry entries cited under it. */
+/** Citation numbers keyed by Source URL, or by a Cue ref when exact Cue identity matters. */
 type NumberedSources = Map<string, { number: number; entries: RegistryEntry[] }>;
 
 /** Compile one Main Agent answer with the same citation format as Canonical Reports. */
@@ -326,20 +328,19 @@ function resolveRegisteredCitation(
 	registry: KnowledgeCitationRegistry,
 	value: string,
 ): KnowledgeCitationRegistry["entries"][number] | undefined {
-	if (/^[CN][1-9][0-9]*$/u.test(value)) return registry.entries.find((entry) => entry.ref === value);
+	const byRef = registry.entries.find((entry) => entry.ref === value);
+	if (byRef) return byRef;
 	const normalized = tryNormalizeCitationSource(value);
 	return normalized ? registry.entries.find((entry) => !entry.ref && entry.url === normalized) : undefined;
 }
 
-/**
- * 同一 Source URL 共用一个编号，不同 Evidence ref 都记在该编号的 citation record 上，
- * References 因此每个 Source 只列一次。
- */
+/** Source URLs normally share one number; a Cue with `numberKey` retains its own number. */
 function numberSource(sources: NumberedSources, entry: RegistryEntry): number {
-	let source = sources.get(entry.url);
+	const key = entry.numberKey ?? entry.url;
+	let source = sources.get(key);
 	if (!source) {
 		source = { number: sources.size + 1, entries: [] };
-		sources.set(entry.url, source);
+		sources.set(key, source);
 	}
 	if (!source.entries.includes(entry)) source.entries.push(entry);
 	return source.number;

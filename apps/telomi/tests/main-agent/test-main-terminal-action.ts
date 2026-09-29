@@ -58,6 +58,17 @@ const concise = asTerminalTool({
 const conciseResult = await concise.execute("research", {}, signal, update);
 assert.equal(conciseResult.details.userResponse, "Research complete. Short summary.");
 
+const cited = "A=8+n-1 <cite>deep-search:read-1:cue-1</cite>";
+const investigation = asTerminalTool({
+	...taskScopeBase,
+	name: "investigate",
+	execute: async () => ({ content: [{ type: "text", text: JSON.stringify({ answer: cited }) }],
+		details: { userResponse: cited } }),
+}, "investigate", "local_knowledge_investigated");
+const investigationResult = await investigation.execute("investigate", {}, signal, update);
+assert.equal(investigationResult.terminate, true);
+assert.equal(parseMainTerminalDetails(investigationResult.details)?.userResponse, cited);
+
 for (const invalid of [
 	undefined,
 	{},

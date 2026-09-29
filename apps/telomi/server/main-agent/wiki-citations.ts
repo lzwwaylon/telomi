@@ -4,6 +4,8 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { writeWikiMessageCitations } from "../citations/wiki-message-store.js";
+import { resolveDeepSearchCue } from "../research/deep-search.js";
+import { resolveSavedCornellCue } from "../research/saved-cornell-cues.js";
 import { resolveWikiEdition } from "../wiki/editions.js";
 import { hashWikiDirectory } from "../wiki/files.js";
 import { createGoalLlmWikiTools } from "../wiki/tools.js";
@@ -16,8 +18,8 @@ import {
 	type WikiReportReferenceAdapter,
 } from "../research/pipeline/wiki-report-references.js";
 
-const WIKI_CITE = /<cite>(C[1-9][0-9]*)<\/cite>/gu;
-const HAS_WIKI_CITE = /<cite>C[1-9][0-9]*<\/cite>/u;
+const CITE = /<cite>([^<>\s]+)<\/cite>/gu;
+const HAS_CITE = /<cite>/u;
 
 /** Compile before AgentSession persists the finalized assistant message. */
 export function registerMainWikiCitationCompiler(
@@ -64,24 +66,39 @@ export class MainWikiCitationSession {
 					? [{ text: block.text, write: (text: string) => { message.content[index] = { ...block, text }; } }]
 					: [])
 				: [];
-		const cited = blocks.filter((block) => HAS_WIKI_CITE.test(block.text));
+		const cited = blocks.filter((block) => HAS_CITE.test(block.text));
 		if (cited.length === 0) return false;
-		const adapter = this.currentAdapter();
-		const refs = [...new Set<string>(cited.flatMap((block) => [...block.text.matchAll(WIKI_CITE)].map((match) => match[1]!)))];
-		await adapter.hydrateCitationRefs(refs);
+		const refs = [...new Set<string>(cited.flatMap((block) => [...block.text.matchAll(CITE)].map((match) => match[1]!)))];
+		const wikiRefs = refs.filter((ref) => /^C[1-9][0-9]*$/u.test(ref));
+		const adapter = wikiRefs.length > 0 ? this.currentAdapter() : undefined;
+		if (adapter) await adapter.hydrateCitationRefs(wikiRefs);
 		const registry: KnowledgeCitationRegistry = {
 			schemaVersion: 1,
-			knowledgeSha256: this.knowledgeSha256!,
+			knowledgeSha256: this.knowledgeSha256 ?? "",
 			entries: refs.map((ref) => {
-				const citation = adapter.resolveCitationRef(ref);
+				if (adapter && /^C[1-9][0-9]*$/u.test(ref)) {
+					const citation = adapter.resolveCitationRef(ref);
+					return {
+						ref,
+						url: citation.entry.source.url,
+						title: citation.entry.source.title,
+						provenance: citation.entry.source.id,
+						fileRefs: [citation.page.path],
+						evidenceId: citation.entry.source.id,
+						wiki: citation,
+					};
+				}
+				const cue = ref.startsWith("cornell:")
+					? resolveSavedCornellCue(this.options.goalDir, ref)
+					: resolveDeepSearchCue(this.options.goalDir, ref);
+				if (!cue) throw new Error(`Unknown saved Cue citation '${ref}'`);
 				return {
 					ref,
-					url: citation.entry.source.url,
-					title: citation.entry.source.title,
-					provenance: citation.entry.source.id,
-					fileRefs: [citation.page.path],
-					evidenceId: citation.entry.source.id,
-					wiki: citation,
+					url: "",
+					title: cue.cue,
+					provenance: ref,
+					fileRefs: cue.evidence.map((item) => item.source_path),
+					numberKey: ref,
 				};
 			}),
 		};
@@ -99,8 +116,8 @@ export class MainWikiCitationSession {
 			schemaVersion: 1,
 			goalId: this.options.goalId,
 			messageId,
-			wikiRevision: this.revision!,
-			knowledgeSha256: this.knowledgeSha256!,
+			wikiRevision: this.revision ?? "",
+			knowledgeSha256: this.knowledgeSha256 ?? "",
 			citations,
 		});
 		return true;

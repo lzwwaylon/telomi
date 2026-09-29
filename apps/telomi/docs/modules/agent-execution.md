@@ -33,6 +33,7 @@ Agent Bundle callers use the registry through:
 - `app.ts` injects `GoalExecution` into `GoalService`: Main Agent session initialization, Research Run tool invocation, and Research Run and Wiki Update recovery entry points. The composition layer binds podcast dispatch to the session; Goals depend only on the `GoalSession` contract. Research Run liveness is read only from Runtime's `run-state.json`, without separate startup, scheduled-research, or recovery Sets in Goals. Main Agent sessions still prevent duplicate starts through their own synchronous `isRunning()` and initialization Promise.
 - Runtime may reject, retry, recover, and publish, but cannot generate semantic results on an Agent's behalf.
 - Tool and network fields in `agent.yaml` are execution allowlists, not descriptive text.
+- Local investigation freezes the Wiki edition for the turn and exposes only Goal knowledge and Deep Search bridge calls to Prime. Runtime validates returned citation refs against those bridge results before Main can cite them. Deep Search Cues remain outside the Wiki until a separate Wiki publication path handles them.
 - Contract ownership: Research owns Research Run state and recovery (`server/research/run-state.ts`). Neither Research nor Wiki owns the Cornell Evidence Corpus contract (`server/cornell/contracts.ts`); both import it directly. The execution layer supplies only the Schema validation entry point.
 
 ## Pi and Prime execution boundaries

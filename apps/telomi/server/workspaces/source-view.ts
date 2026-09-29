@@ -39,6 +39,7 @@ export interface LogicalSourceMemberView {
 
 export interface LogicalSourceView {
 	source_id?: unknown;
+	revision_sha256?: unknown;
 	title?: unknown;
 	path?: unknown;
 	members?: LogicalSourceMemberView[];
