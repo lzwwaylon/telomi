@@ -196,6 +196,7 @@ export const enMessages = {
 	"artifacts.pdfartifact.pagePageOfTotal": "Page {{page}} of {{total}}",
 	"artifacts.preview.cannotPreview": "This file cannot be previewed.",
 	"artifacts.preview.downloadFilename": "Download {{filename}}",
+	"workspace.fileUnavailable": "This file is not saved in the current Goal.",
 	"artifacts.spreadsheetartifact.spreadsheetParsingFailed": "Spreadsheet parsing failed:",
 	"artifacts.xlsxartifact.failedToLoadXlsx": "Failed to load xlsx:",
 	"artifacts.xlsxartifact.loadingWorkbook": "Loading workbook…",

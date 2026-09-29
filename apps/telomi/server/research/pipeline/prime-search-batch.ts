@@ -1193,7 +1193,7 @@ export async function runPrime(args: {
 	activity: Pick<AgentStageActivity, "stageId" | "attemptId" | "role">;
 	tracePath: string;
 	conditionsPath: string;
-	launchKind: "root_with_native_rlm_children" | "standalone_organizer" | "provider_child";
+	launchKind: "root_with_native_rlm_children" | "standalone_organizer" | "provider_child" | "local_investigation";
 	childReplayId?: string;
 	serviceTier?: "default" | "priority" | "flex";
 	onChildEvent?: (event: unknown) => void;
@@ -1486,6 +1486,12 @@ export interface PrimeBridgeOptions {
 	browser?: { config: BrowserToolClientConfig; root: string };
 	/** Where skill-read receipts are appended (the stage's execution-conditions.jsonl). */
 	conditionsPath?: string;
+	/** Question investigation operations, scoped to this Root and its Goal. */
+	investigation?: {
+		knowledgeSearch(query: string, limit: number): Promise<unknown>;
+		deepSearch(question: string): Promise<unknown>;
+		githubRead(question: string, repository: string, ref: string, paths: string[]): Promise<unknown>;
+	};
 }
 
 const BRIDGE_ROUTES = new Set([
@@ -1495,6 +1501,9 @@ const BRIDGE_ROUTES = new Set([
 	"/v1/browser/materialize",
 	"/v1/skill-read",
 	"/v1/provider-fallback",
+	"/v1/knowledge-search",
+	"/v1/deep-search",
+	"/v1/github-read",
 ]);
 
 function bridgeExecutionId(value: unknown): string {
@@ -1576,6 +1585,32 @@ export async function startPrimeSourceBridge(
 				response.end(JSON.stringify({ error: "unauthorized execution" }));
 				return;
 			}
+			if (options.investigation) {
+				if (executionId !== "root") throw new Error("Investigation Tools are available only to the Search Root");
+				if (route === "/v1/knowledge-search") {
+					response.end(JSON.stringify(await options.investigation.knowledgeSearch(
+						requiredString(body.query, "Knowledge query"),
+						positiveInteger(body.limit, "Knowledge search limit", 20),
+					)));
+					return;
+				}
+				if (route === "/v1/deep-search") {
+					response.end(JSON.stringify(await options.investigation.deepSearch(requiredString(body.question, "Deep Search question"))));
+					return;
+				}
+				if (route === "/v1/github-read") {
+					if (!Array.isArray(body.paths) || body.paths.some((path) => typeof path !== "string")) {
+						throw new Error("GitHub paths must be strings");
+					}
+					response.end(JSON.stringify(await options.investigation.githubRead(
+						requiredString(body.question, "GitHub reading question"),
+						requiredString(body.repository, "GitHub repository"),
+						requiredString(body.ref, "GitHub ref"), body.paths)));
+					return;
+				}
+				throw new Error("This investigation cannot access external Providers");
+			}
+			if (route === "/v1/knowledge-search" || route === "/v1/deep-search" || route === "/v1/github-read") throw new Error("Investigation is not available in this Search Run");
 			if (route === "/v1/root-search") {
 				// Discovery belongs to the Root; children get the specialized Providers below.
 				if (bridgeExecutionId(body.agent_session_id) !== "root") throw new Error("General Web search is available only to the Search Root");

@@ -3,10 +3,13 @@ id: cornell-note
 prompts:
   system-append:
     default: system.md.njk
+    deep-search: system.deep-search.md.njk
   user:
     default: user.md.njk
     prime-execution: user.prime-execution.md.njk
+    deep-search: user.deep-search.md.njk
     repair: user.repair.md.njk
+    deep-search-repair: user.deep-search-repair.md.njk
 sandbox:
   role: report.cornell_note
   execution_profile: prime_ipython

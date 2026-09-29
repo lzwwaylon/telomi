@@ -116,7 +116,8 @@ interface CitationSourcePreviewData {
 		page?: { ref: string; path: string; title: string; type: string; content: string };
 		cue: string;
 		note: string;
-		excerpts: Array<{ path: string; startLine: number; endLine: number; text: string }>;
+		excerpts: Array<{ path: string; startLine: number; endLine: number; text: string;
+			sourceId?: string; sourceRevisionSha256?: string; contentSha256?: string }>;
 		assets: Array<{ sourceId: string; path: string; alt: string }>;
 	}>;
 }
@@ -159,7 +160,7 @@ function CitationSourcePreview({
 
 	React.useEffect(() => {
 		const scope = artifactName ? `artifact:${artifactName}` : messageId ? `message:${messageId}` : "";
-		if (!visible || !goalId || !scope || !url) return;
+		if (!visible || !goalId || !scope || (data.kind !== "ref" && !url) || (data.kind === "ref" && (!messageId || citationNumber === undefined))) return;
 		const key = sourcePreviewKey(goalId, scope, url, citationNumber);
 		if (SOURCE_PREVIEW_CACHE.has(key)) {
 			const cached = SOURCE_PREVIEW_CACHE.get(key);
@@ -168,7 +169,8 @@ function CitationSourcePreview({
 		}
 		setState({ status: "loading" });
 		const controller = new AbortController();
-		const params = new URLSearchParams({ url });
+		const params = new URLSearchParams();
+		if (url) params.set("url", url);
 		if (artifactName) params.set("name", artifactName);
 		else if (messageId) params.set("messageId", messageId);
 		if (citationNumber !== undefined) params.set("number", String(citationNumber));
@@ -187,9 +189,9 @@ function CitationSourcePreview({
 				if (!controller.signal.aborted) setState({ status: "error" });
 			});
 		return () => controller.abort();
-	}, [artifactName, citationNumber, goalId, messageId, url, visible]);
+	}, [artifactName, citationNumber, data.kind, goalId, messageId, url, visible]);
 
-	if (!goalId || (!artifactName && !messageId) || data.kind !== "url") return null;
+	if (!goalId || (!artifactName && !messageId) || data.kind === "file") return null;
 	if (state.status === "loading") {
 		return <div className="rounded-[6px] border border-[var(--line-soft)] px-2.5 py-2 text-[11px] text-[var(--ink-faint)]">{uiText("markdown.picitechip.loadingSourceContent")}</div>;
 	}
@@ -277,6 +279,11 @@ function CitationSourcePreview({
 						<span className="min-w-0 break-all font-mono">{excerpt.path}</span>
 						<span className="shrink-0 font-mono">L{excerpt.startLine}-{excerpt.endLine}</span>
 					</div>
+					{excerpt.sourceId && excerpt.sourceRevisionSha256 ? (
+						<div className="mb-2 break-all font-mono text-[10px] text-[var(--ink-faint)]">
+							{excerpt.sourceId} @ {excerpt.sourceRevisionSha256.slice(0, 12)}
+						</div>
+					) : null}
 					{isMarkdownPath(excerpt.path) ? (
 						<MarkdownView text={excerpt.text} goalId={goalId} className="[&_p]:text-[12px] [&_p]:leading-relaxed [&_li]:text-[12px] [&_li]:leading-relaxed [&_h1]:text-[15px] [&_h2]:text-[14px] [&_h3]:text-[13px]" />
 					) : (
@@ -632,7 +639,7 @@ export function PiCiteChip({
 						<InlineCitationCarouselContent>
 							{dataList.map((data, i) => {
 								const isFile = data.kind === "file";
-								// Reference without a reachable Source URL: title only, nothing to open.
+								// Message refs open their exact Cue and Source excerpt in the preview below.
 								const isRef = data.kind === "ref";
 								const lineLabel = lineRangeLabel(data);
 								const citeLabel = data.label?.trim();
@@ -647,7 +654,7 @@ export function PiCiteChip({
 										? `${data.target}:${lineLabel}`
 										: data.target
 									: url;
-								const Icon = isFile ? FileText : isRef ? Unlink : ExternalLink;
+								const Icon = isFile || (isRef && messageId) ? FileText : isRef ? Unlink : ExternalLink;
 									return (
 									<InlineCitationCarouselItem key={i}>
 											<div className="space-y-2.5">
@@ -672,9 +679,9 @@ export function PiCiteChip({
 												</button>
 												{/* 路径或 URL —— url chip 渲染成可点击 anchor;file chip 也走 onFileClick。 */}
 												{isRef ? (
-													<p className="text-[11px] leading-relaxed text-[var(--ink-faint)]">
+													!messageId ? <p className="text-[11px] leading-relaxed text-[var(--ink-faint)]">
 														{uiText("markdown.picitechip.sourceLinkUnavailable")}
-													</p>
+													</p> : null
 												) : isFile ? (
 													<button
 														type="button"

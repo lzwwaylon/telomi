@@ -27,12 +27,13 @@ import { createMainAgentReplayRecipe } from "./main-agent-replay.js";
 import { evolutionReplayRecipe } from "./evolution-replay.js";
 import { liveProviderChildReplayRecipe } from "./provider-child-replay.js";
 import { livePrimeSearchReplayRecipe } from "./prime-search-replay.js";
+import { investigationReplayRecipe, withInvestigationNodeCapture } from "./investigation-replay.js";
 import { podcastWriterReplayRecipe } from "./podcast-replay.js";
 import { scheduleReviewerReplayRecipe, runScheduleReviewNodeEvaluation } from "./schedule-review-replay.js";
 import { wikiCompilationReplayRecipe, runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "./wiki-compilation-node-replay.js";
 import { wikiCuratorReplayRecipe, wikiShardReplayRecipe } from "./wiki-replay.js";
 import {
-	recordedStageReplayRecipes,
+	createRecordedStageReplayRecipes,
 	withResearchNodeEvaluationCapture,
 	withCornellNoteCapture,
 } from "../agent-runtime/recorded-stage-replay.js";
@@ -42,6 +43,7 @@ import { runPodcastWriterNodeEvaluation } from "./podcast-replay.js";
 import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
 import { OPERATIONS_PROTOCOL_VERSION, OPERATIONS_SCHEMA_HASH } from "./operations-contract.js";
 import { producesBrowserEvolutionEvidence } from "../evolution/targets.js";
+import { validateDeepSearchDraftFromCorpus } from "../research/deep-search.js";
 
 export interface OperationsRuntime {
 	readonly mode: OperationsMode;
@@ -71,6 +73,7 @@ export function createOperationsRuntime(options: {
 		researchStages: withResearchNodeEvaluationCapture,
 		cornellNote: withCornellNoteCapture,
 		primeSearchBatch: withPrimeSearchNodeEvaluationCapture,
+		investigation: withInvestigationNodeCapture,
 		wikiShard: runWikiShardNodeEvaluation,
 		wikiCompilation: runWikiCompilationNodeEvaluation,
 		wikiReindex: runWikiReindexNodeEvaluation,
@@ -86,6 +89,7 @@ export function createOperationsRuntime(options: {
 		recipes: [
 			createMainAgentReplayRecipe(),
 			livePrimeSearchReplayRecipe,
+			investigationReplayRecipe,
 			liveProviderChildReplayRecipe,
 			podcastWriterReplayRecipe,
 			scheduleReviewerReplayRecipe,
@@ -93,7 +97,7 @@ export function createOperationsRuntime(options: {
 			wikiCompilationReplayRecipe,
 			wikiCuratorReplayRecipe,
 			evolutionReplayRecipe,
-			...recordedStageReplayRecipes,
+			...createRecordedStageReplayRecipes(validateDeepSearchDraftFromCorpus),
 		],
 	});
 

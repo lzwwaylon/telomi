@@ -194,6 +194,7 @@ export const zhCNMessages = {
 	"artifacts.pdfartifact.pagePageOfTotal": "第 {{page}} 页 / 共 {{total}} 页",
 	"artifacts.preview.cannotPreview": "无法预览此文件。",
 	"artifacts.preview.downloadFilename": "下载 {{filename}}",
+	"workspace.fileUnavailable": "当前 Goal 未保存此文件。",
 	"artifacts.spreadsheetartifact.spreadsheetParsingFailed": "表格解析失败：",
 	"artifacts.xlsxartifact.failedToLoadXlsx": "xlsx 加载失败：",
 	"artifacts.xlsxartifact.loadingWorkbook": "正在加载工作簿…",
