@@ -320,7 +320,7 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
    shape(fields, ['title', 'description'], `${path}.file(${file}).frontmatter`);
    const title = text(fields.title, `${path}.file(${file}).frontmatter.title`), description = text(fields.description, `${path}.file(${file}).frontmatter.description`);
    text(body, `${path}.file(${file}).body`);
-   if (!/^##\s+\S/mu.test(body) || /^#\s|^---\s*$|^##\s+(?:Related|Evidence)\s*$/imu.test(body) || /(?:https?:\/\/|\]\(|<\/?[A-Za-z]|^\s*\[[^\]]+\]:)/mu.test(body)) fail(`${path}.file(${file}).body: Markdown requires H2 sections and no links, HTML, Related or Evidence sections`);
+   if (!/^##\s+\S/mu.test(body) || /^#\s|^---\s*$|^##\s+(?:Related|Evidence)\s*$/imu.test(body) || /(?:https?:\/\/|\]\(|<\/?[A-Za-z][^<>\n]*>|^\s*\[[^\]]+\]:)/mu.test(body)) fail(`${path}.file(${file}).body: Markdown requires H2 sections and no links, HTML, Related or Evidence sections`);
    const markers = [...body.matchAll(/\[\[([^\]]+)\]\]/gu)];
    if (!markers.length || /\[\[|\]\]/u.test(body.replace(/\[\[([^\]]+)\]\]/gu, ''))) fail(`${path}.file(${file}).body: body must cite valid short Entry markers such as [[N1]]`);
    for (const match of markers) entry(match[1], `${path}.file(${file}).body`);

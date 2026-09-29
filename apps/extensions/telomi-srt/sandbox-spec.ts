@@ -12,6 +12,7 @@ export type ReportSandboxRole = (typeof REPORT_SANDBOX_ROLES)[number];
 export type SandboxRole =
 	| "main.goal_agent"
 	| "evolution.candidate_author"
+	| "wiki.object_builder"
 	| ReportSandboxRole;
 
 export interface SandboxMountSpec {
@@ -53,6 +54,7 @@ const TOOL_NAMES = new Set<string>(SANDBOX_TOOL_NAMES);
 const ROLE_NAMES = new Set<SandboxRole>([
 	"main.goal_agent",
 	"evolution.candidate_author",
+	"wiki.object_builder",
 	...REPORT_SANDBOX_ROLES,
 ]);
 const REPORT_ROLE_NAMES = new Set<SandboxRole>(REPORT_SANDBOX_ROLES);
@@ -195,18 +197,18 @@ export function parseSandboxExecutionSpec(value: unknown): SandboxExecutionSpec 
 	if (activeTools.includes("bash") && writablePaths.some((rule) => rule.kind === "file")) {
 		throw new Error("bash sandboxes cannot rely on file-only write rules; use a dedicated read-write mount");
 	}
-	if (REPORT_ROLE_NAMES.has(role)) {
-		if (guestCwd !== "/work") throw new Error(`report sandbox role ${role} requires guestCwd /work`);
-		if (role === "report.cornell_note") {
-			if (networkRecord.mode !== "deny") throw new Error("report Cornell Note requires denied network");
+	if (REPORT_ROLE_NAMES.has(role) || role === "wiki.object_builder") {
+		if (guestCwd !== "/work") throw new Error(`sandbox role ${role} requires guestCwd /work`);
+		if (role === "report.cornell_note" || role === "wiki.object_builder") {
+			if (networkRecord.mode !== "deny") throw new Error(`sandbox role ${role} requires denied network`);
 		} else if (networkRecord.mode !== "allow") {
-			throw new Error(`report sandbox role ${role} requires open network`);
+			throw new Error(`sandbox role ${role} requires open network`);
 		}
 		if (!mounts.some((mount) => mount.guestPath === "/work" && mount.access === "read-write")) {
-			throw new Error(`report sandbox role ${role} requires a read-write /work mount`);
+			throw new Error(`sandbox role ${role} requires a read-write /work mount`);
 		}
 		if (!writablePaths.some((rule) => rule.guestPath === "/work" && rule.kind === "tree")) {
-			throw new Error(`report sandbox role ${role} requires writable /work tree`);
+			throw new Error(`sandbox role ${role} requires writable /work tree`);
 		}
 	}
 
