@@ -63,6 +63,7 @@ export async function runNoteFirstStage(request: NoteFirstStageRequest): Promise
  if (request.input.stage === "objects" && request.input.entries.length > 0 && JSON.stringify(request.input.entries).length <= 50_000) {
   return (await import("./pi-object-stage.js")).runPiObjectStage(request);
  }
+ if (request.input.stage === "plan-concepts") return (await import("./pi-object-stage.js")).runPiConceptPlanStage(request);
  return runAgentNoteFirstStage(request);
 }
 
@@ -141,6 +142,7 @@ export function noteFirstCapabilityIdentity(): string {
  return hashJson({ semantics, system: system.content, registration: system.configSha256,
   pageTopics: renderAgentPrompt("wiki", "note-first", "system", {}, "page-topics").content,
   piObjects: renderAgentPrompt("wiki", "note-first", "system", {}, "objects-pi").content,
+  piConceptPlan: renderAgentPrompt("wiki", "note-first", "system", {}, "plan-concepts-pi").content,
   users: ["objects", "merge-objects", "plan-concepts", "concepts", "merge-concepts", "relations", "plan-topics", "topic"]
    .map(stage => renderAgentPrompt("wiki", "note-first", "user", { stage }).content),
   skills: snapshotSkills(bundledAgentSkillPaths("wiki", "note-first")).sha256 });
