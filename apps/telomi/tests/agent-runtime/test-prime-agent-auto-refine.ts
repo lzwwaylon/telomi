@@ -140,7 +140,7 @@ const stagingCallers = sourceFiles(serverRoot)
 	.filter((path) => readFileSync(path, "utf-8").includes("stagePrimeAgentDirectory("))
 	.map((path) => relative(serverRoot, path))
 	.sort();
-assert.deepEqual(stagingCallers, ["agent-runtime/prime-worker.ts", "wiki/note-wiki-maintainer.ts", "wiki/page-topic-stage.ts"]);
+assert.deepEqual(stagingCallers, ["agent-runtime/prime-worker.ts", "wiki/note-wiki-maintainer.ts", "wiki/page-topic-stage.ts", "wiki/pi-object-stage.ts"]);
 const pageTopicSource = readFileSync(join(serverRoot, "wiki/page-topic-stage.ts"), "utf-8");
 assert.match(pageTopicSource, /createPrimeModelRegistry\(/u);
 assert.match(pageTopicSource, /tools: \[\]/u);

@@ -44,6 +44,13 @@ assert.match(
 	sandbox.toolDefinitions.find((tool) => tool.name === "read")?.promptSnippet ?? "",
 	/Read file contents/,
 );
+const relativeWrite = sandbox.toolDefinitions.find((tool) => tool.name === "write");
+assert.ok(relativeWrite);
+await relativeWrite.execute("relative-write", { path: "pages/O1.md", content: "guest cwd\n" },
+	new AbortController().signal, () => undefined,
+	{ cwd: join(root, "work") } as Parameters<typeof relativeWrite.execute>[4]);
+assert.equal(readFileSync(join(root, "work", "pages", "O1.md"), "utf-8"), "guest cwd\n",
+	"Pi's host cwd must not redirect relative file writes outside the SRT guest mount");
 
 await sandbox.close();
 

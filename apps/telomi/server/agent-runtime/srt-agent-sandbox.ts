@@ -222,7 +222,16 @@ export function createSrtAgentSandbox(options: SrtAgentSandboxOptions): SrtAgent
 		find: createFindToolDefinition(guestCwd, { operations: findOperations }),
 		grep: grepDefinition,
 	};
-	const toolDefinitions = activeTools.map((name) => definitionsByName[name]);
+	// Pi supplies its host cwd in Tool context. File paths must resolve from the SRT guest cwd.
+	const toolDefinitions = activeTools.map((name) => {
+		const definition = definitionsByName[name];
+		return {
+			...definition,
+			execute: (toolCallId, params, signal, onUpdate, context) =>
+				definition.execute(toolCallId, params, signal, onUpdate,
+					context ? { ...context, cwd: guestCwd } : context),
+		} satisfies AnyToolDefinition;
+	});
 	return {
 		backend: "srt",
 		toolDefinitions,
