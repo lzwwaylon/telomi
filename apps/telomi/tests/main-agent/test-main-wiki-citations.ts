@@ -162,13 +162,6 @@ try {
 		getEnv: () => ({ TELOMI_WIKI_EMBEDDING_ENABLED: "false" }),
 	});
 	session.beginTurn();
-	const search = session.tools.find((tool) => tool.name === "wiki_search")!;
-	const searchResult = await search.execute("search", { query: "grounded paper" });
-	assert.match(JSON.stringify(searchResult.details), /"page_ref":"P1"/u);
-	assert.doesNotMatch(JSON.stringify(searchResult.details), /wiki\/entities\/paper/u);
-	const read = session.tools.find((tool) => tool.name === "wiki_read_page")!;
-	const readResult = await read.execute("read", { path: "P1" });
-	assert.match(JSON.stringify(readResult.details), /"cite_ref":"C1"/u);
 
 	const message = {
 		role: "assistant",

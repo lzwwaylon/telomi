@@ -37,6 +37,15 @@ export interface InvestigationResult {
 	wiki_sha256: string;
 }
 
+/** Resolve a completed investigation for Main's explicit delivery decision. */
+export function readInvestigationResult(goalDir: string, id: string): InvestigationResult {
+	if (!/^[a-f0-9]{24}$/u.test(id)) throw new Error("Invalid investigation id");
+	const runDir = join(serverRuntimeDirForGoalDir(goalDir), "research", "investigations", id);
+	const request = JSON.parse(readFileSync(join(runDir, "request.json"), "utf8")) as { id?: string; question?: string };
+	if (request.id !== id || typeof request.question !== "string") throw new Error("Investigation request is invalid");
+	return validateInvestigationResult(JSON.parse(readFileSync(join(runDir, "result.json"), "utf8")), id, request.question);
+}
+
 /** Main's local question returns only after Prime's answer and every new Cue are durable. */
 export async function executeInvestigation(input: {
 	goalDir: string;
@@ -69,7 +78,7 @@ export async function executeInvestigation(input: {
 		}
 	} else writeJsonAtomic(requestPath, request);
 	const savedPath = join(runDir, "result.json");
-	if (existsSync(savedPath)) return validateInvestigationResult(JSON.parse(readFileSync(savedPath, "utf8")), id, question);
+	if (existsSync(savedPath)) return readInvestigationResult(input.goalDir, id);
 
 	const workspaceDir = dirname(input.goalDir);
 	const edition = resolveWikiEdition(workspaceDir, input.goalId);

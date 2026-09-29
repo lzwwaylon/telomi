@@ -41,17 +41,14 @@ for (const domain of domains) {
 
 assert.ok(rendered > 0, "expected Prompt templates");
 assert.deepEqual(loadAgentPromptConfig("main", "router").skills,
-	["wiki-knowledge", "report-products", "research-monitoring", "topic-plan", "user-memory"]);
+	["report-products", "research-monitoring", "topic-plan", "user-memory"]);
 const routerSkillPaths = bundledAgentSkillPaths("main", "router");
 const routerSkillBodies = new Map(routerSkillPaths.map((path) => [
 	path.split("/").at(-1)!,
 	readFileSync(join(path, "SKILL.md"), "utf-8"),
 ]));
 for (const [tool, owner] of Object.entries({
-	wiki_search: "wiki-knowledge",
-	wiki_read_page: "wiki-knowledge",
-	wiki_graph_search: "wiki-knowledge",
-	wiki_update: "wiki-knowledge",
+	wiki_update: "research-monitoring",
 	generate_report: "report-products",
 	generate_podcast: "report-products",
 	research: "research-monitoring",
@@ -90,12 +87,10 @@ assert.deepEqual(loadAgentPromptConfig("evolution", "browser-skill-evolution").s
 });
 assert.deepEqual(loadAgentPromptConfig("main", "router").sandbox?.tools, [
 	"investigate",
+	"deliver_investigation",
 	"research",
 	"generate_report",
 	"generate_podcast",
-	"wiki_search",
-	"wiki_read_page",
-	"wiki_graph_search",
 	"wiki_update",
 	"research_schedule",
 	"read",

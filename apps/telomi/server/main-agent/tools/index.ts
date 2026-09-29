@@ -3,10 +3,9 @@ import { dirname } from "node:path";
 import type { ExtraEnvGetter } from "../extra-env.js";
 import { asTerminalTool } from "./terminal-action.js";
 import { createResearchScheduleTool } from "./research-schedule.js";
-import { createGoalLlmWikiTools } from "../../wiki/index.js";
 import { createGenerateReportTool } from "./generate-report.js";
 import { createMainResearchTool, createResearchHistoryTool } from "./research.js";
-import { createInvestigateTool } from "./investigate.js";
+import { createDeliverInvestigationTool, createInvestigateTool } from "./investigate.js";
 import { createWikiUpdateTool } from "./wiki-update.js";
 import { createGeneratePodcastTool, type PodcastGenerationDispatchHandler } from "./generate-podcast.js";
 import type { OutputLanguage } from "../../../shared/languages.js";
@@ -23,7 +22,6 @@ export interface CreateMainAgentToolsOptions {
 	getExtraEnv?: ExtraEnvGetter;
 	getOriginalQuestion?: () => string | undefined;
 	generatePodcast?: PodcastGenerationDispatchHandler;
-	wikiTools?: AgentTool[];
 }
 
 export function createMainAgentTools(
@@ -40,14 +38,14 @@ export function createMainAgentTools(
 ): AgentTool<any>[] {
 	return [
 		createResearchHistoryTool(_opts),
-		asTerminalTool(createInvestigateTool(goalDir, _opts), "investigate", "local_knowledge_investigated"),
+		createInvestigateTool(goalDir, _opts),
+		asTerminalTool(createDeliverInvestigationTool(goalDir), "deliver_investigation", "local_knowledge_delivered"),
 		asTerminalTool(createMainResearchTool(goalDir, _opts), "research", "external_research_requested"),
 		asTerminalTool(createGenerateReportTool(goalDir, _opts), "generate_report", "wiki_report_generated"),
 		asTerminalTool(createGeneratePodcastTool(_opts.goalId, goalDir, (request) => {
 			if (!_opts.generatePodcast) throw new Error("Podcast generation is not configured");
 			return _opts.generatePodcast(request);
 		}), "generate_podcast", "podcast_generation_requested"),
-		...(_opts.wikiTools ?? createGoalLlmWikiTools({ goalDir })),
 		createWikiUpdateTool({
 			goalId: _opts.goalId,
 			goalDir,

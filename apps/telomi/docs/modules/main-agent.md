@@ -10,7 +10,7 @@ External callers manage Goals through `GoalService` and start, steer, abort, and
 
 Preparatory actions:
 
-- `wiki_search`, `wiki_read_page`, `wiki_graph_search`: query the current Goal's authoritative `wiki/knowledge`.
+- `investigate`: give Prime the factual question, conversation context and source scope. Main reviews its cited answer and gaps before delivery or another investigation.
 - `search_user_memory`: recall historical evidence from an independent Hindsight bank as needed, or reflect on memories containing temporal changes and conflicts. While the memory service drains and restarts after a default-model change, the tool reports that memory is temporarily unavailable instead of throwing an error; the current turn continues without relying on memory.
 - `research_history`: page through this Goal's prior search questions and results to avoid repeated research and identify failed or stale searches.
 - `research_schedule`: create, inspect, modify, pause, resume, or archive Research Schedules. Main Agent cannot trigger an occurrence immediately. Only the user can trigger one manually from the schedule panel; otherwise, Runtime starts occurrences when cron makes them due.
@@ -21,13 +21,13 @@ Preparatory actions:
 
 Terminal actions:
 
-- Ordinary assistant reply: answer directly from the current conversation and already-read knowledge, without a dedicated reply Tool.
-- `investigate`: delegate a factual question to Prime. Prime checks a frozen Wiki edition, historical Cornell Cues, and saved question-specific Cues, then asks Cornell Deep Search to read original saved Sources if the detail is missing. For an unresolved code detail and an external-allowed request, Prime can acquire versioned GitHub files and have Cornell verify them. Its validated cited answer is delivered directly in chat, without Main rewriting it. This path does not generate a report.
+- Ordinary assistant reply: discuss already-delivered content or ordinary conversation without a dedicated reply Tool. New Goal knowledge questions go through `investigate`.
+- `deliver_investigation`: deliver Prime's saved cited answer verbatim after Main confirms that it addresses the user's request. Prime checks a frozen Wiki edition, old and new Cues, and original Sources through Cornell Deep Search when needed. For an unresolved code detail with external access, it can acquire versioned GitHub files. This path does not generate a report.
 - `research`: start the current Research Runtime, proceeding through planning, Provider search, Source consolidation, Cornell Notes, a report, and an asynchronous Wiki Update.
 - `generate_report`: pin the current Wiki snapshot, have Full Report Writer plan a new structure and generate a report for the current question, then run Citation Compiler and the publication Gate.
 - `generate_podcast`: generate a podcast using one existing Canonical Report, named by its `/reports` directory, as the sole factual boundary. Runtime resolves the Goal's durable Podcast Preferences and freezes them with the current one-time instruction into a Podcast Generation Brief. A generation, from this Tool or the report card, replaces the report's Podcast: Runtime removes the previous Podcast when generation starts, so a failed or interrupted attempt leaves no Podcast rather than an outdated one. Nothing is versioned. A retry of a failed attempt continues from what that attempt finished: its frozen Podcast Generation Brief, its Podcast Script (checkpointed once written) and every voice segment it spoke. A segment is named by its text and voice settings and gets that name only once complete, so reuse never mixes voices or keeps partial audio. A changed report or a new instruction starts over, because the script no longer matches. The speech batch retries 429s, 5xx and dropped connections a bounded number of times, while single utterances (playback, live voice) still fail fast.
 
-The authoritative list is `MAIN_TERMINAL_ACTIONS` in `server/main-agent/tools/terminal-action.ts`. Each Turn allows only one terminal outcome. Wiki, Schedule, and History tools are preparatory actions whose results are returned through an ordinary assistant reply.
+The authoritative list is `MAIN_TERMINAL_ACTIONS` in `server/main-agent/tools/terminal-action.ts`. Each Turn allows only one terminal outcome. Investigation, Wiki Update, Schedule, and History tools are preparatory actions.
 
 ## Main capabilities
 
@@ -63,6 +63,7 @@ The authoritative list is `MAIN_TERMINAL_ACTIONS` in `server/main-agent/tools/te
 ## Responsibility boundaries
 
 - Main Agent owns user semantics, ongoing conversation, and high-level tool selection. It does not generate Search Plans.
+- New Goal knowledge questions go to Prime through `investigate`; Main has no Wiki search or page-reading tools. Runtime still resolves Wiki citation refs when compiling Prime's answer.
 - When a Goal is created, its description changes, or Cornell Notes yield a new Discovery, Runtime wakes the same Main Agent Session through an internal event. Main Agent progressively reads the Topic Plan Skill, maintains the semantic draft through native file Tools, and reports new findings to the user. Only when the user confirms does Runtime append a JSONL history snapshot, activate the revision, and trigger a Wiki Curator reframe. Research and Research Schedules cannot start before Topic Plan activation or while a revision awaits confirmation.
 - Prime Search, Source Organizer, Cornell Note, Report Writer, and Wiki Maintainer are Agents inside tools, not user conversation entry points.
 - Runtime owns sessions, isolation, state, validation, caching, publication, and terminal-action constraints. It does not make semantic judgments.
