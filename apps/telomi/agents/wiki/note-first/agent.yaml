@@ -5,6 +5,7 @@ prompts:
   system:
     page-topics: system.page-topics.md.njk
     objects-pi: system.objects-pi.md.njk
+    plan-concepts-pi: system.plan-concepts-pi.md.njk
   system-append:
     default: system.md.njk
   user:
