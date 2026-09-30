@@ -40,6 +40,11 @@ Confirming a Topic Plan runs only the page Topic classification queue through `r
 
 ## Reading and navigation
 
+Topic classification sees full article prose with Cue markers removed. Runtime filters uncited sections out of final Topic matches, retaining them as article context while preserving all supported section matches. The model cannot infer a hidden citation requirement; an uncited context match does not fail the entire Wiki publication. Unknown references, malformed output and incomplete section classification remain errors.
+
+Page classification still uses one content-bearing completion. A native WebSocket error with no tokens or partial content can reconnect up to three total attempts using the identical request; each response remains in the session and bound artifacts. Other model errors, invalid output and partial/consumed responses remain failed tasks.
+
+
 `model/navigation.ts` is the shared projection for API, graph and search. The existing graph node ID and API path remain path-based; `pageId` carries the canonical page identity. If `.topic-index.json` exists, it is authoritative even when a page has no Topic membership. Editions without it retain their historical frontmatter membership.
 
 Tree and page responses expose section IDs, headings, anchors and Topic references. `.object-first-relations.json` supplies canonical direction and labels. Readers can follow incoming and outgoing links without creating reverse semantic edges or rewriting Markdown. Direct Topic matches and optional one-hop related pages remain separate; related pages do not increase direct coverage counts. Objects remain accessible without a concept or relationship.
@@ -53,5 +58,3 @@ The formal `wiki-compilation@1` recipe captures complete construction or navigat
 Tests cover complete-Note queues, Cue ownership, stage contracts, actual SRT Skill loading, full-text delivery, relationship propagation, failed publication, retry, history, navigation and legacy reading. Deterministic tests do not establish factual correctness, complete relation coverage or superior Topic selection.
 
 The earlier shard/curator pipeline remains available for historical recovery and its own Replay recipes; see [Wiki Shard Builder](wiki-shard-builder.md).
-
-Topic classification sees full article prose with Cue markers removed. Runtime filters uncited sections out of final Topic matches, retaining them as article context while preserving all supported section matches. The model cannot infer a hidden citation requirement; an uncited context match does not fail the entire Wiki publication. Unknown references, malformed output and incomplete section classification remain errors.

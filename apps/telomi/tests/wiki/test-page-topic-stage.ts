@@ -87,6 +87,29 @@ try {
   assert.equal(checkpoint.usage.calls, 1, 'failed responses retain their usage');
   assert.ok(existsSync(join(checkpoint.attemptRoot, 'runtime', 'response.json')));
  }
+ const websocket = (): Awaited<ReturnType<PageTopicCompletion>> => ({ ...response(), content: [], stopReason: 'error', errorMessage: 'WebSocket error',
+  usage: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, totalTokens: 0, cost: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 } } });
+ const recovered = request('empty-websocket'); let reconnects = 0;
+ const reconnected = await runPageTopicStage(recovered, async (_model, context) => {
+  assert.equal(context.messages.length, 1, 'transport retry repeats the original request, without a model repair prompt');
+  return ++reconnects < 3 ? websocket() : response();
+ });
+ assert.equal(reconnects, 3); assert.equal(reconnected.usage.calls, 3); assert.equal(reconnected.usage.costUsd, 0.013);
+ const recoveredCheckpoint = json(join(recovered.workRoot, 'checkpoint.json'));
+ assert.ok(existsSync(join(recoveredCheckpoint.attemptRoot, 'runtime/response-attempt-1.json')));
+ const recoveredMessages = listJsonl(join(recoveredCheckpoint.attemptRoot, 'runtime/sessions')).flatMap(file => readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line))).filter(row => row.type === 'message');
+ assert.deepEqual(recoveredMessages.map(row => row.message.role), ['user', 'assistant', 'assistant', 'assistant']);
+ let exhausted = 0;
+ await assert.rejects(runPageTopicStage(request('websocket-exhausted'), async () => { exhausted++; return websocket(); }), /WebSocket error/);
+ assert.equal(exhausted, 3, 'no fourth transport attempt');
+ for (const [name, bad] of [
+  ['websocket-partial', { ...websocket(), content: [{ type: 'text' as const, text: 'Partial output' }] }],
+  ['websocket-usage', { ...websocket(), usage: response().usage }],
+  ['websocket-wrong-model', { ...websocket(), model: 'another-model' }],
+ ] as const) {
+  let attempts = 0; await assert.rejects(runPageTopicStage(request(name), async () => { attempts++; return bad; }));
+  assert.equal(attempts, 1, 'partial output, consumed tokens and model mismatches are not transport retries');
+ }
  const rejected = request('transport-throw');
  await assert.rejects(runPageTopicStage(rejected, async () => { throw new Error('Transport failed'); }), /Transport failed/);
  assert.equal(json(join(rejected.workRoot, 'checkpoint.json')).status, 'failed');
