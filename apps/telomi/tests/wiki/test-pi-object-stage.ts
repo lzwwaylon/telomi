@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acceptPiObjectFiles, piConceptPlanUserContext, piObjectUserContext, stagePiConceptPlanArticles,
- validatePiConceptPlanFiles, validatePiObjectFiles, piObjectMergeUserContext, observePiMergeRead,
+import { acceptPiObjectFiles, piObjectUserContext,
+ validatePiObjectFiles, piObjectMergeUserContext, observePiMergeRead,
  validatePiObjectMergeFiles, piResidualCueUserContext, piObjectMergePlanUserContext, validatePiObjectMergePlanFiles } from '../../server/wiki/pi-object-stage.js';
 import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
 import { createSrtAgentSandbox } from '../../server/agent-runtime/srt-agent-sandbox.js';
@@ -65,25 +65,6 @@ try {
   readonlyMounts: [], activeTools: ['read', 'write', 'edit'], network: 'deny' });
  assert.deepEqual(sandbox.tools.map(tool => tool.name), ['read', 'write', 'edit']);
  await sandbox.close();
- const planInput: NoteFirstInput = { ...input, stage: 'plan-concepts', entries: [], requiredEntries: [],
-  pages: [
-   { ref: 'object:a', previous: false, role: 'member', page: { id: 'entity:a', kind: 'entity', title: 'Model A', description: 'Discrete speech model', body: '## Mechanism\nDiscrete tokens.' } },
-   { ref: 'concept:b', previous: true, role: 'context', page: { id: 'concept:b', kind: 'concept', title: 'Prior concept', description: 'Earlier explanation', body: '## Boundary\nOlder scope.' } },
-  ], requiredPages: ['object:a'], topics: [{ id: 'topic:secret', title: 'Hidden Topic', intent: '', include: [], exclude: [] }] as NoteFirstInput['topics'] };
- const planRoot = join(root, 'plan-input'), planWork = join(root, 'plan-work');
- mkdirSync(planWork);
- const planSystem = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'plan-concepts-pi').content;
- assert.match(planSystem, /Group articles around a reusable research question/);
- const planUser = piConceptPlanUserContext(planInput);
- assert.match(planUser, /P1 \| assign \| entity/);
- assert.match(planUser, /P2 \| context \| concept/);
- assert.ok(!planUser.includes('Hidden Topic'));
- stagePiConceptPlanArticles(planInput, planRoot);
- assert.match(readFileSync(join(planRoot, 'articles/P1.md'), 'utf8'), /## S1 · Mechanism/);
- writeFileSync(join(planWork, 'result.json'), JSON.stringify({ jobs: [{ page_refs: ['P1'], instructions: 'Compare mechanisms and limits' }] }));
- assert.equal(validatePiConceptPlanFiles(planInput, planRoot, planWork).kind, 'concept-plan');
- writeFileSync(join(planWork, 'result.json'), JSON.stringify({ jobs: [{ page_refs: ['P2'], instructions: 'Wrong context assignment' }] }));
- assert.throws(() => validatePiConceptPlanFiles(planInput, planRoot, planWork), /missing: \[P1\]; unexpected: \[P2\]/);
  const mergeInput: NoteFirstInput = { ...input, stage: 'merge-objects', pages: [
   { ref: 'old:a', previous: true, role: 'member', page: { id: 'entity:a', kind: 'entity', title: 'Method A', description: 'Existing method', body: `## Mechanism\nEvidence [[${a}]].` } },
   { ref: 'new:b', previous: false, role: 'member', page: { id: 'entity:b', kind: 'entity', title: 'Method A draft', description: 'New observations', body: `## Observations\nEvidence [[${b}]].` } },

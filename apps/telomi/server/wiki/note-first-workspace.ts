@@ -161,12 +161,13 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
   'merge-objects': '{pages:[{file:"pages/O1.md",member_refs:["P1"]}],retained_refs:[],discarded_refs:[{ref:"P2",reason:"..."}],deferred_entries:[]}',
   concepts: '{pages:[{file:"pages/C1.md"}],considered_pages:[{page_ref:"P1",reason:"..."}]}',
   'merge-concepts': '{pages:[{file:"pages/C1.md",member_refs:["P1"]}],retained_refs:[],discarded_refs:[]}',
-  'plan-concepts': '{jobs:[{page_refs:["P1"],instructions:"..."}]}',
+  'plan-concepts': '{concept_jobs:[{question:"...",scope:"...",page_refs:["P1"],target_ref:null}],object_only:[{page_ref:"P2",compared_with:["P1"],reason:"..."}]}',
+  'audit-concepts': '{reviewed_pages:[{page_ref:"P1",reason:"..."}],conflict_groups:[{page_refs:["P1","P2"],reason:"..."}],discarded_refs:[]}',
   relations: '{relations:[{from:"P1",to:"P2",label:"...",entry_refs:["N1"]}],reviewed_pages:[{page_ref:"P1",reason:"..."}]}',
   'plan-topics': '{jobs:[{topic_ref:"T1",instructions:"..."}]}',
   topic: '{topic_ref:"T1",matches:[{section_ref:"S1",reason:"..."}],gaps:[]}',
  };
- const coverageLabel = input.stage === 'plan-concepts' ? 'Objects to assign exactly once (catalog coverage, not mandatory full-body reading)'
+ const coverageLabel = input.stage === 'plan-concepts' ? 'Objects requiring an explicit concept job or verified object-only disposition'
   : input.stage === 'relations' ? 'Pages to cover in candidate review (catalog coverage; read evidence-bearing sections for actual links)'
   : 'Required pages';
  const context = [
@@ -183,7 +184,7 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
  if (input.stage === 'objects') context.push('pages rows contain only file. Each Note Cue must appear in an authored object or deferred_entries with a reason. Do not submit member_refs, retained_refs, discarded_refs or considered_pages.');
  if (input.stage === 'concepts') context.push('pages rows contain only file. considered_pages lists every assigned primary page exactly once with a reason after complete reading. References used as source material are not merge members; do not submit member_refs, retained_refs or discarded_refs.');
  if (input.stage === 'merge-objects' || input.stage === 'merge-concepts') context.push('Every member page must be disposed of exactly once: member_refs of one rewritten page, retained_refs, or discarded_refs with a reason. member_refs means pages consumed/replaced by the rewrite, not supporting references. To keep a page unchanged, put its P alias string in retained_refs; Runtime preserves it, so do not copy its file or submit it in pages. retained_refs is a string array such as ["P1"], not reason objects. Do not submit considered_pages.');
- if (input.stage === 'plan-concepts') context.push('Each job contains only page_refs and instructions. Assign each required object exactly once across jobs, with 1 to 8 primary pages per job. Do not submit entry_refs; Runtime supplies an empty internal Entry list.');
+ if (input.stage === 'plan-concepts') context.push('Objects may support multiple questions; objects without jobs require a full-read object_only decision. Each existing target has at most one writer. No Topics or Cue lists.');
  if (input.stage === 'objects') {
   const note = [...entries.keys()].map(entryText).join('\n\n');
   if (note.length <= 60_000) {
@@ -215,20 +216,7 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
  }
 
  function validate(output: unknown, workRoot: string, options: { incrementalMerge?: boolean; inputRoot?: 'wiki' | '../input' } = {}): NoteFirstResult {
-  if (input.stage === 'plan-concepts') {
-   shape(output, ['jobs'], 'output');
-   const allPages: string[] = [];
-   const jobs = rows(output.jobs, 'output.jobs').map((row, index) => {
-    const path = `output.jobs[${index}]`;
-    shape(row, ['page_refs', 'instructions'], path);
-    const refs = strings(row.page_refs, `${path}.page_refs`);
-    if (!refs.length || refs.length > 8) fail(`${path}.page_refs: expected 1 to 8 primary pages; received ${refs.length}`);
-    allPages.push(...refs);
-    return { pageRefs: refs.map((ref, refIndex) => page(ref, `${path}.page_refs[${refIndex}]`).ref), entryIds: [], instructions: text(row.instructions, `${path}.instructions`) };
-   });
-   exact(allPages, requiredPages, 'output.jobs[].page_refs'); exact([], requiredEntries, 'input.requiredEntries');
-   return { kind: 'concept-plan', jobs };
-  }
+  if (input.stage === 'plan-concepts' || input.stage === 'audit-concepts') fail('This stage uses the Pi native-read contract');
   if (input.stage === 'plan-topics') {
    shape(output, ['jobs'], 'output');
    const jobs = rows(output.jobs, 'output.jobs').map((row, index) => {

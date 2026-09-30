@@ -8,6 +8,7 @@ import type { CornellNotesSnapshot } from '../../server/cornell/contracts.js';
 import type { WikiCompilationRequest } from '../../server/wiki/contracts.js';
 import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
 import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
+import { createConceptReadCoverage, validatePiConceptFiles } from '../../server/wiki/pi-concept-contract.js';
 import { createPageTopicTask } from '../../server/wiki/page-topic-contract.js';
 import { objectFirstSections, type ObjectFirstPage } from '../../server/wiki/object-first-contract.js';
 import type { ObjectFirstEntry } from '../../server/wiki/object-first-edition.js';
@@ -110,9 +111,10 @@ try {
  assert.throws(() => downstream.read('N2'), /Cue details are not available/u);
  assert.throws(() => downstream.validate({ ...considered, deferred_entries: [] }, work), /unexpected/u);
  const plan = workspace({ ...concept, stage: 'plan-concepts' });
- assert.equal(plan.validate({ jobs: [{ page_refs: ['P1', 'P2'], instructions: 'Compare' }] }, work).kind, 'concept-plan');
- assert.throws(() => plan.validate({ jobs: [{ page_refs: ['P1'], instructions: 'Compare' }] }, work), /exactly once/u);
- assert.throws(() => plan.validate({ jobs: [{ page_refs: ['P1', 'P2'], entry_refs: [], instructions: 'Compare' }] }, work), /unexpected/u);
+ assert.throws(() => plan.validate({ concept_jobs: [], object_only: [] }, work), /Pi native-read contract/u,
+  'planning cannot bypass native file-read validation through the legacy workspace');
+ const audit = workspace({ ...concept, stage: 'audit-concepts' });
+ assert.throws(() => audit.validate({}, work), /Pi native-read contract/u);
 
  const rw = workspace({ ...concept, stage: 'relations' });
  const relation = { relations: [{ from: 'P1', to: 'P2', label: 'contrasts', entry_refs: ['N1'] }], reviewed_pages: considered.considered_pages };
@@ -207,7 +209,12 @@ try {
    writeFileSync(join(out, 'pages', 'O1.md'), '---\ntitle: Source method\ndescription: Conditional method record\n---\n\n## Loss\nExact 1.45% under condition A [[N1]]');
    manifest = { ...empty(), pages: [{ file: 'pages/O1.md', member_refs: members.map(p => p.alias) }] };
   }
-  if (stage.stage === 'plan-concepts') manifest = { jobs: [{ page_refs: pageAliases.filter(p => p.page.kind === 'entity').map(p => p.alias), instructions: 'Explain the method' }] };
+  if (stage.stage === 'plan-concepts') manifest = { concept_jobs: [{ page_refs: pageAliases.filter(p => p.page.kind === 'entity').map(p => p.alias), question: 'How does the method work?', scope: 'Explain the source-supported method and conditions', target_ref: null }], object_only: [] };
+  if (stage.stage === 'audit-concepts') {
+   const concepts = pageAliases.filter(p => p.page.kind === 'concept');
+   manifest = { reviewed_pages: concepts.map(p => ({ page_ref: p.alias, reason: 'Compared mechanism and scope' })),
+    conflict_groups: concepts.length > 1 ? [{ page_refs: concepts.map(p => p.alias), reason: 'Same method and conditions need one canonical explanation' }] : [], discarded_refs: [] };
+  }
   if (stage.stage === 'concepts') {
    pageAliases.forEach(p => w.read(p.alias));
    writeFileSync(join(out, 'pages', 'C1.md'), '---\ntitle: Method\ndescription: Conditional method\n---\n\n## Loss\nExact 1.45% under condition A [[N1]]');
@@ -224,7 +231,14 @@ try {
   if (stage.stage === 'relations') manifest = { relations: [], reviewed_pages: pageAliases.map(p => ({ page_ref: p.alias, reason: 'No additional relation' })) };
   if (stage.stage === 'plan-topics') manifest = { jobs: [{ topic_ref: 'T1', instructions: 'Find Loss' }] };
   if (stage.stage === 'topic') { w.read('S1'); manifest = { topic_ref: 'T1', matches: [{ section_ref: 'S1', reason: 'Explains Loss' }], gaps: [] }; }
-  const result = w.validate(manifest, out);
+  let result;
+  if (['plan-concepts', 'concepts', 'audit-concepts', 'merge-concepts'].includes(stage.stage)) {
+   const reads = createConceptReadCoverage(stage, join(workRoot, 'input'));
+   for (const row of pageAliases) reads.record({ path: `input/pages/${row.alias}.md` },
+    { content: [{ type: 'text', text: readFileSync(join(workRoot, 'input', 'pages', `${row.alias}.md`), 'utf8') }] });
+   writeFileSync(join(out, 'result.json'), JSON.stringify(manifest));
+   result = validatePiConceptFiles(stage, join(workRoot, 'input'), out, reads).result;
+  } else result = w.validate(manifest, out);
   if (stage.stage === 'concepts' && result.kind === 'pages') proposals.push(result.value.pages[0]!.id);
   return { result, usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, calls: 1 }, sessionPaths: [] };
  } });
