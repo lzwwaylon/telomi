@@ -14,8 +14,12 @@ try {
  const source = renderAgentPrompt('wiki', 'note-first', 'system-append', {}).content;
  for (const stage of stages) {
   const prompt = stagePrompt(source, stage);
-  assert.deepEqual([...prompt.matchAll(/^(objects|merge-objects|plan-concepts|concepts|merge-concepts|relations|plan-topics|topic): /gm)].map(match => match[1]), [stage]);
+  assert.deepEqual([...prompt.matchAll(/^(objects|merge-objects|plan-concepts|concepts|audit-concepts|merge-concepts|relations|plan-topics|topic): /gm)].map(match => match[1]), [stage]);
   assert.ok(renderAgentPrompt('wiki', 'note-first', 'user', { stage }).content.includes(stage));
+ }
+ for (const variant of ['question-plan-pi', 'concepts-pi', 'audit-concepts-pi', 'merge-concepts-pi']) {
+  const prompt = renderAgentPrompt('wiki', 'note-first', 'system', {}, variant).content;
+  assert.ok(prompt.trim(), `${variant} must render a nonempty stage contract`);
  }
  const topicPrompt = skillPrompt(stagePrompt(source, 'topic'));
  assert.ok(topicPrompt.includes('wiki.read'));

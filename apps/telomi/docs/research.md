@@ -22,7 +22,7 @@ Main Agent (Pi Coding Agent)
   -> one fresh Cornell Note Prime Agent per logical Source
   -> Cornell Note Snapshot
        -> Prime Report Writer Root + Section children
-       -> asynchronous Prime Wiki Maintainer
+       -> asynchronous Note-first Wiki Maintainer
 ```
 
 There is no independent retrieval Worker, Meta Gate, or Source Agent Proposal fallback path.
@@ -165,24 +165,22 @@ Runtime does not change report semantics. It validates Sections, citations, and 
 
 Wiki Maintainer runs asynchronously alongside Report Writer. It consumes only Cornell Notes and existing Concept / Entity pages, never raw Sources.
 
-Each Source Batch's Wiki Shard Root uses only native IPython and shared Workspace files. The Root reads `input/source-roster.json` and `input/note-index.json` and writes `work/plan.json`. After validation, Runtime creates assignments containing all allocated Cornell Entries. Native RLM children read their assignments and atomically write exclusive `result.json` files. The Root only plans and repairs: it does not read complete Note bodies or write final page prose. Every new Note must be cited by a candidate Page or have an explicit reason for deferral.
+New Wiki Updates use the Note-first compiler. Runtime processes each complete Cornell Note into object pages, resolves object identity and unplaced Cues against the previous Edition, then derives concepts only from accepted object evidence. Object construction and target writing use Luna; object target planning uses Terra. Existing published Editions remain readable.
 
-Independent Shards of at most ten Sources are passed one by one to Wiki Curator in stable batch order as they complete. The first batch uses `initialize` or `update`; subsequent batches use `update` against the rolling Edition. Shard Builders continue concurrently, so the Curator may start before later Shards finish. Each Curator execution processes one Shard and jointly decides Concept and Entity identity, Page boundaries, prose, relationships, Evidence retention, and current Topic membership. Only the final Edition is published after all successful Shards have been processed.
+Concept generation uses four separate Pi Coding Agent stages, all with Terra and medium reasoning:
 
-Wiki Curator also has no Agent-facing Python interface. The Root reads compact indexes from the shared Workspace's `input/` and writes `work/plan.json`; Runtime only validates the Plan and materializes assignment files. The Root delegates Worksets through native `rlm()`. Children read assignments, Page and Cornell Entry files, and compact index rows for incoming Pages in `input/index.json` and the previous Edition in `input/main-index.json`, which let them judge whether derived Concepts duplicate incoming candidates or published Concepts. They write exclusive `result.json` files, deliver them through `submit_workset`, repair them in the same Session until Runtime accepts them, and then return native terminal results. Once every Workset passes, a final relation child uses the complete Edition catalog, fixed Concept bodies, and Cornell Entries to reconcile synonymous Concepts, then determine outgoing edges for modified and merged pages. It may repair Concept duplication already present in the previous Edition; unmerged pages remain unchanged. Runtime validates the union of merged citation Evidence, Topics, and exclusive dispositions; redirects page references; handles same-type, same-title conflicts during Workset repair; and rechecks identity uniqueness after reconciliation. Runtime validates these files together and materializes the Edition without implementing a parent-child message protocol.
+1. Plan distinct explanatory questions, assigning each object to one or more concept jobs or a verified object-only decision. Existing concepts are available as context or explicit update targets.
+2. Write zero or one candidate per question, with up to four concurrent writers. Writers fully read assigned objects and any historical target; declined updates preserve old pages.
+3. Audit the complete candidate collection and untouched old concepts, identifying unnecessary new candidates and disjoint conflicts.
+4. Merge only the flagged conflicts, preserving member evidence and leaving unrelated page bodies unchanged.
 
-Runtime only generates short Refs, validates exclusive Note and Page coverage, relationship endpoints, and atomic submission, then publishes the Goal Wiki. Agent Sessions mount only `ipython` and their respective submission Tools; Runtime does not track whether an Agent called a particular reading interface.
+These concept sessions expose only read-only page material and SRT-bound `read`, `write` and `edit`; they receive no Topic Plan or independent Cue-detail input and cannot delegate RLM children. Runtime validates manifests, evidence, identities, actual native reads and accepted files. Validation errors return to the same session for one repair turn. A separate relation Agent reconciles semantic links; page-level Topic classification then builds navigation from final pages. See [Wiki Compilation](modules/wiki-compilation.md) for the ownership, recovery and publication constraints.
 
 ### Resuming Interrupted Updates
 
-Wiki updates run in the background independently of the Report flow, so they own resumable state that survives process restarts.
+Wiki updates run in the background independently of the Report flow. Backend startup marks an unfinished job as interrupted; the user can resume it through the existing Activity action, with at most three resumes. Accepted stage checkpoints are reused only when their frozen inputs, implementation, output files and reading receipts still match. Failed attempts retain their usage and native sessions. Partial Note-first candidates remain inspectable and cannot replace the published Edition. Publication verifies the frozen base under the Goal publication lock and atomically replaces it.
 
-- The job record `wiki-update-job.json` sits with Run state in the Run control directory. Backend startup changes `running` to `interrupted`, after which the Run's Activity entry offers "Resume Wiki update." The user triggers `POST /api/goals/:goalId/wiki-updates/:runId/resume`. Runtime does not retry automatically: resuming spends real tokens, so the user decides. At most three resumes are allowed; after that, the button remains visible but disabled with an explanation.
-- Each Source batch persists its own `checkpoint.json` with content digests, draft Shard, and usage. Each rolling Curator stage also has a separate input identity and checkpoint. Resume reuses valid Shards and committed Curator stages and executes only missing or invalid steps.
-- Published Compilation artifacts are immutable. An existing compilation record is reused in full; if the knowledge directory was published without its record, resume claims that directory directly without rerunning any batch.
-- Publication uses a Goal-scoped lock, content-Hash baseline validation, and atomic replacement through a temporary directory. Interruption cannot leave a half-written Wiki.
-
-Activity separately presents and supports playback of draft Shards, Wiki Curator, and Publication. If individual Shards fail, the remaining Shards may still be published, but the final status is `partial`, retaining failed Sources, Traces, and consumed usage. A rejected Curator batch is likewise treated as a failed batch: the rolling Edition carries forward to the next batch, and that batch's knowledge is left for the next Run rather than discarding the entire compilation. Only a Curator failure before any Edition exists fails the compilation, preventing an empty Wiki from being published as partial success. When the Topic Plan changes, a separate Activity invokes the same Curator's `reframe` operation.
+Old queued Updates without the Note-first compiler identity continue through the legacy Shard Builder and Curator. Their replay and recovery boundaries remain separate from new Note-first Updates.
 
 ## Runtime and Agent Boundary
 
@@ -220,8 +218,10 @@ Runtime does not replace semantic judgment with rules.
 | Cornell Note | Fresh per Source | 4 by default |
 | Report Root | Fresh; same Session continues after children | 1 |
 | Report Section children | Fresh per Section | Section count |
-| Wiki Root | Fresh per Wiki Activity | 1 |
-| Wiki Page / Link children | Fresh per Root-defined semantic scope | Bounded by the Root |
+| Wiki object builders | Fresh per complete Note | At most 4 |
+| Wiki concept planner / audit / conflict merge | Fresh per stage or conflict group | 1 |
+| Wiki concept writers | Fresh per explanatory question | At most 4 |
+| Wiki page Topic classification | One direct completion per final page | At most 4 |
 | Podcast Root | Fresh per Podcast generation | 1 |
 | Podcast Segment / Review children | Fresh per Root-defined semantic scope | Bounded by the Root |
 
@@ -233,6 +233,6 @@ Prime Search, Report Writer, Wiki Shard Builder, Wiki Curator, and Podcast Write
 
 Environment and Goal settings can override models, so the model selected at runtime is not a documentation contract. Defaults are defined in `TASK_MODEL_ROLE_INFO` in `server/config/settings.ts` for `primeRoot`, `primeChild`, `cornellNote`, and `wikiMaintainer`; Cornell Note re-exports its configuration through `server/research/config.ts`.
 
-The intent behind thinking levels is not evident from code: Prime Search Root and the Organizer use medium, Report Root and Section children share Prime high, and Wiki Maintainer uses medium. The authoritative values for a particular run are in `research-harness-snapshot.json`, its Node Trace, and evaluation artifacts.
+The intent behind thinking levels is not evident from code: Prime Search Root and the Organizer use medium, Report Root and Section children share Prime high, and Wiki Maintainer uses medium. The Note-first Pi concept stages pin Terra and medium independently of the legacy Prime Wiki model defaults. The authoritative values for a particular run are in `research-harness-snapshot.json`, its Node Trace, and evaluation artifacts.
 
 Run new validation questions through the real product entry point and capture them as Cases, then complete Candidate Replay and independent review under [Attestation](development/attestation.md). The Operations Interface does not accept new questions as direct inputs. See [Node Evaluation](node-agent-backtest.md) for each Recipe's external-data boundary.

@@ -161,7 +161,7 @@ export class NoteFirstWikiCompiler {
     throw error;
    }
   };
-  let curationStages = 4;
+  let curationStages = 3;
   const globalStage = async (input: NoteFirstInput, index: number) => {
    const progress = { kind: 'curation' as const, stageIndex: index, totalStages: curationStages, pageCount: 0, usage: zero(),
     traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
@@ -171,128 +171,194 @@ export class NoteFirstWikiCompiler {
     request.onStageProgress?.({ ...progress, status: 'succeeded', usage: outcome.usage,
      pageCount: outcome.result.kind === 'pages' ? outcome.result.value.pages.length + outcome.result.value.retained_refs.length : 0 });
     return outcome;
-   } catch (error) { request.onStageProgress?.({ ...progress, status: 'failed', message: toErrorMessage(error), usage: (error as { usage?: ResearchModelUsage })?.usage ?? zero() }); throw error; }
-  };
-  writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-cornell-note', concurrency: 4,
-   scheduling: 'dynamic-queue', cueDispositionOwner: 'merge-objects', conceptEvidence: 'accepted-objects-only',
-   data: 'object-notes; unplaced-cues-at-object-merge; downstream-page-and-section-views', diagnosticOnly: false });
-  request.onStarted?.(evidence.notes.length);
-  const drafts = await mapConcurrentFairly(evidence.notes, 4, async (note, index) => {
-   const noteEntries = incoming.filter(e => e.sourceId === note.note.source_id);
-   const key = `objects/${hashJson({ source: note.note.source_id, revision: note.source_revision_sha256 }).slice(0, 24)}`;
-   const input = make('objects', key, { entries: noteEntries, requiredEntries: noteEntries.map(e => e.id),
-    instructions: `Process this one complete Cornell Note: ${note.title}. Its sections and all Cue details are supplied in full.` });
-   const progress = { batchIndex: index, totalBatches: evidence.notes.length, pageCount: 0, usage: zero(), reused: false, traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
-   if (noteEntries.length && noteEntries.every(entry => priorAccounted.has(entry.id))) {
-    request.onBatchProgress?.({ ...progress, status: 'succeeded', reused: true });
-    return [];
-   }
-   request.onBatchProgress?.({ ...progress, status: 'running' });
-   try {
-    const outcome = await run(input), result = expect(outcome, 'pages');
-    materialize(input, result.value);
-    for (const row of result.value.deferred_entries) unplacedReasons.set(row.entry_ref, row.reason);
-    noteEntries.forEach(e => available.add(e.id));
-    request.onBatchProgress?.({ ...progress, status: 'succeeded', pageCount: result.value.pages.length, usage: outcome.usage });
-    return result.value.pages.map(({ member_refs: _refs, ...page }) => ({ ref: `${key}:${page.id}`, page, previous: false, role: 'member' as const }));
    } catch (error) {
-    noteEntries.filter(e => !available.has(e.id)).forEach(e => pendingEntries.add(e.id));
-    fail(index, [note.note.source_id], error);
-    request.onBatchProgress?.({ ...progress, status: 'failed', message: toErrorMessage(error), usage: (error as { usage?: ResearchModelUsage })?.usage ?? zero() });
-    return [];
+    request.onStageProgress?.({ ...progress, status: 'failed', message: toErrorMessage(error), usage: (error as { usage?: ResearchModelUsage })?.usage ?? zero() });
+    throw error;
    }
-  }, request.signal);
-  const usable = entries.filter(e => available.has(e.id));
-  const objectMembers = [...pageInputs(previous.pages.filter(p => p.kind === 'entity'), 'member', true, 'previous'), ...drafts.flat()];
-  const objectDraftCues = cited(objectMembers.map(p => p.page));
-  const unplaced = usable.filter(e => !objectDraftCues.has(e.id) && !finalDiscards.has(e.id));
-  const historicalConcepts = pageInputs(previous.pages.filter(p => p.kind === 'concept'), 'context', true, 'history');
-  const mergeObjectsInput = make('merge-objects', 'merge-objects', { entries: usable, pages: [...objectMembers, ...historicalConcepts],
-   requiredEntries: [...new Set([...objectDraftCues, ...unplaced.map(e => e.id)])],
-   unplacedEntries: unplaced.map(e => ({ entryId: e.id, reason: unplacedReasons.get(e.id) ?? 'Not yet represented in an accepted object page; resolve its object placement or final disposition.' })),
-   previousRelations: previousRelations(previous) });
-  const mergedObjects = expect(await globalStage(mergeObjectsInput, 0), 'pages').value;
-  const objects = materialize(mergeObjectsInput, mergedObjects);
-  const objectCues = cited(objects);
-  for (const row of mergedObjects.deferred_entries) finalDiscards.set(row.entry_ref, row);
-  for (const entry of usable) {
-   if (objectCues.has(entry.id) === finalDiscards.has(entry.id)) throw new Error(`Cue must be adopted into objects or finally discarded: ${entry.id}`);
-  }
-  if ([...cited(historicalConcepts.map(row => row.page))].some(id => !objectCues.has(id))) {
-   throw new Error('Historical concept evidence must be repaired into objects before concept processing');
-  }
-  writeJsonAtomic(join(workRoot, 'object-cue-disposition.json'), { adoptedEntryIds: [...objectCues],
-   incomingUnplacedEntries: mergeObjectsInput.unplacedEntries, discarded: [...finalDiscards.values()] });
-  let relationships = remapRelations(previousRelations(previous), mergeObjectsInput, mergedObjects);
-  const objectRefs = pageInputs(objects, 'context');
-  const planInput = make('plan-concepts', 'plan-concepts', { entries: usable, pages: [...objectRefs, ...historicalConcepts],
-   requiredPages: objectRefs.map(p => p.ref) });
-  const conceptPlan = expect(await globalStage(planInput, 1), 'concept-plan');
-  assertPartition(conceptPlan.jobs.flatMap(job => job.pageRefs), planInput.requiredPages, 'concept object assignment');
-  assertPartition(conceptPlan.jobs.flatMap(job => job.entryIds), planInput.requiredEntries, 'concept residual assignment');
-  if (conceptPlan.jobs.some(job => job.pageRefs.length > 8 || !job.instructions.trim() || !job.pageRefs.length && !job.entryIds.length)) throw new Error('Invalid concept workset');
-  curationStages += conceptPlan.jobs.length;
-  const conceptResults = await mapConcurrentFairly(conceptPlan.jobs, 4, async (job, index) => {
-   const input = make('concepts', `concepts/${hashJson(job).slice(0, 24)}`, { entries: usable, pages: planInput.pages,
-    requiredPages: job.pageRefs, instructions: job.instructions, previousRelations: relationships });
-   try {
-    const result = expect(await globalStage(input, 2 + index), 'pages');
-    materialize(input, result.value);
-    if (result.value.deferred_entries.length || [...cited(result.value.pages)].some(id => !objectCues.has(id))) {
-     throw new Error('Concept proposals must derive their evidence from accepted objects');
+  };
+  try {
+   writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-cornell-note', concurrency: 4,
+    scheduling: 'dynamic-queue', cueDispositionOwner: 'merge-objects', conceptEvidence: 'accepted-objects-only',
+    data: 'object-notes; unplaced-cues-at-object-merge; downstream-page-and-section-views', diagnosticOnly: false });
+   request.onStarted?.(evidence.notes.length);
+   const drafts = await mapConcurrentFairly(evidence.notes, 4, async (note, index) => {
+    const noteEntries = incoming.filter(e => e.sourceId === note.note.source_id);
+    const key = `objects/${hashJson({ source: note.note.source_id, revision: note.source_revision_sha256 }).slice(0, 24)}`;
+    const input = make('objects', key, { entries: noteEntries, requiredEntries: noteEntries.map(e => e.id),
+     instructions: `Process this one complete Cornell Note: ${note.title}. Its sections and all Cue details are supplied in full.` });
+    const progress = { batchIndex: index, totalBatches: evidence.notes.length, pageCount: 0, usage: zero(), reused: false, traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
+    if (noteEntries.length && noteEntries.every(entry => priorAccounted.has(entry.id))) {
+     request.onBatchProgress?.({ ...progress, status: 'succeeded', reused: true });
+     return [];
     }
-    assertPartition(result.consideredPages.map(p => p.pageRef), job.pageRefs, 'concept considered objects');
-    return { input, result };
-   } catch (error) { job.entryIds.forEach(ref => pendingEntries.add(ref)); fail(evidence.notes.length + index, job.pageRefs, error); return null; }
-  }, request.signal);
-  const successfulConcepts = conceptResults.filter(row => row !== null);
-  const conceptMembers = [...pageInputs(previous.pages.filter(p => p.kind === 'concept'), 'member', true, 'previous'),
-   ...successfulConcepts.flatMap(({ input, result }) => result.value.pages.map(({ member_refs: _refs, ...page }) => ({
-    ref: `${input.key}:${page.id}`, page, previous: false, role: 'member' as const })))];
-  const requiredConceptEntries = [...cited(conceptMembers.map(p => p.page))];
-  const mergeConceptInput = make('merge-concepts', 'merge-concepts', { entries: usable, pages: [...conceptMembers, ...objectRefs],
-   requiredEntries: requiredConceptEntries, previousRelations: relationships });
-  const mergedConcepts = expect(await globalStage(mergeConceptInput, 2 + conceptPlan.jobs.length), 'pages').value;
-  const concepts = materialize(mergeConceptInput, mergedConcepts);
-  if (mergedConcepts.deferred_entries.length || [...cited(concepts)].some(id => !objectCues.has(id))) {
-   throw new Error('Final concepts must retain evidence backed by accepted objects');
+    request.onBatchProgress?.({ ...progress, status: 'running' });
+    try {
+     const outcome = await run(input), result = expect(outcome, 'pages');
+     materialize(input, result.value);
+     for (const row of result.value.deferred_entries) unplacedReasons.set(row.entry_ref, row.reason);
+     noteEntries.forEach(e => available.add(e.id));
+     request.onBatchProgress?.({ ...progress, status: 'succeeded', pageCount: result.value.pages.length, usage: outcome.usage });
+     return result.value.pages.map(({ member_refs: _refs, ...page }) => ({ ref: `${key}:${page.id}`, page, previous: false, role: 'member' as const }));
+    } catch (error) {
+     noteEntries.filter(e => !available.has(e.id)).forEach(e => pendingEntries.add(e.id));
+     fail(index, [note.note.source_id], error);
+     request.onBatchProgress?.({ ...progress, status: 'failed', message: toErrorMessage(error), usage: (error as { usage?: ResearchModelUsage })?.usage ?? zero() });
+     return [];
+    }
+   }, request.signal);
+   const usable = entries.filter(e => available.has(e.id));
+   const objectMembers = [...pageInputs(previous.pages.filter(p => p.kind === 'entity'), 'member', true, 'previous'), ...drafts.flat()];
+   const objectDraftCues = cited(objectMembers.map(p => p.page));
+   const unplaced = usable.filter(e => !objectDraftCues.has(e.id) && !finalDiscards.has(e.id));
+   const historicalConcepts = pageInputs(previous.pages.filter(p => p.kind === 'concept'), 'context', true, 'history');
+   const mergeObjectsInput = make('merge-objects', 'merge-objects', { entries: usable, pages: [...objectMembers, ...historicalConcepts],
+    requiredEntries: [...new Set([...objectDraftCues, ...unplaced.map(e => e.id)])],
+    unplacedEntries: unplaced.map(e => ({ entryId: e.id, reason: unplacedReasons.get(e.id) ?? 'Not yet represented in an accepted object page; resolve its object placement or final disposition.' })),
+    previousRelations: previousRelations(previous) });
+   const mergedObjects = expect(await globalStage(mergeObjectsInput, 0), 'pages').value;
+   const objects = materialize(mergeObjectsInput, mergedObjects);
+   const objectCues = cited(objects);
+   for (const row of mergedObjects.deferred_entries) finalDiscards.set(row.entry_ref, row);
+   for (const entry of usable) {
+    if (objectCues.has(entry.id) === finalDiscards.has(entry.id)) throw new Error(`Cue must be adopted into objects or finally discarded: ${entry.id}`);
+   }
+   if ([...cited(historicalConcepts.map(row => row.page))].some(id => !objectCues.has(id))) {
+    throw new Error('Historical concept evidence must be repaired into objects before concept processing');
+   }
+   writeJsonAtomic(join(workRoot, 'object-cue-disposition.json'), { adoptedEntryIds: [...objectCues],
+    incomingUnplacedEntries: mergeObjectsInput.unplacedEntries, discarded: [...finalDiscards.values()] });
+   let relationships = remapRelations(previousRelations(previous), mergeObjectsInput, mergedObjects);
+   const objectRefs = pageInputs(objects, 'context');
+   const planInput = make('plan-concepts', 'plan-concepts', { entries: usable, pages: [...objectRefs, ...historicalConcepts],
+    requiredPages: objectRefs.map(p => p.ref) });
+   const conceptPlan = expect(await globalStage(planInput, 1), 'concept-plan');
+   const primary = new Set(planInput.requiredPages), history = new Map(historicalConcepts.map(row => [row.ref, row]));
+   const targets = new Set<string>();
+   for (const job of conceptPlan.jobs) {
+    if (!job.pageRefs.length || new Set(job.pageRefs).size !== job.pageRefs.length
+     || job.pageRefs.some(ref => !primary.has(ref)) || !job.question.trim() || !job.scope.trim()) throw new Error('Invalid concept question workset');
+    if (job.targetRef !== null) {
+     if (!history.has(job.targetRef) || targets.has(job.targetRef)) throw new Error('Concept update targets must be existing pages with one writer');
+     targets.add(job.targetRef);
+    }
+   }
+   const assigned = new Set(conceptPlan.jobs.flatMap(job => job.pageRefs));
+   assertPartition([...assigned, ...conceptPlan.objectOnly.map(row => row.pageRef)], planInput.requiredPages, 'concept object disposition');
+   writeJsonAtomic(join(workRoot, 'concept-object-disposition.json'), { jobs: conceptPlan.jobs, objectOnly: conceptPlan.objectOnly });
+   curationStages += conceptPlan.jobs.length;
+   const conceptResults = await mapConcurrentFairly(conceptPlan.jobs, 4, async (job, index) => {
+    const input = make('concepts', `concepts/${hashJson(job).slice(0, 24)}`, { entries: usable, pages: planInput.pages,
+     requiredPages: job.pageRefs, conceptTask: { question: job.question, scope: job.scope, targetRef: job.targetRef }, previousRelations: relationships });
+    try {
+     const result = expect(await globalStage(input, 2 + index), 'pages');
+     materialize(input, result.value);
+     if (result.value.pages.length > 1 || result.value.deferred_entries.length || [...cited(result.value.pages)].some(id => !objectCues.has(id))) {
+      throw new Error('One concept question produces zero or one page backed by accepted objects');
+     }
+     if (job.targetRef) for (const page of result.value.pages) {
+      const target = history.get(job.targetRef)!.page;
+      if (page.id !== target.id || objectFirstEntries(target.body).some(ref => !objectFirstEntries(page.body).includes(ref))) {
+       throw new Error('Concept writer must preserve its existing target identity and citations');
+      }
+     }
+     assertPartition(result.consideredPages.map(p => p.pageRef), job.pageRefs, 'concept considered objects');
+     return { input, result, job };
+    } catch (error) { fail(evidence.notes.length + index, job.pageRefs, error); return null; }
+   }, request.signal);
+   const conceptMembers = historicalConcepts.map(row => ({ ...row, role: 'member' as const }));
+   for (const row of conceptResults) {
+    if (!row || !row.result.value.pages.length) continue;
+    const { member_refs: _refs, ...page } = row.result.value.pages[0]!;
+    if (row.job.targetRef) {
+     const index = conceptMembers.findIndex(member => member.ref === row.job.targetRef);
+     if (index < 0) throw new Error('Concept target disappeared before integration');
+     conceptMembers[index] = { ...conceptMembers[index]!, page };
+    } else conceptMembers.push({ ref: `${row.input.key}:${page.id}`, page, previous: false, role: 'member' });
+   }
+   let concepts = conceptMembers.map(row => row.page), nextCurationStage = 2 + conceptPlan.jobs.length;
+   if (conceptMembers.length) {
+    curationStages++;
+    const auditInput = make('audit-concepts', 'audit-concepts', { entries: usable, pages: [...conceptMembers, ...objectRefs],
+     requiredPages: conceptMembers.map(row => row.ref), previousRelations: relationships });
+    const audit = expect(await globalStage(auditInput, nextCurationStage++), 'concept-audit');
+    assertPartition(audit.reviewedPages.map(row => row.pageRef), auditInput.requiredPages, 'concept catalog review');
+    const members = new Map(conceptMembers.map(row => [row.ref, row]));
+    const consumed = new Set<string>();
+    for (const group of audit.conflictGroups) {
+     if (group.pageRefs.length < 2 || !group.reason.trim()) throw new Error('Concept conflict group requires distinct members and a reason');
+     for (const ref of group.pageRefs) {
+      if (!members.has(ref) || consumed.has(ref)) throw new Error('Concept conflict groups must be disjoint known pages');
+      consumed.add(ref);
+     }
+    }
+    for (const row of audit.discardedRefs) {
+     if (!members.has(row.ref) || members.get(row.ref)!.previous || consumed.has(row.ref) || !row.reason.trim()) {
+      throw new Error('Concept audit can withdraw only a new page outside conflict groups');
+     }
+     consumed.add(row.ref);
+    }
+    concepts = conceptMembers.filter(row => !consumed.has(row.ref)).map(row => row.page);
+    curationStages += audit.conflictGroups.length;
+    for (const group of audit.conflictGroups) {
+     const selected = group.pageRefs.map(ref => members.get(ref)!);
+     const input = make('merge-concepts', `merge-concepts/${hashJson(group).slice(0, 24)}`, { entries: usable,
+      pages: [...selected, ...objectRefs], instructions: group.reason, previousRelations: relationships });
+     const merged = expect(await globalStage(input, nextCurationStage++), 'pages').value;
+     if (merged.discarded_refs.length || merged.deferred_entries.length) throw new Error('Concept conflict merge cannot discard members or evidence');
+     concepts.push(...materialize(input, merged));
+     relationships = remapRelations(relationships, input, merged);
+    }
+   }
+   const conceptCues = cited(concepts);
+   if ([...conceptCues].some(id => !objectCues.has(id))) throw new Error('Final concepts require evidence backed by accepted objects');
+   if (new Set(concepts.map(page => page.id)).size !== concepts.length
+    || new Set(concepts.map(page => page.title.normalize('NFKC').trim().toLocaleLowerCase())).size !== concepts.length) {
+    throw new Error('Final concept identities and titles must be unique');
+   }
+   for (const old of historicalConcepts) if (objectFirstEntries(old.page.body).some(id => !conceptCues.has(id))) {
+    throw new Error('Historical concept citations must survive final integration');
+   }
+   const pages = [...objects, ...concepts];
+   curationStages += topics.topics.length ? pages.length : 0;
+   const allRefs = pageInputs(pages, 'context');
+   const relationInput = make('relations', 'relations', { entries: usable, pages: allRefs, requiredPages: allRefs.map(p => p.ref), previousRelations: relationships });
+   const relationResult = expect(await globalStage(relationInput, nextCurationStage++), 'relations');
+   assertPartition(relationResult.reviewedPages.map(p => p.pageRef), relationInput.requiredPages, 'relationship page review');
+   const ids = new Set(pages.map(p => p.id));
+   for (const edge of relationResult.relations) if (!ids.has(edge.from) || !ids.has(edge.to) || edge.from === edge.to) throw new Error('Invalid final relationship');
+   const sections = sectionEvidence(pages), knowledgeHash = hashJson({ pages, entries });
+   const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, nextCurationStage + ordinal), pages, sections, topics, knowledgeHash,
+    onFailure: (index, id, error) => fail(evidence.notes.length + conceptPlan.jobs.length + index, [id], error), signal: request.signal });
+   const refs = cited(pages);
+   if ([...finalDiscards.keys()].some(id => refs.has(id))) throw new Error('Finally discarded Cue reappeared in knowledge');
+   for (const entry of entries) if (!refs.has(entry.id) && !pendingEntries.has(entry.id) && !finalDiscards.has(entry.id)) {
+    throw new Error(`Note-first unaccounted evidence ${entry.id}`);
+   }
+   request.signal.throwIfAborted();
+   if (hashWikiDirectory(base) !== baseKnowledgeSha256) throw new Error('Previous Wiki changed during note-first compilation');
+   const discarded = [...finalDiscards.values()];
+   const candidateRoot = join(workRoot, `knowledge-${hashJson({ pages, relations: relationResult.relations, indexed, discarded, failures }).slice(0, 24)}`);
+   writeObjectFirstEdition(candidateRoot, pages, entries, { ...empty(), relations: relationResult.relations }, previous);
+   writeJsonAtomic(join(candidateRoot, '.discarded-cues.json'), discarded.map(row => ({ entry_id: row.entry_ref, reason: row.reason })));
+   writeObjectFirstIndex(candidateRoot, pages, indexed, sections, topics, previous);
+   writeJsonAtomic(join(candidateRoot, '.note-first-status.json'), { version: 3, complete: failures.length === 0, cueDispositionOwner: 'merge-objects',
+    discardedCueCount: discarded.length,
+    failures, pendingEntryIds: [...pendingEntries].filter(id => !refs.has(id)), objectNotes: evidence.notes.length, conceptJobs: conceptPlan.jobs.length });
+   const candidateHash = new RunArtifactStore(workRoot).describeDirectory(candidateRoot.slice(workRoot.length + 1)).sha256;
+   const outputPath = `artifacts/wiki-compilations/${compilationId}/knowledge-${candidateHash.slice(0, 24)}`;
+   const knowledge = existsSync(join(request.runDirectory, outputPath)) ? store.describeDirectory(outputPath) : store.publishDirectory(candidateRoot, outputPath);
+   if (knowledge.sha256 !== candidateHash) throw new Error('Note-first publication differs from candidate');
+   const result: WikiCompilationResult = { status: 'compiled', publicationReady: failures.length === 0, compilationId, baseKnowledgeSha256, knowledge, pageCount: pages.length,
+    usage: sumUsage([...outcomes, ...failedAttempts]), agentStages: outcomes.length + failedAttempts.length, sessionPaths: [...outcomes, ...failedAttempts].flatMap(outcome => outcome.sessionPaths), failedBatches: failures };
+   if (!failures.length) writeJsonAtomic(record, result);
+   else writeJsonAtomic(join(workRoot, 'partial-result.json'), result);
+   return result;
+  } catch (error) {
+   throw Object.assign(error instanceof Error ? error : new Error(toErrorMessage(error)), {
+    usage: sumUsage([...outcomes, ...failedAttempts]),
+    sessionPaths: [...new Set([...outcomes.flatMap(outcome => outcome.sessionPaths), ...failedAttempts.flatMap(attempt => attempt.sessionPaths)])],
+   });
   }
-  relationships = remapRelations(relationships, mergeConceptInput, mergedConcepts);
-  const pages = [...objects, ...concepts];
-  curationStages += topics.topics.length ? pages.length : 0;
-  const allRefs = pageInputs(pages, 'context');
-  const relationInput = make('relations', 'relations', { entries: usable, pages: allRefs, requiredPages: allRefs.map(p => p.ref), previousRelations: relationships });
-  const relationResult = expect(await globalStage(relationInput, 3 + conceptPlan.jobs.length), 'relations');
-  assertPartition(relationResult.reviewedPages.map(p => p.pageRef), relationInput.requiredPages, 'relationship page review');
-  const ids = new Set(pages.map(p => p.id));
-  for (const edge of relationResult.relations) if (!ids.has(edge.from) || !ids.has(edge.to) || edge.from === edge.to) throw new Error('Invalid final relationship');
-  const sections = sectionEvidence(pages), knowledgeHash = hashJson({ pages, entries });
-  const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, 4 + conceptPlan.jobs.length + ordinal), pages, sections, topics, knowledgeHash,
-   onFailure: (index, id, error) => fail(evidence.notes.length + conceptPlan.jobs.length + index, [id], error), signal: request.signal });
-  const refs = cited(pages);
-  if ([...finalDiscards.keys()].some(id => refs.has(id))) throw new Error('Finally discarded Cue reappeared in knowledge');
-  for (const entry of entries) if (!refs.has(entry.id) && !pendingEntries.has(entry.id) && !finalDiscards.has(entry.id)) {
-   throw new Error(`Note-first unaccounted evidence ${entry.id}`);
-  }
-  request.signal.throwIfAborted();
-  if (hashWikiDirectory(base) !== baseKnowledgeSha256) throw new Error('Previous Wiki changed during note-first compilation');
-  const discarded = [...finalDiscards.values()];
-  const candidateRoot = join(workRoot, `knowledge-${hashJson({ pages, relations: relationResult.relations, indexed, discarded, failures }).slice(0, 24)}`);
-  writeObjectFirstEdition(candidateRoot, pages, entries, { ...empty(), relations: relationResult.relations }, previous);
-  writeJsonAtomic(join(candidateRoot, '.discarded-cues.json'), discarded.map(row => ({ entry_id: row.entry_ref, reason: row.reason })));
-  writeObjectFirstIndex(candidateRoot, pages, indexed, sections, topics, previous);
-  writeJsonAtomic(join(candidateRoot, '.note-first-status.json'), { version: 3, complete: failures.length === 0, cueDispositionOwner: 'merge-objects',
-   discardedCueCount: discarded.length,
-   failures, pendingEntryIds: [...pendingEntries].filter(id => !refs.has(id)), objectNotes: evidence.notes.length, conceptJobs: conceptPlan.jobs.length });
-  const candidateHash = new RunArtifactStore(workRoot).describeDirectory(candidateRoot.slice(workRoot.length + 1)).sha256;
-  const outputPath = `artifacts/wiki-compilations/${compilationId}/knowledge-${candidateHash.slice(0, 24)}`;
-  const knowledge = existsSync(join(request.runDirectory, outputPath)) ? store.describeDirectory(outputPath) : store.publishDirectory(candidateRoot, outputPath);
-  if (knowledge.sha256 !== candidateHash) throw new Error('Note-first publication differs from candidate');
-  const result: WikiCompilationResult = { status: 'compiled', publicationReady: failures.length === 0, compilationId, baseKnowledgeSha256, knowledge, pageCount: pages.length,
-   usage: sumUsage([...outcomes, ...failedAttempts]), agentStages: outcomes.length + failedAttempts.length, sessionPaths: [...outcomes, ...failedAttempts].flatMap(outcome => outcome.sessionPaths), failedBatches: failures };
-  if (!failures.length) writeJsonAtomic(record, result);
-  else writeJsonAtomic(join(workRoot, 'partial-result.json'), result);
-  return result;
  }
 
  private async index(input: { make: (stage: NoteFirstInput['stage'], key: string, patch?: Partial<NoteFirstInput>) => NoteFirstInput;

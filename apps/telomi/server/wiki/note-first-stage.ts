@@ -65,7 +65,8 @@ export async function runNoteFirstStage(request: NoteFirstStageRequest): Promise
  if (request.input.stage === "objects" && request.input.entries.length > 0 && JSON.stringify(request.input.entries).length <= 50_000) {
   return (await import("./pi-object-stage.js")).runPiObjectStage(request);
  }
- if (request.input.stage === "plan-concepts") return (await import("./pi-object-stage.js")).runPiConceptPlanStage(request);
+ if (["plan-concepts", "concepts", "audit-concepts", "merge-concepts"].includes(request.input.stage))
+  return (await import("./pi-concept-stage.js")).runPiConceptStage(request);
  return runAgentNoteFirstStage(request);
 }
 
@@ -138,13 +139,16 @@ function sessionPaths(root: string): string[] {
 export function noteFirstCapabilityIdentity(): string {
  const files = ["note-first-stage.ts", "prime-note-first-worker.ts", "note-first-contract.ts", "note-first-workspace.ts",
   "note-first-search.ts", "note-first-topic-skill.ts", "note-first-prompt.ts", "object-first-contract.ts", "object-first-edition.ts",
-  "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts"];
+  "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts",
+  "pi-file-stage.ts", "pi-concept-stage.ts", "pi-concept-contract.ts"];
  const semantics = files.map(path => sha256(readFileSync(fileURLToPath(new URL(path, import.meta.url)))));
  const system = renderAgentPrompt("wiki", "note-first", "system-append", {});
  return hashJson({ semantics, system: system.content, registration: system.configSha256,
   pageTopics: renderAgentPrompt("wiki", "note-first", "system", {}, "page-topics").content,
   piObjects: renderAgentPrompt("wiki", "note-first", "system", {}, "objects-pi").content,
-  piConceptPlan: renderAgentPrompt("wiki", "note-first", "system", {}, "plan-concepts-pi").content,
+  piConceptCommon: renderAgentPrompt("wiki", "note-first", "reference", {}, "concept-common").content,
+  piConcepts: ["question-plan-pi", "concepts-pi", "audit-concepts-pi", "merge-concepts-pi"]
+   .map(variant => renderAgentPrompt("wiki", "note-first", "system", {}, variant).content),
   piObjectMerge: ["plan-object-targets-pi", "write-object-target-pi", "resolve-object-cues-pi"]
    .map(variant => renderAgentPrompt("wiki", "note-first", "system", {}, variant).content),
   users: ["objects", "merge-objects", "plan-concepts", "concepts", "merge-concepts", "relations", "plan-topics", "topic"]
