@@ -1176,6 +1176,7 @@ export async function runPrime(args: {
 	provider: string;
 	model: string;
 	prompt: string;
+	systemPrompt?: string;
 	skills: string[];
 	tools?: string[];
 	contractTools?: boolean;
@@ -1193,7 +1194,7 @@ export async function runPrime(args: {
 	activity: Pick<AgentStageActivity, "stageId" | "attemptId" | "role">;
 	tracePath: string;
 	conditionsPath: string;
-	launchKind: "root_with_native_rlm_children" | "standalone_organizer" | "provider_child" | "local_investigation";
+	launchKind: "root_with_native_rlm_children" | "standalone_organizer" | "provider_child" | "local_investigation" | "standalone_answer_writer";
 	childReplayId?: string;
 	serviceTier?: "default" | "priority" | "flex";
 	onChildEvent?: (event: unknown) => void;
@@ -1210,6 +1211,7 @@ export async function runPrime(args: {
 		model: args.model,
 		thinking: args.thinking,
 		prompt: args.prompt,
+		...(args.systemPrompt ? { systemPrompt: args.systemPrompt } : {}),
 		skills: args.skills,
 		...(args.tools ? { tools: args.tools } : {}),
 		...(args.contractTools ? { contractTools: true } : {}),
@@ -1324,7 +1326,7 @@ function primeLaunchConditions(args: Parameters<typeof runPrime>[0]): Record<str
 		prompt: { sha256: sha256(args.prompt), byte_length: Buffer.byteLength(args.prompt) },
 		system_prompt: {
 			override: null,
-			append: null,
+			append: args.systemPrompt ?? null,
 			effective_sha256: null,
 			reason: "Prime does not expose the rendered effective system prompt to this Runtime",
 		},
@@ -1490,7 +1492,10 @@ export interface PrimeBridgeOptions {
 	investigation?: {
 		knowledgeSearch(query: string, limit: number): Promise<unknown>;
 		deepSearch(question: string): Promise<unknown>;
-		githubRead(question: string, repository: string, ref: string, paths: string[]): Promise<unknown>;
+		writeAnswer?(evidenceRefs: string[], requirements: string[]): Promise<unknown>;
+		externalSearch?(question: string): Promise<unknown>;
+		/** Frozen historical investigation Cases only; production uses generic acquisition. */
+		githubRead?(question: string, repository: string, ref: string, paths: string[]): Promise<unknown>;
 	};
 }
 
@@ -1503,6 +1508,8 @@ const BRIDGE_ROUTES = new Set([
 	"/v1/provider-fallback",
 	"/v1/knowledge-search",
 	"/v1/deep-search",
+	"/v1/write-answer",
+	"/v1/external-search",
 	"/v1/github-read",
 ]);
 
@@ -1598,7 +1605,24 @@ export async function startPrimeSourceBridge(
 					response.end(JSON.stringify(await options.investigation.deepSearch(requiredString(body.question, "Deep Search question"))));
 					return;
 				}
-				if (route === "/v1/github-read") {
+				if (route === "/v1/write-answer" && options.investigation.writeAnswer) {
+					const strings = (value: unknown, label: string, maximum: number, empty: boolean): string[] => {
+						if (!Array.isArray(value) || (!empty && !value.length) || value.length > maximum
+							|| value.some((item) => typeof item !== "string" || !item.trim() || item.length > 20_000)
+							|| new Set(value).size !== value.length) throw new Error(`Invalid ${label}`);
+						return value as string[];
+					};
+					response.end(JSON.stringify(await options.investigation.writeAnswer(
+						strings(body.evidence_refs, "answer evidence refs", 256, true),
+						strings(body.requirements, "answer requirements", 50, false),
+					)));
+					return;
+				}
+				if (route === "/v1/external-search" && options.investigation.externalSearch) {
+					response.end(JSON.stringify(await options.investigation.externalSearch(requiredString(body.question, "External search question"))));
+					return;
+				}
+				if (route === "/v1/github-read" && options.investigation.githubRead) {
 					if (!Array.isArray(body.paths) || body.paths.some((path) => typeof path !== "string")) {
 						throw new Error("GitHub paths must be strings");
 					}
@@ -1610,7 +1634,7 @@ export async function startPrimeSourceBridge(
 				}
 				throw new Error("This investigation cannot access external Providers");
 			}
-			if (route === "/v1/knowledge-search" || route === "/v1/deep-search" || route === "/v1/github-read") throw new Error("Investigation is not available in this Search Run");
+			if (route === "/v1/knowledge-search" || route === "/v1/deep-search" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
 			if (route === "/v1/root-search") {
 				// Discovery belongs to the Root; children get the specialized Providers below.
 				if (bridgeExecutionId(body.agent_session_id) !== "root") throw new Error("General Web search is available only to the Search Root");

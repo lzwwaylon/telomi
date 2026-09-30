@@ -18,9 +18,17 @@ const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Se
 	investigation: {
 		knowledgeSearch: async (query, limit) => { seen.push(`knowledge:${query}:${limit}`); return { results: [] }; },
 		deepSearch: async (question) => { seen.push(`deep:${question}`); return { status: "not_found", cues: [], gaps: [] }; },
+		externalSearch: async (question) => {
+			seen.push(`external:${question}`);
+			return { status: "found", cues: [], sources: [{ title: "Official paper", url: "https://example.org/paper" }] };
+		},
 		githubRead: async (question, repository, ref, paths) => {
 			seen.push(`github:${question}:${repository}:${ref}:${paths.join(",")}`);
 			return { provider: "github", reading: { status: "found", cues: [] } };
+		},
+		writeAnswer: async (refs, requirements) => {
+			seen.push(`answer:${refs.join(",")}:${requirements.join("|")}`);
+			return { answer: "Original evidence supports this.", citation_refs: refs, gaps: [], coverage: [] };
 		},
 	},
 });
@@ -42,13 +50,22 @@ try {
 		{ status: 200, body: { results: [] } });
 	assert.deepEqual(await call("/v1/deep-search", { question: "Which loss?" }),
 		{ status: 200, body: { status: "not_found", cues: [], gaps: [] } });
+	assert.equal((await call("/v1/external-search", { question: "Find the official dataset paper" })).status, 200);
+	assert.equal((await call("/v1/external-search", { question: "Find the official dataset paper" }, "sub-123")).status, 422);
 	assert.deepEqual(await call("/v1/github-read", { question: "Which loss?", repository: "owner/repo", ref: "v1", paths: ["loss.py"] }),
 		{ status: 200, body: { provider: "github", reading: { status: "found", cues: [] } } });
 	assert.equal((await call("/v1/github-read", { question: "Which loss?", repository: "owner/repo", ref: "v1", paths: ["loss.py"] }, "sub-123")).status, 422);
 	assert.equal((await call("/v1/deep-search", { question: "Which loss?" }, "sub-123")).status, 422);
 	assert.equal((await call("/v1/root-search", { query: "outside" })).status, 422);
 	assert.equal((await call("/v1/search", { source_id: "general_web", query: "outside" })).status, 422);
-	assert.deepEqual(seen, ["knowledge:loss:5", "deep:Which loss?", "github:Which loss?:owner/repo:v1:loss.py"]);
+	assert.equal((await call("/v1/write-answer", { evidence_refs: ["N1"], requirements: ["Explain loss"] })).status, 200);
+	assert.equal((await call("/v1/write-answer", { evidence_refs: [], requirements: ["Identify missing evidence"] })).status, 200);
+	assert.equal((await call("/v1/write-answer", { evidence_refs: ["N1"], requirements: ["Explain loss"] }, "sub-123")).status, 422);
+	assert.equal((await call("/v1/write-answer", { evidence_refs: ["N1", "N1"], requirements: ["Explain loss"] })).status, 422);
+	assert.equal((await call("/v1/write-answer", { evidence_refs: ["N1"], requirements: [] })).status, 422);
+	assert.equal((await call("/v1/write-answer", { evidence_refs: "N1", requirements: ["Explain loss"] })).status, 422);
+	assert.deepEqual(seen, ["knowledge:loss:5", "deep:Which loss?", "external:Find the official dataset paper", "github:Which loss?:owner/repo:v1:loss.py",
+		"answer:N1:Explain loss", "answer::Identify missing evidence"]);
 	console.log("Prime local investigation bridge passed");
 } finally {
 	await bridge.close();

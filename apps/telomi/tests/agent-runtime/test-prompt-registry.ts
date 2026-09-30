@@ -11,7 +11,7 @@ import {
 } from "../../server/agent-runtime/prompt-registry.js";
 import { bundledAgentSkillPaths } from "../../server/agent-runtime/skill-registry.js";
 import { composeAgentSystemPrompt } from "../../server/agent-runtime/global-system-prompt.js";
-import { buildCornellNoteAgentSystemPrompt, buildCornellNoteAgentUserPrompt } from "../../server/research/pipeline/index.js";
+import { buildCornellNoteAgentSystemPrompt, buildCornellNoteAgentUserPrompt, renderCornellNoteAgentSystemPrompt } from "../../server/research/pipeline/index.js";
 
 const agentRoot = fileURLToPath(new URL("../../agents", import.meta.url));
 const domains: PromptDomain[] = ["main", "research", "wiki", "evolution"];
@@ -112,6 +112,17 @@ assert.doesNotMatch(mainRouterPrompt, /Goal Harness|capability snapshot|historic
 assert.doesNotMatch(mainRouterPrompt, /rebuild=true|research\.schedule|recurring monitoring/iu);
 assert.doesNotMatch(mainRouterPrompt, /topic_plan_activate/u);
 assert.equal(loadAgentPromptConfig("research", "cornell-note").sandbox?.network, "deny");
+const readingQuality = renderAgentPrompt("research", "cornell-note", "reference", {}, "evidence-reading-quality").content;
+for (const variant of ["default", "deep-search"] as const) {
+	const scope = renderAgentPrompt("research", "cornell-note", "system-append", {}, variant);
+	const composed = renderCornellNoteAgentSystemPrompt(undefined, variant);
+	assert.equal(composed.content, `${scope.content}\n\n${readingQuality}`,
+		`${variant} Reader must include the registered quality rules exactly once`);
+	assert.deepEqual(composed.revision, scope.revision, "Reader scope retains its registered variant identity");
+}
+assert.match(buildCornellNoteAgentSystemPrompt(), /one supplied Source/u);
+assert.match(buildCornellNoteAgentSystemPrompt(), /same language as the original Source/u);
+assert.match(renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content, /question's language/u);
 assert.throws(() => loadAgentPromptConfig("research", "../escape"), /Invalid Prompt identity/u);
 assert.equal(existsSync(new URL("../../prompts", import.meta.url)), false, "legacy Prompt root must not exist");
 assert.equal(existsSync(new URL("../../skills", import.meta.url)), false, "legacy Skill root must not exist");

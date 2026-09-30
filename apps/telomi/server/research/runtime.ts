@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 
 import type { ResearchHarnessSnapshot } from "./harness/snapshot.js";
-import { createHarnessResearchSourceRegistry } from "./sources/builtin-registry.js";
+import { availableResearchProviders, createHarnessResearchSourceRegistry } from "./sources/builtin-registry.js";
 import type { ResearchExecutionResult } from "./types.js";
 import {
 	researchConfigFromEnv,
@@ -188,12 +188,8 @@ export class ResearchRuntime {
 			const temporalContext = request.scheduledResearch
 				? resolveScheduledResearchTemporalContext(request.scheduledResearch)
 				: resolveResearchTemporalContext(request.question);
-			const providerCatalog = sourceCatalog.filter((provider) => {
-				const allowed = request.researchHarnessSnapshot!.primeSearch.policy.allowedSources;
-				return Boolean(provider.workerPython || provider.workerTool)
-					&& (allowed.includes("*") || allowed.includes(provider.id))
-					&& !request.excludedSources?.includes(provider.id);
-			});
+			const providerCatalog = availableResearchProviders(sourceCatalog,
+				request.researchHarnessSnapshot!.primeSearch.policy.allowedSources, request.excludedSources);
 			if (providerCatalog.length === 0) {
 				throw new Error("Prime Search has no allowed Provider");
 			}

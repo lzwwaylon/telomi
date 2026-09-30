@@ -806,6 +806,16 @@ export class NodeBacktestService {
 				}
 			}
 		}
+		if (value.agentId === "report-writer" && value.request.promptConfig.userVariant === "answer"
+			&& (value.recipeInput as { mode?: unknown } | undefined)?.mode === "investigation-answer") {
+			for (const directory of value.observed.traceDirectories ?? []) {
+				if (directory.root === "run" && existsSync(join(sourceRunDirectory, directory.ref))) {
+					addDirectory("run", sourceRunDirectory, directory.ref, (path) =>
+						path === "execution-conditions.jsonl" ? "execution_conditions"
+							: /^session\/[^/]+\.jsonl$/u.test(path) ? "agent_trace" : undefined);
+				}
+			}
+		}
 		// Reviewer 的现场是两个目录，没有单独的 Trace 文件；它的 Case 因此在 observed.trace 之外
 		// 暴露 Trace。映射是白名单：staged 凭证所在的 runtime/agent 永远不在其中。
 		if (value.agentId === "schedule-reviewer") {

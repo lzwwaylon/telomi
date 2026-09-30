@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { sha256 } from "../lib/hash.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
-import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
+import { renderCornellNoteAgentSystemPrompt } from "./pipeline/cornell-note-agent-prompt.js";
 import type { AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import type { ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { createProductionResearchStageRunner } from "./pipeline/production-stage-runner.js";
@@ -64,6 +64,7 @@ export async function executeDeepSearch(input: {
 	goalId: string;
 	question: string;
 	invocationId: string;
+	preferredSourceRunId?: string;
 	signal: AbortSignal;
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
@@ -83,10 +84,10 @@ export async function executeDeepSearch(input: {
 	}
 	const controlDir = join(input.goalDir, ".pi", "runtime", "deep-search", input.invocationId);
 	const corpusDir = join(controlDir, "source");
-	const sources = materializeCorpus(input.goalDir, corpusDir);
+	const sources = materializeCorpus(input.goalDir, corpusDir, input.preferredSourceRunId);
 	const env = input.env ?? process.env;
 	const config = input.model && input.thinkingLevel ? undefined : researchConfigFromEnv(env);
-	const system = renderAgentPrompt("research", "cornell-note", "system-append", {}, "deep-search");
+	const system = renderCornellNoteAgentSystemPrompt(undefined, "deep-search");
 	const userPrompt = [
 		`Question: ${question}`,
 		`The Goal has ${sources.length} pinned Source views in source/catalog.json. Search them yourself; Source refs are navigation handles, not evidence.`,
@@ -215,13 +216,19 @@ function readDeepSearchArtifact(goalDir: string, invocationId: string): DeepSear
 	return value;
 }
 
-function materializeCorpus(goalDir: string, outputDir: string): CorpusSource[] {
+function materializeCorpus(goalDir: string, outputDir: string, preferredSourceRunId?: string): CorpusSource[] {
 	// ponytail: one mounted Goal snapshot inherits Source bundle's 20k-file/512 MiB cap; mount Source views in pages if a real Goal exceeds it.
 	rmSync(outputDir, { recursive: true, force: true });
 	mkdirSync(outputDir, { recursive: true });
 	const runsRoot = join(goalDir, "wiki", "runs");
+	if (preferredSourceRunId && (!SAFE_ID.test(preferredSourceRunId)
+		|| !existsSync(join(runsRoot, preferredSourceRunId, "artifacts", "find-out-sources")))) {
+		throw new Error("Preferred Source Run is unavailable");
+	}
 	const latest = new Map<string, { runId: string; source: ReturnType<typeof loadFindOutSources>[number] }>();
-	for (const runId of directories(runsRoot).sort()) {
+	const runIds = directories(runsRoot).sort().filter((runId) => runId !== preferredSourceRunId);
+	if (preferredSourceRunId) runIds.push(preferredSourceRunId);
+	for (const runId of runIds) {
 		const runRoot = join(runsRoot, runId);
 		const store = new RunArtifactStore(runRoot);
 		for (const sequence of directories(join(runRoot, "artifacts", "find-out-sources"))

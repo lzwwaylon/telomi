@@ -11,11 +11,11 @@ Directory Artifacts and Capability Snapshots accept only content Hashes using th
 | Agent | Candidate Replay | Case source |
 |---|---|---|
 | `main-agent` | Yes | Production Main Agent runs |
-| `cornell-note` | Yes | Production Research runs |
-| `report-writer` | Yes | Production Research runs |
+| `cornell-note` | Yes; Source reading and question-specific Deep Search | Production Research runs and investigation readings |
+| `report-writer` | Yes; full-report and independently captured investigation-answer variants | Production Research runs and investigation Writer delegations |
 | `provider-child` | Yes; pins one Provider Child's task and pre-execution files and reruns only that child | Derived from a specified execution in a complete Prime Search Case |
 | `prime-search` | Yes; v4 pins the Search question and captured context and reruns Provider operations; the Root may use general search | Production Research runs |
-| `prime-investigation` | Yes; pins the question, prompt, model policy, Wiki snapshot, and exact successful knowledge/deep-search responses seen by the Root | Main-triggered local investigations |
+| `prime-investigation` | Yes; pins the question, prompt, model policy, Wiki snapshot, and successful knowledge, reading, external-search and Writer responses seen by the Root | Main-triggered local investigations |
 | `wiki-compilation` | Yes; freezes the complete Notes, Goal, Topic Plan and base Wiki, or the base Wiki and Topic Plan for reindex | Production Wiki Updates and Topic reindex runs |
 | `wiki-shard-builder` | Yes; freezes Cornell Evidence and Topic Plan | Production Wiki Update runs |
 | `wiki-curator` | Yes; freezes Wiki Edition, Shards, and Topic Plan | Production Wiki Update runs |
@@ -137,6 +137,14 @@ The resulting `run.candidate.promptBundle` stores per-Case Prompts, their conten
 
 Formal Regression Campaigns also pass `candidate.expectedRuntimeBuild` and `candidate.expectedAgentBundleSha256`. At enqueue time and before execution, Node Backtest validates the Git Build loaded at process startup, the current disk state, and the Agent Bundle Hash. Any mismatch requires restarting Telomi; an old process cannot generate Candidate Evidence under a new HEAD identity.
 
+### Shared Reader Rules and Investigation Answer Writer
+
+Source reading and Cornell Deep Search combine their respective scope Prompts with the registered evidence-reading-quality reference. Case Capture hashes and saves the complete rendered project system Prompt, including that reference. An explicit Candidate Prompt override must provide the complete intended composition. Ordinary Source reading keeps its one-Source scope and original-language Note contract; the shared reference does not turn it into a Goal-wide coverage stage.
+
+The Report Writer's answer variant uses the existing `report-writer@2` Recipe with an explicit investigation-answer mode. Each `write_answer` delegation captures an independent fresh Writer Session, the complete question and requested parts, the assigned Notes and excerpts, and any bounded original Source views supplied to it. The entire `/inputs` mount is frozen, including when the producer placed it within the Goal harness. Replay uses those captured bytes, the historical model policy, and the production citation and coverage validator; missing mode, output contract, evidence mount or validator fails closed. Full-report Cases retain their existing Recipe behavior.
+
+The investigation Root must preserve the latest Writer's answer, citation refs and gaps verbatim. Runtime checks that equality in addition to evidence identity. This separates evidence selection and further reading from answer organization, while keeping the Writer output and native Session independently inspectable. Structural coverage and citation checks do not establish semantic completeness or correctness.
+
 ### Provider Child Replay
 
 A Provider Child Case is derived from a captured Prime Search execution and retains the provenance identities of its parent Case and execution. The Operations child Bundle export endpoint takes that execution identity. The exported child is an ordinary independent Case using the existing import, Replay, repetition, and blind-evaluation Interfaces. Export neither runs an Agent nor changes the parent Case.
@@ -147,7 +155,9 @@ Each Candidate executes only one native Provider Child, retaining the production
 
 ### Prime Search External Data Boundary
 
-Prime Investigation is a separate Root stage. Its Case captures the bounded Wiki snapshot, successful knowledge-search and Cornell reading results, any GitHub Provider calls, the native Prime Trace and Session, and the validated answer with frozen citation excerpts. Candidate Replay reruns the Prime Root against frozen Tool results in call order; it permits reworded knowledge/reading questions but requires the same repository, ref, and file set for a frozen GitHub acquisition. A new operation or different GitHub Source identity fails closed. Cornell Deep Search has its own Case for testing each reading stage. The bridge bearer token and process environment are never Case inputs.
+Prime Investigation is a separate Root stage. Its Case captures the bounded Wiki snapshot, successful knowledge-search, Cornell reading, external-search and Writer responses, the native Prime Trace and Session, and the validated answer with frozen citation excerpts. External acquisition uses the normal Prime Search Executor and produces its own live Provider Case; Cornell Deep Search and the Answer Writer each produce a separate Case. Investigation Candidate Replay reruns the Prime Root against frozen Tool results in call order without contacting external Providers. It permits reworded questions and preserves the complete observed Source identities, revisions and evidence excerpts in the Case while presenting short citation handles to Prime. Historical `github_read` interactions remain supported and require the same repository, ref and file set. An uncaptured acquisition or reading operation, a changed historical GitHub identity, or external acquisition in a restricted Case fails closed. The bridge bearer token and process environment are never Case inputs.
+
+Root Replay returns an observed Writer response when the Case captured that delegation. A historical Root Case without a Writer response may execute the current answer variant using only the Case's frozen citation excerpts. Those inputs explicitly identify their context as excerpt-only; Replay cannot supplement them from a live Goal or claim that it reread complete original Sources. Such a Root Replay verifies that narrower evidence scope. To evaluate the Writer over complete original context, use its independent Writer Case with frozen Source views from a real delegation.
 
 Prime Search Cases pin the Search Question, captured Schedule and Topic Plan context, Temporal Context, available Provider IDs, and model selections. Replay builds the production Provider Registry from the Candidate Harness and reruns Provider operations. The current Recipe neither provides a frozen external corpus nor replays historical query responses. Upstream data, login state, and availability can change; blind evaluation must distinguish these changes from Candidate capability differences.
 

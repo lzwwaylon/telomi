@@ -20,7 +20,7 @@ import { MarkdownLatexBlock } from "@/shared/markdown/MarkdownLatexBlock";
 import { MARKDOWN_MATH_OPTIONS } from "@/shared/markdown/markdown-math-options";
 import { isSourceAssetUri, sourceAssetHttpUrl } from "@/shared/markdown/source-asset";
 import { resolveMarkdownLinkTarget } from "@/shared/markdown/markdown-link-target";
-import { preprocessLinks } from "@/shared/markdown/markdown-linkify";
+import { isExplicitWorkspaceFileTarget, preprocessLinks } from "@/shared/markdown/markdown-linkify";
 import { simpleHash, splitIntoBlocks } from "@/shared/markdown/markdown-split";
 import {
 	remarkIndexedCitations,
@@ -176,7 +176,7 @@ function MarkdownInlineCode({ children }: { children?: ReactNode }) {
 	const insideAnchor = useContext(InsideMarkdownAnchor);
 	const path = typeof children === "string" ? children : "";
 	const code = <InlineCode>{children}</InlineCode>;
-	return !insideAnchor && ctx?.onFileClick && !path.includes("\n") && resolveMarkdownLinkTarget(path).kind === "file"
+	return !insideAnchor && ctx?.onFileClick && !path.includes("\n") && isExplicitWorkspaceFileTarget(path)
 		? <MarkdownAnchor href={path}>{code}</MarkdownAnchor> : code;
 }
 
@@ -693,8 +693,8 @@ export interface MarkdownViewProps {
 	 */
 	onFileClick?: (path: string, line?: number) => void;
 	/**
-	 * Convert raw URLs and file paths in plain text to markdown links before
-	 * rendering. Defaults to `true` for `chat` mode, `false` otherwise.
+	 * Auto-link explicit Goal paths in plain text. Defaults to `true` for chat.
+	 * Bare URLs are normalized in every rich mode before GFM parses them.
 	 */
 	linkify?: boolean;
 	/**
@@ -728,7 +728,7 @@ export const MarkdownView = memo(function MarkdownView({
 
 	const processedText = useMemo(() => {
 		if (mode === "terminal") return text;
-		return shouldLinkify ? preprocessLinks(text) : text;
+		return preprocessLinks(text, shouldLinkify);
 	}, [text, shouldLinkify, mode]);
 
 	// Chat-mode 永远走块级 memo — 完成的 turn 仍然能复用 fiber,即使外层

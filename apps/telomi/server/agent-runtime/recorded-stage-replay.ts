@@ -26,11 +26,14 @@ export const RECORDED_STAGE_RECIPE_VERSIONS = {
 	"report-writer": 2,
 } as const;
 
+type InvestigationAnswerValidator = (value: unknown, inputRoot: string) => unknown;
+
 type DeepSearchValidator = (value: unknown, question: string, invocationId: string, corpusDir: string) => unknown;
 
-export function createRecordedStageReplayRecipes(deepSearchValidator?: DeepSearchValidator): readonly NodeReplayRecipe[] {
+export function createRecordedStageReplayRecipes(deepSearchValidator?: DeepSearchValidator,
+	answerValidator?: InvestigationAnswerValidator): readonly NodeReplayRecipe[] {
 	return RECORDED_STAGE_AGENT_IDS.map((agentId) => createRecordedStageReplayRecipe(agentId,
-		recipeVersion(agentId), deepSearchValidator));
+		recipeVersion(agentId), deepSearchValidator, answerValidator));
 }
 
 export const recordedStageReplayRecipes = createRecordedStageReplayRecipes();
@@ -71,7 +74,10 @@ export function withResearchNodeEvaluationCapture(
 			}
 			const agentId = agentIdForRole(request.role);
 			if (!agentId) return runner.runStage(request);
+			const answerMode = request.role === "report_writer" && request.promptConfig?.userVariant === "answer";
 			const harnessMounts = request.readonlyMounts.flatMap((mount) => {
+				// Answer evidence is immutable even when its producer lives within the Goal harness.
+				if (answerMode && mount.guestPath === "/inputs") return [];
 				const workspaceRelativePath = relativeInside(harnessWorkspaceDirectory, mount.hostPath);
 				return workspaceRelativePath
 					? [{ guestPath: mount.guestPath, workspaceRelativePath }]
@@ -84,7 +90,7 @@ export function withResearchNodeEvaluationCapture(
 				evaluation: {
 					agentId,
 					recipe: { id: agentId, version: recipeVersion(agentId) },
-					recipeInput: {},
+					recipeInput: answerMode ? { mode: "investigation-answer" } : {},
 					...(inputGuestPath ? { inputGuestPath } : {}),
 					harnessMounts,
 					liveExternalState: false,
@@ -98,6 +104,7 @@ function createRecordedStageReplayRecipe(
 	agentId: typeof RECORDED_STAGE_AGENT_IDS[number],
 	version: number,
 	deepSearchValidator?: DeepSearchValidator,
+	answerValidator?: InvestigationAnswerValidator,
 ): NodeReplayRecipe {
 	return {
 		identity: { id: agentId, version },
@@ -125,6 +132,15 @@ function createRecordedStageReplayRecipe(
 				&& (value.recipeInput as { mode?: unknown }).mode === "deep-search"
 				? value.recipeInput as { mode: "deep-search"; question: string; invocationId: string }
 				: undefined;
+			const answerContext = (value.recipeInput as { mode?: unknown } | undefined)?.mode === "investigation-answer";
+			const answerVariant = value.request.promptConfig?.userVariant === "answer";
+			const answerMode = answerContext || answerVariant;
+			if (answerMode && (!answerContext || !answerVariant || agentId !== "report-writer" || value.role !== "report_writer")) {
+				throw new Error("Investigation Answer Replay has no frozen answer context");
+			}
+			if (answerMode && (output.kind !== "json_candidate" || output.entryRelativePath !== "work/answer.json")) {
+				throw new Error("Investigation Answer Replay has an invalid output contract");
+			}
 			const stage = await runner.runStage({
 				runId: candidateCase?.sourceRunId ?? value.runId,
 				stageId: value.nodeId,
@@ -162,6 +178,12 @@ function createRecordedStageReplayRecipe(
 					...(output.rootRelativePath ? { rootRelativePath: output.rootRelativePath } : {}),
 					...(output.guestEntryPath ? { guestEntryPath: output.guestEntryPath } : {}),
 					validate: ({ entryPath }) => {
+						if (answerMode) {
+							if (!answerValidator) throw new Error("Investigation Answer Replay has no evidence validator");
+							const inputs = readonlyMounts.find((mount) => mount.guestPath === "/inputs");
+							if (!inputs) throw new Error("Investigation Answer Replay has no captured /inputs");
+							return answerValidator(JSON.parse(readFileSync(entryPath, "utf-8")) as unknown, inputs.hostPath);
+						}
 						if (!deepSearchContext || !deepSearchValidator) return validateRecordedOutput(output.kind, entryPath);
 						const corpus = readonlyMounts.find((mount) => mount.guestPath === "/source");
 						if (!corpus) throw new Error("Deep Search Replay has no captured Source corpus");
