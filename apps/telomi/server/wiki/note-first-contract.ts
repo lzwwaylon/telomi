@@ -3,7 +3,7 @@ import type { GoalTopicPlan, WikiGoalContext } from './contracts.js';
 import type { ObjectFirstPage, ObjectFirstPagesResult, ObjectFirstSection } from './object-first-contract.js';
 import type { ObjectFirstEntry } from './object-first-edition.js';
 
-export type NoteFirstStage = 'objects' | 'merge-objects' | 'plan-concepts' | 'concepts' | 'merge-concepts' | 'relations' | 'plan-topics' | 'topic' | 'page-topics';
+export type NoteFirstStage = 'objects' | 'merge-objects' | 'plan-concepts' | 'concepts' | 'audit-concepts' | 'merge-concepts' | 'relations' | 'plan-topics' | 'topic' | 'page-topics';
 export interface NoteFirstPageInput {
  ref: string;
  page: ObjectFirstPage;
@@ -24,12 +24,16 @@ export interface NoteFirstInput {
  sections: ObjectFirstSection[];
  instructions: string;
  previousRelations: NoteFirstRelation[];
+ conceptTask?: { question: string; scope: string; targetRef: string | null };
  unplacedEntries?: Array<{ entryId: string; reason: string }>;
 }
-export interface NoteFirstConceptJob { pageRefs: string[]; entryIds: string[]; instructions: string }
+export interface NoteFirstConceptJob { pageRefs: string[]; question: string; scope: string; targetRef: string | null }
 export type NoteFirstResult =
+ | { kind: 'object-target-plan'; jobs: Array<{ action: 'update' | 'new' | 'retain'; targetRef: string | null; pageRefs: string[]; reason: string }> }
+ | { kind: 'object-target-pages'; value: ObjectFirstPagesResult; facts: Array<{ sourceRef: string; sourceHeading: string; claim: string; entryIds: string[]; destinationHeading: string }> }
  | { kind: 'pages'; value: ObjectFirstPagesResult; consideredPages: Array<{ pageRef: string; reason: string }> }
- | { kind: 'concept-plan'; jobs: NoteFirstConceptJob[] }
+ | { kind: 'concept-plan'; jobs: NoteFirstConceptJob[]; objectOnly: Array<{ pageRef: string; comparedWith: string[]; reason: string }> }
+ | { kind: 'concept-audit'; reviewedPages: Array<{ pageRef: string; reason: string }>; conflictGroups: Array<{ pageRefs: string[]; reason: string }>; discardedRefs: Array<{ ref: string; reason: string }> }
  | { kind: 'relations'; relations: NoteFirstRelation[]; reviewedPages: Array<{ pageRef: string; reason: string }> }
  | { kind: 'topic-plan'; jobs: Array<{ topicId: string; instructions: string }> }
  | { kind: 'page-topics'; sections: Array<{ sectionRef: string; matches: Array<{ topicId: string; reason: string }> }> }

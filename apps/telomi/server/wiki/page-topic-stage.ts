@@ -20,8 +20,10 @@ export const PAGE_TOPIC_MODEL = 'openai-codex/gpt-6-luna';
 export const PAGE_TOPIC_THINKING = 'medium';
 const thinking = PAGE_TOPIC_THINKING;
 const executionMode = 'single-completion';
+const transportAttemptLimit = 3;
+const transportRetryPolicy = 'native-sdk-and-empty-websocket';
 
-/** One bounded classification call. The optional transport is the deterministic test seam. */
+/** One classification request with bounded empty WebSocket reconnects. The optional transport is the deterministic test seam. */
 export async function runPageTopicStage(request: NoteFirstStageRequest, completeOverride?: PageTopicCompletion): Promise<NoteFirstOutcome> {
  request.signal.throwIfAborted();
  const task = createPageTopicTask(request.input);
@@ -76,28 +78,41 @@ export async function runPageTopicStage(request: NoteFirstStageRequest, complete
   const session = prime.SessionManager.create(work, sessions);
   session.appendModelChange(model.provider, model.id);
   session.appendThinkingLevelChange(thinking);
-  session.appendCustomEntry('execution', { executionMode, tools: [], completionLimit: 1, transportRetryPolicy: 'native-sdk' });
+  session.appendCustomEntry('execution', { executionMode, tools: [], completionLimit: 1, transportRetryPolicy, transportAttemptLimit });
   const user = { role: 'user' as const, content: task.userContext, timestamp: Date.now() };
   session.appendMessage(user);
   session.flushNow();
   writeJsonAtomic(join(runtime, 'model-metadata.json'), { id: model.id, provider: model.provider, api: model.api,
-   baseUrl: model.baseUrl, cost: model.cost, thinking, executionMode, requestedModel: PAGE_TOPIC_MODEL, transportRetryPolicy: 'native-sdk' });
+   baseUrl: model.baseUrl, cost: model.cost, thinking, executionMode, requestedModel: PAGE_TOPIC_MODEL, transportRetryPolicy, transportAttemptLimit });
   request.signal.throwIfAborted();
   const auth = await modelRegistry.getApiKeyAndHeaders(model);
   if (!auth.ok) throw new Error(auth.error);
   request.signal.throwIfAborted();
   const complete: PageTopicCompletion = completeOverride ?? (await import(aiPath)).completeSimple;
-  const response = await complete(model, { systemPrompt: prompt.content, messages: [user], tools: [] }, {
-   apiKey: auth.apiKey, headers: auth.headers, signal: request.signal, reasoning: thinking,
-   sessionId: session.getSessionId(),
-   onResponse: response => {
-    // HTTP statuses expose native retries without persisting credential-bearing headers.
-    appendFileSync(join(runtime, 'transport.jsonl'), `${JSON.stringify({ timestamp: Date.now(), status: response.status })}\n`);
-   },
-  });
-  session.appendMessage(response);
-  session.flushNow();
-  writeJsonAtomic(join(runtime, 'response.json'), response);
+  const responseFiles: string[] = [];
+  let response: Awaited<ReturnType<PageTopicCompletion>>;
+  for (let attempt = 1; ; attempt++) {
+   request.signal.throwIfAborted();
+   response = await complete(model, { systemPrompt: prompt.content, messages: [user], tools: [] }, {
+    apiKey: auth.apiKey, headers: auth.headers, signal: request.signal, reasoning: thinking,
+    sessionId: session.getSessionId(),
+    onResponse: response => {
+     // HTTP statuses expose native retries without persisting credential-bearing headers.
+     appendFileSync(join(runtime, 'transport.jsonl'), `${JSON.stringify({ timestamp: Date.now(), status: response.status })}\n`);
+    },
+   });
+   session.appendMessage(response);
+   session.flushNow();
+   const responseFile = `runtime/response-attempt-${attempt}.json`;
+   writeJsonAtomic(join(attemptRoot, responseFile), response); responseFiles.push(responseFile);
+   writeJsonAtomic(join(runtime, 'response.json'), response);
+   const emptyWebSocketFailure = `${response.provider}/${response.model}` === PAGE_TOPIC_MODEL
+    && response.stopReason === 'error' && response.errorMessage === 'WebSocket error'
+    && response.usage.input + response.usage.cacheRead + response.usage.cacheWrite + response.usage.output === 0
+    && response.content.every(block => block.type === 'text' ? !block.text : block.type === 'thinking' ? !block.thinking : false);
+   if (!emptyWebSocketFailure || attempt >= transportAttemptLimit) break;
+  }
+
   writeJsonAtomic(join(runtime, 'result.json'), { executionMode, requestedModel: PAGE_TOPIC_MODEL,
    actualModel: `${response.provider}/${response.model}`, stopReason: response.stopReason, usage: response.usage });
   request.signal.throwIfAborted();
@@ -113,7 +128,7 @@ export async function runPageTopicStage(request: NoteFirstStageRequest, complete
   const outcome: NoteFirstOutcome = { result, usage: noteFirstTraceUsage(request.workRoot), sessionPaths: sessionPaths(request.workRoot) };
   const artifacts = Object.fromEntries(['work/result.json', 'runtime/input.json', 'runtime/accepted-result.json', 'runtime/response.json',
    'runtime/effective-system-prompt.md', 'runtime/agent-context.json', 'runtime/model-metadata.json',
-   ...listJsonl(sessions).map(file => file.slice(attemptRoot.length + 1))].map(file => [file, sha256(readNoteFirstOutput(join(attemptRoot, file)))]));
+   ...responseFiles, ...listJsonl(sessions).map(file => file.slice(attemptRoot.length + 1))].map(file => [file, sha256(readNoteFirstOutput(join(attemptRoot, file)))]));
   writeJsonAtomic(checkpoint, { identity, status: 'succeeded', attemptRoot, artifacts, outcomeHash: hashJson(outcome), outcome });
   return outcome;
  } catch (error) {

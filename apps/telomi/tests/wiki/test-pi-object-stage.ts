@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acceptPiObjectFiles, piConceptPlanUserContext, piObjectUserContext, stagePiConceptPlanArticles,
- validatePiConceptPlanFiles, validatePiObjectFiles } from '../../server/wiki/pi-object-stage.js';
+import { acceptPiObjectFiles, piObjectUserContext,
+ validatePiObjectFiles, piObjectMergeUserContext, observePiMergeRead,
+ validatePiObjectMergeFiles, piResidualCueUserContext, piObjectMergePlanUserContext, validatePiObjectMergePlanFiles } from '../../server/wiki/pi-object-stage.js';
+import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
 import { createSrtAgentSandbox } from '../../server/agent-runtime/srt-agent-sandbox.js';
 import { renderAgentPrompt } from '../../server/agent-runtime/prompt-registry.js';
 import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
@@ -45,28 +47,143 @@ try {
  assert.equal(prompts.length, 2);
  assert.match(rejected[0]!, /output\.result\.json/);
  assert.ok(prompts[1]!.includes(rejected[0]!));
+ const threePrompts: string[] = [], threeErrors: string[] = [];
+ const thirdAccepted = await acceptPiObjectFiles(async text => { threePrompts.push(text); }, () => {
+  if (threePrompts.length < 3) throw new Error(`remaining violation ${threePrompts.length}`);
+  return repaired;
+ }, 'Build the pages', (_turn, error) => threeErrors.push(error), 3);
+ assert.equal(thirdAccepted, repaired);
+ assert.equal(threePrompts.length, 3);
+ assert.ok(threePrompts[1]!.includes(threeErrors[0]!));
+ assert.ok(threePrompts[2]!.includes(threeErrors[1]!));
+ let exhaustedTurns = 0;
+ await assert.rejects(acceptPiObjectFiles(async () => { exhaustedTurns++; }, () => {
+  throw new Error('unresolved violation');
+ }, 'Build the pages', () => {}, 3), /3 attempts.*unresolved violation/);
+ assert.equal(exhaustedTurns, 3, 'three attempts includes the initial submission');
  const sandbox = createSrtAgentSandbox({ id: 'pi-object-test', role: 'wiki.object_builder', workDirectory: work,
   readonlyMounts: [], activeTools: ['read', 'write', 'edit'], network: 'deny' });
  assert.deepEqual(sandbox.tools.map(tool => tool.name), ['read', 'write', 'edit']);
  await sandbox.close();
- const planInput: NoteFirstInput = { ...input, stage: 'plan-concepts', entries: [], requiredEntries: [],
-  pages: [
-   { ref: 'object:a', previous: false, role: 'member', page: { id: 'entity:a', kind: 'entity', title: 'Model A', description: 'Discrete speech model', body: '## Mechanism\nDiscrete tokens.' } },
-   { ref: 'concept:b', previous: true, role: 'context', page: { id: 'concept:b', kind: 'concept', title: 'Prior concept', description: 'Earlier explanation', body: '## Boundary\nOlder scope.' } },
-  ], requiredPages: ['object:a'], topics: [{ id: 'topic:secret', title: 'Hidden Topic', intent: '', include: [], exclude: [] }] as NoteFirstInput['topics'] };
- const planRoot = join(root, 'plan-input'), planWork = join(root, 'plan-work');
- mkdirSync(planWork);
- const planSystem = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'plan-concepts-pi').content;
- assert.match(planSystem, /Group articles around a reusable research question/);
- const planUser = piConceptPlanUserContext(planInput);
- assert.match(planUser, /P1 \| assign \| entity/);
- assert.match(planUser, /P2 \| context \| concept/);
- assert.ok(!planUser.includes('Hidden Topic'));
- stagePiConceptPlanArticles(planInput, planRoot);
- assert.match(readFileSync(join(planRoot, 'articles/P1.md'), 'utf8'), /## S1 · Mechanism/);
- writeFileSync(join(planWork, 'result.json'), JSON.stringify({ jobs: [{ page_refs: ['P1'], instructions: 'Compare mechanisms and limits' }] }));
- assert.equal(validatePiConceptPlanFiles(planInput, planRoot, planWork).kind, 'concept-plan');
- writeFileSync(join(planWork, 'result.json'), JSON.stringify({ jobs: [{ page_refs: ['P2'], instructions: 'Wrong context assignment' }] }));
- assert.throws(() => validatePiConceptPlanFiles(planInput, planRoot, planWork), /missing: \[P1\]; unexpected: \[P2\]/);
+ const mergeInput: NoteFirstInput = { ...input, stage: 'merge-objects', pages: [
+  { ref: 'old:a', previous: true, role: 'member', page: { id: 'entity:a', kind: 'entity', title: 'Method A', description: 'Existing method', body: `## Mechanism\nEvidence [[${a}]].` } },
+  { ref: 'new:b', previous: false, role: 'member', page: { id: 'entity:b', kind: 'entity', title: 'Method A draft', description: 'New observations', body: `## Observations\nEvidence [[${b}]].` } },
+ ] };
+ const mergeRoot = join(root, 'merge-input');
+ createNoteFirstWorkspace(mergeInput, mergeRoot);
+ const mergeUser = piObjectMergeUserContext(mergeInput);
+ assert.match(mergeUser, /P1 \| existing/);
+ assert.match(mergeUser, /P2 \| incoming/);
+ assert.match(mergeUser, /wiki\/indexes\/P1.json \| wiki\/pages\/P1.md/);
+ assert.doesNotThrow(() => piObjectMergeUserContext({ ...mergeInput,
+  pages: [...Array.from({ length: 8 }, () => mergeInput.pages[0]!), mergeInput.pages[1]!] }));
+ assert.throws(() => piObjectMergeUserContext({ ...mergeInput, pages: Array.from({ length: 5 }, () => mergeInput.pages[1]!) }), /1 to 4 incoming/);
+ const plannerUser = JSON.parse(piObjectMergePlanUserContext(mergeInput));
+ assert.deepEqual(Object.keys(plannerUser), ['output_language', 'goal', 'catalog']);
+ assert.equal(plannerUser.catalog[0].file, 'wiki/pages/P1.md');
+ assert.ok(!JSON.stringify(plannerUser).includes(a));
+ const planRow = { action: 'update', target_ref: 'P1', page_refs: ['P1', 'P2'], reason: 'Same independently identifiable method' };
+ writeFileSync(manifest, JSON.stringify({ jobs: [planRow] }));
+ const mergePlan = validatePiObjectMergePlanFiles(mergeInput, work);
+ assert.equal(mergePlan.kind, 'object-target-plan');
+ if (mergePlan.kind === 'object-target-plan') assert.deepEqual(mergePlan.jobs[0]!.pageRefs, ['old:a', 'new:b']);
+ writeFileSync(manifest, JSON.stringify({ jobs: [] }));
+ assert.throws(() => validatePiObjectMergePlanFiles(mergeInput, work), /missing: \[P2\]/);
+ writeFileSync(manifest, JSON.stringify({ jobs: [planRow, { ...planRow, action: 'retain', target_ref: null, page_refs: ['P2'] }] }));
+ assert.throws(() => validatePiObjectMergePlanFiles(mergeInput, work), /also assigned/);
+ writeFileSync(manifest, JSON.stringify({ jobs: [{ ...planRow, page_refs: ['P9'] }] }));
+ assert.throws(() => validatePiObjectMergePlanFiles(mergeInput, work), /unknown or context-only/);
+ writeFileSync(manifest, JSON.stringify({ jobs: [{ ...planRow, page_refs: ['P1'] }] }));
+ assert.throws(() => validatePiObjectMergePlanFiles(mergeInput, work), /existing-only jobs/);
+ writeFileSync(manifest, JSON.stringify({ jobs: [{ ...planRow, reason: ' ' }] }));
+ assert.throws(() => validatePiObjectMergePlanFiles(mergeInput, work), /specific reason/);
+ writeFileSync(manifest, JSON.stringify({ jobs: [planRow], discarded_refs: ['P1'] }));
+ assert.throws(() => validatePiObjectMergePlanFiles(mergeInput, work), /expected exactly/);
+ const mergeReads = new Map<string, Set<number>>();
+ writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: ['P1', 'P2'] }], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
+ assert.throws(() => validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads), /complete incoming page P2/);
+ const observe = (ref: string, offset = 1, limit?: number) => {
+  const lines = readFileSync(join(mergeRoot, `pages/${ref}.md`), 'utf8').split('\n');
+  observePiMergeRead(mergeRoot, mergeReads, { path: `wiki/pages/${ref}.md`, offset, limit },
+   { content: [{ type: 'text', text: lines.slice(offset - 1, limit ? offset - 1 + limit : undefined).join('\n') }] });
+ };
+ observe('P2');
+ observe('P1', 1, 2);
+ assert.throws(() => validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads), /read every section of P1/);
+ observe('P1', 3);
+ const acceptedMerge = validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads);
+ assert.deepEqual(acceptedMerge.completePageReads, ['P2', 'P1']);
+ assert.equal(acceptedMerge.result.kind, 'pages');
+ if (acceptedMerge.result.kind === 'pages') {
+  assert.equal(acceptedMerge.result.value.pages[0]!.id, 'entity:a');
+  assert.match(acceptedMerge.result.value.pages[0]!.body, new RegExp(a));
+  assert.match(acceptedMerge.result.value.pages[0]!.body, new RegExp(b));
+ }
+ const historicalPending = { ...mergeInput.pages[1]!, ref: 'history:b', previous: true, role: 'context' as const,
+  page: { ...mergeInput.pages[1]!.page, id: 'concept:history', kind: 'concept' as const } };
+ const pendingInput: NoteFirstInput = { ...mergeInput,
+  pages: [{ ...mergeInput.pages[0]!, role: 'context' }, historicalPending], requiredEntries: [b],
+  unplacedEntries: [{ entryId: b, reason: 'Not yet in objects' }] };
+ assert.match(piResidualCueUserContext(pendingInput), /Detail 1/);
+ assert.deepEqual(JSON.parse(piResidualCueUserContext(pendingInput)).cues[0].historical_concept_refs, ['P2']);
+ createNoteFirstWorkspace(pendingInput, mergeRoot);
+ writeFileSync(page, '---\ntitle: "Method B"\ndescription: "Additional source record"\n---\n\n## Mechanism\nEvidence [[N2]].\n');
+ writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: [] }], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
+ const pendingResolved = validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true);
+ writeFileSync(manifest, JSON.stringify({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [{ entry_ref: 'N2', reason: 'Only a detail' }] }));
+ assert.throws(() => validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true), error => {
+  assert.match(String(error), /historical concept.*N2/);
+  assert.match(String(error), /wiki\/pages\/P2.md/); return true;
+ }, 'historical detail feedback names the real Pi source path');
+ assert.equal(pendingResolved.result.value.pages.length, 1, 'resolving pending Cues does not require rewriting read-only old objects');
+ assert.deepEqual(pendingResolved.result.value.pages[0]!.member_refs, []);
+ assert.throws(() => createNoteFirstWorkspace({ ...pendingInput, pages: mergeInput.pages.slice(0, 1) }, mergeRoot),
+  /required Entries must cover/, 'real members still require full citation coverage');
+ writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: ['P1', 'P2'] }], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
+ const extra = `entry:${'c'.repeat(24)}`;
+ const aggregateInput: NoteFirstInput = { ...mergeInput,
+  entries: [...entries, { ...entries[0]!, id: extra }], requiredEntries: [a, b, extra],
+  pages: [{ ...mergeInput.pages[0]!, page: { ...mergeInput.pages[0]!.page, body: `## Mechanism\nEvidence [[${a}]] and [[${extra}]].` } }, mergeInput.pages[1]!] };
+ createNoteFirstWorkspace(aggregateInput, mergeRoot);
+ mergeReads.clear(); observe('P1'); observe('P2');
+ writeFileSync(page, '---\ntitle: "Method A"\ndescription: "A method with conditions"\n---\n\n## Mechanism\nEvidence [[N3]].\n');
+ assert.throws(() => validatePiObjectMergeFiles(aggregateInput, mergeRoot, work, mergeReads), error => {
+  const message = String(error);
+  assert.match(message, /previous page citations.*P1.*N1/);
+  assert.match(message, /silently dropped; missing: \[N1, N2\]/);
+  assert.match(message, /wiki\/pages\/P2.md/);
+  return true;
+ }, 'one repair must see both old and incoming citation losses');
+ createNoteFirstWorkspace(mergeInput, mergeRoot);
+ mergeReads.clear(); observe('P1'); observe('P2');
+ writeFileSync(page, '---\ntitle: "Method A"\ndescription: "A method with conditions"\n---\n\n## Mechanism\nEvidence [[N1]].\n');
+ writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: ['P1'] }], retained_refs: ['P2'], discarded_refs: [], deferred_entries: [] }));
+ assert.throws(() => validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads), error => {
+  assert.match(String(error), /output.pages\[0\].*pages\/O1.md.*P1/);
+  assert.match(String(error), /remove this rewrite/i);
+  return true;
+ });
+ writeFileSync(page, '---\ntitle: "Method A"\ndescription: "A method with conditions"\n---\n\n## Mechanism\nEvidence [[N1]] and [[N2]].\n');
+ writeFileSync(join(work, 'pages/O2.md'), '---\ntitle: "Method B"\ndescription: "Another record"\n---\n\n## Mechanism\nEvidence [[N2]].\n');
+ writeFileSync(manifest, JSON.stringify({ pages: [
+  { file: 'pages/O1.md', member_refs: ['P1', 'P2'] }, { file: 'pages/O2.md', member_refs: ['P2'] },
+ ], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
+ assert.throws(() => validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads), error => {
+  assert.match(String(error), /duplicate: \[P2\]/);
+  assert.match(String(error), /output.pages\[0\].member_refs\[1\] \(pages\/O1.md\)/);
+  assert.match(String(error), /output.pages\[1\].member_refs\[0\] \(pages\/O2.md\)/);
+  return true;
+ });
+ writeFileSync(manifest, JSON.stringify({ pages: [], retained_refs: ['P2'], discarded_refs: [], deferred_entries: [] }));
+ const retainedMerge = validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads).result;
+ if (retainedMerge.kind === 'pages') assert.deepEqual(retainedMerge.value.retained_refs, ['new:b', 'old:a']);
+ writeFileSync(manifest, JSON.stringify({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
+ assert.throws(() => validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads), /missing: \[P2\]/);
+ // A truncated response cannot certify the unread final line.
+ mergeReads.clear();
+ const p2Lines = readFileSync(join(mergeRoot, 'pages/P2.md'), 'utf8').split('\n');
+ observePiMergeRead(mergeRoot, mergeReads, { path: '/work/wiki/pages/P2.md' },
+  { content: [{ type: 'text', text: p2Lines.slice(0, -1).join('\n') + '\n[Showing lines; continue with offset]' }] });
+ assert.throws(() => validatePiObjectMergeFiles(mergeInput, mergeRoot, work, mergeReads), /complete incoming page P2/);
  console.log('Pi object files preserve field-specific validation feedback');
 } finally { rmSync(root, { recursive: true, force: true }); }

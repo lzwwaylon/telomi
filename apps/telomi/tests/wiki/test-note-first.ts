@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { ensureGoalWorkspace } from "../../server/workspaces/goal-project.js";
 import { readObjectFirstPrevious, writeObjectFirstEdition } from "../../server/wiki/object-first-edition.js";
 import { noteWikiEntries } from "../../server/wiki/note-wiki-maintainer.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
 import type { GoalTopicPlan, WikiCompilationRequest } from "../../server/wiki/contracts.js";
+import { hashJson } from "../../server/lib/hash.js";
 import { hashWikiDirectory } from "../../server/wiki/files.js";
 import { NoteFirstWikiCompiler } from "../../server/wiki/note-first-compiler.js";
 import type { NoteFirstInput, NoteFirstOutcome, NoteFirstResult, NoteFirstStageRequest } from "../../server/wiki/note-first-contract.js";
@@ -53,12 +54,15 @@ function result(input: NoteFirstInput, rename = false): NoteFirstResult {
   case "plan-concepts":
    assert.deepEqual(input.requiredEntries, [], "concept planning receives no residual Cue worklist");
    assert.ok(input.pages.filter(p => p.page.kind === "entity").every(p => input.requiredPages.includes(p.ref)), "planning accounts for all objects");
-   return { kind: "concept-plan", jobs: [{ pageRefs: input.requiredPages, entryIds: input.requiredEntries, instructions: "Compare training conditions across all models" }] };
+   return { kind: "concept-plan", jobs: [{ pageRefs: input.requiredPages, question: "Which training conditions govern comparisons?", scope: "Compare training conditions across all models", targetRef: input.pages.find(p => p.previous && p.page.kind === "concept")?.ref ?? null }], objectOnly: [] };
   case "concepts": {
-   const ids = [...new Set([...input.requiredEntries, ...input.pages.filter(p => input.requiredPages.includes(p.ref)).flatMap(p => objectFirstEntries(p.page.body))])];
-   value.pages = [{ id: `concept:proposal-${input.entries.length}`, kind: "concept", title: "Training conditions", description: "Conditions that govern comparisons", body: `## Comparison\nCompare conditions ${ids.map(id => `[[${id}]]`).join(" ")}.`, member_refs: [] }];
+   const target = input.pages.find(p => p.ref === input.conceptTask?.targetRef);
+   const ids = [...new Set(input.pages.filter(p => input.requiredPages.includes(p.ref) || p === target).flatMap(p => objectFirstEntries(p.page.body)))];
+   value.pages = [{ id: target?.page.id ?? "concept:conditions", kind: "concept", title: "Training conditions", description: "Conditions that govern comparisons", body: `## Comparison\nCompare conditions ${ids.map(id => `[[${id}]]`).join(" ")}.`, member_refs: [] }];
    break;
   }
+  case "audit-concepts":
+   return { kind: "concept-audit", reviewedPages: consideredPages, conflictGroups: [], discardedRefs: [] };
   case "merge-concepts": {
    const members = input.pages.filter(p => p.role === "member");
    if (members.length) value.pages = [{ ...members[0]!.page, id: "concept:conditions", body: `## Comparison\nCompare all conditions ${[...new Set(members.flatMap(p => objectFirstEntries(p.page.body)))].map(id => `[[${id}]]`).join(" ")}.`, member_refs: members.map(p => p.ref) }];
@@ -92,7 +96,7 @@ try {
  const objectsStarted: string[] = [], stages: string[] = [];
  const initialInputs: NoteFirstInput[] = [];
  let active = 0, maximum = 0;
- const compiler = new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+ const compiler = new NoteFirstWikiCompiler({ runStage: async ({ input, workRoot, onAttemptStarted }) => {
   stages.push(input.stage);
   initialInputs.push(input);
   if (input.stage === "objects") {
@@ -102,7 +106,15 @@ try {
    try { if (objectsStarted.length === 1) await holdFirst.promise; else if (objectsStarted.length <= 4) await firstFour.promise; return outcome(input); }
    finally { active--; }
   }
-  if (input.stage === "merge-objects") assert.equal(active, 0, "object merging waits for all Note workers");
+  if (input.stage === "merge-objects") {
+   assert.equal(active, 0, "object merging waits for all Note workers");
+   const planner = join(workRoot, 'plan/attempt'), writer = join(workRoot, 'write/attempt');
+   onAttemptStarted?.(planner); onAttemptStarted?.(writer);
+   const trace = JSON.parse(read(join(initialRequest.controlDirectory, `wiki-trace-${hashJson(input.key).slice(0, 16)}.json`)));
+   assert.deepEqual(trace.sessions.map((row: { path: string }) => resolve(initialRequest.controlDirectory, row.path)),
+    [planner, writer].map(path => join(path, 'runtime/sessions')), 'live merge trace preserves planner and writer sessions');
+   return { ...outcome(input), sessionPaths: [join(planner, 'runtime/sessions'), join(writer, 'runtime/sessions')] };
+  }
   return outcome(input);
  } });
  const initialRequest = request("initial");
@@ -123,6 +135,8 @@ try {
  assert.equal(stages.filter(stage => stage === "page-topics").length, 7);
  assert.ok(!stages.includes("plan-topics") && !stages.includes("topic"), "navigation bypasses Planner and Topic workers");
  assert.equal(initial.pageCount, 7);
+ assert.ok(stages.includes("audit-concepts"));
+ assert.ok(!stages.includes("merge-concepts"), "an audit with no conflict does not rewrite concepts");
  assert.deepEqual(initial.failedBatches, []);
  assert.equal(initial.publicationReady, true);
  assert.ok(progress.every(event => event.stageIndex < event.totalStages));
@@ -166,6 +180,140 @@ try {
  assert.ok(!relations.previousRelations.some(edge => edge.from === "entity:source-0"));
  assert.equal(JSON.parse(read(join(incremental.knowledge.absolutePath, ".note-registry.json"))).entries.length, 14);
  assert.equal(hashWikiDirectory(knowledge), originalHash, "incremental build leaves its source Edition immutable");
+
+ // A reviewed object-only batch is valid knowledge even without any concept page.
+ const objectOnlyStages: string[] = [];
+ const objectOnly = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+  objectOnlyStages.push(input.stage);
+  if (input.stage === "plan-concepts") return { usage, sessionPaths: [], result: {
+   kind: "concept-plan", jobs: [], objectOnly: input.requiredPages.map(pageRef => ({ pageRef,
+    comparedWith: [], reason: "Source-specific observation after full review, no reusable explanation" })),
+  } };
+  return outcome(input);
+ } }).compile(request("object-only", evidence(1)));
+ assert.equal(objectOnly.pageCount, 1);
+ assert.equal(objectOnly.publicationReady, true);
+ assert.ok(!objectOnlyStages.includes("concepts") && !objectOnlyStages.includes("merge-concepts"));
+
+ // A target writer can decline an update without removing the historical concept.
+ const declinedInputs: NoteFirstInput[] = [];
+ const declined = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+  declinedInputs.push(input);
+  if (input.stage === "concepts") return { usage, sessionPaths: [], result: {
+   kind: "pages", value: empty(), consideredPages: input.requiredPages.map(pageRef => ({ pageRef,
+    reason: "Existing explanation already covers the supported mechanism" })),
+  } };
+  return outcome(input);
+ } }).compile(request("declined-target", evidence(1, 6), knowledge));
+ const declinedPages = (await readObjectFirstPrevious(declined.knowledge.absolutePath)).pages;
+ const originalConcept = (await readObjectFirstPrevious(knowledge)).pages.find(page => page.kind === "concept")!;
+ assert.deepEqual(declinedPages.find(page => page.id === originalConcept.id), originalConcept);
+ assert.ok(declinedInputs.find(input => input.stage === "concepts")!.conceptTask?.targetRef);
+ assert.equal(declined.publicationReady, true);
+
+ // Objects may support different questions; the audit sends only its conflict
+ // members into rewriting and preserves unrelated explanations byte for byte.
+ const overlapInputs: NoteFirstInput[] = [];
+ let complementaryBody = "";
+ const overlap = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+  overlapInputs.push(input);
+  if (input.stage === "plan-concepts") return { usage, sessionPaths: [], result: {
+   kind: "concept-plan", objectOnly: [], jobs: ["canonical", "complementary"].map(question => ({
+    question, scope: `Explain ${question} conditions`, pageRefs: input.requiredPages, targetRef: null,
+   })),
+  } };
+  if (input.stage === "concepts") {
+   const value = empty();
+   value.pages = [{ id: `concept:${input.conceptTask!.question}`, kind: "concept", title: input.conceptTask!.question,
+    description: "Independent explanatory boundary", body: `## Mechanism\n${input.pages.filter(page => input.requiredPages.includes(page.ref)).flatMap(page => objectFirstEntries(page.page.body)).map(id => `[[${id}]]`).join(" ")}`, member_refs: [] }];
+   if (input.conceptTask!.question === "complementary") complementaryBody = value.pages[0]!.body;
+   return { usage, sessionPaths: [], result: { kind: "pages", value,
+    consideredPages: input.requiredPages.map(pageRef => ({ pageRef, reason: "Read the assigned support" })) } };
+  }
+  if (input.stage === "audit-concepts") {
+   const concepts = input.pages.filter(page => page.page.kind === "concept");
+   return { usage, sessionPaths: ["audit-session"], result: { kind: "concept-audit",
+    reviewedPages: concepts.map(page => ({ pageRef: page.ref, reason: "Reviewed scope and mechanism" })),
+    conflictGroups: [{ pageRefs: concepts.filter(page => page.page.id !== "concept:complementary").map(page => page.ref),
+     reason: "Historical and new canonical explanations overlap" }], discardedRefs: [] } };
+  }
+  if (input.stage === "merge-concepts") {
+   assert.deepEqual(input.pages.filter(page => page.role === "member").map(page => page.page.id).sort(),
+    ["concept:canonical", originalConcept.id].sort(), "unrelated concept cannot be consumed by this conflict group");
+   assert.ok(!input.pages.some(page => page.page.id === "concept:complementary"));
+   return { ...outcome(input), sessionPaths: ["conflict-session"] };
+  }
+  return outcome(input);
+ } }).compile(request("overlapping-support", evidence(1, 6), knowledge));
+ assert.equal(overlap.publicationReady, true);
+ assert.equal(overlapInputs.filter(input => input.stage === "concepts").length, 2);
+ assert.equal(overlapInputs.filter(input => input.stage === "merge-concepts").length, 1);
+ const complementary = (await readObjectFirstPrevious(overlap.knowledge.absolutePath)).pages.find(page => page.id === "concept:complementary")!;
+ assert.equal(complementary.body, complementaryBody, "unconflicted candidate content is unchanged");
+ assert.ok(overlap.sessionPaths.includes("audit-session") && overlap.sessionPaths.includes("conflict-session"));
+ assert.equal(overlap.usage.calls, overlapInputs.length, "audit and local conflict calls count exactly once");
+ const overlapRelations = overlapInputs.find(input => input.stage === "relations")!;
+ assert.ok(overlapRelations.previousRelations.every(edge => overlapRelations.pages.some(page => page.page.id === edge.to)), "old relation endpoints resolve after local conflict merging");
+
+ const previousForConflict = await readObjectFirstPrevious(knowledge);
+ const historicalConflictSeed = join(root, "historical-conflict-seed");
+ const secondaryConcept = { ...originalConcept, id: "concept:secondary", title: "Secondary conditions" };
+ writeObjectFirstEdition(historicalConflictSeed, [...previousForConflict.pages, secondaryConcept], previousForConflict.entries,
+  { ...empty(), relations: [{ from: "entity:source-0", to: secondaryConcept.id, label: "uses conditions",
+   entryIds: objectFirstEntries(secondaryConcept.body) }] }, previousForConflict);
+ let redirectedRelations: NoteFirstInput | undefined;
+ const historicalConflict = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+  if (input.stage === "plan-concepts") return { usage, sessionPaths: [], result: { kind: "concept-plan", jobs: [],
+   objectOnly: input.requiredPages.map(pageRef => ({ pageRef, comparedWith: [], reason: "Existing explanations suffice" })) } };
+  if (input.stage === "audit-concepts") {
+   const concepts = input.pages.filter(page => page.page.kind === "concept");
+   return { usage, sessionPaths: [], result: { kind: "concept-audit",
+    reviewedPages: concepts.map(page => ({ pageRef: page.ref, reason: "Reviewed historical scope" })),
+    conflictGroups: [{ pageRefs: concepts.map(page => page.ref), reason: "Historical synonyms for the same explanation" }], discardedRefs: [] } };
+  }
+  if (input.stage === "relations") redirectedRelations = input;
+  return outcome(input);
+ } }).compile(request("historical-local-conflict", evidence(6), historicalConflictSeed));
+ assert.equal(historicalConflict.publicationReady, true);
+ assert.ok(redirectedRelations!.previousRelations.some(edge => edge.to === originalConcept.id));
+ assert.ok(!redirectedRelations!.previousRelations.some(edge => edge.to === secondaryConcept.id),
+  "a consumed historical concept redirects existing relations to the surviving identity");
+
+ for (const failedStage of ["audit-concepts", "merge-concepts"] as const) {
+  const failedInputs: NoteFirstInput[] = [];
+  const failing = new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+   failedInputs.push(input);
+   if (input.stage === failedStage) throw Object.assign(new Error(`Injected ${failedStage} failure`),
+    { usage: failureUsage, sessionPaths: [`${failedStage}-failed-session`] });
+   if (input.stage === "audit-concepts") {
+    const concepts = input.pages.filter(page => page.page.kind === "concept");
+    return { usage, sessionPaths: [], result: { kind: "concept-audit",
+     reviewedPages: concepts.map(page => ({ pageRef: page.ref, reason: "Reviewed complete candidates" })),
+     conflictGroups: [{ pageRefs: concepts.map(page => page.ref), reason: "Duplicate conditions" }], discardedRefs: [] } };
+   }
+   if (input.stage === "plan-concepts") {
+    const planned = result(input);
+    if (planned.kind !== "concept-plan") throw new Error("wrong plan");
+    planned.jobs[0]!.targetRef = null;
+    return { usage, sessionPaths: [], result: planned };
+   }
+   if (input.stage === "concepts") {
+    const generated = result(input);
+    if (generated.kind === "pages") generated.value.pages[0]!.id = "concept:new-condition";
+    return { usage, sessionPaths: [], result: generated };
+   }
+   return outcome(input);
+  } });
+  const failedRequest = request(`failed-${failedStage}`, evidence(1, 6), knowledge);
+  await assert.rejects(failing.compile(failedRequest), error => {
+   assert.match(String(error), new RegExp(`Injected ${failedStage} failure`));
+   const details = error as Error & { usage: typeof usage; sessionPaths: string[] };
+   assert.ok(details.sessionPaths.includes(`${failedStage}-failed-session`));
+   assert.equal(details.usage.calls, failedInputs.length - 1 + failureUsage.calls);
+   assert.equal(details.usage.inputTokens, (failedInputs.length - 1) * usage.inputTokens + failureUsage.inputTokens);
+   return true;
+  });
+ }
 
  // Legacy Editions can contain concept-only Cues and an unresolved Cue pool.
  // The first incremental Base run routes both into object merging without a rebuild.
@@ -244,6 +392,20 @@ try {
  const emptyTopics = JSON.parse(read(join(noPages.knowledgeRoot, ".topic-index.json"))).topics;
  assert.equal(emptyTopics.length, 2);
  assert.ok(emptyTopics.every((topic: { status: string; sections: string[]; gaps: string[] }) => topic.status === "succeeded" && !topic.sections.length && !topic.gaps.length));
+
+ let failedWriter = false, successfulWriterStages = 0;
+ const writerPartial = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+  if (input.stage === 'concepts' && !failedWriter) {
+   failedWriter = true;
+   throw Object.assign(new Error('Injected concept Writer failure'), { usage: failureUsage, sessionPaths: ['failed-writer-session'] });
+  }
+  successfulWriterStages++;
+  return outcome(input);
+ } }).compile(request('partial-concept-writer'));
+ assert.equal(writerPartial.failedBatches.length, 1);
+ assert.deepEqual(writerPartial.failedBatches[0]!.usage, failureUsage, 'A recoverable Writer failure records only its own stage usage');
+ assert.equal(writerPartial.usage.calls, successfulWriterStages + failureUsage.calls, 'Compilation usage includes all successful and failed stages once');
+ assert.ok(writerPartial.sessionPaths.includes('failed-writer-session'));
 
  const failedNotes: string[] = [];
  let failNote = true;
