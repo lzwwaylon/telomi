@@ -27,6 +27,7 @@ export function readNoteFirstOutput(path: string): Buffer {
 /** Includes Markdown bytes, not just the manifest that names those files. */
 export function noteFirstOutputHash(workRoot: string): string {
  const files: Array<{ path: string; sha256: string }> = [{ path: "result.json", sha256: sha256(readNoteFirstOutput(join(workRoot, "result.json"))) }];
+ if (existsSync(join(workRoot, 'facts.json'))) files.push({ path: 'facts.json', sha256: sha256(readNoteFirstOutput(join(workRoot, 'facts.json'))) });
  const pagesRoot = join(workRoot, "pages");
  const visit = (directory: string, prefix: string): void => {
   if (!lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink()) throw new Error("Wiki pages directory must not be a link");
@@ -60,6 +61,7 @@ export function noteFirstTraceUsage(root: string): ResearchModelUsage {
 export async function runNoteFirstStage(request: NoteFirstStageRequest): Promise<NoteFirstOutcome> {
  request.signal.throwIfAborted();
  if (request.input.stage === "page-topics") return (await import("./page-topic-stage.js")).runPageTopicStage(request);
+ if (request.input.stage === "merge-objects") return (await import("./pi-object-merge.js")).runPiObjectMergeStage(request);
  if (request.input.stage === "objects" && request.input.entries.length > 0 && JSON.stringify(request.input.entries).length <= 50_000) {
   return (await import("./pi-object-stage.js")).runPiObjectStage(request);
  }
@@ -136,13 +138,15 @@ function sessionPaths(root: string): string[] {
 export function noteFirstCapabilityIdentity(): string {
  const files = ["note-first-stage.ts", "prime-note-first-worker.ts", "note-first-contract.ts", "note-first-workspace.ts",
   "note-first-search.ts", "note-first-topic-skill.ts", "note-first-prompt.ts", "object-first-contract.ts", "object-first-edition.ts",
-  "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts"];
+  "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts"];
  const semantics = files.map(path => sha256(readFileSync(fileURLToPath(new URL(path, import.meta.url)))));
  const system = renderAgentPrompt("wiki", "note-first", "system-append", {});
  return hashJson({ semantics, system: system.content, registration: system.configSha256,
   pageTopics: renderAgentPrompt("wiki", "note-first", "system", {}, "page-topics").content,
   piObjects: renderAgentPrompt("wiki", "note-first", "system", {}, "objects-pi").content,
   piConceptPlan: renderAgentPrompt("wiki", "note-first", "system", {}, "plan-concepts-pi").content,
+  piObjectMerge: ["plan-object-targets-pi", "write-object-target-pi", "resolve-object-cues-pi"]
+   .map(variant => renderAgentPrompt("wiki", "note-first", "system", {}, variant).content),
   users: ["objects", "merge-objects", "plan-concepts", "concepts", "merge-concepts", "relations", "plan-topics", "topic"]
    .map(stage => renderAgentPrompt("wiki", "note-first", "user", { stage }).content),
   skills: snapshotSkills(bundledAgentSkillPaths("wiki", "note-first")).sha256 });
