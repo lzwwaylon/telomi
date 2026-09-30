@@ -73,7 +73,19 @@ try {
  const retained = workspace(merge).validate({ ...empty(), retained_refs: ['P1', 'P2'] }, work);
  assert.equal(retained.kind, 'pages', 'unchanged candidates need only catalog review');
  markdown('NoOld.md', '## Loss\nDifferent [[N2]]');
- assert.throws(() => mw.validate({ ...merged, pages: [{ file: 'pages/NoOld.md', member_refs: ['P1', 'P2'] }] }, work), /previous page citations/u);
+ assert.throws(() => mw.validate({ ...merged, pages: [{ file: 'pages/NoOld.md', member_refs: ['P1', 'P2'] }] }, work), error => {
+  assert.match(String(error), /previous page citations/u);
+  assert.match(String(error), /\.\.\/input\/pages\/P1.md/u);
+  return true;
+ });
+
+ assert.throws(() => mw.validate({ ...merged, deferred_entries: [
+  { entry_ref: 'N1', reason: 'Already part of the same object' }, { entry_ref: 'N2', reason: 'An evaluation detail' },
+ ] }, work), error => {
+  assert.match(String(error), /deferred_entries\[0\].*N1/);
+  assert.match(String(error), /deferred_entries\[1\].*N2/);
+  return true;
+ }, 'one feedback turn lists every cited/deferred conflict instead of spending all retries on the first rows');
 
  const concept = { ...input('concepts'), pages: merge.pages.map(row => ({ ...row, role: 'context' as const })), requiredPages: ['old:first', 'draft:second'] };
  const cw = workspace(concept);

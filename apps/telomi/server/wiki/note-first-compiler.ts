@@ -141,15 +141,22 @@ export class NoteFirstWikiCompiler {
    stage, key, language: wikiLanguage(goal), goal, entries, pages: [], requiredEntries: [], requiredPages: [], topics: [], sections: [], instructions: '', previousRelations: [], unplacedEntries: [], ...patch });
   const run = async (input: NoteFirstInput) => {
    request.signal.throwIfAborted();
+   const sessions = new Set<string>();
+   const recordSessions = (paths: string[]) => {
+    paths.forEach(path => sessions.add(path));
+    sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16),
+     [...sessions].map(path => ({ path, label: input.stage })));
+   };
    try {
     const outcome = await (this.options.runStage ?? runNoteFirstStage)({ input, workRoot: join(workRoot, input.key, hashJson(input).slice(0, 24)), env, signal: request.signal,
-     onAttemptStarted: attemptRoot => sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16),
-      [{ path: join(attemptRoot, 'runtime', 'sessions'), label: input.stage }]) });
+     onAttemptStarted: attemptRoot => recordSessions([join(attemptRoot, 'runtime', 'sessions')]) });
+    recordSessions(outcome.sessionPaths);
     request.signal.throwIfAborted();
     outcomes.push(outcome);
     return outcome;
    } catch (error) {
     const details = error as { usage?: ResearchModelUsage; sessionPaths?: string[] };
+    recordSessions(details?.sessionPaths ?? []);
     failedAttempts.push({ usage: details?.usage ?? zero(), sessionPaths: details?.sessionPaths ?? [] });
     throw error;
    }

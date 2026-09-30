@@ -5,6 +5,9 @@ prompts:
   system:
     page-topics: system.page-topics.md.njk
     objects-pi: system.objects-pi.md.njk
+    plan-object-targets-pi: system.plan-object-targets-pi.md.njk
+    resolve-object-cues-pi: system.resolve-object-cues-pi.md.njk
+    write-object-target-pi: system.write-object-target-pi.md.njk
     plan-concepts-pi: system.plan-concepts-pi.md.njk
   system-append:
     default: system.md.njk

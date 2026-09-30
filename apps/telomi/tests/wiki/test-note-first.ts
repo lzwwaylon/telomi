@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { ensureGoalWorkspace } from "../../server/workspaces/goal-project.js";
 import { readObjectFirstPrevious, writeObjectFirstEdition } from "../../server/wiki/object-first-edition.js";
 import { noteWikiEntries } from "../../server/wiki/note-wiki-maintainer.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
 import type { GoalTopicPlan, WikiCompilationRequest } from "../../server/wiki/contracts.js";
+import { hashJson } from "../../server/lib/hash.js";
 import { hashWikiDirectory } from "../../server/wiki/files.js";
 import { NoteFirstWikiCompiler } from "../../server/wiki/note-first-compiler.js";
 import type { NoteFirstInput, NoteFirstOutcome, NoteFirstResult, NoteFirstStageRequest } from "../../server/wiki/note-first-contract.js";
@@ -92,7 +93,7 @@ try {
  const objectsStarted: string[] = [], stages: string[] = [];
  const initialInputs: NoteFirstInput[] = [];
  let active = 0, maximum = 0;
- const compiler = new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+ const compiler = new NoteFirstWikiCompiler({ runStage: async ({ input, workRoot, onAttemptStarted }) => {
   stages.push(input.stage);
   initialInputs.push(input);
   if (input.stage === "objects") {
@@ -102,7 +103,15 @@ try {
    try { if (objectsStarted.length === 1) await holdFirst.promise; else if (objectsStarted.length <= 4) await firstFour.promise; return outcome(input); }
    finally { active--; }
   }
-  if (input.stage === "merge-objects") assert.equal(active, 0, "object merging waits for all Note workers");
+  if (input.stage === "merge-objects") {
+   assert.equal(active, 0, "object merging waits for all Note workers");
+   const planner = join(workRoot, 'plan/attempt'), writer = join(workRoot, 'write/attempt');
+   onAttemptStarted?.(planner); onAttemptStarted?.(writer);
+   const trace = JSON.parse(read(join(initialRequest.controlDirectory, `wiki-trace-${hashJson(input.key).slice(0, 16)}.json`)));
+   assert.deepEqual(trace.sessions.map((row: { path: string }) => resolve(initialRequest.controlDirectory, row.path)),
+    [planner, writer].map(path => join(path, 'runtime/sessions')), 'live merge trace preserves planner and writer sessions');
+   return { ...outcome(input), sessionPaths: [join(planner, 'runtime/sessions'), join(writer, 'runtime/sessions')] };
+  }
   return outcome(input);
  } });
  const initialRequest = request("initial");

@@ -28,6 +28,8 @@ export interface NoteFirstInput {
 }
 export interface NoteFirstConceptJob { pageRefs: string[]; entryIds: string[]; instructions: string }
 export type NoteFirstResult =
+ | { kind: 'object-target-plan'; jobs: Array<{ action: 'update' | 'new' | 'retain'; targetRef: string | null; pageRefs: string[]; reason: string }> }
+ | { kind: 'object-target-pages'; value: ObjectFirstPagesResult; facts: Array<{ sourceRef: string; sourceHeading: string; claim: string; entryIds: string[]; destinationHeading: string }> }
  | { kind: 'pages'; value: ObjectFirstPagesResult; consideredPages: Array<{ pageRef: string; reason: string }> }
  | { kind: 'concept-plan'; jobs: NoteFirstConceptJob[] }
  | { kind: 'relations'; relations: NoteFirstRelation[]; reviewedPages: Array<{ pageRef: string; reason: string }> }

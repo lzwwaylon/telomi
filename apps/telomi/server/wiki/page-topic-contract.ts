@@ -77,8 +77,9 @@ export function createPageTopicTask(input: NoteFirstInput): {
      if (/\[\[(?:entry:[a-f0-9]{24}|N\d+)\]\]|\[\^[^\]]+\]/u.test(reason)) fail(`${matchPath}.reason: use plain prose without internal citation markers`);
      return { topicId: topic.id, reason };
     });
-    if (matches.length && !objectFirstEntries(body(section)).length) fail(`${path}: matched section ${ref} must contain its own evidence citations`);
-    return { sectionRef: section.ref, matches };
+    // Cue markers stay hidden from the classifier; Runtime owns link eligibility.
+    // Uncited sections remain reading context, but cannot become navigation targets.
+    return { sectionRef: section.ref, matches: objectFirstEntries(body(section)).length ? matches : [] };
    });
    const missing = [...sections.keys()].filter(ref => !seen.has(ref));
    if (missing.length) fail(`output.sections: missing sections [${missing.join(', ')}]; return every section exactly once`);

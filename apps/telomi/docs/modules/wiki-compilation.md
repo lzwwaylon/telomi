@@ -20,6 +20,12 @@ Pi object sessions use the fixed Luna model and medium reasoning with only SRT-b
 
 Pi concept planning uses Terra with the same three SRT-bound file tools and medium reasoning. Its user Prompt contains one catalog entry per article, marked assign or context, with local P references, titles, descriptions and read-only Markdown paths. Article headings carry local S references; Cue markers, JSON indexes, durable identities and the Topic Plan remain outside the Agent view. Runtime still validates `result.json` for exact primary-object coverage, valid P references, nonempty instructions and 1 to 8 articles per job, with one repair turn on rejection. Planning does not require full-body reading receipts, and structural acceptance does not establish whether the grouping is semantically sound.
 
+Object merging uses Pi Coding Agent in two phases. A Terra session sees the complete new and existing object catalog, titles, descriptions, index paths and read-only bodies for uncertain identity. It assigns each new draft once to an update of a specified existing target, one new object, or unchanged retention. Existing objects omitted from the plan survive. Context concepts cannot be consumed, and shared provenance or mechanics alone does not imply the same object. The planner may group any number of records for one identity; Runtime executes each group serially with at most four incoming drafts per writer, carrying the accepted target and normalized citations into subsequent turns. Existing target reads have no count cap.
+
+Each Luna target writer reads all assigned source members, inventories source-specific records and their actual H2 destinations in `facts.json`, then writes a complete page or vetoes an unsupported merge. Runtime protects the specified old identity, citation preservation, source-section/Cue inventory, exact member ownership and final title/ID uniqueness. It binds accepted ledger and Markdown bytes to checkpoints. Citation and inventory coverage establish structure, not semantic completeness. There is no additional model review session or automatic review-triggered rewrite loop.
+
+Before planning, unplaced Cues are supplied in full to a Luna resolution session. Current pages are read-only context; it can create supported object drafts for subsequent target planning or record final non-adoption reasons. It cannot consume existing pages or discard evidence owned by historical concepts. Object merging retains strict Cue ownership and publication guards, including when no new pages exist. All merge/resolution sessions have at most three total validation submissions; independent safely inspectable violations are reported together with exact files, aliases and source locations. Repairs use the same session. Accepted child stages are reused on retry, and altered accepted outputs reject recovery.
+
 ## Recovery, identity and publication
 
 Model selection and execution semantics are pinned for recovery. Stage checkpoints bind input, registered prompts, bundled Skills, implementation identity, accepted Markdown and reading receipts. Changed contracts cannot silently reuse a previous acceptance.
@@ -33,6 +39,11 @@ Each Update attempt retains its result separately. Successful result records con
 Confirming a Topic Plan runs only the page Topic classification queue through `reindex`. It copies the frozen Edition and changes README, Topic Plan and Topic index; object/concept bodies, evidence and semantic relations remain unchanged. Any failed page makes navigation incomplete and prevents publication; successful page checkpoints can be reused on retry. Runtime freezes the publication base hash before execution, and reuses a previously staged artifact only when its hash matches.
 
 ## Reading and navigation
+
+Topic classification sees full article prose with Cue markers removed. Runtime filters uncited sections out of final Topic matches, retaining them as article context while preserving all supported section matches. The model cannot infer a hidden citation requirement; an uncited context match does not fail the entire Wiki publication. Unknown references, malformed output and incomplete section classification remain errors.
+
+Page classification still uses one content-bearing completion. A native WebSocket error with no tokens or partial content can reconnect up to three total attempts using the identical request; each response remains in the session and bound artifacts. Other model errors, invalid output and partial/consumed responses remain failed tasks.
+
 
 `model/navigation.ts` is the shared projection for API, graph and search. The existing graph node ID and API path remain path-based; `pageId` carries the canonical page identity. If `.topic-index.json` exists, it is authoritative even when a page has no Topic membership. Editions without it retain their historical frontmatter membership.
 

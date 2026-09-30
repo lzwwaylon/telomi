@@ -19,7 +19,7 @@ export interface NoteFirstWorkspace {
  search(query: string | SearchRequest): string;
  searchIndex: SearchRow[];
  overviews: Record<string, PageOverview>;
- validate(output: unknown, workRoot: string): NoteFirstResult;
+ validate(output: unknown, workRoot: string, options?: { incrementalMerge?: boolean; inputRoot?: 'wiki' | '../input' }): NoteFirstResult;
  receipts(): { pages: string[]; sections: string[]; entries: string[] };
 }
 function fail(message: string): never { throw new Error(`Note-first output: ${message}`); }
@@ -109,7 +109,8 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
  const historicalConceptEntries = new Set(input.pages.filter(row => row.previous && row.page.kind === 'concept').flatMap(row => objectFirstEntries(row.page.body)));
  const allowedCitations = input.stage === 'objects' ? new Set(entryAliases.keys())
   : new Set([...entityEntries, ...unplacedIds]);
- if (input.stage === 'merge-objects' && [...entityEntries, ...unplacedIds].some(id => !input.requiredEntries.includes(id))) fail('merge-objects required Entries must cover object citations and unplaced Entries');
+ if (input.stage === 'merge-objects' && [...input.pages.filter(row => row.role === 'member' && row.page.kind === 'entity')
+  .flatMap(row => objectFirstEntries(row.page.body)), ...unplacedIds].some(id => !input.requiredEntries.includes(id))) fail('merge-objects required Entries must cover object citations and unplaced Entries');
  const aliasBody = (body: string) => body.replace(/\[\[(entry:[a-f0-9]{24})\]\]/gu, (_match, id: string) => `[[${entryAliases.get(id) ?? fail('page references unknown Entry')}]]`);
  const pageSections = (id: string) => [...sections].filter(([, candidate]) => candidate.pageId === id);
  const sectionText = (ref: string) => {
@@ -213,7 +214,7 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
   return result.map(({ alias: _alias, ...row }) => row);
  }
 
- function validate(output: unknown, workRoot: string): NoteFirstResult {
+ function validate(output: unknown, workRoot: string, options: { incrementalMerge?: boolean; inputRoot?: 'wiki' | '../input' } = {}): NoteFirstResult {
   if (input.stage === 'plan-concepts') {
    shape(output, ['jobs'], 'output');
    const allPages: string[] = [];
@@ -291,15 +292,22 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
    if (unread.length) fail(`output.pages + output.deferred_entries: read every unplaced Cue in full before adopting or finally discarding it; unread: ${unread.join(', ')}`);
   }
   const expectedMembers = merging ? [...pages].filter(([, row]) => row.role === 'member').map(([ref]) => ref) : [];
+  const inputPagePath = (ref: string) => `${options.inputRoot ?? '../input'}/pages/${ref}.md`;
+  const violations: string[] = [];
   const consumed: string[] = [];
+  const memberLocations = new Map<string, string[]>();
+  const consume = (ref: string, location: string) => {
+   consumed.push(ref);
+   memberLocations.set(ref, [...(memberLocations.get(ref) ?? []), location]);
+  };
   const cited = new Set<string>();
   const ids = new Set<string>(), titles = new Set<string>(), files = new Set<string>();
   const addIdentity = (candidate: ObjectFirstPage, field: string) => {
    const title = candidate.title.normalize('NFKC').trim().toLocaleLowerCase();
-   if (ids.has(candidate.id) || titles.has(title)) fail(`${field}: duplicate page identity or title ${JSON.stringify(candidate.title)}; expected unique pages`);
+   if (ids.has(candidate.id) || titles.has(title)) violations.push(`${field}: duplicate page identity or title ${JSON.stringify(candidate.title)}; expected unique pages`);
    ids.add(candidate.id); titles.add(title);
    for (const id of objectFirstEntries(candidate.body)) {
-    if (!allowedCitations.has(id)) fail(`${field}: page cites a Cue outside the accepted entity or unplaced Cue scope: ${entryAliases.get(id) ?? id}`);
+    if (!allowedCitations.has(id)) violations.push(`${field}: page cites a Cue outside the accepted entity or unplaced Cue scope: ${entryAliases.get(id) ?? id}`);
     cited.add(id);
    }
   };
@@ -311,11 +319,14 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
    files.add(file);
    const refs = merging ? strings(row.member_refs, `${path}.member_refs`) : [];
    if (merging && !refs.length && input.stage !== 'merge-objects') fail(`${path}.member_refs: merged page requires members; expected at least one P alias`);
-   for (const ref of refs) {
+   for (const [memberIndex, ref] of refs.entries()) {
     if (!expectedMembers.includes(ref)) fail(`${path}.member_refs: unknown or context-only member ${ref}; expected a member from [${expectedMembers.join(', ')}]`);
-    if (!fullRead(ref)) fail(`${path}.member_refs: read every section of ${ref} before rewriting`);
+    if (!fullRead(ref)) violations.push(`${path}.member_refs: read every section of ${ref} before rewriting; input file: ${inputPagePath(ref)}`);
+    consume(ref, `${path}.member_refs[${memberIndex}] (${file})`);
    }
-   consumed.push(...refs);
+   if (options.incrementalMerge && !refs.some(ref => !page(ref).previous)) {
+    violations.push(`${path}.file(${file}).member_refs: [${refs.join(', ')}] is an existing-only rewrite. Remove this rewrite from output.pages to retain these existing pages unchanged; Runtime automatically retains untouched existing members. Do not add an incoming ref merely to satisfy the rule: a member may be consumed only when its content is actually integrated, and only by one destination.`);
+   }
    const { fields, body } = splitFrontmatter(outputMarkdown(workRoot, file, `${path}.file`));
    shape(fields, ['title', 'description'], `${path}.file(${file}).frontmatter`);
    const title = text(fields.title, `${path}.file(${file}).frontmatter.title`), description = text(fields.description, `${path}.file(${file}).frontmatter.description`);
@@ -333,7 +344,11 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
    const previous = refs.map(ref => page(ref)).filter(member => member.previous);
    const id = previous[0]?.page.id ?? `${kind}:${hashJson({ inputVersion, key: input.key, identity: refs.length ? refs.map(ref => page(ref).ref).sort() : file }).slice(0, 24)}`;
    const result = { id, kind, title, description, body: normalized, member_refs: refs.map(ref => page(ref).ref) } satisfies ObjectFirstPagesResult['pages'][number];
-   for (const member of previous) if (objectFirstEntries(member.page.body).some(ref => !objectFirstEntries(normalized).includes(ref))) fail(`${path}.file(${file}).body: previous page citations must survive in its destination; source ${pageAliases.get(member.ref)}`);
+   for (const member of previous) {
+    const missing = objectFirstEntries(member.page.body).filter(ref => !objectFirstEntries(normalized).includes(ref));
+    const source = pageAliases.get(member.ref)!;
+    if (missing.length) violations.push(`${path}.file(${file}).body: previous page citations must survive in its destination; source ${source} (${inputPagePath(source)}); missing: [${missing.map(id => entryAliases.get(id)).join(', ')}]. Restore their supported prose and original citations.`);
+   }
    addIdentity(result, `${path}.file(${file})`);
    return result;
   });
@@ -341,43 +356,61 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
   for (const [index, ref] of retained.entries()) {
    const path = `output.retained_refs[${index}]`;
    if (!expectedMembers.includes(ref)) fail(`${path}: unknown retained member ${ref}; expected a member from [${expectedMembers.join(', ')}]`);
-   consumed.push(ref); addIdentity(page(ref).page, path);
+   consume(ref, path); addIdentity(page(ref).page, path);
   }
   const discarded = rows(merging ? output.discarded_refs : [], 'output.discarded_refs').map((row, index) => {
    const path = `output.discarded_refs[${index}]`;
    shape(row, ['ref', 'reason'], path);
    const ref = text(row.ref, `${path}.ref`);
    if (!expectedMembers.includes(ref) || page(ref).previous) fail(`${path}.ref: cannot discard previous or unknown page ${ref}; expected a new member page`);
-   consumed.push(ref);
+   consume(ref, `${path}.ref`);
    return { ref: page(ref).ref, reason: text(row.reason, `${path}.reason`) };
   });
-  exact(consumed, expectedMembers, 'output.pages[].member_refs + output.retained_refs + output.discarded_refs[].ref');
+  try { exact(consumed, expectedMembers, 'output.pages[].member_refs + output.retained_refs + output.discarded_refs[].ref'); }
+  catch (error) {
+   const duplicates = [...memberLocations].filter(([, locations]) => locations.length > 1)
+    .map(([ref, locations]) => `${ref}: ${locations.join('; ')}`).join('\n');
+   violations.push(`${String(error instanceof Error ? error.message : error).replace(/^Note-first output: /u, '')}${duplicates ? `\nDuplicate member locations:\n${duplicates}\nKeep each consumed member in exactly one destination; correct both the manifest and affected article content.` : ''}`);
+  }
   const deferred = rows(input.stage === 'objects' || input.stage === 'merge-objects' ? output.deferred_entries : [], 'output.deferred_entries').map((row, index) => {
    const path = `output.deferred_entries[${index}]`;
    shape(row, ['entry_ref', 'reason'], path);
    const ref = entry(row.entry_ref, `${path}.entry_ref`).id;
-   if (cited.has(ref)) fail(`${path}.entry_ref: cited Entry cannot also be deferred: ${row.entry_ref}`);
+   if (cited.has(ref)) violations.push(`${path}.entry_ref: cited Entry cannot also be deferred: ${row.entry_ref}. Remove this deferred entry and preserve its supported records and citations in the authored object.`);
    if (input.stage === 'merge-objects') {
     if (!input.requiredEntries.includes(ref)) fail(`${path}.entry_ref: final-discard Entry must be in the object merge scope; received ${row.entry_ref}`);
-    if (historicalConceptEntries.has(ref)) fail(`${path}.entry_ref: cannot discard a Cue cited by a historical concept: ${row.entry_ref}`);
+    if (historicalConceptEntries.has(ref)) {
+     const owners = [...pages].filter(([, row]) => row.previous && row.page.kind === 'concept' && objectFirstEntries(row.page.body).includes(ref))
+      .map(([alias]) => `${alias} (${inputPagePath(alias)})`).join(', ');
+     violations.push(`${path}.entry_ref: cannot discard a Cue cited by a historical concept: ${row.entry_ref}; source pages: ${owners}. Integrate its supported detail into the corresponding object or concrete research work, even when it is not an independent object.`);
+    }
    }
    return { entry_ref: ref, reason: text(row.reason, `${path}.reason`) };
   });
   const deferredIds = new Set(deferred.map(row => row.entry_ref));
-  if (deferredIds.size !== deferred.length) fail(`output.deferred_entries[].entry_ref: duplicate deferred Entry: [${deferred.filter((row, index) => deferred.findIndex(other => other.entry_ref === row.entry_ref) !== index).map(row => entryAliases.get(row.entry_ref)).join(', ')}]`);
+  if (deferredIds.size !== deferred.length) violations.push(`output.deferred_entries[].entry_ref: duplicate deferred Entry: [${deferred.filter((row, index) => deferred.findIndex(other => other.entry_ref === row.entry_ref) !== index).map(row => entryAliases.get(row.entry_ref)).join(', ')}]`);
   const missingEvidence = input.requiredEntries.filter(id => !cited.has(id) && !deferredIds.has(id));
-  if (missingEvidence.length) fail(`output.pages + output.deferred_entries: input Evidence was silently dropped; missing: [${missingEvidence.map(id => entryAliases.get(id)).join(', ')}]. Every required Cue needs a destination or an allowed explicit deferral.`);
+  if (missingEvidence.length) {
+   const sources = missingEvidence.map(id => {
+    const locations = [...pages].filter(([, row]) => objectFirstEntries(row.page.body).includes(id))
+     .map(([ref]) => `${ref} (${inputPagePath(ref)})`).join(', ');
+    const alias = entryAliases.get(id)!;
+    return `${alias}: ${locations || `unplaced Cue ${alias}`}; Cue: ${JSON.stringify(entry(alias).cue)}`;
+   }).join('\n');
+   violations.push(`output.pages + output.deferred_entries: input Evidence was silently dropped; missing: [${missingEvidence.map(id => entryAliases.get(id)).join(', ')}]. Every required Cue needs a destination or an allowed explicit deferral.\nMissing Cue source locations:\n${sources}`);
+  }
   for (const row of discarded) {
    const original = input.pages.find(member => member.ref === row.ref)!;
-   if (objectFirstEntries(original.page.body).some(id => !cited.has(id) && !deferredIds.has(id))) fail(`output.discarded_refs: discarded page Evidence needs a destination or deferral; page ${pageAliases.get(row.ref)}`);
+   if (objectFirstEntries(original.page.body).some(id => !cited.has(id) && !deferredIds.has(id))) violations.push(`output.discarded_refs: discarded page Evidence needs a destination or deferral; page ${pageAliases.get(row.ref)}`);
   }
   const consideredPages = input.stage === 'concepts' ? reasonRows(output.considered_pages, 'output.considered_pages', requiredPages, true) : [];
+  if (violations.length) fail(violations.join('\n'));
   return { kind: 'pages', value: { pages: authored, retained_refs: retained.map(ref => page(ref).ref), discarded_refs: discarded, deferred_entries: deferred, relations: [] }, consideredPages };
  }
  return {
   userContext: context.join('\n\n'), searchIndex, overviews,
-  validate(output, workRoot) {
-   try { return validate(output, workRoot); }
+  validate(output, workRoot, options) {
+   try { return validate(output, workRoot, options); }
    catch (error) {
     const message = error instanceof Error ? error.message.replace(/^Note-first output: /u, '') : String(error);
     return fail(`[stage=${input.stage}] ${message}`);

@@ -65,8 +65,15 @@ for (const malformed of [
   { topic_ref: 'T1', reason: 'Extra field', extra: 1 }, { topic_ref: 'T1' },
  ].map(match => ({ sections: [{ section_ref: 'S1', matches: [match] }, ...valid.sections.slice(1)] })),
  { sections: [{ ...valid.sections[0], matches: [valid.sections[0]!.matches[0], valid.sections[0]!.matches[0]] }, ...valid.sections.slice(1)] },
- { sections: [...valid.sections.slice(0, 2), { section_ref: 'S3', matches: [{ topic_ref: 'T1', reason: 'No local citation' }] }] },
 ]) assert.throws(() => task.validate(malformed), 'malformed or incomplete output must fail');
+
+const contextMatch = { sections: [...valid.sections.slice(0, 2),
+ { section_ref: 'S3', matches: [{ topic_ref: 'T1', reason: 'Related context without a local Cue' }] }] };
+assert.deepEqual(task.validate(contextMatch)[2], { sectionRef: input.sections[2]!.ref, matches: [] },
+ 'Runtime excludes uncited context from navigation without asking the classifier to infer hidden evidence');
+assert.deepEqual(task.validate(contextMatch).slice(0, 2), task.validate(valid).slice(0, 2), 'supported matches remain unchanged');
+assert.throws(() => task.validate({ sections: [...valid.sections.slice(0, 2),
+ { section_ref: 'S3', matches: [{ topic_ref: 'T9', reason: 'Unknown Topic even for context' }] }] }), /unknown/);
 
 for (const invalidInput of [
  { ...input, stage: 'topic' as const }, { ...input, pages: [] }, { ...input, pages: [...input.pages, ...input.pages] },
