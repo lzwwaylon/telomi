@@ -44,6 +44,7 @@ import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
 import { OPERATIONS_PROTOCOL_VERSION, OPERATIONS_SCHEMA_HASH } from "./operations-contract.js";
 import { producesBrowserEvolutionEvidence } from "../evolution/targets.js";
 import { validateDeepSearchDraftFromCorpus } from "../research/deep-search.js";
+import { validateInvestigationAnswerFromInput } from "../research/investigation-answer.js";
 
 export interface OperationsRuntime {
 	readonly mode: OperationsMode;
@@ -97,7 +98,7 @@ export function createOperationsRuntime(options: {
 			wikiCompilationReplayRecipe,
 			wikiCuratorReplayRecipe,
 			evolutionReplayRecipe,
-			...createRecordedStageReplayRecipes(validateDeepSearchDraftFromCorpus),
+			...createRecordedStageReplayRecipes(validateDeepSearchDraftFromCorpus, validateInvestigationAnswerFromInput),
 		],
 	});
 

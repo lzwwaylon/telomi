@@ -18,6 +18,9 @@ import { createInvestigationCitationScope, type InvestigationCitationCue } from 
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { runPrime, startPrimeSourceBridge } from "../research/pipeline/prime-search-batch.js";
 import { ResearchSourceRegistry } from "../research/sources/registry.js";
+import { resolveOutputLanguage } from "../../shared/languages.js";
+import { executeInvestigationAnswer, writeInvestigationAnswerInput,
+	type InvestigationAnswer, type InvestigationAnswerEvidence } from "../research/investigation-answer.js";
 
 export const INVESTIGATION_RECIPE = { id: "prime-investigation", version: 1 } as const;
 
@@ -26,6 +29,8 @@ interface InvestigationCaptureInput {
 	goalId: string;
 	runDir: string;
 	question: string;
+	context?: string;
+	language?: string;
 	allowExternal?: boolean;
 	wikiSha256: string;
 	model: string;
@@ -52,6 +57,8 @@ export async function withInvestigationNodeCapture(input: InvestigationCaptureIn
 			schema_version: 1,
 			goal_id: input.goalId,
 			question: input.question,
+			context: input.context ?? "",
+			language: input.language ?? resolveOutputLanguage("auto", input.question),
 			allow_external: input.allowExternal !== false,
 			wiki_sha256: input.wikiSha256,
 			model: input.model,
@@ -161,10 +168,10 @@ function readInvestigationInteractions(runDir: string): NodeEvaluationInteractio
 	if (!existsSync(path)) return [];
 	return readFileSync(path, "utf-8").split("\n").filter(Boolean).map((line): NodeEvaluationInteraction => {
 		const row = JSON.parse(line) as { operation: string; request: unknown; response: unknown };
-		if (row.operation !== "knowledge_search" && row.operation !== "deep_search" && row.operation !== "github_read") {
+		if (row.operation !== "knowledge_search" && row.operation !== "deep_search" && row.operation !== "github_read" && row.operation !== "external_search" && row.operation !== "write_answer") {
 			throw new Error("Unknown Prime investigation interaction");
 		}
-		return { kind: "tool", name: row.operation, label: row.operation, description: "Frozen local investigation result",
+		return { kind: "tool", name: row.operation, label: row.operation, description: "Frozen investigation Tool result",
 			arguments: row.request, result: row.response };
 	});
 }
@@ -178,6 +185,8 @@ interface FrozenInvestigationRequest {
 	schema_version: 1;
 	goal_id: string;
 	question: string;
+	context?: string;
+	language?: string;
 	allow_external?: boolean;
 	wiki_sha256: string;
 	model: string;
@@ -201,53 +210,42 @@ export function createInvestigationReplayRecipe(options: {
 
 export const investigationReplayRecipe = createInvestigationReplayRecipe();
 
-async function executeProductionInvestigationReplay(
-	input: Parameters<NodeReplayRecipe["replay"]>[0],
-): ReturnType<NodeReplayRecipe["replay"]> {
-	if (input.promptOverride?.systemPrompt) throw new Error("Prime Investigation replay does not accept systemPrompt override");
-	const caseDir = dirname(input.casePath);
-	const captured = JSON.parse(readFileSync(join(caseDir, "input", "request.json"), "utf-8")) as FrozenInvestigationRequest;
-	const historicalPrompt = readNodeEvaluationFile(input.casePath, input.value.request.userPrompt);
-	if (captured.schema_version !== 1 || !captured.question || !captured.goal_id
-		|| !/^[a-f0-9]{64}$/u.test(captured.wiki_sha256)
-		|| !/^[a-f0-9]{64}$/u.test(captured.prompt_sha256)
-		|| sha256(historicalPrompt) !== captured.prompt_sha256) {
-		throw new Error("Prime Investigation Case request is invalid");
-	}
-	const interactions = input.value.request.interactions
-		? JSON.parse(readNodeEvaluationFile(input.casePath, input.value.request.interactions)) as NodeEvaluationInteraction[]
-		: [];
-	const frozen = interactions.filter((item): item is Extract<NodeEvaluationInteraction, { kind: "tool" }> => item.kind === "tool"
-		&& (item.name === "knowledge_search" || item.name === "deep_search" || item.name === "github_read"));
-	const prompt = input.promptOverride?.userPrompt ?? historicalPrompt;
-	const env = pinTaskModelSelection(["primeRoot"], {
-		...process.env, TELOMI_PRIME_AGENT_ROOT_MODEL: captured.model,
-	});
-	const root = join(input.recordDirectory, "workspace");
-	const sdkRoot = join(input.recordDirectory, "sdk");
-	const skillRoot = join(root, "skills", "root-agent");
-	mkdirSync(join(root, "work"), { recursive: true });
-	mkdirSync(sdkRoot, { recursive: true });
-	cpSync(join(caseDir, "input"), join(input.recordDirectory, "input"), { recursive: true });
-	const capturedCitations = input.value.observed.output?.directory
-		? join(caseDir, input.value.observed.output.ref, "citations.json") : "";
-	if (capturedCitations && existsSync(capturedCitations)) {
-		copyFileSync(capturedCitations, join(input.recordDirectory, "citations.json"));
-	}
-	writeFileSync(join(input.recordDirectory, "prompt.md"), prompt);
-	cpSync(fileURLToPath(new URL("../research/python-tools/research_runtime.py", import.meta.url)),
-		join(sdkRoot, "research_runtime.py"));
-	const skillSource = fileURLToPath(new URL("../../agents/research/prime-search/skills/deep-search", import.meta.url));
-	const skills = [...materializeSkills(snapshotSkills([skillSource]), skillRoot).values()];
-	const signal = input.signal;
+/** Frozen Tool replay never contacts Providers; newly acquired evidence comes from the observed response. */
+export function createFrozenInvestigationTools(
+	frozen: readonly Extract<NodeEvaluationInteraction, { kind: "tool" }>[],
+	allowExternal: boolean,
+	recordInteraction: (operation: string, request: unknown, response: unknown) => void,
+) {
 	let unmatchedInteraction: Error | undefined;
 	let nextInteraction = 0;
 	const citationsScope = createInvestigationCitationScope();
-	const replayCall = (name: "knowledge_search" | "deep_search" | "github_read", request: unknown): unknown => {
+	const evidence = new Map<string, InvestigationAnswerEvidence>();
+	const replayCall = (name: "knowledge_search" | "deep_search" | "github_read" | "external_search" | "write_answer", request: unknown): unknown => {
+		if ((name === "external_search" || name === "github_read") && !allowExternal) {
+			unmatchedInteraction = new Error("This Case disallows external sources");
+			throw unmatchedInteraction;
+		}
 		const observed = frozen[nextInteraction];
 		if (!observed || observed.name !== name) {
 			unmatchedInteraction = new Error(`No frozen Tool interaction matches '${name}' at step ${nextInteraction + 1}`);
 			throw unmatchedInteraction;
+		}
+		if (name === "write_answer") {
+			const args = request as { evidence_refs: string[]; requirements: string[] };
+			const expected = observed.arguments as { evidence_refs: string[]; requirements: string[] };
+			if (JSON.stringify(args.evidence_refs.map((ref) => citationsScope.resolve(ref)).sort())
+				!== JSON.stringify([...expected.evidence_refs].sort()) || JSON.stringify(args.requirements) !== JSON.stringify(expected.requirements)) {
+				unmatchedInteraction = new Error("Frozen Writer answer belongs to different evidence or requirements");
+				throw unmatchedInteraction;
+			}
+			nextInteraction++;
+			const answer = observed.result as InvestigationAnswer;
+			const projected = { ...answer,
+				answer: answer.answer.replace(/<cite>([^<>\s]+)<\/cite>/gu, (_tag, ref: string) => `<cite>${citationsScope.project(ref)}</cite>`),
+				citation_refs: answer.citation_refs.map((ref) => citationsScope.project(ref)),
+				coverage: answer.coverage.map((row) => ({ ...row, citation_refs: row.citation_refs.map((ref) => citationsScope.project(ref)) })) };
+			recordInteraction(name, observed.arguments, answer);
+			return projected;
 		}
 		if (name === "github_read") {
 			const identity = (value: unknown): string => {
@@ -269,17 +267,83 @@ async function executeProductionInvestigationReplay(
 			reading?: { cues?: InvestigationCitationCue[] };
 			sources?: Array<{ title: string; url: string }>;
 		};
-		appendFileSync(join(input.recordDirectory, "interactions.jsonl"), `${JSON.stringify({ operation: name, request, response })}\n`);
+		recordInteraction(name, request, response);
 		for (const page of response.pages ?? []) for (const evidence of page.evidence ?? []) {
 			if (evidence.cite_ref) citationsScope.allowWikiRef(evidence.cite_ref);
+		}
+		const cueBodies = response.cues ?? response.reading?.cues ?? [];
+		for (const cue of cueBodies) {
+			const projected = citationsScope.projectCues([cue])[0]!;
+			evidence.set(projected.ref, { ref: projected.ref, section_title: cue.section_title, cue: cue.cue, note: cue.note,
+				evidence: projected.evidence.filter((anchor): anchor is typeof anchor & { excerpt: string } => typeof anchor.excerpt === "string") });
+		}
+		for (const page of response.pages ?? []) for (const raw of page.evidence ?? []) {
+			const item = raw as { cite_ref?: string; cue?: string; note?: string };
+			if (item.cite_ref && item.cue && item.note) evidence.set(item.cite_ref, {
+				ref: item.cite_ref, section_title: "Saved Wiki", cue: item.cue, note: item.note, evidence: [],
+			});
 		}
 		const projected = response.cues ? { ...response, cues: citationsScope.projectCues(response.cues) }
 			: response.reading?.cues ? { ...response,
 				reading: { ...response.reading, cues: citationsScope.projectCues(response.reading.cues) } } : response;
-		return name === "github_read" && response.sources
+		return (name === "github_read" || name === "external_search") && response.sources
 			? { ...projected, sources: response.sources.map(({ title, url }) => ({ title, url })) }
 			: projected;
 	};
+	return { replayCall, citationsScope, evidence,
+		hasFrozenWriter: () => frozen[nextInteraction]?.name === "write_answer",
+		assertMatched() {
+			if (unmatchedInteraction) throw unmatchedInteraction;
+			if (nextInteraction !== frozen.length) throw new Error("Prime left frozen Tool interactions unused");
+		} };
+}
+
+async function executeProductionInvestigationReplay(
+	input: Parameters<NodeReplayRecipe["replay"]>[0],
+): ReturnType<NodeReplayRecipe["replay"]> {
+	if (input.promptOverride?.systemPrompt) throw new Error("Prime Investigation replay does not accept systemPrompt override");
+	const caseDir = dirname(input.casePath);
+	const captured = JSON.parse(readFileSync(join(caseDir, "input", "request.json"), "utf-8")) as FrozenInvestigationRequest;
+	const historicalPrompt = readNodeEvaluationFile(input.casePath, input.value.request.userPrompt);
+	if (captured.schema_version !== 1 || !captured.question || !captured.goal_id
+		|| !/^[a-f0-9]{64}$/u.test(captured.wiki_sha256)
+		|| !/^[a-f0-9]{64}$/u.test(captured.prompt_sha256)
+		|| sha256(historicalPrompt) !== captured.prompt_sha256) {
+		throw new Error("Prime Investigation Case request is invalid");
+	}
+	const interactions = input.value.request.interactions
+		? JSON.parse(readNodeEvaluationFile(input.casePath, input.value.request.interactions)) as NodeEvaluationInteraction[]
+		: [];
+	const frozen = interactions.filter((item): item is Extract<NodeEvaluationInteraction, { kind: "tool" }> => item.kind === "tool"
+		&& (item.name === "knowledge_search" || item.name === "deep_search" || item.name === "github_read" || item.name === "external_search" || item.name === "write_answer"));
+	const prompt = input.promptOverride?.userPrompt ?? historicalPrompt;
+	const env = pinTaskModelSelection(["primeRoot"], {
+		...process.env, TELOMI_PRIME_AGENT_ROOT_MODEL: captured.model,
+	});
+	const root = join(input.recordDirectory, "workspace");
+	const sdkRoot = join(input.recordDirectory, "sdk");
+	const skillRoot = join(root, "skills", "root-agent");
+	mkdirSync(join(root, "work"), { recursive: true });
+	mkdirSync(sdkRoot, { recursive: true });
+	cpSync(join(caseDir, "input"), join(input.recordDirectory, "input"), { recursive: true });
+	const capturedCitations = input.value.observed.output?.directory
+		? join(caseDir, input.value.observed.output.ref, "citations.json") : "";
+	if (capturedCitations && existsSync(capturedCitations)) {
+		copyFileSync(capturedCitations, join(input.recordDirectory, "citations.json"));
+	}
+	writeFileSync(join(input.recordDirectory, "prompt.md"), prompt);
+	cpSync(fileURLToPath(new URL("../research/python-tools/research_runtime.py", import.meta.url)),
+		join(sdkRoot, "research_runtime.py"));
+	const skillSource = fileURLToPath(new URL("../../agents/research/prime-search/skills/deep-search", import.meta.url));
+	const skills = [...materializeSkills(snapshotSkills([skillSource]), skillRoot).values()];
+	const signal = input.signal;
+	const { replayCall, citationsScope, evidence, hasFrozenWriter, assertMatched } = createFrozenInvestigationTools(
+		frozen, captured.allow_external !== false, (operation, request, response) => {
+			appendFileSync(join(input.recordDirectory, "interactions.jsonl"), `${JSON.stringify({ operation, request, response })}\n`);
+		},
+	);
+	let writerCount = 0;
+	const writerState: { lastAnswer?: InvestigationAnswer } = {};
 	const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Set(), {
 		workspaceDirectory: root,
 		temporalContext: { schemaVersion: 1, currentDate: "1970-01-01", timeZone: "UTC" },
@@ -288,9 +352,36 @@ async function executeProductionInvestigationReplay(
 		investigation: {
 			knowledgeSearch: async (query, limit) => replayCall("knowledge_search", { query, limit }),
 			deepSearch: async (question) => replayCall("deep_search", { question }),
+			externalSearch: async (question) => replayCall("external_search", { question }),
 			githubRead: async (question, repository, ref, paths) => {
-				if (captured.allow_external === false) throw new Error("This Case disallows external sources");
 				return replayCall("github_read", { question, repository, ref, paths });
+			},
+			writeAnswer: async (refs, requirements) => {
+				if (hasFrozenWriter()) {
+					writerState.lastAnswer = replayCall("write_answer", { evidence_refs: refs, requirements }) as InvestigationAnswer;
+					return writerState.lastAnswer;
+				}
+				const assigned = refs.map((ref) => {
+					const item = evidence.get(ref);
+					if (!item) throw new Error(`No frozen answer evidence '${ref}'`);
+					return item;
+				});
+				const writerDirectory = join(input.recordDirectory, `answer-${++writerCount}`);
+				const inputRoot = join(writerDirectory, "input");
+				// Older Root Cases captured excerpts, not full Sources. Preserve that scope instead of reading a live Goal.
+				writeInvestigationAnswerInput({ inputRoot, evidence: assigned,
+					request: { schema_version: 1, question: captured.question, context: captured.context ?? "",
+						language: captured.language ?? resolveOutputLanguage("auto", captured.question), evidence_refs: refs,
+						requirements: requirements.map((part, index) => ({ id: `Q${index + 1}`, question: part })) } });
+				writerState.lastAnswer = await executeInvestigationAnswer({ inputRoot, recordDirectory: input.recordDirectory,
+					goalDir: input.harnessWorkspaceDirectory, invocationId: `frozen-answer-${writerCount}`, env, signal,
+					modelPolicy: { preferred: [captured.model], reasoning: captured.thinking } });
+				const restored = citationsScope.restore(writerState.lastAnswer);
+				appendFileSync(join(input.recordDirectory, "interactions.jsonl"), `${JSON.stringify({ operation: "write_answer",
+					request: { evidence_refs: refs.map((ref) => citationsScope.resolve(ref)), requirements },
+					response: { ...restored, coverage: writerState.lastAnswer.coverage.map((row) => ({ ...row,
+						citation_refs: row.citation_refs.map((ref) => citationsScope.resolve(ref)) })) } })}\n`);
+				return writerState.lastAnswer;
 			},
 		},
 	});
@@ -302,6 +393,7 @@ async function executeProductionInvestigationReplay(
 			goalId: captured.goal_id,
 			runDir: input.recordDirectory,
 			question: captured.question,
+			context: captured.context, language: captured.language,
 			allowExternal: captured.allow_external,
 			wikiSha256: captured.wiki_sha256,
 			model: captured.model,
@@ -327,7 +419,8 @@ async function executeProductionInvestigationReplay(
 				});
 				metrics.usage = run.usage;
 				metrics.toolCalls = run.toolCalls;
-				if (unmatchedInteraction) throw unmatchedInteraction;
+				if (run.rootError) throw new Error(run.rootError);
+				assertMatched();
 				const output = join(root, "work", "result.json");
 				const stat = lstatSync(output, { throwIfNoEntry: false });
 				if (!stat || !stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 128_000) {
@@ -337,6 +430,11 @@ async function executeProductionInvestigationReplay(
 				const authored = validateInvestigationResult({ ...draft, id: basename(input.workDirectory),
 					question: captured.question, wiki_sha256: captured.wiki_sha256 },
 					basename(input.workDirectory), captured.question);
+				if (!writerState.lastAnswer || authored.answer !== writerState.lastAnswer.answer
+					|| JSON.stringify(authored.citation_refs) !== JSON.stringify(writerState.lastAnswer.citation_refs)
+					|| JSON.stringify(authored.gaps) !== JSON.stringify(writerState.lastAnswer.gaps)) {
+					throw new Error("Prime must deliver the delegated Writer's answer without rewriting it");
+				}
 				return validateInvestigationResult(citationsScope.restore(authored),
 					basename(input.workDirectory), captured.question);
 			},

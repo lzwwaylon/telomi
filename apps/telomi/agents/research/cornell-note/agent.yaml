@@ -4,6 +4,8 @@ prompts:
   system-append:
     default: system.md.njk
     deep-search: system.deep-search.md.njk
+  reference:
+    evidence-reading-quality: reference.evidence-reading-quality.md.njk
   user:
     default: user.md.njk
     prime-execution: user.prime-execution.md.njk

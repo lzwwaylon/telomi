@@ -15,7 +15,7 @@ import { sha256 } from "../lib/hash.js";
 import { isRecord } from "../lib/values.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
 import { caseCapture } from "../observability/case-capture.js";
-import { resolveWikiEdition } from "../wiki/editions.js";
+import { listWikiEditions } from "../wiki/editions.js";
 import { hashWikiDirectory } from "../wiki/files.js";
 import { createGoalLlmWikiTools } from "../wiki/tools.js";
 import { createWikiReferenceAdapterFromRoot } from "./pipeline/wiki-report-references.js";
@@ -25,8 +25,10 @@ import { executeDeepSearch, listSavedDeepSearchCues } from "./deep-search.js";
 import { listSavedCornellCues, rankSavedCues } from "./saved-cornell-cues.js";
 import { resolveSavedCornellCue } from "./saved-cornell-cues.js";
 import { resolveDeepSearchCue } from "./deep-search.js";
-import { readExternalGithub } from "./external-github.js";
-import { createInvestigationCitationScope } from "./investigation-citations.js";
+import { readExternalSources } from "./external-search.js";
+import { createInvestigationCitationScope, type InvestigationCitationCue } from "./investigation-citations.js";
+import { executeInvestigationAnswer, writeInvestigationAnswerInput, type InvestigationAnswer,
+	type InvestigationAnswerEvidence } from "./investigation-answer.js";
 
 export interface InvestigationResult {
 	id: string;
@@ -44,6 +46,17 @@ export function readInvestigationResult(goalDir: string, id: string): Investigat
 	const request = JSON.parse(readFileSync(join(runDir, "request.json"), "utf8")) as { id?: string; question?: string };
 	if (request.id !== id || typeof request.question !== "string") throw new Error("Investigation request is invalid");
 	return validateInvestigationResult(JSON.parse(readFileSync(join(runDir, "result.json"), "utf8")), id, request.question);
+}
+
+/** Pin existing Goal knowledge, including the empty state before its first Wiki publication. */
+export function snapshotInvestigationKnowledge(goalDir: string, goalId: string, knowledgeRoot: string): string {
+	if (!existsSync(knowledgeRoot)) {
+		const edition = listWikiEditions(dirname(goalDir), goalId)[0];
+		mkdirSync(dirname(knowledgeRoot), { recursive: true });
+		if (edition) cpSync(edition.root, knowledgeRoot, { recursive: true });
+		else mkdirSync(knowledgeRoot, { recursive: true });
+	}
+	return hashWikiDirectory(knowledgeRoot);
 }
 
 /** Main's local question returns only after Prime's answer and every new Cue are durable. */
@@ -69,7 +82,7 @@ export async function executeInvestigation(input: {
 	const id = sha256(`${input.goalId}\0${input.invocationId}`).slice(0, 24);
 	const runDir = join(serverRuntimeDirForGoalDir(input.goalDir), "research", "investigations", id);
 	mkdirSync(runDir, { recursive: true });
-	const allowExternal = input.allowExternal !== false;
+	const allowExternal = input.allowExternal === true;
 	const request = { goalId: input.goalId, id, question, context, language, allowExternal };
 	const requestPath = join(runDir, "request.json");
 	if (existsSync(requestPath)) {
@@ -80,14 +93,8 @@ export async function executeInvestigation(input: {
 	const savedPath = join(runDir, "result.json");
 	if (existsSync(savedPath)) return readInvestigationResult(input.goalDir, id);
 
-	const workspaceDir = dirname(input.goalDir);
-	const edition = resolveWikiEdition(workspaceDir, input.goalId);
 	const knowledgeRoot = join(runDir, "input", "wiki");
-	if (!existsSync(knowledgeRoot)) {
-		mkdirSync(dirname(knowledgeRoot), { recursive: true });
-		cpSync(edition.root, knowledgeRoot, { recursive: true });
-	}
-	const wikiSha256 = hashWikiDirectory(knowledgeRoot);
+	const wikiSha256 = snapshotInvestigationKnowledge(input.goalDir, input.goalId, knowledgeRoot);
 	const catalog = [
 		...listSavedCornellCues(knowledgeRoot),
 		...listSavedDeepSearchCues(input.goalDir).map((cue) => ({ ...cue, kind: "deep_search" as const })),
@@ -103,7 +110,15 @@ export async function executeInvestigation(input: {
 	const readTool = wikiAdapter.tools.find((tool) => tool.name === "wiki_read_page")!;
 	const citationsScope = createInvestigationCitationScope();
 	let deepSearchCount = 0;
-	let githubReadCount = 0;
+	let externalSearchCount = 0;
+	let answerCount = 0;
+	const writerState: { lastAnswer?: InvestigationAnswer } = {};
+	const availableCues = new Map<string, InvestigationCitationCue>();
+	const projectCues = (cues: readonly InvestigationCitationCue[]) => {
+		const projected = citationsScope.projectCues(cues);
+		for (const [index, cue] of cues.entries()) availableCues.set(projected[index]!.ref, cue);
+		return projected;
+	};
 	let firstKnowledgeSearch: { key: string; result: unknown; recorded: unknown } | undefined;
 	const recordInteraction = (operation: string, request: unknown, response: unknown) => {
 		appendFileSync(join(runDir, "interactions.jsonl"), `${JSON.stringify({ operation, request, response })}\n`);
@@ -152,14 +167,14 @@ export async function executeInvestigation(input: {
 						return { cite_ref, cue, note };
 						}) };
 				});
-				const cues = rankSavedCues(catalog, query, limit);
+				const cues = enrichInvestigationCues(input.goalDir, rankSavedCues(catalog, query, limit));
 				const topicIds = [...new Set(cues.flatMap((cue) => "topic_refs" in cue ? cue.topic_refs : []))];
 				const topicLeads = topicIds.slice(0, 4).flatMap((id) => {
 				const topic = topicPlan.topics?.find((item) => item.id === id);
 				return topic ? [{ id, title: topic.title, intent: topic.intent ?? "" }] : [];
 				});
 				const result = { wiki: { ...wiki, results: (wiki.results ?? []).slice(0, limit) },
-					pages: projectedPages, cues: citationsScope.projectCues(cues), topic_leads: topicLeads };
+					pages: projectedPages, cues: projectCues(cues), topic_leads: topicLeads };
 				const recorded = { ...result, cues };
 				firstKnowledgeSearch = { key, result, recorded };
 				recordInteraction("knowledge_search", { query, limit }, recorded);
@@ -167,22 +182,64 @@ export async function executeInvestigation(input: {
 			},
 			deepSearch: async (deepQuestion) => {
 				signal.throwIfAborted();
-				const note = await executeDeepSearch({ goalDir: input.goalDir, goalId: input.goalId,
-					question: deepQuestion, invocationId: `${id}-${++deepSearchCount}`, signal });
+				const reading = await executeDeepSearch({ goalDir: input.goalDir, goalId: input.goalId,
+					question: deepQuestion, invocationId: `${id}-${++deepSearchCount}`, signal, env });
+				const note = { ...reading, cues: enrichInvestigationCues(input.goalDir, reading.cues) };
 				recordInteraction("deep_search", { question: deepQuestion }, note);
-				return { ...note, cues: citationsScope.projectCues(note.cues) };
+				return { ...note, cues: projectCues(note.cues) };
 			},
-			githubRead: async (externalQuestion, repository, ref, paths) => {
+			externalSearch: async (externalQuestion) => {
 				signal.throwIfAborted();
 				if (!allowExternal) throw new Error("This user question is limited to saved Goal materials");
-				if (deepSearchCount === 0) throw new Error("Search saved original materials before acquiring GitHub files");
-				if (githubReadCount >= 2) throw new Error("This investigation has reached its external reading limit");
-				const result = await readExternalGithub({ goalDir: input.goalDir, goalId: input.goalId,
-					runDir, investigationId: id, sequence: ++githubReadCount,
-					question: externalQuestion, repository, ref, paths, signal, env });
-				recordInteraction("github_read", { question: externalQuestion, repository, ref, paths }, result);
-				return { ...result, cues: citationsScope.projectCues(result.cues),
+				if (deepSearchCount === 0) throw new Error("Search saved original materials before acquiring external evidence");
+				const acquired = await readExternalSources({ goalDir: input.goalDir, goalId: input.goalId,
+					runDir, investigationId: id, sequence: ++externalSearchCount,
+					question: externalQuestion, originalQuestion: question, signal, env, onActivity: input.onActivity });
+				const result = { ...acquired, cues: enrichInvestigationCues(input.goalDir, acquired.cues) };
+				recordInteraction("external_search", { question: externalQuestion }, result);
+				return { ...result, cues: projectCues(result.cues),
 					sources: result.sources.map(({ title, url }) => ({ title, url })) };
+			},
+			writeAnswer: async (refs, requirements) => {
+				signal.throwIfAborted();
+				const evidence: InvestigationAnswerEvidence[] = [];
+				for (const ref of refs) {
+					const durable = citationsScope.resolve(ref);
+					if (durable === ref && /^C[1-9][0-9]*$/u.test(ref)) {
+						await wikiAdapter.hydrateCitationRefs([ref], signal);
+						const citation = wikiAdapter.resolveCitationRef(ref);
+						const saved = catalog.find((cue) => cue.ref.startsWith("cornell:")
+							&& cue.ref.split(":")[2] === citation.entry.id.replace(/^entry:/u, ""));
+						const original = saved ? resolveSavedCornellCue(input.goalDir, saved.ref) : undefined;
+						evidence.push({ ref, section_title: citation.entry.section, cue: citation.entry.cue, note: citation.entry.note,
+							evidence: original ? original.evidence.map((anchor) => ({ ...anchor,
+								title: original.source_title, url: original.canonical_locator }))
+								: citation.entry.anchors.map((anchor) => ({ source_path: anchor.path,
+									start_line: anchor.startLine, end_line: anchor.endLine, excerpt: anchor.content,
+									title: citation.entry.source.title, url: citation.entry.source.url })) });
+					} else {
+						const cue = availableCues.get(ref);
+						const resolved = durable.startsWith("deep-search:")
+							? resolveDeepSearchCue(input.goalDir, durable) : resolveSavedCornellCue(input.goalDir, durable);
+						if (!cue || !resolved) throw new Error(`Answer received unread Cue '${ref}'`);
+						evidence.push({ ref, section_title: cue.section_title, cue: cue.cue, note: cue.note,
+							evidence: resolved.evidence.map((anchor) => ({ ...anchor,
+								title: "title" in anchor && typeof anchor.title === "string" ? anchor.title : cue.source_title,
+								url: "url" in anchor && typeof anchor.url === "string" ? anchor.url : cue.canonical_locator })) });
+					}
+				}
+				const writerDir = join(runDir, `answer-${++answerCount}`);
+				const inputRoot = join(writerDir, "input");
+				writeInvestigationAnswerInput({ inputRoot, goalDir: input.goalDir, evidence,
+					request: { schema_version: 1, question, context, language,
+						requirements: requirements.map((part, index) => ({ id: `Q${index + 1}`, question: part })), evidence_refs: refs } });
+				writerState.lastAnswer = await executeInvestigationAnswer({ inputRoot, goalDir: input.goalDir,
+					recordDirectory: runDir, invocationId: `${id}-answer-${answerCount}`, env, signal, onActivity: input.onActivity });
+				const recorded = citationsScope.restore(writerState.lastAnswer);
+				recordInteraction("write_answer", { evidence_refs: refs.map((ref) => citationsScope.resolve(ref)), requirements },
+					{ ...recorded, coverage: writerState.lastAnswer.coverage.map((row) => ({ ...row,
+						citation_refs: row.citation_refs.map((ref) => citationsScope.resolve(ref)) })) });
+				return writerState.lastAnswer;
 			},
 		},
 	});
@@ -208,6 +265,7 @@ export async function executeInvestigation(input: {
 		});
 		captureMetrics.usage = run.usage;
 		captureMetrics.toolCalls = run.toolCalls;
+		if (run.rootError) throw new Error(run.rootError);
 		signal.throwIfAborted();
 		const outputPath = join(root, "work", "result.json");
 		const stat = lstatSync(outputPath, { throwIfNoEntry: false });
@@ -216,6 +274,10 @@ export async function executeInvestigation(input: {
 		}
 		const value = JSON.parse(readFileSync(outputPath, "utf8"));
 		const draft = validateInvestigationResult({ ...value, id, question, wiki_sha256: wikiSha256 }, id, question);
+		if (!writerState.lastAnswer || JSON.stringify({ answer: draft.answer, citation_refs: draft.citation_refs, gaps: draft.gaps })
+			!== JSON.stringify({ answer: writerState.lastAnswer.answer, citation_refs: writerState.lastAnswer.citation_refs, gaps: writerState.lastAnswer.gaps })) {
+			throw new Error("Prime must deliver the delegated Writer's answer without rewriting it");
+		}
 		const result = validateInvestigationResult(citationsScope.restore(draft), id, question);
 		const wikiRefs = result.citation_refs.filter((ref) => /^C[1-9][0-9]*$/u.test(ref));
 		if (wikiRefs.length) await wikiAdapter.hydrateCitationRefs(wikiRefs, signal);
@@ -233,10 +295,20 @@ export async function executeInvestigation(input: {
 		};
 		const capture = caseCapture()?.investigation;
 		return capture ? await capture({ goalDir: input.goalDir, goalId: input.goalId, runDir,
-			question, allowExternal, wikiSha256, model: model.selector, thinking, metrics: captureMetrics, execute }) : await execute();
+			question, context, language, allowExternal, wikiSha256, model: model.selector, thinking, metrics: captureMetrics, execute }) : await execute();
 	} finally {
 		await bridge.close();
 	}
+}
+
+/** Resolve only the Cues returned to Prime, preserving durable fields for Capture before short-ref projection. */
+export function enrichInvestigationCues<T extends InvestigationCitationCue>(goalDir: string, cues: readonly T[]): T[] {
+	return cues.map((cue) => {
+		if (!cue.ref.startsWith("deep-search:")) return cue;
+		const resolved = resolveDeepSearchCue(goalDir, cue.ref);
+		if (!resolved) throw new Error(`Prime read unavailable Cue '${cue.ref}'`);
+		return { ...cue, evidence: resolved.evidence.map((evidence, index) => ({ ...cue.evidence[index], ...evidence })) };
+	});
 }
 
 export function validateInvestigationResult(value: unknown, id: string, question: string): InvestigationResult {

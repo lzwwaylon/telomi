@@ -197,8 +197,35 @@ def deep_search(question: str) -> dict[str, Any]:
     })
 
 
+def external_search(question: str) -> dict[str, Any]:
+    """Acquire a missing evidence need through ordinary Prime Provider search, then return verified Cornell Cues."""
+    if execution_id() != "root":
+        raise ValueError("external_search is available only to the Search Root")
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("question is required")
+    return _post("/v1/external-search", {"agent_session_id": "root", "question": question.strip()})
+
+
+def write_answer(evidence_refs: list[str], requirements: list[str]) -> dict[str, Any]:
+    """Delegate answer synthesis over assigned evidence to the Report Writer."""
+    if execution_id() != "root":
+        raise ValueError("write_answer is available only to the Search Root")
+    for values, name, maximum, allow_empty in [
+        (evidence_refs, "evidence_refs", 256, True),
+        (requirements, "requirements", 50, False),
+    ]:
+        if (not isinstance(values, list) or len(values) > maximum
+                or (not allow_empty and not values)
+                or any(not isinstance(value, str) or not value.strip() or len(value) > 20_000 for value in values)
+                or len(set(values)) != len(values)):
+            raise ValueError(f"Invalid {name}")
+    return _post("/v1/write-answer", {
+        "agent_session_id": "root", "evidence_refs": evidence_refs, "requirements": requirements,
+    })
+
+
 def github_read(question: str, repository: str, ref: str, paths: list[str]) -> dict[str, Any]:
-    """Pin official repository files through GitHub Provider and have Cornell verify the question against them."""
+    """Historical frozen Replay compatibility; production investigations use external_search."""
     if execution_id() != "root":
         raise ValueError("github_read is available only to the Search Root")
     if not isinstance(question, str) or not question.strip():

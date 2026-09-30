@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isFilePathTarget, preprocessLinks } from "../../web/src/shared/markdown/markdown-linkify.js";
+import { isExplicitWorkspaceFileTarget, isFilePathTarget, preprocessLinks } from "../../web/src/shared/markdown/markdown-linkify.js";
 import { resolveMarkdownLinkTarget, resolveWorkspaceFileTarget } from "../../web/src/shared/markdown/markdown-link-target.js";
 
 for (const target of ["/work/foo.md", "foo.md", "./notes.md", "../note.md", "/reports/run-1/final.md", "目录/研究 笔记.md#结论", "./%E7%AC%94%E8%AE%B0%20one.md#L12", "./main.ts:12:3"]) {
@@ -43,18 +43,36 @@ assert.equal(resolveWorkspaceFileTarget("/artifacts/main/notes.md")?.path, "/art
 
 assert.deepEqual(resolveWorkspaceFileTarget("file:///work/main.ts:12"), { path: "/work/main.ts", line: 12 });
 
+for (const target of ["/work/notes.md", "/reports/run-1/report.md", "/attachments/book.pdf", "/documents/one/document.md",
+	"/artifacts/summary.json", "/work/guides/../notes.md#L12", "/work/%E7%AC%94%E8%AE%B0.md:12"]) {
+	assert.equal(isExplicitWorkspaceFileTarget(target), true, target);
+}
+for (const target of ["src/model/loss.py", "./src/model/loss.py", "note.md", "../notes.md", "attachments/book.pdf",
+	"/Users/example/src/model/loss.py", "/work/../../src/model/loss.py", "/work/../../work/../../secret.md",
+	"/api/goals/demo/report.md", "https://example.com/report.md", "value = loss.py"]) {
+	assert.equal(isExplicitWorkspaceFileTarget(target), false, target);
+}
+
 // `py`, `rs`, `sh` and `md` are country-code TLDs, so a bare filename reads as a domain to
 // linkify-it's fuzzy matcher. A reply naming one must not become a link to a foreign host.
 for (const [text, expected] of [
-	["见 note.md 了解详情", "见 [note.md](note.md) 了解详情"],
-	["运行 build.sh 即可", "运行 [build.sh](build.sh) 即可"],
-	["改 main.rs 这一行", "改 [main.rs](main.rs) 这一行"],
-	["跑 train.py 试试", "跑 [train.py](train.py) 试试"],
+	["见 note.md 了解详情", "见 note.md 了解详情"],
+	["运行 build.sh 即可", "运行 build.sh 即可"],
+	["改 main.rs 这一行", "改 main.rs 这一行"],
+	["跑 train.py 试试", "跑 train.py 试试"],
+	["实现见 src/model/loss.py。", "实现见 src/model/loss.py。"],
+	["记录见 /work/notes.md 。", "记录见 [/work/notes.md](/work/notes.md) 。"],
+	["附件见 /attachments/book.pdf 。", "附件见 [/attachments/book.pdf](/attachments/book.pdf) 。"],
+	["[报告](/reports/run-1/report.md) 和 [附件](/attachments/book.pdf)", "[报告](/reports/run-1/report.md) 和 [附件](/attachments/book.pdf)"],
 	// A host keeps its link: an explicit scheme, or a path after the dotted name.
 	["访问 example.com/page", "访问 [example.com/page](http://example.com/page)"],
 	["见 example.com/a/report.md", "见 [example.com/a/report.md](http://example.com/a/report.md)"],
 	["报告见 https://example.com/report.md", "报告见 [https://example.com/report.md](https://example.com/report.md)"],
 	["写信到 a@b.com", "写信到 [a@b.com](mailto:a@b.com)"],
+	["仓库 https://github.com/FunAudioLLM/CosyVoice.git，且将版本单列。", "仓库 [https://github.com/FunAudioLLM/CosyVoice.git](https://github.com/FunAudioLLM/CosyVoice.git)，且将版本单列。"],
+	["见 https://example.com/研究；然后继续", "见 [https://example.com/研究](https://example.com/研究)；然后继续"],
+	["**https://example.com/page**，说明", "**[https://example.com/page](https://example.com/page)**，说明"],
+	["[原文](https://example.com/研究，资料)", "[原文](https://example.com/研究，资料)"],
 ] as const) assert.equal(preprocessLinks(text), expected, text);
 
 console.log("Markdown file links preserve Workspace paths, anchors and line numbers");

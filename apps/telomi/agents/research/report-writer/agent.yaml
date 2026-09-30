@@ -4,7 +4,9 @@ skills: [wiki-report, writing-skill]
 prompts:
   system-append:
     default: system.md.njk
+    answer: system.answer.md.njk
   user:
+    answer: user.answer.md.njk
     plan: user.plan.md.njk
     delegate: user.delegate.md.njk
     final: user.final.md.njk

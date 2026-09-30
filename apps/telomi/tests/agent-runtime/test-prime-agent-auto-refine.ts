@@ -122,6 +122,7 @@ assert.deepEqual(primeModuleResolvers, [
 	"agent-runtime/prime-worker.ts",
 	"evaluation/investigation-replay.ts", // Uses the same runPrime launcher for frozen local Candidate Replay.
 	"research/investigate.ts", // Uses the same runPrime launcher for local Goal investigation.
+	"research/pipeline/prime-answer-writer.ts", // A separate depth-zero Writer Session through the shared runPrime launcher.
 	"research/pipeline/prime-search-batch.ts",
 	"research/pipeline/provider-child-executor.ts", // Uses the same runPrime launcher and isolated Agent Directory.
 	"wiki/note-wiki-maintainer.ts",

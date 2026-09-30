@@ -1,4 +1,5 @@
 import LinkifyIt from 'linkify-it'
+import { resolveWorkspacePath } from '@shared/workspace-path'
 
 const FILE_EXTENSIONS_PATTERN = [
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif',
@@ -65,6 +66,15 @@ export function parseFilePathTarget(target: string): string | null {
   return FILE_PATH_TARGET_REGEX.test(path) ? path : null
 }
 
+const WORKSPACE_FILE_NAMESPACE = /^\/(?:work|artifacts|attachments|documents|reports)\//u
+
+/** Auto-link only explicit Goal paths; repository filenames do not identify Workspace files. */
+export function isExplicitWorkspaceFileTarget(target: string): boolean {
+  const path = parseFilePathTarget(target)
+  return path !== null && WORKSPACE_FILE_NAMESPACE.test(path)
+    && WORKSPACE_FILE_NAMESPACE.test(resolveWorkspacePath(path))
+}
+
 interface DetectedLink {
   type: 'url' | 'email' | 'file'
   text: string
@@ -121,6 +131,11 @@ function isInsideCode(pos: number, ranges: CodeRange[]): boolean {
  */
 function findMarkdownLinkRanges(text: string): CodeRange[] {
   const ranges: CodeRange[] = []
+
+  // Preserve explicit HTML links and attributes when normalizing bare URLs.
+  for (const match of text.matchAll(/<a\b[^>]*>[\s\S]*?<\/a>|<[^>\n]+>/gi)) {
+    ranges.push({ start: match.index, end: match.index + match[0].length })
+  }
 
   // Runtime-owned indexed citations use an extra pair of brackets around the
   // visible number. Protect them before linkify-it sees their URL.
@@ -186,11 +201,12 @@ export function detectLinks(text: string): DetectedLink[] {
     let matchUrl = match.url
     let matchEnd = match.lastIndex
 
-    const stripped = matchText.replace(trailingMarkdownRe, '')
+    // Bare URLs in Chinese prose end at fullwidth punctuation; preserve Unicode URL paths.
+    const stripped = matchText.split(/[，。；！？、（）【】《》“”‘’]/u, 1)[0]!.replace(trailingMarkdownRe, '')
     if (stripped !== matchText) {
       const diff = matchText.length - stripped.length
       matchText = stripped
-      matchUrl = matchUrl.replace(trailingMarkdownRe, '')
+      matchUrl = matchUrl.slice(0, matchUrl.length - diff)
       matchEnd -= diff
     }
 
@@ -277,7 +293,7 @@ function stripPlaceholderLinks(text: string): string {
  * Preprocess text to convert raw URLs and file paths into markdown links
  * Skips code blocks and already-linked content
  */
-export function preprocessLinks(text: string): string {
+export function preprocessLinks(text: string, linkifyFiles = true): string {
   // First pass: strip markdown links with placeholder/fabricated URLs
   // (e.g., AI-generated `[commit](https://github.com/...)` → `\`commit\``)
   text = stripPlaceholderLinks(text)
@@ -298,6 +314,8 @@ export function preprocessLinks(text: string): string {
   let lastIndex = 0
 
   for (const link of links) {
+    if (link.type === 'file' && (!linkifyFiles || !isExplicitWorkspaceFileTarget(link.url))) continue
+
     // Skip if inside code block
     if (isInsideCode(link.start, codeRanges)) continue
 

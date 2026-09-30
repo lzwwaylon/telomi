@@ -33,6 +33,14 @@ function catalog(provider: ResearchSearchProvider, entry: ResearchSourceCatalogE
 const DEFAULT_GENERAL_WEB_BACKEND: GeneralWebBackend = "firecrawl";
 const GENERAL_WEB_PREFIX = "general_web_";
 
+/** Apply the same Goal policy and verified source exclusions to every acquisition entry point. */
+export function availableResearchProviders(catalog: ReturnType<ResearchSourceRegistry["catalog"]>,
+	allowedSources: readonly string[], excludedSources: readonly string[] = []) {
+	return catalog.filter((provider) => Boolean(provider.workerPython || provider.workerTool)
+		&& (allowedSources.includes("*") || allowedSources.includes(provider.id))
+		&& !excludedSources.includes(provider.id));
+}
+
 export function createResearchSourceRegistry(
 	env: Record<string, string | undefined>,
 	generalWebBackend: GeneralWebBackend = DEFAULT_GENERAL_WEB_BACKEND,

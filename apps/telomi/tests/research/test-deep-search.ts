@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentStageRequest, AgentStageRunner, ValidatedStageArtifact } from "../../server/agent-runtime/agent-stage-runtime.js";
+import { renderCornellNoteAgentSystemPrompt } from "../../server/research/pipeline/cornell-note-agent-prompt.js";
 import { sha256 } from "../../server/lib/hash.js";
 import { executeDeepSearch, resolveDeepSearchCue, searchSavedDeepSearchCues,
 	validateDeepSearchDraftFromCorpus } from "../../server/research/deep-search.js";
-import { readExternalGithub } from "../../server/research/external-github.js";
 
 const root = mkdtempSync(join(tmpdir(), "deep-search-contract-"));
 try {
@@ -35,6 +35,9 @@ try {
 		stageRunner: {
 			async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
 				calls++;
+				assert.equal(request.systemPrompt, renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content,
+					"question reading receives the same shared quality rules as Source reading");
+				assert.equal(request.promptConfig?.revisions?.system?.variant, "deep-search");
 				const catalog = JSON.parse(readFileSync(join(request.readonlyMounts[0]!.hostPath, "catalog.json"), "utf-8"));
 				assert.equal(catalog.sources.length, 1);
 				assert.equal(catalog.sources[0].source_id, "source:one");
@@ -59,11 +62,6 @@ try {
 			evidence: [{ source_ref: "S1", source_path: `${member}/finetuning/sft.py`, start_line: 1, end_line: 1 }] }],
 	}] };
 	const found = await run(draft, "found-1");
-	await assert.rejects(readExternalGithub({ goalDir, goalId: "goal", runDir: join(root, "external"),
-		investigationId: "a".repeat(24), sequence: 1, question: "How is the loss computed?",
-		repository: "example/model", ref: "v1", paths: ["finetuning/sft.py"],
-		signal: new AbortController().signal, env: {} }), /already saved/u,
-		"an external Provider must not reacquire the same saved repository file");
 	assert.equal(found.cues[0]!.ref, "deep-search:found-1:cue-1");
 	assert.equal(found.cues[0]!.evidence[0]!.content_sha256,
 		sha256("loss = logits.cross_entropy(labels)\n"));

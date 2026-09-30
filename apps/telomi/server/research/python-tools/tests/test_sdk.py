@@ -21,6 +21,18 @@ from tools import arxiv, browser, candidate_ledger, github, huggingface, links, 
 
 
 class ResearchRuntimeTests(unittest.TestCase):
+    def test_answer_delegation_validates_inputs_and_root_identity(self) -> None:
+        with patch.object(research_runtime, "execution_id", return_value="root"), patch.object(research_runtime, "_post", return_value={"answer": "Missing evidence"}) as post:
+            self.assertEqual(research_runtime.write_answer([], ["Explain the loss"]), {"answer": "Missing evidence"})
+            post.assert_called_once_with("/v1/write-answer", {"agent_session_id": "root", "evidence_refs": [], "requirements": ["Explain the loss"]})
+            for refs, parts in [(["N1", "N1"], ["Explain the loss"]), (["N1"], []), (["N1"], [" "])]:
+                with self.assertRaises(ValueError):
+                    research_runtime.write_answer(refs, parts)
+            self.assertEqual(post.call_count, 1)
+        with patch.object(research_runtime, "execution_id", return_value="sub-reader"):
+            with self.assertRaisesRegex(ValueError, "only to the Search Root"):
+                research_runtime.write_answer(["N1"], ["Explain the loss"])
+
     def test_workspace_path_uses_the_current_agent_workspace(self) -> None:
         with patch.dict("os.environ", {"PRIME_AGENT_ARTIFACT_WORKSPACE": "/tmp/prime-search"}):
             self.assertEqual(workspace_path("artifacts/model/README.md"), "/tmp/prime-search/artifacts/model/README.md")

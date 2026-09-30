@@ -3,7 +3,7 @@ export interface InvestigationCitationCue {
 	cue: string;
 	note: string;
 	section_title: string;
-	evidence: Array<{ source_path: string; start_line: number; end_line: number; excerpt?: string }>;
+	evidence: Array<{ source_path: string; start_line: number; end_line: number; excerpt?: string; title?: string; url?: string }>;
 	source_title?: string;
 	canonical_locator?: string;
 	topic_refs?: string[];
@@ -48,11 +48,19 @@ export function createInvestigationCitationScope() {
 					evidence: cue.evidence.map((item) => ({
 					source_path: item.source_path, start_line: item.start_line, end_line: item.end_line,
 					...(item.excerpt ? { excerpt: item.excerpt } : {}),
+					...(item.title ? { title: item.title } : {}),
+					...(item.url ? { url: item.url } : {}),
 					})),
 				};
 			});
 		},
 		resolve,
+		project(ref: string): string {
+			if (wikiRefs.has(ref)) return ref;
+			const short = shortByDurable.get(ref);
+			if (!short) throw new Error(`Prime read unknown evidence '${ref}'`);
+			return short;
+		},
 		restore<T extends { answer: string; citation_refs: string[] }>(result: T): T {
 			return { ...result,
 				answer: result.answer.replace(/<cite>([^<>\s]+)<\/cite>/gu,

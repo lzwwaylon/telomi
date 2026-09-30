@@ -66,6 +66,8 @@ import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../../agent-runti
 import { listFilesRecursive, writeJsonAtomic } from "../../lib/fs.js";
 import { toErrorMessage } from "../../lib/values.js";
 
+import { runPrimeAnswerStage } from "./prime-answer-writer.js";
+
 const WORKER = new URL("./prime-report-writer-worker.ts", import.meta.url);
 const PRIME_AGENT_PATHS_MODULE = fileURLToPath(new URL("../../agent-runtime/prime-agent-paths.ts", import.meta.url));
 const LOGICAL_WORKSPACE_MODULE = fileURLToPath(new URL("../../agent-runtime/logical-workspace-snapshot.ts", import.meta.url));
@@ -138,7 +140,7 @@ export function primeReportWriterStageModelPolicy(
 	};
 }
 
-/** Replaces only the production writer-report Stage. All other stages use the existing runner. */
+/** Native Prime execution for report chapters and the separately captured investigation answer. */
 export class PrimeReportWriterStageRunner implements AgentStageRunner {
 	constructor(
 		private readonly delegate: AgentStageRunner,
@@ -146,13 +148,18 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 	) {}
 
 	async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
-		if (request.stageId !== "writer-report" || request.output.kind !== "writer_chapters") {
+		const answer = request.role === "report_writer" && request.promptConfig?.userVariant === "answer"
+			&& request.output.kind === "json_candidate";
+		if (!answer && (request.stageId !== "writer-report" || request.output.kind !== "writer_chapters")) {
 			return this.delegate.runStage(request);
 		}
 		const executionId = `${request.stageId}-${request.attemptId}-${randomUUID()}`;
 		const recordKind = request.recordKind ?? "research";
 		if (recordKind !== "research" || !request.evaluation) return this.runPrimeStage(request, executionId);
 		const recordDirectory = request.recordDirectory ?? request.controlDirectory;
+		const answerSession = answer ? agentSessionPath(recordDirectory, "report_writer", executionId) : undefined;
+		const answerTraces = answerSession
+			? [join(recordDirectory, "answer-writer-traces", basename(answerSession, ".jsonl"))] : [];
 		const root = parseResearchModelRef(request.modelPolicy.preferred[0] ?? "");
 		const workspace = emptyWorkspaceSnapshot();
 		mkdirSync(request.workDirectory, { recursive: true });
@@ -188,6 +195,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 				workDirectory: request.workDirectory,
 				result: result as ValidatedStageArtifact<unknown>,
 				validationErrors: result.validationErrors,
+				...(answer ? { traceDirectories: answerTraces } : {}),
 				logicalWorkspaces,
 				workspace,
 			});
@@ -203,6 +211,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 				status: request.signal.aborted ? "cancelled" : "failed",
 				workDirectory: request.workDirectory,
 				validationErrors: [],
+				...(answer ? { sessionPath: answerSession, traceDirectories: answerTraces } : {}),
 				logicalWorkspaces,
 				error: toErrorMessage(error),
 				workspace,
@@ -212,6 +221,9 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 	}
 
 	private async runPrimeStage<T>(request: AgentStageRequest<T>, executionId: string, logicalWorkspaceCaptureRoot?: string): Promise<ValidatedStageArtifact<T>> {
+		if (request.promptConfig?.userVariant === "answer") {
+			return runPrimeAnswerStage(request, executionId, this.options, logicalWorkspaceCaptureRoot);
+		}
 		request.signal.throwIfAborted();
 		const startedAt = Date.now();
 		const recordRoot = request.recordDirectory ?? request.controlDirectory;
@@ -820,4 +832,3 @@ function readWorkerResult(path: string): PrimeWorkerResult {
 	}
 	return value;
 }
-

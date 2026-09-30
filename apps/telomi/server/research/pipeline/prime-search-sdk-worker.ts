@@ -18,6 +18,7 @@ interface Input {
 	model: string;
 	thinking: string;
 	prompt: string;
+	systemPrompt?: string;
 	skills: string[];
 	tools?: string[];
 	contractTools?: boolean;
@@ -40,6 +41,7 @@ const loader = new prime.DefaultResourceLoader({
 	agentDir,
 	settingsManager,
 	additionalSkillPaths: input.skills,
+	...(input.systemPrompt ? { appendSystemPrompt: [input.systemPrompt] } : {}),
 	skillsOverride: (current: { skills: Array<{ filePath: string; baseDir: string }> }) => ({
 		...current,
 		skills: current.skills.map((skill) => workspaceRelativeSkill(input.cwd, skill)),

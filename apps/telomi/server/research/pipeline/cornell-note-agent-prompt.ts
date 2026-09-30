@@ -10,8 +10,11 @@ export function buildCornellNoteAgentSystemPrompt(
 
 export function renderCornellNoteAgentSystemPrompt(
 	_scheduledResearch?: ScheduledResearchContext,
+	variant: "default" | "deep-search" = "default",
 ): RenderedAgentPrompt {
-	return renderAgentPrompt("research", "cornell-note", "system-append");
+	const scope = renderAgentPrompt("research", "cornell-note", "system-append", {}, variant);
+	const quality = renderAgentPrompt("research", "cornell-note", "reference", {}, "evidence-reading-quality");
+	return { ...scope, content: `${scope.content}\n\n${quality.content}` };
 }
 
 export function buildCornellNoteAgentUserPrompt(
