@@ -53,3 +53,5 @@ The formal `wiki-compilation@1` recipe captures complete construction or navigat
 Tests cover complete-Note queues, Cue ownership, stage contracts, actual SRT Skill loading, full-text delivery, relationship propagation, failed publication, retry, history, navigation and legacy reading. Deterministic tests do not establish factual correctness, complete relation coverage or superior Topic selection.
 
 The earlier shard/curator pipeline remains available for historical recovery and its own Replay recipes; see [Wiki Shard Builder](wiki-shard-builder.md).
+
+Topic classification sees full article prose with Cue markers removed. Runtime filters uncited sections out of final Topic matches, retaining them as article context while preserving all supported section matches. The model cannot infer a hidden citation requirement; an uncited context match does not fail the entire Wiki publication. Unknown references, malformed output and incomplete section classification remain errors.
