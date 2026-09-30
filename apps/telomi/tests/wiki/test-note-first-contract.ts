@@ -79,6 +79,14 @@ try {
   return true;
  });
 
+ assert.throws(() => mw.validate({ ...merged, deferred_entries: [
+  { entry_ref: 'N1', reason: 'Already part of the same object' }, { entry_ref: 'N2', reason: 'An evaluation detail' },
+ ] }, work), error => {
+  assert.match(String(error), /deferred_entries\[0\].*N1/);
+  assert.match(String(error), /deferred_entries\[1\].*N2/);
+  return true;
+ }, 'one feedback turn lists every cited/deferred conflict instead of spending all retries on the first rows');
+
  const concept = { ...input('concepts'), pages: merge.pages.map(row => ({ ...row, role: 'context' as const })), requiredPages: ['old:first', 'draft:second'] };
  const cw = workspace(concept);
  const considered = { pages: [], considered_pages: [{ page_ref: 'P1', reason: 'covered already' }, { page_ref: 'P2', reason: 'no reusable mechanism' }] };

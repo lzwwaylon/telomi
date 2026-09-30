@@ -12,6 +12,7 @@ import { isRecord, toErrorMessage } from '../lib/values.js';
 import { createNoteFirstWorkspace } from './note-first-workspace.js';
 import { noteFirstOutputHash, noteFirstTraceUsage, readNoteFirstOutput } from './note-first-stage.js';
 import type { NoteFirstInput, NoteFirstOutcome, NoteFirstResult, NoteFirstStageRequest } from './note-first-contract.js';
+import { objectFirstEntries } from './object-first-contract.js';
 import { targetWriterContext, validateTargetWriter } from './pi-object-targets.js';
 
 export const PI_OBJECT_MODEL = 'openai-codex/gpt-6-luna';
@@ -58,7 +59,9 @@ export function piResidualCueUserContext(input: NoteFirstInput): string {
  const catalog = input.pages.map((row, index) => ({ ref: `P${index + 1}`, kind: row.page.kind,
   title: row.page.title, description: row.page.description, index: `wiki/indexes/P${index + 1}.json`, file: `wiki/pages/P${index + 1}.md` }));
  const cues = input.entries.flatMap((entry, index) => required.has(entry.id) ? [{ ref: `N${index + 1}`,
-  source_title: entry.sourceTitle, section: entry.section, cue: entry.cue, detail: entry.detail }] : []);
+  source_title: entry.sourceTitle, section: entry.section, cue: entry.cue, detail: entry.detail,
+  historical_concept_refs: input.pages.flatMap((row, pageIndex) => row.previous && row.page.kind === 'concept'
+   && objectFirstEntries(row.page.body).includes(entry.id) ? [`P${pageIndex + 1}`] : []) }] : []);
  return JSON.stringify({ output_language: input.language, goal: input.goal, catalog, cues });
 }
 
@@ -149,7 +152,7 @@ export function validatePiObjectMergeFiles(input: NoteFirstInput, inputRoot: str
    if (row.previous && row.role === 'member' && !mentioned.has(ref)) (manifest.retained_refs as unknown[]).push(ref);
   });
  }
- const result = workspace.validate(manifest, work, { incrementalMerge: !residual });
+ const result = workspace.validate(manifest, work, { incrementalMerge: !residual, inputRoot: 'wiki' });
  if (result.kind !== 'pages') throw new Error('Pi object merge must produce pages');
  return { result, receipts: workspace.receipts(), completePageReads: [...reads].filter(([ref, lines]) =>
   lines.size === readFileSync(join(inputRoot, 'pages', `${ref}.md`), 'utf8').split('\n').length).map(([ref]) => ref) };

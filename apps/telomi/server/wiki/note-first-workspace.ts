@@ -19,7 +19,7 @@ export interface NoteFirstWorkspace {
  search(query: string | SearchRequest): string;
  searchIndex: SearchRow[];
  overviews: Record<string, PageOverview>;
- validate(output: unknown, workRoot: string, options?: { incrementalMerge?: boolean }): NoteFirstResult;
+ validate(output: unknown, workRoot: string, options?: { incrementalMerge?: boolean; inputRoot?: 'wiki' | '../input' }): NoteFirstResult;
  receipts(): { pages: string[]; sections: string[]; entries: string[] };
 }
 function fail(message: string): never { throw new Error(`Note-first output: ${message}`); }
@@ -214,7 +214,7 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
   return result.map(({ alias: _alias, ...row }) => row);
  }
 
- function validate(output: unknown, workRoot: string, options: { incrementalMerge?: boolean } = {}): NoteFirstResult {
+ function validate(output: unknown, workRoot: string, options: { incrementalMerge?: boolean; inputRoot?: 'wiki' | '../input' } = {}): NoteFirstResult {
   if (input.stage === 'plan-concepts') {
    shape(output, ['jobs'], 'output');
    const allPages: string[] = [];
@@ -292,7 +292,7 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
    if (unread.length) fail(`output.pages + output.deferred_entries: read every unplaced Cue in full before adopting or finally discarding it; unread: ${unread.join(', ')}`);
   }
   const expectedMembers = merging ? [...pages].filter(([, row]) => row.role === 'member').map(([ref]) => ref) : [];
-  const inputPagePath = (ref: string) => `${options.incrementalMerge ? 'wiki' : '../input'}/pages/${ref}.md`;
+  const inputPagePath = (ref: string) => `${options.inputRoot ?? '../input'}/pages/${ref}.md`;
   const violations: string[] = [];
   const consumed: string[] = [];
   const memberLocations = new Map<string, string[]>();
@@ -376,15 +376,19 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
    const path = `output.deferred_entries[${index}]`;
    shape(row, ['entry_ref', 'reason'], path);
    const ref = entry(row.entry_ref, `${path}.entry_ref`).id;
-   if (cited.has(ref)) fail(`${path}.entry_ref: cited Entry cannot also be deferred: ${row.entry_ref}`);
+   if (cited.has(ref)) violations.push(`${path}.entry_ref: cited Entry cannot also be deferred: ${row.entry_ref}. Remove this deferred entry and preserve its supported records and citations in the authored object.`);
    if (input.stage === 'merge-objects') {
     if (!input.requiredEntries.includes(ref)) fail(`${path}.entry_ref: final-discard Entry must be in the object merge scope; received ${row.entry_ref}`);
-    if (historicalConceptEntries.has(ref)) fail(`${path}.entry_ref: cannot discard a Cue cited by a historical concept: ${row.entry_ref}`);
+    if (historicalConceptEntries.has(ref)) {
+     const owners = [...pages].filter(([, row]) => row.previous && row.page.kind === 'concept' && objectFirstEntries(row.page.body).includes(ref))
+      .map(([alias]) => `${alias} (${inputPagePath(alias)})`).join(', ');
+     violations.push(`${path}.entry_ref: cannot discard a Cue cited by a historical concept: ${row.entry_ref}; source pages: ${owners}. Integrate its supported detail into the corresponding object or concrete research work, even when it is not an independent object.`);
+    }
    }
    return { entry_ref: ref, reason: text(row.reason, `${path}.reason`) };
   });
   const deferredIds = new Set(deferred.map(row => row.entry_ref));
-  if (deferredIds.size !== deferred.length) fail(`output.deferred_entries[].entry_ref: duplicate deferred Entry: [${deferred.filter((row, index) => deferred.findIndex(other => other.entry_ref === row.entry_ref) !== index).map(row => entryAliases.get(row.entry_ref)).join(', ')}]`);
+  if (deferredIds.size !== deferred.length) violations.push(`output.deferred_entries[].entry_ref: duplicate deferred Entry: [${deferred.filter((row, index) => deferred.findIndex(other => other.entry_ref === row.entry_ref) !== index).map(row => entryAliases.get(row.entry_ref)).join(', ')}]`);
   const missingEvidence = input.requiredEntries.filter(id => !cited.has(id) && !deferredIds.has(id));
   if (missingEvidence.length) {
    const sources = missingEvidence.map(id => {

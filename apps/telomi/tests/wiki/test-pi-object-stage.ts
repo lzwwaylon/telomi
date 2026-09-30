@@ -138,14 +138,22 @@ try {
   assert.match(acceptedMerge.result.value.pages[0]!.body, new RegExp(a));
   assert.match(acceptedMerge.result.value.pages[0]!.body, new RegExp(b));
  }
+ const historicalPending = { ...mergeInput.pages[1]!, ref: 'history:b', previous: true, role: 'context' as const,
+  page: { ...mergeInput.pages[1]!.page, id: 'concept:history', kind: 'concept' as const } };
  const pendingInput: NoteFirstInput = { ...mergeInput,
-  pages: [{ ...mergeInput.pages[0]!, role: 'context' }], requiredEntries: [b],
+  pages: [{ ...mergeInput.pages[0]!, role: 'context' }, historicalPending], requiredEntries: [b],
   unplacedEntries: [{ entryId: b, reason: 'Not yet in objects' }] };
  assert.match(piResidualCueUserContext(pendingInput), /Detail 1/);
+ assert.deepEqual(JSON.parse(piResidualCueUserContext(pendingInput)).cues[0].historical_concept_refs, ['P2']);
  createNoteFirstWorkspace(pendingInput, mergeRoot);
  writeFileSync(page, '---\ntitle: "Method B"\ndescription: "Additional source record"\n---\n\n## Mechanism\nEvidence [[N2]].\n');
  writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: [] }], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
  const pendingResolved = validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true);
+ writeFileSync(manifest, JSON.stringify({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [{ entry_ref: 'N2', reason: 'Only a detail' }] }));
+ assert.throws(() => validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true), error => {
+  assert.match(String(error), /historical concept.*N2/);
+  assert.match(String(error), /wiki\/pages\/P2.md/); return true;
+ }, 'historical detail feedback names the real Pi source path');
  assert.equal(pendingResolved.result.value.pages.length, 1, 'resolving pending Cues does not require rewriting read-only old objects');
  assert.deepEqual(pendingResolved.result.value.pages[0]!.member_refs, []);
  assert.throws(() => createNoteFirstWorkspace({ ...pendingInput, pages: mergeInput.pages.slice(0, 1) }, mergeRoot),
