@@ -46,6 +46,7 @@ export async function runPiConceptStage(request: NoteFirstStageRequest): Promise
  return runPiFileStage(request, {
   modelId: PI_CONCEPT_MODEL, referenceVariant: 'concept-common', promptVariant: variants[stage as keyof typeof variants],
   user: piConceptUserContext(request.input), executionMode: `pi-concept-${stage}`, role: 'wiki.object_builder',
+  grepRoot: stage === 'plan-concepts' || stage === 'audit-concepts' ? '/work/input/pages' : undefined,
   codeFiles: ['./pi-concept-stage.ts', './pi-concept-contract.ts', './note-first-contract.ts', './object-first-contract.ts'],
   prepare(inputRoot) {
    createNoteFirstWorkspace(request.input, inputRoot);

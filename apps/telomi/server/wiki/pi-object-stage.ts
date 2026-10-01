@@ -191,6 +191,7 @@ async function runPiObjectFileStage(request: NoteFirstStageRequest, mode: 'defau
   promptVariant: mergePlanning ? 'plan-object-targets-pi' : targetWriting ? 'write-object-target-pi'
    : residual ? 'resolve-object-cues-pi' : 'objects-pi',
   user, role: 'wiki.object_builder',
+  grepRoot: mergePlanning || residual ? '/work/wiki/pages' : undefined,
   executionMode: mode.startsWith('target-') ? `pi-object-${mode}` : 'pi-file-agent',
   codeFiles: ['./pi-object-stage.ts', './pi-object-targets.ts'],
   prepare(inputRoot) { if (merging || mergePlanning) createNoteFirstWorkspace(request.input, inputRoot); },
