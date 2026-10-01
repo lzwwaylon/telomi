@@ -138,7 +138,6 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
  const readEntries = new Set<string>();
  const readPages = new Set<string>();
  const fullRead = (ref: string) => readPages.has(ref) || (pageSections(page(ref).page.id).length > 0 && pageSections(page(ref).page.id).every(([key]) => readSections.has(key)));
- const someRead = (ref: string) => readPages.has(ref) || pageSections(page(ref).page.id).some(([key]) => readSections.has(key));
  const pageSummary = (ref: string) => {
   const row = page(ref).page;
   return { page_ref: ref, kind: row.kind, title: row.title, description: row.description };
@@ -163,12 +162,10 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
   'merge-concepts': '{pages:[{file:"pages/C1.md",member_refs:["P1"]}],retained_refs:[],discarded_refs:[]}',
   'plan-concepts': '{concept_jobs:[{question:"...",scope:"...",page_refs:["P1"],target_ref:null}],object_only:[{page_ref:"P2",compared_with:["P1"],reason:"..."}]}',
   'audit-concepts': '{reviewed_pages:[{page_ref:"P1",reason:"..."}],conflict_groups:[{page_refs:["P1","P2"],reason:"..."}],discarded_refs:[]}',
-  relations: '{relations:[{from:"P1",to:"P2",label:"...",entry_refs:["N1"]}],reviewed_pages:[{page_ref:"P1",reason:"..."}]}',
   'plan-topics': '{jobs:[{topic_ref:"T1",instructions:"..."}]}',
   topic: '{topic_ref:"T1",matches:[{section_ref:"S1",reason:"..."}],gaps:[]}',
  };
  const coverageLabel = input.stage === 'plan-concepts' ? 'Objects requiring an explicit concept job or verified object-only disposition'
-  : input.stage === 'relations' ? 'Pages to cover in candidate review (catalog coverage; read evidence-bearing sections for actual links)'
   : 'Required pages';
  const context = [
   `Required output manifest fields (exact shape; use actual references and reasons): ${contracts[input.stage]}\nMarkdown output files require exactly title and description frontmatter fields, followed by H2 sections with [[N1]]-style citations. Do not add ref or other frontmatter fields. No IDs, URLs, Markdown links, Related or Evidence sections.`,
@@ -242,31 +239,6 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
    });
    if (new Set(matches.map(row => row.sectionRef)).size !== matches.length) fail('output.matches[].section_ref: duplicate Topic section; expected each selected section once');
    return { kind: 'topic', topicId, matches, gaps: strings(output.gaps, 'output.gaps') };
-  }
-  if (input.stage === 'relations') {
-   shape(output, ['relations', 'reviewed_pages'], 'output');
-   const reviewedPages = reasonRows(output.reviewed_pages, 'output.reviewed_pages', requiredPages, false);
-   const keys = new Set<string>();
-   const relations = rows(output.relations, 'output.relations').map((row, index) => {
-    const path = `output.relations[${index}]`;
-    shape(row, ['from', 'to', 'label', 'entry_refs'], path);
-    const from = text(row.from, `${path}.from`), to = text(row.to, `${path}.to`), label = text(row.label, `${path}.label`);
-    const source = page(from, `${path}.from`).page, target = page(to, `${path}.to`).page;
-    const key = `${from}\0${to}\0${label}`;
-    if (from === to || keys.has(key)) fail(`${path}: self or duplicate relation (${from}, ${to}, ${JSON.stringify(label)}); expected distinct endpoints and a unique from/to/label tuple`);
-    keys.add(key);
-    if (!someRead(from) || !someRead(to)) fail(`${path}.from/to: read both relation endpoints before linking; unread: [${[from, to].filter(ref => !someRead(ref)).join(', ')}]`);
-    const evidence = strings(row.entry_refs, `${path}.entry_refs`).map((ref, index) => entry(ref, `${path}.entry_refs[${index}]`).id);
-    const available = new Set([from, to].flatMap(ref => {
-     const owner = page(ref).page;
-     return readPages.has(ref) ? objectFirstEntries(owner.body) : pageSections(owner.id)
-      .filter(([sectionRef]) => readSections.has(sectionRef))
-      .flatMap(([, section]) => objectFirstEntries(owner.body.split('\n').slice(section.startLine - 1, section.endLine).join('\n')));
-    }));
-    if (!evidence.length || evidence.some(id => !available.has(id))) fail(`${path}.entry_refs: relation evidence must come from completely read endpoint sections; unread or absent: ${evidence.filter(id => !available.has(id)).map(id => entryAliases.get(id)).join(', ')}`);
-    return { from: source.id, to: target.id, label, entryIds: evidence };
-   });
-   return { kind: 'relations', relations, reviewedPages };
   }
   const merging = input.stage === 'merge-objects' || input.stage === 'merge-concepts';
   const outputFields = input.stage === 'objects' ? ['pages', 'deferred_entries']

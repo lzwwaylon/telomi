@@ -68,12 +68,6 @@ function result(input: NoteFirstInput, rename = false): NoteFirstResult {
    if (members.length) value.pages = [{ ...members[0]!.page, id: "concept:conditions", body: `## Comparison\nCompare all conditions ${[...new Set(members.flatMap(p => objectFirstEntries(p.page.body)))].map(id => `[[${id}]]`).join(" ")}.`, member_refs: members.map(p => p.ref) }];
    break;
   }
-  case "relations": {
-   const entity = input.pages.find(p => p.page.kind === "entity")?.page;
-   const concept = input.pages.find(p => p.page.kind === "concept")?.page;
-   if (!entity || !concept) return { kind: "relations", relations: [], reviewedPages: consideredPages };
-   return { kind: "relations", relations: input.previousRelations.length ? input.previousRelations : [{ from: entity.id, to: concept.id, label: "uses these conditions", entryIds: objectFirstEntries(entity.body) }], reviewedPages: consideredPages };
-  }
   case "plan-topics": return { kind: "topic-plan", jobs: input.topics.map(topic => ({ topicId: topic.id, instructions: `Find sections about ${topic.title}` })) };
   case "topic":
    assert.equal(input.topics.length, 1, "each worker receives one Topic");
@@ -133,7 +127,7 @@ try {
  assert.equal(maximum, 4);
  assert.equal(objectsStarted.length, 6);
  assert.equal(stages.filter(stage => stage === "page-topics").length, 7);
- assert.ok(!stages.includes("plan-topics") && !stages.includes("topic"), "navigation bypasses Planner and Topic workers");
+ assert.ok(!stages.includes("plan-topics") && !stages.includes("topic") && !stages.includes("relations"), "navigation follows concept integration without a relation Agent or Topic planner");
  assert.equal(initial.pageCount, 7);
  assert.ok(stages.includes("audit-concepts"));
  assert.ok(!stages.includes("merge-concepts"), "an audit with no conflict does not rewrite concepts");
@@ -162,6 +156,7 @@ try {
   assert.ok(section.entryIds.length > 0, "Topic sections expose their Cue references");
   for (const id of section.entryIds) assert.ok(registry.entries.some((entry: { id: string; anchors: unknown[] }) => entry.id === id && entry.anchors.length > 0), "section references resolve through Cue to evidence");
  }
+ assert.deepEqual(JSON.parse(read(join(knowledge, ".object-first-relations.json"))), [], "new Editions contain no inferred semantic graph");
  const training = topicIndex.sections.find((section: { pageId: string; heading: string }) => section.pageId === "entity:source-0" && section.heading === "Training");
  assert.equal(training.entryIds.length, 1, "section evidence excludes unrelated page sections");
  assert.equal(registry.entries.find((entry: { id: string }) => entry.id === training.entryIds[0]).anchors[0].startLine, 1);
@@ -175,9 +170,7 @@ try {
  const incremental = await incrementalCompiler.compile(request("incremental", evidence(1, 6), knowledge));
  const planning = incrementalStages.find(input => input.stage === "plan-concepts")!;
  assert.ok(planning.pages.some(p => p.previous && p.page.kind === "concept"), "historical concepts are available to the planner");
- const relations = incrementalStages.find(input => input.stage === "relations")!;
- assert.ok(relations.previousRelations.some(edge => edge.from === "entity:renamed"), "old relation endpoints follow merged object identities");
- assert.ok(!relations.previousRelations.some(edge => edge.from === "entity:source-0"));
+ assert.ok(incrementalStages.every(input => input.previousRelations.length === 0), "incremental construction does not inject historical semantic edges");
  assert.equal(JSON.parse(read(join(incremental.knowledge.absolutePath, ".note-registry.json"))).entries.length, 14);
  assert.equal(hashWikiDirectory(knowledge), originalHash, "incremental build leaves its source Edition immutable");
 
@@ -252,8 +245,6 @@ try {
  assert.equal(complementary.body, complementaryBody, "unconflicted candidate content is unchanged");
  assert.ok(overlap.sessionPaths.includes("audit-session") && overlap.sessionPaths.includes("conflict-session"));
  assert.equal(overlap.usage.calls, overlapInputs.length, "audit and local conflict calls count exactly once");
- const overlapRelations = overlapInputs.find(input => input.stage === "relations")!;
- assert.ok(overlapRelations.previousRelations.every(edge => overlapRelations.pages.some(page => page.page.id === edge.to)), "old relation endpoints resolve after local conflict merging");
 
  const previousForConflict = await readObjectFirstPrevious(knowledge);
  const historicalConflictSeed = join(root, "historical-conflict-seed");
@@ -261,8 +252,13 @@ try {
  writeObjectFirstEdition(historicalConflictSeed, [...previousForConflict.pages, secondaryConcept], previousForConflict.entries,
   { ...empty(), relations: [{ from: "entity:source-0", to: secondaryConcept.id, label: "uses conditions",
    entryIds: objectFirstEntries(secondaryConcept.body) }] }, previousForConflict);
- let redirectedRelations: NoteFirstInput | undefined;
+ const historicalInputs: NoteFirstInput[] = [];
+ const historicalSeedHash = hashWikiDirectory(historicalConflictSeed);
+ const historicalEntityPath = "entities/source-0.md";
+ const oldEntityBytes = read(join(historicalConflictSeed, historicalEntityPath));
+ assert.match(oldEntityBytes, /## Related/u, "legacy Edition has a readable relation");
  const historicalConflict = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => {
+  historicalInputs.push(input);
   if (input.stage === "plan-concepts") return { usage, sessionPaths: [], result: { kind: "concept-plan", jobs: [],
    objectOnly: input.requiredPages.map(pageRef => ({ pageRef, comparedWith: [], reason: "Existing explanations suffice" })) } };
   if (input.stage === "audit-concepts") {
@@ -271,13 +267,16 @@ try {
     reviewedPages: concepts.map(page => ({ pageRef: page.ref, reason: "Reviewed historical scope" })),
     conflictGroups: [{ pageRefs: concepts.map(page => page.ref), reason: "Historical synonyms for the same explanation" }], discardedRefs: [] } };
   }
-  if (input.stage === "relations") redirectedRelations = input;
   return outcome(input);
  } }).compile(request("historical-local-conflict", evidence(6), historicalConflictSeed));
  assert.equal(historicalConflict.publicationReady, true);
- assert.ok(redirectedRelations!.previousRelations.some(edge => edge.to === originalConcept.id));
- assert.ok(!redirectedRelations!.previousRelations.some(edge => edge.to === secondaryConcept.id),
-  "a consumed historical concept redirects existing relations to the surviving identity");
+ assert.ok(historicalInputs.every(input => input.previousRelations.length === 0));
+ assert.deepEqual((await readObjectFirstPrevious(historicalConflict.knowledge.absolutePath)).relations, []);
+ assert.equal(read(join(historicalConflict.knowledge.absolutePath, historicalEntityPath)),
+  oldEntityBytes.replace(/\n## Related\s*\n[\s\S]*?(?=\n## |$)/u, ""),
+  "unchanged object prose and evidence bytes survive; only derived Related links are removed");
+ assert.equal(hashWikiDirectory(historicalConflictSeed), historicalSeedHash, "historical Edition remains immutable");
+ assert.equal((await readObjectFirstPrevious(historicalConflictSeed)).relations.length, 1, "legacy relations remain readable in their original Edition");
 
  for (const failedStage of ["audit-concepts", "merge-concepts"] as const) {
   const failedInputs: NoteFirstInput[] = [];
@@ -380,6 +379,14 @@ try {
  for (const file of ["entities/source-0.md", "concepts/conditions.md", ".note-registry.json", ".object-first-relations.json"]) assert.equal(read(join(indexed.knowledgeRoot, file)), read(join(knowledge, file)), "Topic reindex preserves knowledge and evidence bytes");
  assert.equal(hashWikiDirectory(knowledge), originalHash);
  for (const input of reindexStages) assert.deepEqual(input.previousRelations, [], "Topic-only matching does not receive graph metadata");
+
+ const legacyReindexed = await new NoteFirstWikiCompiler({ runStage: async ({ input }) => outcome(input) }).reindex({
+  ...reindexRequest, knowledgeRoot: historicalConflictSeed, workRoot: join(root, "legacy-relations-reindex") });
+ assert.equal(read(join(legacyReindexed.knowledgeRoot, ".object-first-relations.json")),
+  read(join(historicalConflictSeed, ".object-first-relations.json")), "Topic-only reindex retains historical nonempty relation bytes");
+ assert.equal(read(join(legacyReindexed.knowledgeRoot, historicalEntityPath)), oldEntityBytes,
+  "Topic-only reindex retains historical Related blocks, prose and evidence");
+ assert.equal(hashWikiDirectory(historicalConflictSeed), historicalSeedHash);
 
  const noCalls = new NoteFirstWikiCompiler({ runStage: async () => { throw new Error("Empty navigation must not call a model"); } });
  await assert.rejects(noCalls.reindex({ ...reindexRequest, topicPlan: { ...plan, topics: [] }, workRoot: join(root, "no-topics") }), /Goal Topic Plan is invalid/u,

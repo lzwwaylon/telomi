@@ -151,7 +151,7 @@ export function noteFirstCapabilityIdentity(): string {
    .map(variant => renderAgentPrompt("wiki", "note-first", "system", {}, variant).content),
   piObjectMerge: ["plan-object-targets-pi", "write-object-target-pi", "resolve-object-cues-pi"]
    .map(variant => renderAgentPrompt("wiki", "note-first", "system", {}, variant).content),
-  users: ["objects", "merge-objects", "plan-concepts", "concepts", "merge-concepts", "relations", "plan-topics", "topic"]
+  users: ["objects", "merge-objects", "plan-concepts", "concepts", "merge-concepts", "plan-topics", "topic"]
    .map(stage => renderAgentPrompt("wiki", "note-first", "user", { stage }).content),
   skills: snapshotSkills(bundledAgentSkillPaths("wiki", "note-first")).sha256 });
 }
