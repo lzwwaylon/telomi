@@ -17,7 +17,7 @@ import { DiffBlock } from "@/shared/markdown/DiffBlock";
 import { CodeBlock, InlineCode } from "@/shared/markdown/CodeBlock";
 import { MarkdownJsonBlock } from "@/shared/markdown/MarkdownJsonBlock";
 import { MarkdownLatexBlock } from "@/shared/markdown/MarkdownLatexBlock";
-import { MARKDOWN_MATH_OPTIONS } from "@/shared/markdown/markdown-math-options";
+import { MARKDOWN_MATH_OPTIONS, normalizeMathDelimiters } from "@/shared/markdown/markdown-math-options";
 import { isSourceAssetUri, sourceAssetHttpUrl } from "@/shared/markdown/source-asset";
 import { resolveMarkdownLinkTarget } from "@/shared/markdown/markdown-link-target";
 import { isExplicitWorkspaceFileTarget, preprocessLinks } from "@/shared/markdown/markdown-linkify";
@@ -728,7 +728,7 @@ export const MarkdownView = memo(function MarkdownView({
 
 	const processedText = useMemo(() => {
 		if (mode === "terminal") return text;
-		return preprocessLinks(text, shouldLinkify);
+		return preprocessLinks(normalizeMathDelimiters(text), shouldLinkify);
 	}, [text, shouldLinkify, mode]);
 
 	// Chat-mode 永远走块级 memo — 完成的 turn 仍然能复用 fiber,即使外层
