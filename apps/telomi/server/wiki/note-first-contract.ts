@@ -3,7 +3,7 @@ import type { GoalTopicPlan, WikiGoalContext } from './contracts.js';
 import type { ObjectFirstPage, ObjectFirstPagesResult, ObjectFirstSection } from './object-first-contract.js';
 import type { ObjectFirstEntry } from './object-first-edition.js';
 
-export type NoteFirstStage = 'objects' | 'merge-objects' | 'plan-concepts' | 'concepts' | 'audit-concepts' | 'merge-concepts' | 'relations' | 'plan-topics' | 'topic' | 'page-topics';
+export type NoteFirstStage = 'objects' | 'merge-objects' | 'plan-concepts' | 'concepts' | 'audit-concepts' | 'merge-concepts' | 'plan-topics' | 'topic' | 'page-topics';
 export interface NoteFirstPageInput {
  ref: string;
  page: ObjectFirstPage;
@@ -34,7 +34,6 @@ export type NoteFirstResult =
  | { kind: 'pages'; value: ObjectFirstPagesResult; consideredPages: Array<{ pageRef: string; reason: string }> }
  | { kind: 'concept-plan'; jobs: NoteFirstConceptJob[]; objectOnly: Array<{ pageRef: string; comparedWith: string[]; reason: string }> }
  | { kind: 'concept-audit'; reviewedPages: Array<{ pageRef: string; reason: string }>; conflictGroups: Array<{ pageRefs: string[]; reason: string }>; discardedRefs: Array<{ ref: string; reason: string }> }
- | { kind: 'relations'; relations: NoteFirstRelation[]; reviewedPages: Array<{ pageRef: string; reason: string }> }
  | { kind: 'topic-plan'; jobs: Array<{ topicId: string; instructions: string }> }
  | { kind: 'page-topics'; sections: Array<{ sectionRef: string; matches: Array<{ topicId: string; reason: string }> }> }
  | { kind: 'topic'; topicId: string; matches: Array<{ sectionRef: string; reason: string }>; gaps: string[] };

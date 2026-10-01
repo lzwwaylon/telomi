@@ -10,11 +10,11 @@ import { noteFirstOutputHash, readNoteFirstOutput } from "../../server/wiki/note
 
 const root = mkdtempSync(join(tmpdir(), "note-first-output-"));
 try {
- const stages: NoteFirstStage[] = ['objects', 'merge-objects', 'plan-concepts', 'concepts', 'merge-concepts', 'relations', 'plan-topics', 'topic'];
+ const stages: NoteFirstStage[] = ['objects', 'merge-objects', 'plan-concepts', 'concepts', 'merge-concepts', 'plan-topics', 'topic'];
  const source = renderAgentPrompt('wiki', 'note-first', 'system-append', {}).content;
  for (const stage of stages) {
   const prompt = stagePrompt(source, stage);
-  assert.deepEqual([...prompt.matchAll(/^(objects|merge-objects|plan-concepts|concepts|audit-concepts|merge-concepts|relations|plan-topics|topic): /gm)].map(match => match[1]), [stage]);
+  assert.deepEqual([...prompt.matchAll(/^(objects|merge-objects|plan-concepts|concepts|audit-concepts|merge-concepts|plan-topics|topic): /gm)].map(match => match[1]), [stage]);
   assert.ok(renderAgentPrompt('wiki', 'note-first', 'user', { stage }).content.includes(stage));
  }
  for (const variant of ['question-plan-pi', 'concepts-pi', 'audit-concepts-pi', 'merge-concepts-pi']) {
@@ -24,7 +24,8 @@ try {
  const topicPrompt = skillPrompt(stagePrompt(source, 'topic'));
  assert.ok(topicPrompt.includes('wiki.read'));
  assert.ok(!topicPrompt.includes('read_wiki'));
- assert.throws(() => stagePrompt(source.replace(/^relations: /m, 'missing: '), 'topic'));
+ assert.throws(() => stagePrompt(source.replace(/^merge-concepts: /m, 'missing: '), 'topic'));
+ assert.throws(() => Reflect.apply(stagePrompt, undefined, [source, 'relations']), /Unknown Wiki stage/u);
  const work = join(root, "work");
  mkdirSync(join(work, "pages"), { recursive: true });
  writeFileSync(join(work, "result.json"), JSON.stringify({ pages: [{ file: "pages/O1.md" }] }));

@@ -99,7 +99,7 @@ One immutable version of the Goal Wiki curated for one confirmed Goal Topic Plan
 _Avoid_: permanent canonical page tree, Topic Projection, mutable Wiki
 
 **Wiki Curator**:
-The Agent module that creates the next Wiki Edition by deciding Concept and Entity identity, page boundaries, prose, relationships, evidence retention, and current Topic membership.
+The Agent module that creates the next Wiki Edition by deciding Concept and Entity identity, page boundaries, prose, evidence retention, and current Topic membership.
 _Avoid_: Wiki Router Agent, Topic Projection Agent, per-batch publisher
 
 **Wiki Curator Operation**:
