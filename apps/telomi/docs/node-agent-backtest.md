@@ -14,7 +14,7 @@ Directory Artifacts and Capability Snapshots accept only content Hashes using th
 | `cornell-note` | Yes; Source reading and question-specific Deep Search | Production Research runs and investigation readings |
 | `report-writer` | Yes; full-report and independently captured investigation-answer variants | Production Research runs and investigation Writer delegations |
 | `provider-child` | Yes; pins one Provider Child's task and pre-execution files and reruns only that child | Derived from a specified execution in a complete Prime Search Case |
-| `prime-search` | Yes; v4 pins the Search question and captured context and reruns Provider operations; the Root may use general search | Production Research runs |
+| `prime-search` | Yes; v4 pins the Search question and captured context and reruns Provider operations; the Root may use general search | Production Research runs and investigation external acquisitions |
 | `prime-investigation` | Yes; pins the question, prompt, model policy, Wiki snapshot, and successful knowledge, reading, external-search and Writer responses seen by the Root | Main-triggered local investigations |
 | `wiki-compilation` | Yes; freezes the complete Notes, Goal, Topic Plan and base Wiki, or the base Wiki and Topic Plan for reindex | Production Wiki Updates and Topic reindex runs |
 | `wiki-shard-builder` | Yes; freezes Cornell Evidence and Topic Plan | Production Wiki Update runs |
@@ -141,7 +141,11 @@ Formal Regression Campaigns also pass `candidate.expectedRuntimeBuild` and `cand
 
 Source reading and Cornell Deep Search combine their respective scope Prompts with the registered evidence-reading-quality reference. Case Capture hashes and saves the complete rendered project system Prompt, including that reference. An explicit Candidate Prompt override must provide the complete intended composition. Ordinary Source reading keeps its one-Source scope and original-language Note contract; the shared reference does not turn it into a Goal-wide coverage stage.
 
+Investigation Deep Search also freezes `source/reader-context.json` within its existing read-only Source mount. It records the original user question, preferred newly acquired Source refs and prior Cue navigation mapped to current original line ranges. Matching identities, revisions and bytes mark an anchor verified; missing or changed anchors require rechecking. Navigation is not citable evidence. Historical Cases without this file retain their original input scope.
+
 The Report Writer's answer variant uses the existing `report-writer@2` Recipe with an explicit investigation-answer mode. Each `write_answer` delegation captures an independent fresh Writer Session, the complete question and requested parts, the assigned Notes and excerpts, and any bounded original Source views supplied to it. The entire `/inputs` mount is frozen, including when the producer placed it within the Goal harness. Replay uses those captured bytes, the historical model policy, and the production citation and coverage validator; missing mode, output contract, evidence mount or validator fails closed. Full-report Cases retain their existing Recipe behavior.
+
+New Writer inputs store each Source's file inventory once, referenced by an anchor's `context.files_ref`, instead of repeating a complete inventory on every Cue. Original Source paths and verified line bytes are unchanged. Historical frozen inputs with inline `context.files` remain readable; both indexes are navigation only. Writer inspection projects context kind and exact anchor ranges, and splits long necessary passages into bounded cells.
 
 The investigation Root must preserve the latest Writer's answer, citation refs and gaps verbatim. Runtime checks that equality in addition to evidence identity. This separates evidence selection and further reading from answer organization, while keeping the Writer output and native Session independently inspectable. Structural coverage and citation checks do not establish semantic completeness or correctness.
 
@@ -159,7 +163,11 @@ Prime Investigation is a separate Root stage. Its Case captures the bounded Wiki
 
 Root Replay returns an observed Writer response when the Case captured that delegation. A historical Root Case without a Writer response may execute the current answer variant using only the Case's frozen citation excerpts. Those inputs explicitly identify their context as excerpt-only; Replay cannot supplement them from a live Goal or claim that it reread complete original Sources. Such a Root Replay verifies that narrower evidence scope. To evaluate the Writer over complete original context, use its independent Writer Case with frozen Source views from a real delegation.
 
+Investigation Capture records its response protocol. File-protocol Replay republishes the same frozen responses into read-only `inputs/handoff/`, returns integrity receipts, and resolves the Root's `answer_ref` before validating the normalized answer. Historical Cases without a protocol marker keep inline responses with their observed Prompt; an explicit user Prompt override selects the file protocol. Both use the same ordered interactions, Source identities and frozen Writer behavior. This permits controlled transport comparisons, but cannot establish improved retrieval recall or new Writer quality: those operations are frozen. Root token metrics also exclude independent Reader and Writer usage, and frozen Replay latency must not be compared directly with a live investigation's latency.
+
 Prime Search Cases pin the Search Question, captured Schedule and Topic Plan context, Temporal Context, available Provider IDs, and model selections. Replay builds the production Provider Registry from the Candidate Harness and reruns Provider operations. The current Recipe neither provides a frozen external corpus nor replays historical query responses. Upstream data, login state, and availability can change; blind evaluation must distinguish these changes from Candidate capability differences.
+
+Investigation external acquisition Cases live under `research/investigations/<execution>/external-search-<sequence>`. Operations discovery, reading, export and Case retention include those real invocation directories and use the captured manifest's Run ID. Symbolic links do not add scan roots; historical Case bytes are unchanged.
 
 Prime Search retains the `input_tree_sha` of the empty node working directory and explicitly identifies its origin through `input_tree_source: "empty-work-dir"` in the workspace.
 
@@ -244,3 +252,5 @@ npm test -- tests/evaluation/test-wiki-compilation-node-replay.ts
 npm test -- tests/evaluation/test-podcast-frozen-replay.ts
 npm test -- tests/evaluation/test-schedule-review-frozen-replay.ts
 ```
+
+Investigation thread continuation is captured as frozen input files: thread metadata, historical answers and prior durable Cue bodies. Root Replay rebuilds invocation-local evidence handles before frozen Tool calls and can replay a Writer-only continuation without accessing the live Goal. Old Cases without thread metadata retain their existing protocol. These Replays do not regenerate frozen Reader or Writer responses and therefore cannot establish new retrieval or synthesis quality.

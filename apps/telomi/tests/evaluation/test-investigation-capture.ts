@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { findNodeEvaluationCases, readNodeEvaluationCase, readNodeEvaluationFile, type NodeEvaluationInteraction } from "../../server/agent-runtime/node-evaluation.js";
-import { createFrozenInvestigationTools, createInvestigationReplayRecipe, withInvestigationNodeCapture } from "../../server/evaluation/investigation-replay.js";
+import { publishInvestigationHandoff } from "../../server/research/investigation-handoff.js";
+import { createFrozenInvestigationTools, createInvestigationReplayRecipe, resolveInvestigationReplayResult, withInvestigationNodeCapture } from "../../server/evaluation/investigation-replay.js";
+import type { InvestigationAnswer } from "../../server/research/investigation-answer.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-investigation-case-"));
 const usage = { inputTokens: 17, outputTokens: 9, costUsd: 0.01, calls: 1 };
@@ -62,6 +64,8 @@ try {
 	assert.equal(captured.observed.metrics?.toolCalls, 2);
 	assert.equal(captured.recipe.id, "prime-investigation");
 	assert.equal(captured.liveExternalState, false);
+	assert.ok(!("handoff_mode" in JSON.parse(readFileSync(join(cases[0]!.path, "..", "input", "request.json"), "utf-8"))),
+		"historical v1 captures keep their implicit inline protocol");
 	assert.ok(captured.observed.trace);
 	assert.ok(captured.request.interactions);
 	assert.deepEqual(JSON.parse(readNodeEvaluationFile(cases[0]!.path, captured.request.interactions!)), frozenInteractions);
@@ -100,30 +104,59 @@ try {
 		result: { answer: `The feature exists. <cite>${externalResponse.cues[0]!.ref}</cite>`,
 			citation_refs: [externalResponse.cues[0]!.ref], gaps: [],
 			coverage: [{ requirement_id: "Q1", citation_refs: [externalResponse.cues[0]!.ref], gap: "" }] } };
+	const continuedTools = createFrozenInvestigationTools([writer], true, () => {}, externalResponse.cues);
+	assert.equal(continuedTools.citationsScope.project(externalResponse.cues[0]!.ref), "N1");
+	const continuedAnswer = continuedTools.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain implementation"] }) as InvestigationAnswer;
+	assert.equal(continuedAnswer.answer, "The feature exists. <cite>N1</cite>", "restored thread evidence can reach the Writer without replaying search");
+	continuedTools.assertMatched();
 	const answerTools = createFrozenInvestigationTools([frozenInteractions[1]!, writer], true, () => {});
 	answerTools.replayCall("external_search", { question: "Find documentation" });
 	assert.throws(() => answerTools.assertMatched(), /unused/u);
 	assert.equal(answerTools.hasFrozenWriter(), true);
 	assert.equal(answerTools.evidence.get("N1")?.evidence[0]?.excerpt, "The original evidence");
 	assert.ok(!JSON.stringify(answerTools.evidence.get("N1")).includes("source_run_id"), "legacy Replay cannot claim uncaptured original context");
-	assert.deepEqual(answerTools.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain implementation"] }), {
+	const delegatedAnswer = answerTools.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain implementation"] }) as InvestigationAnswer;
+	assert.deepEqual(delegatedAnswer, {
 		answer: "The feature exists. <cite>N1</cite>", citation_refs: ["N1"], gaps: [],
 		coverage: [{ requirement_id: "Q1", citation_refs: ["N1"], gap: "" }],
 	});
 	answerTools.assertMatched();
+	const workspace = join(root, "file-replay");
+	const receipt = publishInvestigationHandoff(workspace, "write_answer", delegatedAnswer);
+	const normalization = { workspace, lastAnswer: delegatedAnswer, id: "file-replay",
+		question: "What is implemented?", wikiSha256 };
+	const publicAnswer = { answer: delegatedAnswer.answer, citation_refs: delegatedAnswer.citation_refs, gaps: delegatedAnswer.gaps };
+	const normalized = resolveInvestigationReplayResult({ ...normalization, value: { answer_ref: receipt } });
+	assert.deepEqual(normalized, { ...publicAnswer, id: normalization.id, question: normalization.question, wiki_sha256: wikiSha256 });
+	assert.deepEqual(resolveInvestigationReplayResult({ ...normalization, value: { answer_ref: receipt.result_ref } }), normalized);
+	assert.deepEqual(resolveInvestigationReplayResult({ ...normalization, value: publicAnswer }), normalized,
+		"historical inline Root outputs retain the same normalized contract");
+	assert.equal(answerTools.citationsScope.restore(normalized).answer, writer.result.answer,
+		"file handoff preserves the frozen Writer's durable citation identity");
+	assert.throws(() => resolveInvestigationReplayResult({ ...normalization, value: { answer_ref: receipt },
+		lastAnswer: { ...delegatedAnswer, answer: "A newer Writer answer." } }), /without rewriting/u);
+	assert.throws(() => resolveInvestigationReplayResult({ ...normalization, value: { answer_ref: receipt },
+		lastAnswer: undefined }), /without rewriting/u);
+	assert.throws(() => resolveInvestigationReplayResult({ ...normalization,
+		value: { answer_ref: receipt, ...publicAnswer } }), /only answer_ref/u);
+	assert.throws(() => resolveInvestigationReplayResult({ ...normalization,
+		value: { answer_ref: { ...receipt, operation: "deep_search" } } }), /handoff|operation/iu);
 	const changedRequirements = createFrozenInvestigationTools([frozenInteractions[1]!, writer], true, () => {});
 	changedRequirements.replayCall("external_search", { question: "Find documentation" });
 	assert.throws(() => changedRequirements.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain a different algorithm"] }), /different evidence or requirements/u);
 	assert.throws(() => changedRequirements.assertMatched(), /different evidence/u);
 	const writerDir = prepare("with-writer");
 	await withInvestigationNodeCapture({ goalDir: root, goalId: "g", runDir: writerDir,
-		question: "What is implemented?", context: "Previous implementation discussion", language: "en", wikiSha256,
+		question: "What is implemented?", context: "Previous implementation discussion", language: "en", wikiSha256, handoffMode: "file", threadId: "b".repeat(24),
 		model: "test/model", thinking: "medium", metrics, execute: async () => {
 			writeFileSync(join(writerDir, "interactions.jsonl"), JSON.stringify({ operation: writer.name, request: writer.arguments, response: writer.result }) + "\n");
 			return { id: "with-writer", question: "What is implemented?", ...writer.result, wiki_sha256: wikiSha256 };
 		} });
 	const writerCase = findNodeEvaluationCases(writerDir, "prime-investigation")[0]!;
-	assert.equal(JSON.parse(readFileSync(join(writerCase.path, "..", "input", "request.json"), "utf-8")).context, "Previous implementation discussion");
+	const writerRequest = JSON.parse(readFileSync(join(writerCase.path, "..", "input", "request.json"), "utf-8"));
+	assert.equal(writerRequest.context, "Previous implementation discussion");
+	assert.equal(writerRequest.handoff_mode, "file");
+	assert.equal(writerRequest.thread_id, "b".repeat(24));
 	assert.equal(JSON.parse(readNodeEvaluationFile(writerCase.path, writerCase.value.request.interactions!))[0].name, "write_answer");
 	assert.equal(readFileSync(join(cases[0]!.path, "..", "input", "wiki", "page.md"), "utf-8"), "A frozen Wiki page\n");
 	assert.ok(!readFileSync(cases[0]!.path, "utf-8").includes("PRIME_AGENT_SOURCE_TOKEN"));

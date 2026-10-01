@@ -13,11 +13,13 @@ import { PrimeSearchBatchExecutor, primeProviderCatalog } from "./pipeline/prime
 import type { SearchBatchExecutor } from "./pipeline/search-batch.js";
 import { availableResearchProviders, createHarnessResearchSourceRegistry } from "./sources/builtin-registry.js";
 import { resolveResearchTemporalContext } from "./temporal-context.js";
+import type { InvestigationCitationCue } from "./investigation-citations.js";
 
 /** Acquire a remaining evidence need through the ordinary Prime/Provider flow, then verify it with Cornell. */
 export async function readExternalSources(input: {
 	goalDir: string; goalId: string; runDir: string; investigationId: string; sequence: number;
 	question: string; originalQuestion?: string; signal: AbortSignal; env: NodeJS.ProcessEnv;
+	knownCues?: readonly InvestigationCitationCue[];
 	onActivity?: (activity: AgentStageActivity) => void;
 	searchBatchExecutor?: SearchBatchExecutor;
 	sourceStatus?: Pick<SourceStatusMonitor, "verifyIfStale" | "excludedSourceIds">;
@@ -81,6 +83,7 @@ export async function readExternalSources(input: {
 	const sources = loadFindOutSources(new RunArtifactStore(sourceRunRoot).describeDirectory("artifacts/find-out-sources/sequence-1"));
 	const reading = await executeDeepSearch({
 		goalDir: input.goalDir, goalId: input.goalId, question,
+		originalQuestion: input.originalQuestion, knownCues: input.knownCues,
 		invocationId: `${input.investigationId}-external-${input.sequence}`,
 		preferredSourceRunId: sourceRunId,
 		signal: input.signal, env: input.env, stageRunner: input.stageRunner,

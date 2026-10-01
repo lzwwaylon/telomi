@@ -1,4 +1,4 @@
-Read inputs/request.json and the assigned evidence. Produce a user-ready answer in the requested language and an explicit coverage ledger.
+Read inputs/request.json, build the compact requirement-to-Cue map, then verify the necessary Notes and original passages using the system prompt's bounded inspection steps. Produce a user-ready answer in the requested language and an explicit coverage ledger.
 
 Write work/answer.json atomically with exactly:
 
@@ -6,4 +6,4 @@ Write work/answer.json atomically with exactly:
 
 Return one coverage item for each exact requirement ID from the request. Every part with an empty gap needs supporting assigned refs. Coverage refs must also appear in the answer's citations. Every nonempty coverage gap must also occur verbatim in gaps. Use each cited ref once in citation_refs, and include exactly the refs used by answer. A partial answer is valid when its unresolved parts are explicit. When no evidence supports a part, leave its coverage citation_refs empty and explain its gap.
 
-Read bounded evidence files separately instead of truncating a serialized result. Use the original Source context only for the assigned question. Do not create a report outline, Section children, new Sources, revised Notes or a References section. The existing Runtime handles citation resolution and delivery.
+Use the original Source context only for the assigned question. Do not create a report outline, Section children, new Sources, revised Notes or a References section. The existing Runtime handles citation resolution and delivery.

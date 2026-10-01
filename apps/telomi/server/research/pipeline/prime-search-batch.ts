@@ -58,6 +58,7 @@ import { materializeProviderSdkAssets, renderProviderApiReference, resolveWorker
 import { readProviderCallRecords, type ProviderCallRecord, type ProviderCallRecorder } from "../../providers/provider-call-record.js";
 import { ProviderOverloadBudget, type ProviderOverloadState } from "../sources/provider-runtime.js";
 import type { ResearchSourceRegistry } from "../sources/registry.js";
+import { publishInvestigationHandoff } from "../investigation-handoff.js";
 import type { ResearchSearchResult } from "../../providers/search-types.js";
 import type { ResearchModelUsage } from "../../agent-runtime/model-usage.js";
 import type { ResearchTemporalContext } from "../research-types.js";
@@ -1490,6 +1491,8 @@ export interface PrimeBridgeOptions {
 	conditionsPath?: string;
 	/** Question investigation operations, scoped to this Root and its Goal. */
 	investigation?: {
+		/** Inline responses exist only to replay historical Cases with their original protocol. */
+		responseMode?: "file" | "inline";
 		knowledgeSearch(query: string, limit: number): Promise<unknown>;
 		deepSearch(question: string): Promise<unknown>;
 		writeAnswer?(evidenceRefs: string[], requirements: string[]): Promise<unknown>;
@@ -1535,6 +1538,7 @@ export async function startPrimeSourceBridge(
 	options: PrimeBridgeOptions = {},
 ): Promise<{ baseUrl: string; token: string; close(): Promise<void> }> {
 	const token = randomBytes(32).toString("base64url");
+	if (options.investigation) mkdirSync(join(artifactWorkspace, "inputs"), { recursive: true });
 	const providerCatalog = new Map(registry.catalog().map((provider) => [provider.id, provider]));
 	// One overload budget per Provider Child and Provider, alive as long as this Search Root.
 	const overloadBudgets = new Map<string, ProviderOverloadBudget>();
@@ -1570,6 +1574,10 @@ export async function startPrimeSourceBridge(
 	};
 	const server = createServer(async (incoming, response) => {
 		response.setHeader("content-type", "application/json");
+		const handoff = (operation: string, value: unknown) => {
+			response.end(JSON.stringify(options.investigation?.responseMode === "inline" ? value
+				: publishInvestigationHandoff(artifactWorkspace, operation, value)));
+		};
 		const route = incoming.url ?? "";
 		if (incoming.method !== "POST" || !BRIDGE_ROUTES.has(route)) {
 			response.statusCode = 404;
@@ -1595,14 +1603,14 @@ export async function startPrimeSourceBridge(
 			if (options.investigation) {
 				if (executionId !== "root") throw new Error("Investigation Tools are available only to the Search Root");
 				if (route === "/v1/knowledge-search") {
-					response.end(JSON.stringify(await options.investigation.knowledgeSearch(
+					handoff("knowledge_search", await options.investigation.knowledgeSearch(
 						requiredString(body.query, "Knowledge query"),
 						positiveInteger(body.limit, "Knowledge search limit", 20),
-					)));
+					));
 					return;
 				}
 				if (route === "/v1/deep-search") {
-					response.end(JSON.stringify(await options.investigation.deepSearch(requiredString(body.question, "Deep Search question"))));
+					handoff("deep_search", await options.investigation.deepSearch(requiredString(body.question, "Deep Search question")));
 					return;
 				}
 				if (route === "/v1/write-answer" && options.investigation.writeAnswer) {
@@ -1612,24 +1620,24 @@ export async function startPrimeSourceBridge(
 							|| new Set(value).size !== value.length) throw new Error(`Invalid ${label}`);
 						return value as string[];
 					};
-					response.end(JSON.stringify(await options.investigation.writeAnswer(
+					handoff("write_answer", await options.investigation.writeAnswer(
 						strings(body.evidence_refs, "answer evidence refs", 256, true),
 						strings(body.requirements, "answer requirements", 50, false),
-					)));
+					));
 					return;
 				}
 				if (route === "/v1/external-search" && options.investigation.externalSearch) {
-					response.end(JSON.stringify(await options.investigation.externalSearch(requiredString(body.question, "External search question"))));
+					handoff("external_search", await options.investigation.externalSearch(requiredString(body.question, "External search question")));
 					return;
 				}
 				if (route === "/v1/github-read" && options.investigation.githubRead) {
 					if (!Array.isArray(body.paths) || body.paths.some((path) => typeof path !== "string")) {
 						throw new Error("GitHub paths must be strings");
 					}
-					response.end(JSON.stringify(await options.investigation.githubRead(
+					handoff("github_read", await options.investigation.githubRead(
 						requiredString(body.question, "GitHub reading question"),
 						requiredString(body.repository, "GitHub repository"),
-						requiredString(body.ref, "GitHub ref"), body.paths)));
+						requiredString(body.ref, "GitHub ref"), body.paths));
 					return;
 				}
 				throw new Error("This investigation cannot access external Providers");

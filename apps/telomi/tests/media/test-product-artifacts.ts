@@ -33,6 +33,11 @@ try {
 	writeFileSync(reportPath, "# Workspace Report\n\nVisible report body.\n", "utf-8");
 	writeFileSync(scratchPath, "# Scratchpad\n\nInternal notes.\n", "utf-8");
 	writeFileSync(topicPlanPath, "{\"topics\":[]}\n", "utf-8");
+	mkdirSync(join(artifactsDir, "investigation-threads", "thread", "executions"), { recursive: true });
+	for (const name of ["recent.json", "index.json", "thread/thread.json", "thread/executions/execution.json"]) {
+		writeFileSync(join(artifactsDir, "investigation-threads", name), '{"schema_version":1}\n');
+		assert.equal(isUserFacingArtifact(`investigation-threads/${name}`), false, "thread control records are not user products");
+	}
 	writeFileSync(privatePath, "# Private\n\nMust not be served as a Product Artifact.\n", "utf-8");
 	symlinkSync(goalDir, join(artifactsDir, "main", "escaped"), "dir");
 	symlinkSync(privatePath, join(reportDir, "escaped.md"));

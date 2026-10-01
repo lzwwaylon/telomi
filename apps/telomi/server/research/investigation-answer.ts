@@ -73,6 +73,7 @@ export function writeInvestigationAnswerInput(input: {
 					const path = `sources/${sourceRef}`;
 					const view = materializeAgentSourceView(source.sourceRoot, join(input.inputRoot, path));
 					originalSource = { ref: sourceRef, path, files: view.contentFiles.map((file) => file.relativePath) };
+					writeFileSync(join(input.inputRoot, `${path}-files.json`), `${JSON.stringify(originalSource.files, null, 2)}\n`);
 					sources.set(key, originalSource);
 				}
 				if (!originalSource.files.includes(anchor.source_path)) throw new Error("Answer evidence path is outside its Source view");
@@ -88,7 +89,8 @@ export function writeInvestigationAnswerInput(input: {
 			const digest = sha256(`${excerpt}\n`);
 			if (anchor.content_sha256 && anchor.content_sha256 !== digest) throw new Error("Answer evidence bytes changed");
 			return { ...anchor, excerpt, content_sha256: digest,
-				context: originalSource ? { kind: "original_source" as const, ...originalSource } : { kind: "excerpt_only" as const } };
+				context: originalSource ? { kind: "original_source" as const, ref: originalSource.ref, path: originalSource.path,
+					files_ref: `${originalSource.path}-files.json` } : { kind: "excerpt_only" as const } };
 		});
 		writeFileSync(join(input.inputRoot, "evidence", `${ref}.json`), `${JSON.stringify({ ...item, evidence }, null, 2)}\n`);
 	}

@@ -19,6 +19,7 @@ const service = new GoalService(root, unusedGoalExecution);
 service.ensureImportedGoal(goalId, "Workspace");
 put(join(goal, "artifacts/main/note.md"), "# Note\n\nWorkspace body\n");
 put(join(goal, "artifacts/chart.json"), "{}");
+put(join(goal, "artifacts/investigation-threads/recent.json"), '{"schema_version":1,"threads":[]}');
 put(join(goal, "attachments/input.txt"), "input");
 // Attachment ids are the storage key; folder members and everything nested keep the user's own names.
 const attachmentKey = "6d5a72e2-a417-42fa-ba89-a28f12a9adbb";
@@ -67,6 +68,7 @@ const base = `http://127.0.0.1:${address.port}/api/goals/${goalId}/workspace`;
 try {
 	const listed = await (await fetch(`${base}/list`)).json() as { files: Array<{ path: string; displayPath?: string }>; truncated: boolean };
 	const paths = listed.files.map((file) => file.path);
+	assert.equal(paths.some((path) => path.startsWith("/artifacts/investigation-threads/")), false, "thread control data is readable by explicit path but absent from user file listings");
 	assert.ok(paths.includes("/work/note.md"), "list must use the same guest paths as Main Agent");
 	assert.ok(paths.includes("/work/many/4000.txt"), "all visible files must be listed beyond the old 4000 cap");
 	assert.ok(paths.includes("/work/topic-plan.json"), "The derived Topic Plan exists even before a work directory is prepared");

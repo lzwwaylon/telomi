@@ -1740,6 +1740,7 @@ export function nodeBacktestRunsDirectory(workspaceDir: string, goalId: string):
 
 export function capturedCaseRunRoots(workspaceDir: string, goalId: string): string[] {
 	const root = serverRuntimeDirForGoal(goalId, workspaceDir);
+	const investigations = join(root, "research", "investigations");
 	return [
 		join(root, "runs"),
 		join(root, "main-agent", "runs"),
@@ -1751,7 +1752,10 @@ export function capturedCaseRunRoots(workspaceDir: string, goalId: string): stri
 		join(root, "evolution", "runs"),
 		// One Research Schedule Review is one recorded execution with its own Case.
 		join(root, "research", "schedule-reviews"),
-		join(root, "research", "investigations"),
+		investigations,
+		...(existsSync(investigations) && lstatSync(investigations).isDirectory()
+			? readdirSync(investigations, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+				.map((entry) => join(investigations, entry.name)) : []),
 		join(workspaceDir, requiredSegment(goalId, "Goal id"), ".pi", "runtime", "deep-search"),
 		daemonRunsDirByName(join(workspaceDir, requiredSegment(goalId, "Goal id")), "podcast-ai"),
 	];

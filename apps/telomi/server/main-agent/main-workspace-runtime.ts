@@ -28,6 +28,8 @@ import {
 	type GoalTopicDocument,
 } from "../goals/topic-plan/index.js";
 import { comparePaths } from "../lib/paths.js";
+import { RunArtifactStore, type RunArtifactRef } from "../agent-runtime/artifact-store.js";
+import { publishInvestigationThreadCatalog } from "../research/investigation-threads.js";
 
 const MAIN_WORKSPACE_ROOT = "artifacts/main";
 const MAX_CHANGED_FILES = 200;
@@ -134,6 +136,7 @@ export class MainWorkspaceRuntime {
 			MAIN_WORKSPACE_ROOT,
 		));
 
+		publishInvestigationThreadCatalog(this.goalDir);
 		copyDirectory(join(this.goalDir, "artifacts"), join(sandboxDir, "artifacts"));
 		const skillRoot = join(sandboxDir, agentSkillRoot("main-agent"));
 		materializeSkills(snapshotSkills([
@@ -168,6 +171,25 @@ export class MainWorkspaceRuntime {
 		this.baselines.set(id, baseline);
 		this.store.writeRunArtifact(id, "session.json", `${JSON.stringify(session, null, 2)}\n`);
 		return session;
+	}
+
+	/** Runtime-only publication into the active read-only mount, without accepting other changes. */
+	exposeInvestigationResult(sessionId: string, expected: RunArtifactRef): void {
+		if (!/^investigations\/[a-f0-9]{24}\/result\.json$/u.test(expected.relative_path)) {
+			throw new Error("Expected a published investigation result");
+		}
+		const session = this.requireSession(sessionId);
+		const source = new RunArtifactStore(join(this.goalDir, "artifacts")).openFile(expected);
+		const store = new RunArtifactStore(join(session.sandboxDir, "artifacts"));
+		if (!existsSync(join(store.root, expected.relative_path))) {
+			store.publishFile(source.absolutePath, expected.relative_path);
+		}
+		const mounted = store.openFile(expected);
+		const path = `artifacts/${expected.relative_path}`;
+		const stat = lstatSync(mounted.absolutePath);
+		this.requireBaseline(sessionId).set(path, {
+			path, sha256: mounted.sha256, size: mounted.byteLength, mode: stat.mode & 0o777,
+		});
 	}
 
 	async publish(sessionId: string): Promise<MainWorkspacePublishResult> {

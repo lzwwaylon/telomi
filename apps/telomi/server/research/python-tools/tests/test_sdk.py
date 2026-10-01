@@ -29,6 +29,10 @@ class ResearchRuntimeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     research_runtime.write_answer(refs, parts)
             self.assertEqual(post.call_count, 1)
+            for refs, parts in [("N1", ["Explain the loss"]), (["N1"], "Explain the loss")]:
+                with self.assertRaisesRegex(ValueError, r"must be list\[str\]"):
+                    research_runtime.write_answer(refs, parts)
+            self.assertEqual(post.call_count, 1, "invalid Python types never start a Writer")
         with patch.object(research_runtime, "execution_id", return_value="sub-reader"):
             with self.assertRaisesRegex(ValueError, "only to the Search Root"):
                 research_runtime.write_answer(["N1"], ["Explain the loss"])
