@@ -14,13 +14,14 @@ import { noteFirstOutputHash, noteFirstTraceUsage, readNoteFirstOutput } from '.
 import type { NoteFirstOutcome, NoteFirstResult, NoteFirstStageRequest } from './note-first-contract.js';
 
 const thinking = 'medium';
-const tools = ['read', 'write', 'edit'] as const;
+const fileTools = ['read', 'write', 'edit'] as const;
 export interface PiReadParameters { path: string; offset?: number; limit?: number }
 export interface PiReadResult { content: Array<{ type: string; text?: string }> }
 interface PiFileStageOptions {
  modelId: string;
  promptVariant: string;
  referenceVariant?: string;
+ grepRoot?: '/work/wiki/pages' | '/work/input/pages';
  user: string;
  executionMode: string;
  role: SrtAgentSandboxOptions['role'];
@@ -72,9 +73,12 @@ export async function runPiFileStage(request: NoteFirstStageRequest, options: Pi
  request.signal.throwIfAborted();
  mkdirSync(request.workRoot, { recursive: true });
  const { modelId, user } = options;
+ const tools = options.grepRoot ? [...fileTools, 'grep' as const] : fileTools;
  const prompt = renderAgentPrompt('wiki', 'note-first', 'system', {}, options.promptVariant);
  const prefix = options.referenceVariant ? renderAgentPrompt('wiki', 'note-first', 'reference', {}, options.referenceVariant).content + '\n' : '';
- const systemPrompt = prefix + prompt.content;
+ const systemPrompt = prefix + prompt.content + (options.grepRoot
+  ? `\nNative grep is also available for discovering relevant passages in ${options.grepRoot}. Search exact terms or patterns when catalog summaries leave uncertainty. Search matches do not establish complete reading: use native read on selected pages, and retain all existing full-read requirements. No outside material or other tools are available.\n`
+  : '');
  const identity = hashJson({ input: request.input, user, systemPrompt, registration: prompt.configSha256,
   model: modelId, thinking, tools, role: options.role, executionMode: options.executionMode,
   maxAttempts: options.maxAttempts ?? 2, definitions: primeModelDefinitions(request.env),
