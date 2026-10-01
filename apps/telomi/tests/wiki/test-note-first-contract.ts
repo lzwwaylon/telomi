@@ -116,15 +116,6 @@ try {
  const audit = workspace({ ...concept, stage: 'audit-concepts' });
  assert.throws(() => audit.validate({}, work), /Pi native-read contract/u);
 
- const rw = workspace({ ...concept, stage: 'relations' });
- const relation = { relations: [{ from: 'P1', to: 'P2', label: 'contrasts', entry_refs: ['N1'] }], reviewed_pages: considered.considered_pages };
- assert.throws(() => rw.validate(relation, work), /endpoints/u);
- rw.read('S1'); rw.read('S3');
- const rel = rw.validate(relation, work);
- assert.equal(rel.kind, 'relations');
- if (rel.kind !== 'relations') throw new Error('wrong kind');
- assert.deepEqual(rel.relations[0], { from: first.id, to: second.id, label: 'contrasts', entryIds: [id] });
- assert.throws(() => rw.validate({ ...relation, relations: [...relation.relations, ...relation.relations] }, work), /duplicate/u);
  const topic = { id: 'long-topic-id', title: 'Loss', intent: 'Understand objectives', questions: [], include: [], exclude: [] };
  const ti = { ...concept, stage: 'topic' as const, topics: [topic], sections: objectFirstSections([first, second]).map(section => ({ ...section, entryIds: section.pageId === first.id ? [id] : [otherId] })) };
  const tw = workspace(ti);
@@ -228,7 +219,6 @@ try {
     manifest = { pages: [{ file: 'pages/C1.md', member_refs: members.map(p => p.alias) }], retained_refs: [], discarded_refs: [] };
    }
   }
-  if (stage.stage === 'relations') manifest = { relations: [], reviewed_pages: pageAliases.map(p => ({ page_ref: p.alias, reason: 'No additional relation' })) };
   if (stage.stage === 'plan-topics') manifest = { jobs: [{ topic_ref: 'T1', instructions: 'Find Loss' }] };
   if (stage.stage === 'topic') { w.read('S1'); manifest = { topic_ref: 'T1', matches: [{ section_ref: 'S1', reason: 'Explains Loss' }], gaps: [] }; }
   let result;
@@ -247,5 +237,5 @@ try {
  assert.equal(proposals.length, 2); assert.notEqual(proposals[0], proposals[1], 'proposals have input-version-local identity');
  const finalPages = JSON.parse(readFileSync(join(edition2.knowledge.absolutePath, '.object-first-pages.json'), 'utf8')) as ObjectFirstPage[];
  assert.equal(finalPages.length, 2); assert.equal(finalPages.find(page => page.kind === 'concept')!.id, proposals[0], 'merging preserves the previous published identity');
- console.log('note-first contract: aliases, dispositions, safe files, progressive reads, plans, relations and navigation passed');
+ console.log('note-first contract: aliases, dispositions, safe files, progressive reads, plans and navigation passed');
 } finally { rmSync(root, { recursive: true, force: true }); }

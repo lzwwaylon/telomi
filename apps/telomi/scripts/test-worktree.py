@@ -429,9 +429,10 @@ class WorktreeTest(unittest.TestCase):
                                ("signal.signal(signal.SIGINT, signal.SIG_DFL)", 0),
                                ("signal.signal(signal.SIGINT, lambda *_: (os.write(2, b'payload SIGINT -> 1\\n'), sys.exit(1)))", 1)):
             with self.subTest(body=body):
+                # Bound pending Python signal delays and require an interrupt, not natural exit.
                 child = subprocess.Popen([sys.executable, "-c", supervisor, str(SCRIPT), "--root", str(self.main), "run", "--", sys.executable,
                                           "-c", "import faulthandler,os,signal,sys,time; faulthandler.dump_traceback_later(20); "
-                                          f"{body}; print('ready', os.getpid(), flush=True); time.sleep(30)"],
+                                          f"{body}; print('ready', os.getpid(), flush=True)\nwhile True: time.sleep(.05)"],
                                          stdout=subprocess.PIPE, text=True)
                 payload = None
                 try:
