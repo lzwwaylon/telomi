@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { resolveOutputLanguage, type OutputLanguage } from "../../shared/languages.js";
 import type { AgentStageActivity } from "../agent-runtime/agent-stage-runtime.js";
+import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { resolvePrimeModel, pinTaskModelSelection } from "../agent-runtime/model-policy.js";
 import { resolveStageThinkingLevel } from "../agent-runtime/model-config/resolve.js";
@@ -29,8 +30,11 @@ import { readExternalSources } from "./external-search.js";
 import { createInvestigationCitationScope, type InvestigationCitationCue } from "./investigation-citations.js";
 import { executeInvestigationAnswer, writeInvestigationAnswerInput, type InvestigationAnswer,
 	type InvestigationAnswerEvidence } from "./investigation-answer.js";
+import { readLatestInvestigationWriter } from "./investigation-handoff.js";
+import { runInInvestigationThread, writeInvestigationThreadInput, validateInvestigationProgress } from "./investigation-threads.js";
 
 export interface InvestigationResult {
+	thread_id?: string;
 	id: string;
 	question: string;
 	answer: string;
@@ -64,6 +68,8 @@ export async function executeInvestigation(input: {
 	goalDir: string;
 	goalId: string;
 	invocationId: string;
+	threadId?: string;
+	title?: string;
 	question: string;
 	context?: string;
 	allowExternal?: boolean;
@@ -83,7 +89,8 @@ export async function executeInvestigation(input: {
 	const runDir = join(serverRuntimeDirForGoalDir(input.goalDir), "research", "investigations", id);
 	mkdirSync(runDir, { recursive: true });
 	const allowExternal = input.allowExternal === true;
-	const request = { goalId: input.goalId, id, question, context, language, allowExternal };
+	const request = { goalId: input.goalId, id, question, context, language, allowExternal,
+		...(input.threadId ? { threadId: input.threadId } : {}), ...(input.title !== undefined ? { title: input.title } : {}) };
 	const requestPath = join(runDir, "request.json");
 	if (existsSync(requestPath)) {
 		if (JSON.stringify(JSON.parse(readFileSync(requestPath, "utf8"))) !== JSON.stringify(request)) {
@@ -91,6 +98,13 @@ export async function executeInvestigation(input: {
 		}
 	} else writeJsonAtomic(requestPath, request);
 	const savedPath = join(runDir, "result.json");
+	// Legacy completed invocations have no thread binding and keep their original idempotent result.
+	if (existsSync(savedPath) && !existsSync(join(runDir, "thread-binding.json"))) {
+		const saved = readInvestigationResult(input.goalDir, id);
+		if (saved.thread_id === undefined) return saved;
+	}
+	return runInInvestigationThread({ goalDir: input.goalDir, executionId: id, question,
+		threadId: input.threadId, title: input.title, allowExternal }, async (thread) => {
 	if (existsSync(savedPath)) return readInvestigationResult(input.goalDir, id);
 
 	const knowledgeRoot = join(runDir, "input", "wiki");
@@ -128,6 +142,49 @@ export async function executeInvestigation(input: {
 	const sdkRoot = join(runDir, "sdk");
 	mkdirSync(root, { recursive: true });
 	mkdirSync(join(root, "work"), { recursive: true });
+	const inputsRoot = join(root, "inputs");
+	writeJsonAtomic(join(inputsRoot, "request.json"), { question, context, language, external_allowed: allowExternal,
+		thread_id: thread.threadId, thread_ref: "inputs/thread.json", previous_evidence_ref: "inputs/thread-evidence.json" });
+	writeInvestigationThreadInput(input.goalDir, thread, join(runDir, "input"));
+	copyFileSync(join(runDir, "input", "thread.json"), join(inputsRoot, "thread.json"));
+	const historyRoot = join(runDir, "input", "history");
+	if (existsSync(historyRoot)) cpSync(historyRoot, join(inputsRoot, "history"), { recursive: true });
+	// Register prior durable Cue identities in this invocation's fresh citation scope.
+	const previousRefs = new Set<string>();
+	const unresolvedWikiRefs: string[] = [];
+	for (const execution of thread.executions) {
+		if (!execution.result) continue;
+		const store = new RunArtifactStore(join(input.goalDir, "artifacts"));
+		const prior = store.readJson<InvestigationResult>(store.openFile(execution.result));
+		for (const ref of prior.citation_refs) {
+			if (ref.startsWith("deep-search:") || ref.startsWith("cornell:")) { previousRefs.add(ref); continue; }
+			if (/^C[1-9][0-9]*$/u.test(ref)) {
+				const citationsPath = join(serverRuntimeDirForGoalDir(input.goalDir), "research", "investigations", execution.execution_id, "citations.json");
+				const citations = existsSync(citationsPath) ? JSON.parse(readFileSync(citationsPath, "utf8")) as {
+					citations?: Array<{ ref: string; wiki?: { entry?: { id?: string } } }> } : {};
+				const entryId = citations.citations?.find((row) => row.ref === ref)?.wiki?.entry?.id?.replace(/^entry:/u, "");
+				const cue = entryId ? catalog.find((item) => item.ref.startsWith("cornell:") && item.ref.split(":")[2] === entryId) : undefined;
+				if (cue) previousRefs.add(cue.ref);
+				else unresolvedWikiRefs.push(`Historical ${execution.execution_id}/${ref} cannot be remapped to the current allowed Wiki evidence; search and verify it again.`);
+			}
+		}
+	}
+	const recoveryGaps: string[] = [...unresolvedWikiRefs];
+	const previousCues: InvestigationCitationCue[] = [];
+	for (const ref of previousRefs) {
+		const cue = catalog.find((item) => item.ref === ref);
+		if (!cue) { recoveryGaps.push(`Prior evidence ${ref} is absent from the current allowed knowledge snapshot; verify it again.`); continue; }
+		try {
+			if (cue.ref.startsWith("cornell:")) {
+				const original = resolveSavedCornellCue(input.goalDir, cue.ref);
+				if (!original) throw new Error("Prior Cornell Cue is unavailable");
+				previousCues.push({ ...cue, evidence: original.evidence });
+			} else previousCues.push(...enrichInvestigationCues(input.goalDir, [cue]));
+		}
+		catch { recoveryGaps.push(`Prior evidence ${ref} could not be verified against saved original bytes; verify it again.`); }
+	}
+	writeJsonAtomic(join(runDir, "input", "thread-evidence.json"), { schema_version: 1, cues: previousCues, recovery_gaps: recoveryGaps });
+	writeJsonAtomic(join(inputsRoot, "thread-evidence.json"), { schema_version: 1, cues: projectCues(previousCues), recovery_gaps: recoveryGaps });
 	mkdirSync(sdkRoot, { recursive: true });
 	copyFileSync(fileURLToPath(new URL("./python-tools/research_runtime.py", import.meta.url)), join(sdkRoot, "research_runtime.py"));
 	const skillSource = fileURLToPath(new URL("../../agents/research/prime-search/skills/deep-search", import.meta.url));
@@ -135,7 +192,7 @@ export async function executeInvestigation(input: {
 	const skills = [...materializeSkills(snapshotSkills([skillSource]), skillRoot).values()];
 	const env = pinTaskModelSelection(["primeRoot", "primeChild"], { ...process.env, ...input.env });
 	const prompt = renderAgentPrompt("research", "prime-search", "user", {
-		run_input_json: JSON.stringify({ question, context, language, external_allowed: allowExternal }),
+		run_input_json: JSON.stringify({ request_ref: "inputs/request.json" }),
 	}, "investigate").content;
 	writeFileSync(join(runDir, "prompt.md"), prompt);
 	const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Set(), {
@@ -183,7 +240,8 @@ export async function executeInvestigation(input: {
 			deepSearch: async (deepQuestion) => {
 				signal.throwIfAborted();
 				const reading = await executeDeepSearch({ goalDir: input.goalDir, goalId: input.goalId,
-					question: deepQuestion, invocationId: `${id}-${++deepSearchCount}`, signal, env });
+					question: deepQuestion, originalQuestion: question, knownCues: [...availableCues.values()],
+					invocationId: `${id}-${++deepSearchCount}`, signal, env });
 				const note = { ...reading, cues: enrichInvestigationCues(input.goalDir, reading.cues) };
 				recordInteraction("deep_search", { question: deepQuestion }, note);
 				return { ...note, cues: projectCues(note.cues) };
@@ -191,10 +249,11 @@ export async function executeInvestigation(input: {
 			externalSearch: async (externalQuestion) => {
 				signal.throwIfAborted();
 				if (!allowExternal) throw new Error("This user question is limited to saved Goal materials");
-				if (deepSearchCount === 0) throw new Error("Search saved original materials before acquiring external evidence");
+				if (deepSearchCount === 0 && previousCues.length === 0) throw new Error("Search saved original materials before acquiring external evidence");
 				const acquired = await readExternalSources({ goalDir: input.goalDir, goalId: input.goalId,
 					runDir, investigationId: id, sequence: ++externalSearchCount,
-					question: externalQuestion, originalQuestion: question, signal, env, onActivity: input.onActivity });
+					question: externalQuestion, originalQuestion: question, knownCues: [...availableCues.values()],
+					signal, env, onActivity: input.onActivity });
 				const result = { ...acquired, cues: enrichInvestigationCues(input.goalDir, acquired.cues) };
 				recordInteraction("external_search", { question: externalQuestion }, result);
 				return { ...result, cues: projectCues(result.cues),
@@ -250,14 +309,14 @@ export async function executeInvestigation(input: {
 		const execute = async (): Promise<InvestigationResult> => {
 		const run = await runPrime({
 			module: primeAgentModulePath(env), cwd: root, runtimeRoot,
-			readonlyRoots: [sdkRoot, skillRoot], privateRoots: [input.goalDir],
+			readonlyRoots: [sdkRoot, skillRoot, inputsRoot], privateRoots: [input.goalDir],
 			sessionDir: join(runtimeRoot, "session", "session"),
 			provider: model.provider, model: model.modelId, prompt, skills, tools: ["ipython"],
 			thinking,
 			scopedModels: [], rlmMaxDepth: 0,
 			extraEnv: { PRIME_AGENT_SOURCE_URL: bridge.baseUrl, PRIME_AGENT_SOURCE_TOKEN: bridge.token,
 				PRIME_AGENT_SOURCE_IDS: "", PRIME_AGENT_ARTIFACT_WORKSPACE: root, PYTHONPATH: sdkRoot,
-				PYTHONDONTWRITEBYTECODE: "1", RLM_MAX_DEPTH: "0" },
+				PYTHONDONTWRITEBYTECODE: "1", RLM_MAX_DEPTH: "0", PRIME_INVESTIGATION_HANDOFF_MODE: "file" },
 			env, signal, onActivity: input.onActivity,
 			activity: { stageId: "prime-investigation", attemptId: "1", role: "prime_search" },
 			tracePath: join(runDir, "trace.jsonl"), conditionsPath: join(runDir, "execution-conditions.jsonl"),
@@ -273,7 +332,12 @@ export async function executeInvestigation(input: {
 			throw new Error(run.rootError ?? "Prime investigation did not write a valid result file");
 		}
 		const value = JSON.parse(readFileSync(outputPath, "utf8"));
-		const draft = validateInvestigationResult({ ...value, id, question, wiki_sha256: wikiSha256 }, id, question);
+		if (!isRecord(value) || JSON.stringify(Object.keys(value)) !== JSON.stringify(["answer_ref"])) {
+			throw new Error("Prime investigation must submit only its Writer handoff reference");
+		}
+		const answer = readLatestInvestigationWriter(root, value.answer_ref) as InvestigationAnswer;
+		const draft = validateInvestigationResult({ answer: answer.answer, citation_refs: answer.citation_refs,
+			gaps: answer.gaps, id, question, wiki_sha256: wikiSha256, thread_id: thread.threadId }, id, question);
 		if (!writerState.lastAnswer || JSON.stringify({ answer: draft.answer, citation_refs: draft.citation_refs, gaps: draft.gaps })
 			!== JSON.stringify({ answer: writerState.lastAnswer.answer, citation_refs: writerState.lastAnswer.citation_refs, gaps: writerState.lastAnswer.gaps })) {
 			throw new Error("Prime must deliver the delegated Writer's answer without rewriting it");
@@ -289,16 +353,25 @@ export async function executeInvestigation(input: {
 			if (!cue) throw new Error(`Prime cited unavailable Cue '${ref}'`);
 			return { ref, cue };
 		});
+		const progressPath = join(root, "work", "progress.json");
+		if (existsSync(progressPath)) {
+			const progressStore = new RunArtifactStore(join(root, "work"));
+			const artifact = progressStore.describeFile("progress.json");
+			if (artifact.byteLength > 64_000) throw new Error("Investigation progress exceeds its bounded size");
+			validateInvestigationProgress(progressStore.readJson(artifact));
+		}
 		writeJsonAtomic(join(runDir, "citations.json"), { schema_version: 1, citations });
 		writeJsonAtomic(savedPath, result);
 		return result;
 		};
 		const capture = caseCapture()?.investigation;
 		return capture ? await capture({ goalDir: input.goalDir, goalId: input.goalId, runDir,
-			question, context, language, allowExternal, wikiSha256, model: model.selector, thinking, metrics: captureMetrics, execute }) : await execute();
+			question, context, language, allowExternal, wikiSha256, model: model.selector, thinking, metrics: captureMetrics,
+			handoffMode: "file", threadId: thread.threadId, execute }) : await execute();
 	} finally {
 		await bridge.close();
 	}
+	});
 }
 
 /** Resolve only the Cues returned to Prime, preserving durable fields for Capture before short-ref projection. */
@@ -314,7 +387,8 @@ export function enrichInvestigationCues<T extends InvestigationCitationCue>(goal
 export function validateInvestigationResult(value: unknown, id: string, question: string): InvestigationResult {
 	if (!isRecord(value) || value.id !== id || value.question !== question || typeof value.answer !== "string"
 		|| !value.answer.trim() || value.answer.length > 32_000 || !Array.isArray(value.citation_refs)
-		|| !Array.isArray(value.gaps) || typeof value.wiki_sha256 !== "string") {
+		|| !Array.isArray(value.gaps) || typeof value.wiki_sha256 !== "string"
+		|| (value.thread_id !== undefined && (typeof value.thread_id !== "string" || !/^[a-f0-9]{24}$/u.test(value.thread_id)))) {
 		throw new Error("Invalid Prime investigation result");
 	}
 	const refs = value.citation_refs;

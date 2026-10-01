@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -171,7 +173,7 @@ def search_general_web(
 
 
 def knowledge_search(query: str, *, limit: int = 10) -> dict[str, Any]:
-    """Find previously organized Goal knowledge before deciding whether original reading is needed."""
+    """Search saved knowledge and return a receipt; read_handoff loads the complete result on demand."""
     if execution_id() != "root":
         raise ValueError("knowledge_search is available only to the Search Root")
     if not isinstance(query, str) or not query.strip():
@@ -186,7 +188,7 @@ def knowledge_search(query: str, *, limit: int = 10) -> dict[str, Any]:
 
 
 def deep_search(question: str) -> dict[str, Any]:
-    """Ask the Cornell reader to inspect saved original materials for one question."""
+    """Ask Cornell to read originals and return a receipt for its verified Cue Notes."""
     if execution_id() != "root":
         raise ValueError("deep_search is available only to the Search Root")
     if not isinstance(question, str) or not question.strip():
@@ -198,7 +200,7 @@ def deep_search(question: str) -> dict[str, Any]:
 
 
 def external_search(question: str) -> dict[str, Any]:
-    """Acquire a missing evidence need through ordinary Prime Provider search, then return verified Cornell Cues."""
+    """Acquire and verify missing evidence, returning a receipt for the complete result."""
     if execution_id() != "root":
         raise ValueError("external_search is available only to the Search Root")
     if not isinstance(question, str) or not question.strip():
@@ -207,14 +209,16 @@ def external_search(question: str) -> dict[str, Any]:
 
 
 def write_answer(evidence_refs: list[str], requirements: list[str]) -> dict[str, Any]:
-    """Delegate answer synthesis over assigned evidence to the Report Writer."""
+    """Delegate synthesis: both arguments are lists of strings, e.g. write_answer([\"N1\"], [\"Explain the mechanism\"])."""
     if execution_id() != "root":
         raise ValueError("write_answer is available only to the Search Root")
     for values, name, maximum, allow_empty in [
         (evidence_refs, "evidence_refs", 256, True),
         (requirements, "requirements", 50, False),
     ]:
-        if (not isinstance(values, list) or len(values) > maximum
+        if not isinstance(values, list):
+            raise ValueError(f"{name} must be list[str], e.g. ['Explain the requested part'] for requirements")
+        if (len(values) > maximum
                 or (not allow_empty and not values)
                 or any(not isinstance(value, str) or not value.strip() or len(value) > 20_000 for value in values)
                 or len(set(values)) != len(values)):
@@ -222,6 +226,37 @@ def write_answer(evidence_refs: list[str], requirements: list[str]) -> dict[str,
     return _post("/v1/write-answer", {
         "agent_session_id": "root", "evidence_refs": evidence_refs, "requirements": requirements,
     })
+
+
+def read_handoff(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Read one frozen result into a Python variable without printing it into model context."""
+    if (os.environ.get("PRIME_INVESTIGATION_HANDOFF_MODE") == "inline"
+            and isinstance(receipt, dict) and "result_ref" not in receipt):
+        return receipt  # Historical Replay keeps its original inline protocol.
+    if (not isinstance(receipt, dict) or receipt.get("schema_version") != 1
+            or not isinstance(receipt.get("operation"), str)
+            or not re.fullmatch(r"[a-z_]+", receipt["operation"])
+            or not isinstance(receipt.get("result_ref"), str)
+            or not re.fullmatch(r"inputs/handoff/" + receipt["operation"] + r"-[a-f0-9-]+\.json", receipt["result_ref"])
+            or not isinstance(receipt.get("sha256"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", receipt["sha256"])
+            or type(receipt.get("byte_length")) is not int or receipt["byte_length"] < 1):
+        raise ResearchRuntimeError("Invalid handoff receipt", code="runtime_invalid_handoff", failure_class="validation")
+    root = Path(os.environ["PRIME_AGENT_ARTIFACT_WORKSPACE"]).resolve(strict=True)
+    path = root
+    for part in Path(receipt["result_ref"]).parts:
+        path = path / part
+        if path.is_symlink():
+            raise ResearchRuntimeError("Handoff symlinks are forbidden", code="runtime_invalid_handoff", failure_class="validation")
+    if not path.is_file() or path.stat().st_nlink != 1:
+        raise ResearchRuntimeError("Handoff must be one regular file", code="runtime_invalid_handoff", failure_class="validation")
+    data = path.read_bytes()
+    if len(data) != receipt["byte_length"] or hashlib.sha256(data).hexdigest() != receipt["sha256"]:
+        raise ResearchRuntimeError("Handoff bytes changed", code="runtime_invalid_handoff", failure_class="validation")
+    value = json.loads(data)
+    if not isinstance(value, dict):
+        raise ResearchRuntimeError("Handoff must contain an object", code="runtime_invalid_handoff", failure_class="validation")
+    return value
 
 
 def github_read(question: str, repository: str, ref: str, paths: list[str]) -> dict[str, Any]:

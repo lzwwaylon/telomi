@@ -15,6 +15,7 @@ import { findLogicalSourceInRun } from "../workspaces/source-view.js";
 import { caseCapture } from "../observability/case-capture.js";
 import { inspectAgentSourceView } from "./pipeline/agent-source-view.js";
 import { assertSafeRelativePath } from "../lib/paths.js";
+import type { InvestigationCitationCue } from "./investigation-citations.js";
 
 const SAFE_ID = /^[A-Za-z0-9._-]{1,100}$/u;
 const CUE_REF = /^deep-search:([A-Za-z0-9._-]{1,100}):cue-([1-9]\d*)$/u;
@@ -65,6 +66,8 @@ export async function executeDeepSearch(input: {
 	question: string;
 	invocationId: string;
 	preferredSourceRunId?: string;
+	originalQuestion?: string;
+	knownCues?: readonly InvestigationCitationCue[];
 	signal: AbortSignal;
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
@@ -85,12 +88,15 @@ export async function executeDeepSearch(input: {
 	const controlDir = join(input.goalDir, ".pi", "runtime", "deep-search", input.invocationId);
 	const corpusDir = join(controlDir, "source");
 	const sources = materializeCorpus(input.goalDir, corpusDir, input.preferredSourceRunId);
+	writeReaderContext(corpusDir, sources, input.originalQuestion?.trim() || question,
+		input.knownCues ?? [], input.preferredSourceRunId);
 	const env = input.env ?? process.env;
 	const config = input.model && input.thinkingLevel ? undefined : researchConfigFromEnv(env);
 	const system = renderCornellNoteAgentSystemPrompt(undefined, "deep-search");
 	const userPrompt = [
 		`Question: ${question}`,
-		`The Goal has ${sources.length} pinned Source views in source/catalog.json. Search them yourself; Source refs are navigation handles, not evidence.`,
+		"Read source/reader-context.json for the original question, verified prior Cue navigation, current anchor mappings and preferred Source refs. It is navigation only; cite exact original Source lines.",
+		`The Goal has ${sources.length} pinned Source views in source/catalog.json, available as needed to resolve the assigned question. Source refs are navigation handles, not evidence.`,
 		"Write cornell-note.json with exactly this shape:",
 		'{"status":"found|partial|not_found","summary":"short answer or search outcome","gaps":["specific unresolved point"],"sections":[{"section_title":"topic","cue_notes":[{"cue":"topic + keywords","note":"supported conclusion","evidence":[{"source_ref":"S1","source_path":"exact path within that Source","start_line":1,"end_line":2}]}]}]}',
 		"Use found only when the question is answered with evidence; partial when some evidence exists but a gap remains; not_found with empty sections when no evidence was found. Every Cue needs at least one exact original-text citation. Do not cite the catalog or manifests. Do not include hashes, IDs, or extra fields: Runtime supplies them.",
@@ -131,6 +137,63 @@ export async function executeDeepSearch(input: {
 	// The Runtime trace remains under controlDir; only the temporary corpus is disposable.
 	rmSync(corpusDir, { recursive: true, force: true });
 	return result.value;
+}
+
+/** Prior Notes guide incremental reading; only matching original Source bytes permit reuse. */
+function writeReaderContext(corpusDir: string, sources: readonly CorpusSource[], originalQuestion: string,
+	knownCues: readonly InvestigationCitationCue[], preferredSourceRunId?: string): void {
+	type Identity = Partial<Pick<DeepSearchEvidence, "source_id" | "source_run_id" | "source_revision_sha256" | "content_sha256">>;
+	const cues = knownCues.map((cue) => {
+		const identity = cue as InvestigationCitationCue & Identity;
+		const evidence = cue.evidence.map((raw) => {
+			const anchor = raw as typeof raw & Identity;
+			const sourceId = anchor.source_id ?? identity.source_id;
+			const runId = anchor.source_run_id ?? identity.source_run_id;
+			const revision = anchor.source_revision_sha256 ?? identity.source_revision_sha256;
+			const url = anchor.url ?? cue.canonical_locator;
+			const mapped = sources.filter((source) => sourceId ? source.id === sourceId
+				: source.files.some((file) => file.relativePath === anchor.source_path)
+					&& (!url || source.url === url));
+			const reasons: string[] = [];
+			if (mapped.length !== 1) reasons.push(mapped.length ? "ambiguous_source" : "source_unavailable");
+			if (!sourceId && !url) reasons.push("source_identity_unavailable");
+			const source = mapped.length === 1 ? mapped[0] : undefined;
+			const file = source?.files.find((item) => item.relativePath === anchor.source_path);
+			if (source) {
+				if (runId && source.runId !== runId) reasons.push("source_run_changed");
+				if (revision && source.revision !== revision) reasons.push("source_revision_changed");
+				if (!file) reasons.push("source_path_unavailable");
+			}
+			let contentSha256: string | undefined;
+			if (file) {
+				const lines = readFileSync(file.absolutePath, "utf-8").replace(/\r\n?/gu, "\n").split("\n");
+				if (!Number.isSafeInteger(anchor.start_line) || !Number.isSafeInteger(anchor.end_line)
+					|| anchor.start_line < 1 || anchor.end_line < anchor.start_line || anchor.end_line > lines.length) {
+					reasons.push("line_range_invalid");
+				} else {
+					const excerpt = lines.slice(anchor.start_line - 1, anchor.end_line).join("\n");
+					contentSha256 = sha256(`${excerpt}\n`);
+					// Cornell display excerpts strip Markdown assets and whitespace; the hash retains original bytes.
+					if (anchor.content_sha256) {
+						if (anchor.content_sha256 !== contentSha256) reasons.push("content_hash_changed");
+					} else if (anchor.excerpt !== undefined && anchor.excerpt.replace(/\r\n?/gu, "\n") !== excerpt) reasons.push("excerpt_changed");
+					if (!anchor.content_sha256 && anchor.excerpt === undefined) reasons.push("original_bytes_unavailable");
+				}
+			}
+			return { source_path: anchor.source_path, start_line: anchor.start_line, end_line: anchor.end_line,
+				source_refs: mapped.map((item) => item.ref),
+				status: reasons.length ? "recheck_required" : "verified",
+				recheck_reasons: reasons, ...(contentSha256 ? { current_content_sha256: contentSha256 } : {}) };
+		});
+		return { ref: cue.ref, section_title: cue.section_title, cue: cue.cue, note: cue.note,
+			status: evidence.length && evidence.every((anchor) => anchor.status === "verified") ? "verified" : "recheck_required",
+			evidence };
+	});
+	writeFileSync(join(corpusDir, "reader-context.json"), `${JSON.stringify({ schema_version: 1,
+		original_question: originalQuestion, catalog_ref: "source/catalog.json",
+		preferred_source_refs: sources.filter((source) => source.runId === preferredSourceRunId).map((source) => source.ref),
+		known_cues: cues,
+	}, null, 2)}\n`);
 }
 
 /** Previously verified Cue Notes become visible to the next knowledge search before Wiki rebuilds. */

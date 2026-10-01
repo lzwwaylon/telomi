@@ -6,6 +6,7 @@ import { basenameNoExt, isFileNameSegment } from "../lib/paths.js";
 import { listFilesRecursive } from "../lib/fs.js";
 import { clipSummary, toErrorMessage } from "../lib/values.js";
 import type { GoalService } from "../goals/service.js";
+import { isInvestigationThreadControlFile } from "../media/product-artifacts.js";
 import { openMainAgentFiles } from "./main-agent-files.js";
 import { attachmentDisplayPaths, isParserInternalFile, workspaceDisplayPath } from "./workspace-display.js";
 
@@ -145,6 +146,7 @@ async function projectWorkspaceFiles(
 				const file = view.resolve(`${mount.guestPath}/${relativePath}`);
 				if (file.kind !== "file") continue;
 				if (isParserInternalFile(file.path)) continue;
+				if (mount.guestPath === "/artifacts" && isInvestigationThreadControlFile(relativePath)) continue;
 				const stat = await fsp.lstat(file.absolutePath);
 				if (!stat.isFile() || stat.nlink !== 1) continue;
 				const name = basename(relativePath);

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,8 @@ try {
 	mkdirSync(sourceRoot, { recursive: true });
 	const original = "  value = speech_tokens\nreturn projection(value)\n";
 	writeFileSync(join(sourceRoot, "model.py"), original);
+	const dependency = "def projection(value):\n    return value * 2\n";
+	writeFileSync(join(sourceRoot, "dependency.py"), dependency);
 	const revision = sha256("source-revision");
 	writeFileSync(join(sequence, "manifest.json"), JSON.stringify({ sources: [{
 		source_id: "source:one", title: "Implementation", revision_sha256: revision, path: "sources/one",
@@ -29,16 +31,28 @@ try {
 			source_path: "model.py", start_line: 1, end_line: 1, content_sha256: sha256("  value = speech_tokens\n"),
 			excerpt: "value = speech_tokens", title: "Implementation", url: "https://example.org/model" }] };
 	const inputRoot = join(root, "input");
-	writeInvestigationAnswerInput({ inputRoot, request, evidence: [evidence], goalDir });
+	const secondCue: InvestigationAnswerEvidence = { ...evidence, ref: "N2", cue: "projection", note: "projection doubles its input",
+		evidence: [{ ...evidence.evidence[0]!, source_path: "dependency.py", start_line: 2, end_line: 2,
+			content_sha256: sha256("    return value * 2\n"), excerpt: "return value * 2" }] };
+	writeInvestigationAnswerInput({ inputRoot, request: { ...request, evidence_refs: ["N1", "N2"] }, evidence: [evidence, secondCue], goalDir });
 	const frozenEvidence = JSON.parse(readFileSync(join(inputRoot, "evidence", "N1.json"), "utf-8"));
+	const frozenSecondCue = JSON.parse(readFileSync(join(inputRoot, "evidence", "N2.json"), "utf-8"));
 	assert.equal(frozenEvidence.evidence[0].excerpt, "  value = speech_tokens", "freeze original bytes, not the trimmed display excerpt");
-	assert.deepEqual(frozenEvidence.evidence[0].context, { kind: "original_source", ref: "S1", path: "sources/S1", files: ["model.py"] });
+	assert.deepEqual(frozenEvidence.evidence[0].context, { kind: "original_source", ref: "S1", path: "sources/S1", files_ref: "sources/S1-files.json" });
+	assert.deepEqual(frozenSecondCue.evidence[0].context, frozenEvidence.evidence[0].context, "Cues of the same Source share one inventory ref");
+	assert.deepEqual(JSON.parse(readFileSync(join(inputRoot, frozenEvidence.evidence[0].context.files_ref), "utf-8")), ["dependency.py", "model.py"]);
+	assert.deepEqual(readdirSync(join(inputRoot, "sources")).sort(), ["S1", "S1-files.json"], "materialize one Source and one shared index");
 	assert.equal(frozenEvidence.evidence[0].url, evidence.evidence[0]!.url);
 	assert.equal(frozenEvidence.evidence[0].source_revision_sha256, revision);
 	assert.equal(readFileSync(join(inputRoot, "sources", "S1", "model.py"), "utf-8"), original,
 		"Writer can read the subsequent projection as original context");
+	assert.equal(readFileSync(join(inputRoot, "sources", "S1", "dependency.py"), "utf-8"), dependency, "dependency bytes are available in the frozen Source");
+	assert.throws(() => writeInvestigationAnswerInput({ inputRoot: join(root, "outside-path"), request,
+		evidence: [{ ...evidence, evidence: [{ ...evidence.evidence[0]!, source_path: "../private.py" }] }], goalDir }), /outside its Source view/u);
 	writeFileSync(join(sourceRoot, "model.py"), "value = text_tokens\n");
+	writeFileSync(join(sourceRoot, "dependency.py"), "def projection(value):\n    return value * 3\n");
 	assert.equal(readFileSync(join(inputRoot, "sources", "S1", "model.py"), "utf-8"), original, "Goal changes cannot mutate Writer input");
+	assert.equal(readFileSync(join(inputRoot, "sources", "S1", "dependency.py"), "utf-8"), dependency, "Goal changes cannot mutate frozen dependencies");
 	assert.throws(() => writeInvestigationAnswerInput({ inputRoot: join(root, "changed"), request, evidence: [evidence], goalDir }), /bytes changed/u);
 	assert.throws(() => writeInvestigationAnswerInput({ inputRoot: join(root, "revision"), request,
 		evidence: [{ ...evidence, evidence: [{ ...evidence.evidence[0]!, source_revision_sha256: "b".repeat(64) }] }], goalDir }), /revision is unavailable/u);
@@ -54,8 +68,12 @@ try {
 			{ requirement_id: "Q2", citation_refs: [], gap: "Projection dimensions remain unknown." },
 		] };
 	assert.deepEqual(validateInvestigationAnswerFromInput(answer, inputRoot), answer, "partial answers preserve explicit gaps");
+	const legacyEvidence = JSON.parse(readFileSync(join(legacy, "evidence", "N1.json"), "utf-8"));
+	legacyEvidence.evidence[0].context = { kind: "original_source", ref: "S1", path: "sources/S1", files: ["model.py"] };
+	writeFileSync(join(legacy, "evidence", "N1.json"), JSON.stringify(legacyEvidence));
+	assert.deepEqual(validateInvestigationAnswerFromInput(answer, legacy), answer, "historical inline inventories remain valid frozen inputs");
 	assert.throws(() => validateInvestigationAnswerFromInput({ ...answer, coverage: answer.coverage.slice(0, 1) }, inputRoot), /omitted requested coverage/u);
-	assert.throws(() => validateInvestigationAnswerFromInput({ ...answer, citation_refs: ["N2"] }, inputRoot), /unknown or duplicate/u);
+	assert.throws(() => validateInvestigationAnswerFromInput({ ...answer, citation_refs: ["N3"] }, inputRoot), /unknown or duplicate/u);
 	assert.throws(() => validateInvestigationAnswerFromInput({ ...answer, gaps: [] }, inputRoot), /omitted a coverage gap/u);
 	assert.throws(() => validateInvestigationAnswerFromInput({ ...answer, answer: "No citation", citation_refs: [] }, inputRoot), /coverage evidence is absent/u);
 	assert.throws(() => validateInvestigationAnswerFromInput({ ...answer, coverage: [answer.coverage[0], answer.coverage[0]] }, inputRoot), /coverage is invalid/u);

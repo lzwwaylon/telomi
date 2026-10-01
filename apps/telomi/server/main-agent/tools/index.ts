@@ -9,6 +9,7 @@ import { createDeliverInvestigationTool, createInvestigateTool } from "./investi
 import { createWikiUpdateTool } from "./wiki-update.js";
 import { createGeneratePodcastTool, type PodcastGenerationDispatchHandler } from "./generate-podcast.js";
 import type { OutputLanguage } from "../../../shared/languages.js";
+import type { RunArtifactRef } from "../../agent-runtime/artifact-store.js";
 
 export interface CreateMainAgentToolsOptions {
 	goalId: string;
@@ -21,6 +22,7 @@ export interface CreateMainAgentToolsOptions {
 	getOutputLanguage?: () => OutputLanguage;
 	getExtraEnv?: ExtraEnvGetter;
 	getOriginalQuestion?: () => string | undefined;
+	exposeInvestigationResult?: (artifact: RunArtifactRef) => void;
 	generatePodcast?: PodcastGenerationDispatchHandler;
 }
 

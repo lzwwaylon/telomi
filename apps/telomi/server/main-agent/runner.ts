@@ -557,6 +557,11 @@ export class GoalRunner {
 				getOutputLanguage: this.getOutputLanguage,
 				getExtraEnv: this.getExtraEnv,
 				getOriginalQuestion: () => this.activeOriginalQuestion,
+				exposeInvestigationResult: (artifact) => {
+					const session = this.activeMainWorkspaceSession;
+					if (!session) throw new Error("Investigation handoff requires an active Main Workspace");
+					this.mainWorkspaceRuntime.exposeInvestigationResult(session.id, artifact);
+				},
 				generatePodcast: async (request) => {
 					const handler = this.getPodcastGenerationHandler?.();
 					if (!handler) throw new Error("Podcast generation is not configured");

@@ -29,9 +29,15 @@ export function artifactsRoot(workspaceDir: string, goalId: string): string {
 	return join(goalRoot(workspaceDir, goalId), "artifacts");
 }
 
+/** Thread indexes and execution journals are Agent control data, not user products. */
+export function isInvestigationThreadControlFile(name: string): boolean {
+	return normalizeRelPath(name).toLowerCase().startsWith("investigation-threads/");
+}
+
 export function isUserFacingArtifact(name: string, source: ProductArtifactSource = "artifacts"): boolean {
 	if (source === "workspace-report") return true;
-	return !INTERNAL_ARTIFACT_PATHS.has(normalizeRelPath(name).toLowerCase())
+	return !isInvestigationThreadControlFile(name)
+		&& !INTERNAL_ARTIFACT_PATHS.has(normalizeRelPath(name).toLowerCase())
 		&& !AUXILIARY_ARTIFACT_BASENAMES.has(basename(name).toLowerCase());
 }
 

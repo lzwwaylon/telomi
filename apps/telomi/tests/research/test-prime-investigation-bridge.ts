@@ -16,6 +16,7 @@ const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Se
 	signal: new AbortController().signal,
 }, root, { runDir: root, nodeId: "prime-investigation", attemptId: "1" }, {
 	investigation: {
+		responseMode: "inline",
 		knowledgeSearch: async (query, limit) => { seen.push(`knowledge:${query}:${limit}`); return { results: [] }; },
 		deepSearch: async (question) => { seen.push(`deep:${question}`); return { status: "not_found", cues: [], gaps: [] }; },
 		externalSearch: async (question) => {

@@ -5,7 +5,7 @@ import {
 } from "../../server/agent-runtime/recorded-stage-replay.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -20,6 +20,7 @@ import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-
 import { createMainAgentReplayRecipe } from "../../server/evaluation/main-agent-replay.js";
 import { createOperationsRouter } from "../../server/evaluation/api.js";
 import { NodeBacktestService, nodeBacktestRunsDirectory } from "../../server/evaluation/node-backtest.js";
+import { sweepCapturedCases } from "../../server/evaluation/case-retention.js";
 import {
 	beginNodeEvaluationCase,
 	finishNodeEvaluationCase,
@@ -301,6 +302,41 @@ assert.equal(finishNodeEvaluationCase(primeDraft, {
 	validationErrors: [],
 }).status, "captured");
 
+const retainedBeforeExternalCapture = sweepCapturedCases({ workspaceDir, goalIds: [goalId], dryRun: true }).scanned;
+const investigations = join(serverRuntimeDirForGoal(goalId, workspaceDir), "research", "investigations");
+const externalCaseFixtures = [
+	join(investigations, "nested-investigation"),
+	join(serverRuntimeDirForGoal("goal_other", workspaceDir), "research", "investigations", "other-investigation"),
+	join(root, "outside-investigation"),
+].map((investigation, index) => {
+	const runId = `external-investigation-${index}-1`;
+	const directory = join(investigation, "external-search-1");
+	const work = join(directory, "work");
+	mkdirSync(join(directory, "inputs", "cornell-note"), { recursive: true });
+	mkdirSync(work, { recursive: true });
+	writeFileSync(join(directory, "inputs", "cornell-note", "request.json"), "{}\n");
+	writeFileSync(join(directory, "session.jsonl"), "{}\n");
+	const store = new RunArtifactStore(directory);
+	const request = recordedRequest("cornell-note", runId, directory, work, store);
+	request.role = "prime_search";
+	request.evaluation = { ...request.evaluation!, agentId: "prime-search", recipe: { id: "prime-search", version: 4 } };
+	const draft = beginNodeEvaluationCase({
+		request, recordDirectory: directory, promptConfig: request.promptConfig!,
+		sessionContextFile: join(directory, "session.jsonl"), composedSystemPrompt: request.systemPrompt,
+		actualModel: request.modelPolicy.preferred[0]!,
+	})!;
+	assert.equal(finishNodeEvaluationCase(draft, {
+		status: "succeeded", workDirectory: work, validationErrors: [],
+		result: stageResult({}, store.publishDirectory(primeOutputSource, "observed/prime-search"), directory),
+	}).status, "captured");
+	return { ref: { sourceRunId: runId, caseId: draft.caseId }, manifestPath: draft.manifestPath };
+});
+symlinkSync(join(root, "outside-investigation"), join(investigations, "linked-investigation"), "dir");
+symlinkSync(join(root, "outside-investigation", "external-search-1"),
+	join(investigations, "nested-investigation", "linked-external-search"), "dir");
+assert.equal(sweepCapturedCases({ workspaceDir, goalIds: [goalId], dryRun: true }).scanned,
+	retainedBeforeExternalCapture + 1, "Retention discovers each nested Case once within its Goal and real directories");
+
 let frozenPrimeHold: Promise<void> | undefined;
 let notifyFrozenPrimeStarted: (() => void) | undefined;
 let holdFrozenPrime = false;
@@ -529,6 +565,26 @@ try {
 		"Wiki Update Cases must use the unified Case interface");
 	const casesResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases?agentId=cornell-note&limit=10`);
 	assert.equal(casesResponse.status, 200, await casesResponse.clone().text());
+	const externalCase = externalCaseFixtures[0]!;
+	const externalCasesResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases?agentId=prime-search`);
+	assert.equal(externalCasesResponse.status, 200, await externalCasesResponse.clone().text());
+	const externalCases = (await externalCasesResponse.json() as { cases: ReturnType<NodeBacktestService["listCases"]> }).cases;
+	assert.equal(externalCases.filter(({ ref }) => ref.caseId === externalCase.ref.caseId).length, 1,
+		"Nested investigation acquisition must be listed exactly once under its manifest Run id");
+	assert.deepEqual(externalCases.find(({ ref }) => ref.caseId === externalCase.ref.caseId)!.ref, externalCase.ref);
+	assert.equal(service.readCase(goalId, externalCase.ref).runId, externalCase.ref.sourceRunId);
+	for (const hiddenCase of externalCaseFixtures.slice(1)) {
+		assert.equal(externalCases.some(({ ref }) => ref.caseId === hiddenCase.ref.caseId), false);
+		assert.throws(() => service.readCase(goalId, hiddenCase.ref), /Unknown or ambiguous Node Case/u);
+		await assert.rejects(service.exportCaseBundle(goalId, "Nested acquisition", hiddenCase.ref), /Unknown or ambiguous Node Case/u);
+	}
+	const originalManifest = readFileSync(externalCase.manifestPath, "utf-8");
+	const externalBundle = await service.exportCaseBundle(goalId, "Nested acquisition", externalCase.ref);
+	try {
+		assert.equal(externalBundle.manifest.source_run_id, externalCase.ref.sourceRunId);
+		assert.equal(existsSync(externalBundle.path), true);
+		assert.equal(readFileSync(externalCase.manifestPath, "utf-8"), originalManifest);
+	} finally { externalBundle.cleanup(); }
 	const primeFilesResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases/${sourceRunId}/${primeDraft.caseId}/files`);
 	assert.equal(primeFilesResponse.status, 200, await primeFilesResponse.clone().text());
 	const primeFiles = (await primeFilesResponse.json() as { files: Array<{ ref: string; kind: string }> }).files;

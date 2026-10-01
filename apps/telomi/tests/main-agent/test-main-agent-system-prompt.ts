@@ -29,6 +29,9 @@ assert.match(prompt, /Previously searched evidence boundary/u);
 assert.match(prompt, /search_question/u);
 assert.match(prompt, /report_context/u);
 assert.match(prompt, /Reply in the language of the user's current request/u);
+assert.match(prompt, /thread_id/u, "Main routes associated follow-ups to a saved investigation thread");
+assert.match(prompt, /\/artifacts\/investigation-threads\/recent\.json/u, "Main discovers persisted thread identities through its read-only mount");
+assert.match(prompt, /Never invent IDs/u, "thread identities are assigned by Runtime");
 assert.match(
 	buildMainAgentPrompt(workspaceDir, goalId, "Goal", "", "zh-CN"),
 	/Reply in zh-CN/u,
