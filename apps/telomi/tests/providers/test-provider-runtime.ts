@@ -219,6 +219,29 @@ try {
 	assert.equal(arxivPolicy.overloadCooldownMs, 15 * 60_000);
 	assert.equal(arxivPolicy.overloadBudgetMs, 60_000);
 
+	let categoryCalls = 0;
+	const categoryProvider: ResearchSearchProvider = {
+		...provider,
+		id: "arxiv",
+		runtimePolicy: builtInFastApiRuntimePolicy({ sourceId: "arxiv", env: {} }),
+		async search(searchRequest) {
+			categoryCalls += 1;
+			const category = String(searchRequest.providerRequest?.parameters.search ?? "all");
+			return [{ id: category, title: category, url: "https://arxiv.org/category_taxonomy", snippet: "" }];
+		},
+	};
+	for (const search of ["speech", "biology", undefined]) {
+		const categoryRequest = {
+			...request,
+			providerRequest: providerRequest("categories", { ...(search ? { search: [search] } : {}), start: 0, max_results: 5 }),
+		};
+		const result = await runtime.search(categoryProvider, categoryRequest);
+		assert.equal(result.results[0]?.id, search ?? "all", "category cache must preserve the search filter");
+		assert.equal(result.cache.status, "miss");
+		assert.equal((await runtime.search(categoryProvider, categoryRequest)).cache.status, "hit");
+	}
+	assert.equal(categoryCalls, 3, "each distinct category lookup loads once");
+
 	for (const materialRequest of [
 		providerRequest("clone_repository", {
 			repository: "cli/cli",

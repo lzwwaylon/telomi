@@ -105,6 +105,10 @@ The Node Runtime configures a shared `SOURCE_SERVICE_MATERIAL_CACHE_ROOT`. The s
 - GitHub files and releases use operation-specific keys; clones resolve mutable references to commits when possible;
 - Document Convert output is keyed by input content, parser contract, and parser options.
 
+Hugging Face tag discovery and invalid-tag recovery share one complete model tag catalog in this
+cache, scoped by Hub endpoint and credential. The catalog uses the mutable freshness TTL below;
+incomplete upstream responses are not cached. Search filters are applied to the cached catalog.
+
 `SOURCE_SERVICE_MATERIAL_CACHE_BASE_ROOT` adds a second, read-only cache root. Lookups try `SOURCE_SERVICE_MATERIAL_CACHE_ROOT` first and fall back to the base root; every new blob, tree, acquisition, and in-flight row is written to the writable root only, and garbage collection can only remove what that root owns. An eval instance therefore reuses the production instance's material without mutating its bytes or access timestamps. Persistent workspace snapshots retain their own tree metadata and object links so subsequent base eviction cannot break replay. Keep both roots on the same volume to share object storage. The base catalog is opened `mode=ro`, and a base root that has never been used is treated as empty.
 
 Set `SOURCE_SERVICE_MATERIAL_CACHE_TTL_SECONDS` to control mutable entries. Immutable versioned entries are content addressed and do not expire with that TTL. Search response caching remains owned by the Node Provider Runtime and is separate from this material cache.

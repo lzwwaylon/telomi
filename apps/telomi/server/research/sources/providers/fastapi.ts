@@ -115,15 +115,16 @@ export function builtInFastApiRuntimePolicy(
 			const parameters = parseArxivProviderRequest(
 				request.providerRequest,
 			);
+			const maxResults = "arxiv_id" in parameters ? undefined
+				: Math.min(parameters.max_results ?? request.maxResults, request.maxResults);
 			return {
 				...base,
 				accessScope: "fastapi:arxiv:public",
 				...("arxiv_id" in parameters ? {} : {
 					cacheScope: "fastapi:arxiv:public",
-					cacheKey: canonicalArxivQuery({
-						...parameters,
-						max_results: Math.min(parameters.max_results ?? request.maxResults, request.maxResults),
-					}),
+					cacheKey: request.providerRequest?.operation === "categories"
+						? { operation: "categories", ...parameters, max_results: maxResults }
+						: canonicalArxivQuery({ ...parameters, max_results: maxResults }),
 					cacheTtlMs: DAILY_SOURCE_CACHE_TTL_MS,
 				}),
 			};

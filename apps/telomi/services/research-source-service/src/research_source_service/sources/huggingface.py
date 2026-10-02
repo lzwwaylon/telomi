@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import tempfile
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -326,6 +328,24 @@ class HuggingFaceSource:
             return await self._papers_list(native, request)
         return await self._hub_list(operation, native, request)
 
+    async def _model_tags_payload(self) -> dict[str, Any]:
+        if self.material_cache is None or self.material_cache.root is None:
+            return json_object(await self._get("/api/models-tags-by-type"))
+        key = hashlib.sha256(json.dumps([self.endpoint, self.token]).encode()).hexdigest()
+        with tempfile.TemporaryDirectory(prefix="telomi-hf-tags-") as directory:
+            target = Path(directory) / "catalog"
+            if self.material_cache.restore_tree("huggingface-model-tags-v1", key, target):
+                return json.loads((target / "catalog.json").read_text(encoding="utf-8"))
+            payload = json_object(await self._get("/api/models-tags-by-type"))
+            # Incomplete upstream responses must not become a shared catalog.
+            if all(isinstance(payload.get(kind), list) for kind in (
+                "pipeline_tag", "library", "language", "license", "other",
+            )) and any(model_tag_catalog(payload).values()):
+                target.mkdir()
+                (target / "catalog.json").write_text(json.dumps(payload), encoding="utf-8")
+                self.material_cache.store_tree("huggingface-model-tags-v1", key, target)
+            return payload
+
     async def _model_tags(
         self,
         parameters: StrictParameters,
@@ -333,7 +353,7 @@ class HuggingFaceSource:
     ) -> list[SearchResult]:
         native = ModelTagsParameters.model_validate(parameters.model_dump())
         target = min(native.limit or request.max_results, request.max_results, MAX_PAGE_SIZE)
-        payload = json_object(await self._get("/api/models-tags-by-type"))
+        payload = await self._model_tags_payload()
         raw_tags = payload.get(native.tag_type)
         if not isinstance(raw_tags, list):
             raise ServiceError(
@@ -563,7 +583,7 @@ class HuggingFaceSource:
     async def _raise_for_unknown_model_tags(self, native: HubListParameters) -> None:
         if not isinstance(native, ModelsListParameters) or not (native.pipeline_tag or native.filters):
             return
-        payload = json_object(await self._get("/api/models-tags-by-type"))
+        payload = await self._model_tags_payload()
         catalog = model_tag_catalog(payload)
         problems: list[tuple[str, str, str | None]] = []
         pipeline_values = {tag.value for tag in catalog.get("pipeline_tag", [])}
