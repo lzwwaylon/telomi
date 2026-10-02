@@ -140,7 +140,7 @@ export async function runPiFileStage(request: NoteFirstStageRequest, options: Pi
     return result;
    },
   });
-  ({ session } = await createAgentSession({ cwd: work, agentDir: agentDirectory, modelRuntime, model,
+  ({ session } = await createAgentSession({ cwd: '/work', agentDir: agentDirectory, modelRuntime, model,
    thinkingLevel: thinking, scopedModels: [{ model, thinkingLevel: thinking }], settingsManager,
    resourceLoader: loader, sessionManager: SessionManager.create(work, sessions),
    tools: [...tools], customTools }));

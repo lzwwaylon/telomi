@@ -38,6 +38,7 @@ import {
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import { type AgentStageRequest, type AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import { createCaseBundle, importCaseBundle } from "./case-bundle.js";
+import { renderCapturedCandidatePrompts } from "./candidate-prompts.js";
 import { deriveProviderChildCase } from "./provider-child-case.js";
 import { withCaseExport } from "./case-export-lock.js";
 import { assertSafeRelativePath, isFileNameSegment } from "../lib/paths.js";
@@ -96,7 +97,7 @@ export interface NodeBacktestPromptOverride {
 }
 
 export interface NodeBacktestVariantRequest {
-	promptMode?: "observed" | "override";
+	promptMode?: "candidate" | "observed" | "override";
 	promptOverride?: NodeBacktestPromptOverride;
 	capabilitySnapshotId?: string;
 	expectedRuntimeBuild?: string;
@@ -120,7 +121,7 @@ export interface NodeBacktestResolvedVariant extends NodeBacktestVariantRequest 
 
 export interface NodeBacktestCandidatePromptBundle {
 	schemaVersion: 1;
-	source: "observed" | "override";
+	source: "candidate" | "observed" | "override";
 	sha256: string;
 	cases: Array<{
 		caseRef: NodeBacktestCaseRef;
@@ -291,6 +292,8 @@ export class NodeBacktestService {
 	private stopped = true;
 	// ponytail: cache one settled Run up to 32 MiB serialized; add LRU only if concurrent archives thrash it.
 	private replayReadCache?: ReplayReadProjection;
+	// ponytail: retain one Case index up to 32 MiB; add LRU only if concurrent Case downloads thrash it.
+	private caseFileReadCache?: { path: string; source: string; entries: Map<string, NodeBacktestCaseFile & { absolutePath: string }> };
 
 	constructor(private readonly options: NodeBacktestServiceOptions) {
 		this.module = new NodeEvaluationModule(options.recipes);
@@ -311,6 +314,7 @@ export class NodeBacktestService {
 	stop(): void {
 		this.stopped = true;
 		this.replayReadCache = undefined;
+		this.caseFileReadCache = undefined;
 		for (const controller of this.controllers.values()) controller.abort();
 	}
 
@@ -400,15 +404,18 @@ export class NodeBacktestService {
 			? this.requireCapabilitySnapshot(goalId, parsed.candidate.capabilitySnapshotId)
 			: this.createCapabilitySnapshot(goalId, goalDirectory, caseValues.flatMap(({ value }) =>
 				value.mounts.flatMap((mount) => mount.kind === "harness" ? [mount.workspaceRelativePath] : [])));
+		const promptCandidate = resolvePromptSelection(parsed.agentId, parsed.candidate);
 		const promptBundle = RECORDED_STAGE_AGENT_IDS.includes(parsed.agentId as typeof RECORDED_STAGE_AGENT_IDS[number])
-			? resolveCandidatePromptBundle(caseValues, parsed.candidate)
+			|| parsed.agentId === "prime-investigation" || parsed.agentId === "main-agent"
+			? resolveCandidatePromptBundle(caseValues, promptCandidate)
 			: undefined;
 		const capabilityBundleHash = sha256(stableJson({
 			agentId: parsed.agentId,
 			runtimeBuild: this.loadedRuntimeBuild,
 			agentBundleSha256: this.loadedAgentBundleSha256,
 			workspaceContentHash: snapshot.workspaceContentHash,
-			prompt: promptBundle?.sha256 ?? parsed.candidate.promptOverride ?? null,
+			prompt: promptBundle?.sha256 ?? promptCandidate.promptOverride ?? null,
+			promptMode: promptCandidate.promptMode,
 		}));
 		const run: NodeBacktestRun = {
 			schemaVersion: RUN_SCHEMA_VERSION,
@@ -423,9 +430,9 @@ export class NodeBacktestService {
 				capabilitySnapshotId: snapshot.id,
 				workspaceContentHash: snapshot.workspaceContentHash,
 				capabilityBundleHash,
-				...(promptBundle
-					? { promptMode: parsed.candidate.promptMode, promptBundle }
-					: parsed.candidate.promptOverride ? { promptOverride: parsed.candidate.promptOverride } : {}),
+				promptMode: promptCandidate.promptMode,
+				...(promptBundle ? { promptBundle }
+					: promptCandidate.promptOverride ? { promptOverride: promptCandidate.promptOverride } : {}),
 			},
 			observedMetrics: aggregateObserved(caseValues.map((item) => item.value)),
 			repetitions: parsed.repetitions ?? 2,
@@ -716,23 +723,34 @@ export class NodeBacktestService {
 	}
 
 	/**
-	 * Every Case file with its on-disk path, from one verified scan. Reading many files through
-	 * `caseFile` rescans and rehashes the whole Case per file, which blocks the event loop for
-	 * minutes on a large Case. Host paths stay server-side; HTTP callers get `listCaseFiles`.
+	 * Every Case file with its on-disk path, from one verified scan. The bounded Case index
+	 * also serves individual downloads, which revalidate the requested file's bytes and safety.
+	 * Host paths stay server-side; HTTP callers get `listCaseFiles`.
 	 */
 	listCaseFilePaths(goalId: string, caseRef: NodeBacktestCaseRef): Array<NodeBacktestCaseFile & { absolutePath: string }> {
 		return this.caseFileEntries(goalId, caseRef);
 	}
 
 	caseFile(goalId: string, caseRef: NodeBacktestCaseRef, ref: string): string {
-		const entry = this.caseFileEntries(goalId, caseRef).find((item) => item.ref === ref);
+		const casePath = this.casePath(goalId, caseRef);
+		const source = readFileSync(safeArtifactPath(dirname(casePath), basename(casePath)), "utf-8");
+		const cached = this.caseFileReadCache;
+		const index = cached?.path === casePath && cached.source === source ? cached.entries
+			: new Map(this.caseFileEntries(goalId, caseRef).map(entry => [entry.ref, entry]));
+		const entry = index.get(ref);
 		if (!entry) throw new Error(`Unknown Node Case file ref '${ref}'`);
+		const stat = lstatSync(entry.absolutePath);
+		if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error(`Node Case ref is not a safe regular file: ${ref}`);
+		if (realpathSync(entry.absolutePath) !== entry.absolutePath) throw new Error("Node Case ref contains a symbolic link");
+		const bytes = readFileSync(entry.absolutePath);
+		if (bytes.byteLength !== entry.byteLength || sha256(bytes) !== entry.sha256) throw new Error(`Node Case file changed: ${ref}`);
 		return entry.absolutePath;
 	}
 
 	private caseFileEntries(goalId: string, caseRef: NodeBacktestCaseRef): Array<NodeBacktestCaseFile & { absolutePath: string }> {
 		const casePath = this.casePath(goalId, caseRef);
 		const caseDirectory = dirname(casePath);
+		const source = readFileSync(safeArtifactPath(caseDirectory, basename(casePath)), "utf-8");
 		const sourceRunDirectory = this.caseLocation(goalId, caseRef).sourceRunDirectory;
 		const value = readNodeEvaluationCase(casePath, sourceRunDirectory);
 		const entries: Array<NodeBacktestCaseFile & { absolutePath: string }> = [];
@@ -864,7 +882,10 @@ export class NodeBacktestService {
 				}
 			}
 		}
-		return [...new Map(entries.map((entry) => [entry.ref, entry])).values()].sort((left, right) => left.ref.localeCompare(right.ref));
+		const files = [...new Map(entries.map((entry) => [entry.ref, entry])).values()].sort((left, right) => left.ref.localeCompare(right.ref));
+		this.caseFileReadCache = Buffer.byteLength(source) + Buffer.byteLength(JSON.stringify(files)) <= MAX_CACHED_PROJECTION_BYTES
+			? { path: casePath, source, entries: new Map(files.map(file => [file.ref, { ...file }])) } : undefined;
+		return files;
 	}
 
 	artifactFile(goalId: string, runId: string, executionId: string, relativeFile?: string): string {
@@ -1091,9 +1112,8 @@ export class NodeBacktestService {
 					sourceRunId: `${input.run.id}::executions::${executionId}`,
 					capabilitySnapshotId: input.run.candidate.capabilitySnapshotId,
 				},
-				...(promptOverride
-					? { promptOverride }
-					: {}),
+				...(promptOverride ? { promptOverride } : {}),
+				...(input.run.candidate.promptMode ? { promptMode: input.run.candidate.promptMode } : {}),
 				signal: input.signal,
 			});
 			// Candidate Evidence 是 fail-closed 的。Capture 本身由各 Recipe 在捕获点强制
@@ -1574,8 +1594,8 @@ function validateVariant(value: NodeBacktestVariantRequest, label: string): Node
 		? undefined
 		: safeCapabilitySnapshotId(value.capabilitySnapshotId);
 	const promptMode = value.promptMode;
-	if (promptMode !== undefined && promptMode !== "observed" && promptMode !== "override") {
-		throw new Error(`${label}.promptMode must be 'observed' or 'override'`);
+	if (promptMode !== undefined && promptMode !== "candidate" && promptMode !== "observed" && promptMode !== "override") {
+		throw new Error(`${label}.promptMode must be 'candidate', 'observed' or 'override'`);
 	}
 	const expectedRuntimeBuild = value.expectedRuntimeBuild;
 	if (expectedRuntimeBuild !== undefined && (typeof expectedRuntimeBuild !== "string" || !expectedRuntimeBuild.trim())) {
@@ -1595,34 +1615,51 @@ function validateVariant(value: NodeBacktestVariantRequest, label: string): Node
 	};
 }
 
+function resolvePromptSelection(agentId: string, candidate: NodeBacktestVariantRequest): NodeBacktestVariantRequest {
+	const recorded = RECORDED_STAGE_AGENT_IDS.includes(agentId as typeof RECORDED_STAGE_AGENT_IDS[number]);
+	const investigation = agentId === "prime-investigation";
+	if (recorded && !candidate.promptMode) {
+		throw new Error("Candidate Capability Bundle requires promptMode 'candidate', 'observed' or 'override'");
+	}
+	const promptMode = candidate.promptMode ?? (candidate.promptOverride ? "override" : "candidate");
+	if (promptMode !== "override" && candidate.promptOverride) {
+		throw new Error(`Candidate promptMode '${promptMode}' does not accept promptOverride`);
+	}
+	if (promptMode === "override") {
+		if (recorded && (!candidate.promptOverride?.systemPrompt || !candidate.promptOverride.userPrompt)) {
+			throw new Error("Candidate promptMode 'override' requires complete systemPrompt and userPrompt");
+		}
+		if (!recorded && agentId !== "main-agent" && agentId !== "prime-search" && !investigation) {
+			throw new Error(`Agent '${agentId}' uses its Candidate Agent Bundle and does not accept Prompt overrides`);
+		}
+		if ((agentId === "prime-search" || investigation) && candidate.promptOverride?.systemPrompt !== undefined) {
+			throw new Error(`Agent '${agentId}' does not accept systemPrompt override`);
+		}
+		if (!candidate.promptOverride || !Object.values(candidate.promptOverride).some((prompt) => prompt?.trim())) {
+			throw new Error("Candidate promptMode 'override' requires a non-empty Prompt override");
+		}
+	}
+	if (promptMode === "observed" && !recorded && !investigation && agentId !== "main-agent") {
+		throw new Error(`Agent '${agentId}' cannot freeze observed Prompts; use promptMode 'candidate'`);
+	}
+	return { ...candidate, promptMode };
+}
+
 function resolveCandidatePromptBundle(
-	cases: readonly { ref: NodeBacktestCaseRef; value: NodeEvaluationCase; casePath: string }[],
+	cases: readonly { ref: NodeBacktestCaseRef; value: NodeEvaluationCase; casePath: string; sourceRunDirectory: string }[],
 	candidate: NodeBacktestVariantRequest,
 ): NodeBacktestCandidatePromptBundle {
-	if (!candidate.promptMode) {
-		throw new Error("Candidate Capability Bundle requires promptMode 'observed' or 'override'");
-	}
-	if (candidate.promptMode === "observed" && candidate.promptOverride) {
-		throw new Error("Candidate promptMode 'observed' does not accept promptOverride");
-	}
-	if (candidate.promptMode === "override"
-		&& (!candidate.promptOverride?.systemPrompt || !candidate.promptOverride.userPrompt)) {
-		throw new Error("Candidate promptMode 'override' requires complete systemPrompt and userPrompt");
-	}
-	const prompts = cases.map(({ ref, value, casePath }) => {
-		const systemPrompt = candidate.promptMode === "override"
-			? candidate.promptOverride!.systemPrompt!
-			: readNodeEvaluationFile(casePath, value.request.systemPrompt);
-		const userPrompt = candidate.promptMode === "override"
-			? candidate.promptOverride!.userPrompt!
-			: readNodeEvaluationFile(casePath, value.request.userPrompt);
-		return {
-			caseRef: ref,
-			systemPrompt,
-			userPrompt,
-			systemSha256: sha256(systemPrompt),
-			userSha256: sha256(userPrompt),
-		};
+	if (!candidate.promptMode) throw new Error("Candidate Capability Bundle requires promptMode 'candidate', 'observed' or 'override'");
+	const prompts = cases.map(({ ref, value, casePath, sourceRunDirectory }) => {
+		const rendered = candidate.promptMode === "candidate" ? renderCapturedCandidatePrompts(value, sourceRunDirectory) : undefined;
+		const systemPrompt = rendered?.systemPrompt ?? (candidate.promptMode === "override"
+			? candidate.promptOverride!.systemPrompt ?? (value.agentId === "main-agent" ? readNodeEvaluationFile(casePath, value.request.composedSystemPrompt) : "")
+			: readNodeEvaluationFile(casePath, value.agentId === "main-agent" ? value.request.composedSystemPrompt : value.request.systemPrompt));
+		const userPrompt = rendered?.userPrompt ?? (candidate.promptMode === "override"
+			? candidate.promptOverride!.userPrompt ?? readNodeEvaluationFile(casePath, value.request.userPrompt)
+			: readNodeEvaluationFile(casePath, value.request.userPrompt));
+		return { caseRef: ref, systemPrompt, userPrompt,
+			systemSha256: sha256(systemPrompt), userSha256: sha256(userPrompt) };
 	});
 	const identity = { source: candidate.promptMode, cases: prompts };
 	return { schemaVersion: 1, ...identity, sha256: sha256(stableJson(identity)) };

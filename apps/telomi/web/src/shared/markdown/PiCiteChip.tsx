@@ -160,7 +160,7 @@ function CitationSourcePreview({
 
 	React.useEffect(() => {
 		const scope = artifactName ? `artifact:${artifactName}` : messageId ? `message:${messageId}` : "";
-		if (!visible || !goalId || !scope || (data.kind !== "ref" && !url) || (data.kind === "ref" && (!messageId || citationNumber === undefined))) return;
+		if (!visible || !goalId || !scope || (data.kind !== "ref" && !url) || (data.kind === "ref" && citationNumber === undefined)) return;
 		const key = sourcePreviewKey(goalId, scope, url, citationNumber);
 		if (SOURCE_PREVIEW_CACHE.has(key)) {
 			const cached = SOURCE_PREVIEW_CACHE.get(key);
@@ -639,7 +639,7 @@ export function PiCiteChip({
 						<InlineCitationCarouselContent>
 							{dataList.map((data, i) => {
 								const isFile = data.kind === "file";
-								// Message refs open their exact Cue and Source excerpt in the preview below.
+								// Message and report refs open their exact frozen Cue and Source excerpt below.
 								const isRef = data.kind === "ref";
 								const lineLabel = lineRangeLabel(data);
 								const citeLabel = data.label?.trim();
@@ -654,7 +654,7 @@ export function PiCiteChip({
 										? `${data.target}:${lineLabel}`
 										: data.target
 									: url;
-								const Icon = isFile || (isRef && messageId) ? FileText : isRef ? Unlink : ExternalLink;
+								const Icon = isFile || (isRef && (artifactName || messageId)) ? FileText : isRef ? Unlink : ExternalLink;
 									return (
 									<InlineCitationCarouselItem key={i}>
 											<div className="space-y-2.5">
@@ -679,7 +679,7 @@ export function PiCiteChip({
 												</button>
 												{/* 路径或 URL —— url chip 渲染成可点击 anchor;file chip 也走 onFileClick。 */}
 												{isRef ? (
-													!messageId ? <p className="text-[11px] leading-relaxed text-[var(--ink-faint)]">
+													!artifactName && !messageId ? <p className="text-[11px] leading-relaxed text-[var(--ink-faint)]">
 														{uiText("markdown.picitechip.sourceLinkUnavailable")}
 													</p> : null
 												) : isFile ? (

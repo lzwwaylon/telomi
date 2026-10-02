@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { LlmWikiCompiler } from "./compiler.js";
 import { NoteFirstWikiCompiler } from "./note-first-compiler.js";
@@ -16,6 +16,7 @@ import {
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import { publishCompilation } from "./publication.js";
+import { GoalTopicPlanStore } from "../goals/topic-plan/store.js";
 import { toErrorMessage } from "../lib/values.js";
 
 export interface WikiUpdateExecution {
@@ -45,6 +46,7 @@ export interface WikiUpdateTarget {
 	cornellNotes: WikiUpdateJob["cornell_notes"];
 	wikiUpdateId?: string;
 	sourceRunId?: string;
+	cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
 	parentActivityId?: string;
 	trigger?: NonNullable<WikiUpdateJob["trigger"]>;
 	reason?: string;
@@ -61,6 +63,7 @@ export interface WikiUpdateDependencies {
 }
 
 const RESULT_ARTIFACT = "artifacts/wiki-update/result.json";
+const goalExecutions = new Map<string, Promise<void>>();
 
 /**
  * 执行一次 Wiki 更新，并在任务记录里留下它的开始与结束。
@@ -90,140 +93,163 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 		cornellNotes: input.cornellNotes,
 		...(input.wikiUpdateId ? { wikiUpdateId: input.wikiUpdateId } : {}),
 		...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
+		...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
 		...(input.parentActivityId ? { parentActivityId: input.parentActivityId } : {}),
 		...(input.trigger ? { trigger: input.trigger } : {}),
 		...(input.reason ? { reason: input.reason } : {}),
 		...(input.rebuild !== undefined ? { rebuild: input.rebuild } : {}),
 	});
-	try {
-		const compile = input.dependencies?.compile ?? ((request: WikiCompilationRequest) => {
-			if (compilerKind === "legacy") return new LlmWikiCompiler().compile(request);
-			const execute = (pinned: WikiCompilationRequest) => new NoteFirstWikiCompiler().compile(pinned);
-			const capture = caseCapture()?.wikiCompilation;
-			return capture ? capture(request, { execute }) : execute(request);
-		});
-		const publish = input.dependencies?.publish ?? publishCompilation;
-		compilation = await compile({
-			env: input.env,
-			goalDir: input.goalDir,
-			goal: input.goal,
-			goalContext: input.goalContext,
-			runId: input.runId,
-			runDirectory: input.runDirectory,
-			controlDirectory: input.controlDirectory,
-			cornellNotesSnapshot: input.cornellNotes,
-			topicPlan: input.topicPlan,
-			...(input.rebuild ? { rebuild: true } : {}),
-			signal: input.signal,
-			onStarted: (totalBatches) => jobs.markRunning(totalBatches),
-			onBatchProgress: (progress) => jobs.recordBatch(progress),
-			onStageProgress: (progress) => jobs.recordStage(progress),
-		});
-		if (compilation.publicationReady === false) {
-			throw new Error(`Wiki 有 ${compilation.failedBatches.length} 个步骤未完成，成功步骤已保留；继续运行后发布。`);
-		}
-		publicationPageCount = compilation.pageCount;
-		jobs.recordStage({
-			kind: "publication",
-			stageIndex: 0,
-			totalStages: 1,
-			status: "running",
-			pageCount: compilation.pageCount,
-			usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 },
-		});
-		publicationStarted = true;
+	return withGoalWikiExecution(input.goalDir, async () => {
+		try {
+			input.signal.throwIfAborted();
+			if (input.cueOrigins && !input.dependencies?.compile
+				&& new GoalTopicPlanStore(input.goalId, input.workspaceDir).requireResearchReady().revision !== input.topicPlan.revision) {
+				throw new Error("wiki_compilation_topic_drift: Goal Topic Plan changed before compilation");
+			}
+			const compile = input.dependencies?.compile ?? ((request: WikiCompilationRequest) => {
+				if (compilerKind === "legacy") return new LlmWikiCompiler().compile(request);
+				const execute = (pinned: WikiCompilationRequest) => new NoteFirstWikiCompiler().compile(pinned);
+				const capture = caseCapture()?.wikiCompilation;
+				return capture ? capture(request, { execute }) : execute(request);
+			});
+			const publish = input.dependencies?.publish ?? publishCompilation;
+			compilation = await compile({
+				env: input.env,
+				goalDir: input.goalDir,
+				goal: input.goal,
+				goalContext: input.goalContext,
+				runId: input.runId,
+				runDirectory: input.runDirectory,
+				controlDirectory: input.controlDirectory,
+				cornellNotesSnapshot: input.cornellNotes,
+				...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
+				topicPlan: input.topicPlan,
+				...(input.rebuild ? { rebuild: true } : {}),
+				signal: input.signal,
+				onStarted: (totalBatches) => jobs.markRunning(totalBatches),
+				onBatchProgress: (progress) => jobs.recordBatch(progress),
+				onStageProgress: (progress) => jobs.recordStage(progress),
+			});
+			if (compilation.publicationReady === false) {
+				throw new Error(`Wiki 有 ${compilation.failedBatches.length} 个步骤未完成，成功步骤已保留；继续运行后发布。`);
+			}
+			publicationPageCount = compilation.pageCount;
+			jobs.recordStage({
+				kind: "publication",
+				stageIndex: 0,
+				totalStages: 1,
+				status: "running",
+				pageCount: compilation.pageCount,
+				usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 },
+			});
+			publicationStarted = true;
 		const publication = await publish({
-			goalId: input.goalId,
-			goalDir: input.goalDir,
-			workspaceDir: input.workspaceDir,
-			compilation,
-			env: input.env,
+				goalId: input.goalId,
+				goalDir: input.goalDir,
+				workspaceDir: input.workspaceDir,
+				compilation,
+				env: input.env,
 			signal: input.signal,
-		});
-		jobs.recordStage({
-			kind: "publication",
-			stageIndex: 0,
-			totalStages: 1,
-			status: "succeeded",
-			pageCount: compilation.pageCount,
-			usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 },
-		});
-		const execution: WikiUpdateExecution = {
-			status: compilation.failedBatches.length ? "partial" : "succeeded",
-			compilationId: compilation.compilationId,
-			pageCount: compilation.pageCount,
-			publicationStatus: publication.status,
-			changedPaths: publication.changedPaths,
-			usage: compilation.usage,
-			failedBatches: compilation.failedBatches,
-		};
-		// 结果产物是不可变的：上一次可能已经写过它，但没来得及结算任务记录。
-		{
-			recordUpdateResult(input.runDirectory, jobs.load()!.attempts, {
-				schema_version: 1,
-				status: execution.status,
-				compilation_id: execution.compilationId,
-				knowledge_ref: compilation.knowledge.relativePath,
-				publication_status: execution.publicationStatus,
-				page_count: execution.pageCount,
-				changed_paths: execution.changedPaths,
-				usage: execution.usage,
-				failed_batches: execution.failedBatches,
-				finished_at: new Date().toISOString(),
+			...(input.cueOrigins ? { topicPlanRevision: input.topicPlan.revision } : {}),
 			});
-		}
-		jobs.settle(execution.status, {
-			compilationId: execution.compilationId,
-			publicationStatus: publication.status,
-			changedPaths: publication.changedPaths,
-			failedBatches: execution.failedBatches.map((failure) => ({
-				batch_index: failure.batchIndex,
-				source_ids: failure.sourceIds,
-				message: failure.message,
-				usage: {
-					input_tokens: failure.usage.inputTokens,
-					output_tokens: failure.usage.outputTokens,
-					cost_usd: failure.usage.costUsd,
-					model_calls: failure.usage.calls,
-				},
-			})),
-			...(execution.status === "partial" ? {
-				message: `Wiki 已发布，但 ${execution.failedBatches.length} 个 Source 批次失败。`,
-			} : {}),
-		});
-		input.onSettled?.(execution.status);
-		return execution;
-	} catch (error) {
-		const message = toErrorMessage(error);
-		const status = input.signal.aborted ? "cancelled" as const : "failed" as const;
-		if (publicationStarted) jobs.recordStage({
-			kind: "publication",
-			stageIndex: 0,
-			totalStages: 1,
-			status: "failed",
-			pageCount: publicationPageCount,
-			usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 },
-			message,
-		});
-		jobs.settle(status, { message, ...(compilation ? {
-			compilationId: compilation.compilationId,
-			failedBatches: compilation.failedBatches.map(failure => ({ batch_index: failure.batchIndex,
-				source_ids: failure.sourceIds, message: failure.message, usage: {
-					input_tokens: failure.usage.inputTokens, output_tokens: failure.usage.outputTokens,
-					cost_usd: failure.usage.costUsd, model_calls: failure.usage.calls,
-				} })),
-		} : {}) });
-		{
-			recordUpdateResult(input.runDirectory, jobs.load()!.attempts, {
-				schema_version: 1,
-				status,
+			jobs.recordStage({
+				kind: "publication",
+				stageIndex: 0,
+				totalStages: 1,
+				status: "succeeded",
+				pageCount: compilation.pageCount,
+				usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 },
+			});
+			const execution: WikiUpdateExecution = {
+				status: compilation.failedBatches.length ? "partial" : "succeeded",
+				compilationId: compilation.compilationId,
+				pageCount: compilation.pageCount,
+				publicationStatus: publication.status,
+				changedPaths: publication.changedPaths,
+				usage: compilation.usage,
+				failedBatches: compilation.failedBatches,
+			};
+			// 结果产物是不可变的：上一次可能已经写过它，但没来得及结算任务记录。
+			{
+				recordUpdateResult(input.runDirectory, jobs.load()!.attempts, {
+					schema_version: 1,
+					status: execution.status,
+					compilation_id: execution.compilationId,
+					knowledge_ref: compilation.knowledge.relativePath,
+					publication_status: execution.publicationStatus,
+					page_count: execution.pageCount,
+					changed_paths: execution.changedPaths,
+					usage: execution.usage,
+					failed_batches: execution.failedBatches,
+					finished_at: new Date().toISOString(),
+				});
+			}
+			jobs.settle(execution.status, {
+				compilationId: execution.compilationId,
+				publicationStatus: publication.status,
+				changedPaths: publication.changedPaths,
+				failedBatches: execution.failedBatches.map((failure) => ({
+					batch_index: failure.batchIndex,
+					source_ids: failure.sourceIds,
+					message: failure.message,
+					usage: {
+						input_tokens: failure.usage.inputTokens,
+						output_tokens: failure.usage.outputTokens,
+						cost_usd: failure.usage.costUsd,
+						model_calls: failure.usage.calls,
+					},
+				})),
+				...(execution.status === "partial" ? {
+					message: `Wiki 已发布，但 ${execution.failedBatches.length} 个 Source 批次失败。`,
+				} : {}),
+			});
+			input.onSettled?.(execution.status);
+			return execution;
+		} catch (error) {
+			const message = toErrorMessage(error);
+			const status = input.signal.aborted ? "cancelled" as const : "failed" as const;
+			if (publicationStarted) jobs.recordStage({
+				kind: "publication",
+				stageIndex: 0,
+				totalStages: 1,
+				status: "failed",
+				pageCount: publicationPageCount,
+				usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 },
 				message,
-				finished_at: new Date().toISOString(),
 			});
+			jobs.settle(status, { message, ...(compilation ? {
+				compilationId: compilation.compilationId,
+				failedBatches: compilation.failedBatches.map(failure => ({ batch_index: failure.batchIndex,
+					source_ids: failure.sourceIds, message: failure.message, usage: {
+						input_tokens: failure.usage.inputTokens, output_tokens: failure.usage.outputTokens,
+						cost_usd: failure.usage.costUsd, model_calls: failure.usage.calls,
+					} })),
+			} : {}) });
+			{
+				recordUpdateResult(input.runDirectory, jobs.load()!.attempts, {
+					schema_version: 1,
+					status,
+					message,
+					finished_at: new Date().toISOString(),
+				});
+			}
+			input.onSettled?.(status, message);
+			throw error;
 		}
-		input.onSettled?.(status, message);
-		throw error;
-	}
+	});
+}
+
+/** Research, manual Updates, Cue Updates and Topic reframe share one Goal execution turn. */
+export function withGoalWikiExecution<T>(goalDir: string, action: () => Promise<T>): Promise<T> {
+	const key = resolve(goalDir);
+	const predecessor = goalExecutions.get(key) ?? Promise.resolve();
+	let release!: () => void;
+	const turn = new Promise<void>((resolve) => { release = resolve; });
+	goalExecutions.set(key, turn);
+	return predecessor.then(action).finally(() => {
+		release();
+		if (goalExecutions.get(key) === turn) goalExecutions.delete(key);
+	});
 }
 
 function recordUpdateResult(root: string, attempt: number, value: unknown): void {
@@ -245,7 +271,9 @@ export function startWikiUpdateActivity(input: {
 	goalContext: WikiGoalContext;
 	topicPlan: GoalTopicPlan;
 	sourceRunId?: string;
+	cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
 	sourceRunDirectory: string;
+	wikiUpdateId?: string;
 	cornellNotes: WikiUpdateJob["cornell_notes"];
 	parentActivityId?: string;
 	trigger: NonNullable<WikiUpdateJob["trigger"]>;
@@ -255,6 +283,19 @@ export function startWikiUpdateActivity(input: {
 	signal?: AbortSignal;
 	dependencies?: WikiUpdateDependencies;
 }): StartedWikiUpdate {
+	if (input.wikiUpdateId) {
+		const existing = new WikiUpdateJobStore(wikiUpdateRecordDir(input.workspaceDir, input.goalId, input.wikiUpdateId)).load();
+		if (existing) {
+			if (existing.goal_id !== input.goalId || existing.cornell_notes.sha256 !== input.cornellNotes.sha256
+				|| JSON.stringify(existing.topic_plan) !== JSON.stringify(input.topicPlan)
+				|| JSON.stringify(existing.goal_context) !== JSON.stringify(input.goalContext)
+				|| JSON.stringify(existing.cue_origins) !== JSON.stringify(input.cueOrigins)) {
+				throw new Error("Wiki Update id belongs to different frozen inputs");
+			}
+			if (!["queued", "running", "succeeded"].includes(existing.status)) throw new Error("Wiki Update requires explicit resume");
+			return { wikiUpdateId: input.wikiUpdateId, reused: true, status: existing.status };
+		}
+	}
 	if (input.sourceRunId && !input.rebuild) {
 		const matches = listWikiUpdateJobs(input.workspaceDir, input.goalId)
 			.flatMap((entry) => {
@@ -308,18 +349,24 @@ export function startWikiUpdateActivity(input: {
 			};
 		}
 	}
-	const wikiUpdateId = `wiki_${Date.now().toString(36)}${randomUUID().replaceAll("-", "").slice(0, 8)}`;
+	const wikiUpdateId = input.wikiUpdateId ?? `wiki_${Date.now().toString(36)}${randomUUID().replaceAll("-", "").slice(0, 8)}`;
 	const controlDirectory = wikiUpdateRecordDir(input.workspaceDir, input.goalId, wikiUpdateId);
 	const runDirectory = wikiUpdateArtifactDir(input.goalDir, wikiUpdateId);
 	mkdirSync(controlDirectory, { recursive: true });
 	mkdirSync(runDirectory, { recursive: true });
 	const source = new RunArtifactStore(input.sourceRunDirectory).openFile(input.cornellNotes);
-	const copied = new RunArtifactStore(runDirectory).publishFile(source.absolutePath, "artifacts/input/cornell-notes.json");
+	const store = new RunArtifactStore(runDirectory);
+	const copiedPath = "artifacts/input/cornell-notes.json";
+	// A process may stop after copying frozen input but before creating its job record.
+	const copied = existsSync(join(runDirectory, copiedPath))
+		? store.openFile({ relative_path: copiedPath, sha256: source.sha256, byte_length: source.byteLength })
+		: store.publishFile(source.absolutePath, copiedPath);
 	const execution = executeWikiUpdate({
 		goalId: input.goalId,
 		runId: wikiUpdateId,
 		wikiUpdateId,
 		...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
+		...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
 		...(input.parentActivityId ? { parentActivityId: input.parentActivityId } : {}),
 		trigger: input.trigger,
 		reason: input.reason,
@@ -386,6 +433,7 @@ export async function resumeWikiUpdate(input: {
 		runDirectory: wikiUpdateArtifactDir(input.goalDir, input.runId),
 		controlDirectory,
 		cornellNotes: job.cornell_notes,
+		...(job.cue_origins ? { cueOrigins: job.cue_origins } : {}),
 		...(job.rebuild ? { rebuild: true } : {}),
 		env: input.env,
 		signal: input.signal ?? new AbortController().signal,

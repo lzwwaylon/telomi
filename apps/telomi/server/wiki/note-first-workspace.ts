@@ -9,7 +9,9 @@ import { searchRows, type SearchRequest, type SearchRow } from './note-first-sea
 
 export interface PageOverview {
  page_ref: string; kind: 'entity' | 'concept'; title: string; description: string;
- sections: Array<{ section_ref: string; heading: string }>;
+ file: string;
+ sections: Array<{ section_ref: string; heading: string; start_line: number; end_line: number; entry_refs: string[] }>;
+ cue_files: Record<string, string | null>;
  relations: Array<{ from: string; to: string; label: string; direction: 'incoming' | 'outgoing'; page: Pick<PageOverview, 'page_ref' | 'kind' | 'title' | 'description'> }>;
 }
 
@@ -143,9 +145,20 @@ export function createNoteFirstWorkspace(input: NoteFirstInput, inputRoot: strin
   return { page_ref: ref, kind: row.kind, title: row.title, description: row.description };
  };
  const aliasesById = new Map([...pages].map(([ref, row]) => [row.page.id, ref]));
- const overviews: Record<string, PageOverview> = Object.fromEntries([...pages].map(([ref, row]) => [ref, {
-  ...pageSummary(ref), sections: pageSections(row.page.id).map(([section_ref, section]) => ({ section_ref, heading: section.heading })), relations: [],
- }]));
+ const overviews: Record<string, PageOverview> = Object.fromEntries([...pages].map(([ref, row]) => {
+  // Native read coordinates include the staged frontmatter; durable Sections keep body coordinates.
+  const lineOffset = pageText(ref).split('\n').length - row.page.body.split('\n').length;
+  const cueAlias = (id: string) => entryAliases.get(id) ?? fail('page references unknown Entry');
+  return [ref, {
+   ...pageSummary(ref), file: `pages/${ref}.md`,
+   sections: pageSections(row.page.id).map(([section_ref, section]) => ({ section_ref, heading: section.heading,
+    start_line: section.startLine + lineOffset, end_line: section.endLine + lineOffset,
+    entry_refs: objectFirstEntries(row.page.body.split('\n').slice(section.startLine - 1, section.endLine).join('\n')).map(cueAlias) })),
+   cue_files: Object.fromEntries(objectFirstEntries(row.page.body).map(cueAlias)
+    .map(alias => [alias, visibleEntries.has(alias) ? `evidence/${alias}.md` : null])),
+   relations: [],
+  }];
+ }));
  for (const relation of input.previousRelations) {
   const from = aliasesById.get(relation.from), to = aliasesById.get(relation.to);
   if (!from || !to) continue;

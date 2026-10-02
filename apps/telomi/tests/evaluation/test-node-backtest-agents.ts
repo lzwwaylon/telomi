@@ -585,6 +585,11 @@ try {
 		assert.equal(existsSync(externalBundle.path), true);
 		assert.equal(readFileSync(externalCase.manifestPath, "utf-8"), originalManifest);
 	} finally { externalBundle.cleanup(); }
+	const exportedResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases/${externalCase.ref.sourceRunId}/${externalCase.ref.caseId}/bundle`);
+	assert.equal(exportedResponse.status, 200, `Case Bundle under hidden .pi runtime directories must be downloadable: ${await exportedResponse.clone().text()}`);
+	assert.equal(exportedResponse.headers.get("content-type"), "application/x-tar");
+	const exportedBytes = new Uint8Array(await exportedResponse.arrayBuffer());
+	assert.ok(exportedBytes.byteLength > 512, "HTTP export must transfer actual tar bytes");
 	const primeFilesResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases/${sourceRunId}/${primeDraft.caseId}/files`);
 	assert.equal(primeFilesResponse.status, 200, await primeFilesResponse.clone().text());
 	const primeFiles = (await primeFilesResponse.json() as { files: Array<{ ref: string; kind: string }> }).files;
@@ -792,6 +797,28 @@ try {
 		candidate: { capabilitySnapshotId: candidateSnapshot.id },
 		rubricId: "missing-candidate-prompt",
 	}), /Candidate Capability Bundle requires promptMode/u);
+	const renderedRun = service.enqueue(goalId, {
+		agentId: "cornell-note", cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		candidate: { capabilitySnapshotId: candidateSnapshot.id, promptMode: "candidate" },
+		repetitions: 1, rubricId: "render-current-candidate",
+	});
+	assert.equal(renderedRun.candidate.promptMode, "candidate");
+	assert.equal(renderedRun.candidate.promptBundle?.source, "candidate");
+	assert.match(renderedRun.candidate.promptBundle!.cases[0]!.userPrompt, /Captured source question/u);
+	assert.notEqual(renderedRun.candidate.promptBundle!.cases[0]!.systemPrompt, "cornell-note system");
+	assert.equal((await waitForEvaluation(service, renderedRun.id)).status, "awaiting_evaluation");
+	assert.deepEqual(replayPrompts.get("cornell-note")?.at(-1), {
+		system: renderedRun.candidate.promptBundle!.cases[0]!.systemPrompt,
+		user: renderedRun.candidate.promptBundle!.cases[0]!.userPrompt,
+	});
+	assert.throws(() => service.enqueue(goalId, {
+		agentId: "prime-search", cases: [batchCases[0]!], candidate: { promptMode: "observed" }, rubricId: "unsupported-observed",
+	}), /cannot freeze observed Prompts/u);
+	assert.throws(() => service.enqueue(goalId, {
+		agentId: "cornell-note", cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		candidate: { promptMode: "candidate", promptOverride: { userPrompt: "hidden override" } }, rubricId: "incompatible-override",
+	}), /does not accept promptOverride/u);
+	assert.equal(fullBatch.candidate.promptMode, "candidate", "native-current Recipes persist their effective mode");
 	const candidateRun = service.enqueue(goalId, {
 		agentId: "cornell-note",
 		cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
@@ -891,7 +918,7 @@ try {
 	assert.match(reportTraceRun.run.executions[0]?.refs?.reportInitialPrompt ?? "", /writer-report-1-execution\/initial-prompt\.md$/u);
 	assert.ok(Object.values(reportTraceRun.run.executions[0]?.refs ?? {}).every((ref) => !ref.includes("writer-report-0-previous")));
 	for (const agentId of RECORDED_STAGE_AGENT_IDS) {
-		assert.equal(replayed.get(agentId), agentId === "cornell-note" ? 3 : 1);
+		assert.equal(replayed.get(agentId), agentId === "cornell-note" ? 4 : 1);
 	}
 	const missingPromptResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays`, {
 		method: "POST",
@@ -1061,7 +1088,8 @@ function recordedRequest(
 		evaluation: {
 			agentId,
 			recipe: { id: agentId, version: RECORDED_STAGE_RECIPE_VERSIONS[agentId] },
-			recipeInput: {},
+			recipeInput: agentId === "cornell-note" ? { question: "Captured source question",
+				goal: { title: "Captured Goal", description: "Original Source" }, discoveryEnabled: false } : {},
 			inputRelativePath: `inputs/${agentId}`,
 			harnessMounts: [
 				{ guestPath: "/workspace/skills", workspaceRelativePath: `skills/${agentId}` },

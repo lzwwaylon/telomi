@@ -58,3 +58,15 @@ test("unavailable memory tells the Agent instead of failing the turn", async () 
 	const { systemPrompt } = (await handler({ systemPrompt: "BASE" }))!;
 	assert.match(systemPrompt, /User Memory is unavailable this turn, so the user's Global Preferences could not be loaded\./u);
 });
+
+
+test("Case Capture receives the preference context actually appended to this turn", async () => {
+	let handler: BeforeAgentStart | undefined;
+	let captured: string | undefined;
+	registerGlobalPreferences({ on: (_name: string, registered: BeforeAgentStart) => { handler = registered; } } as never,
+		{ listMemoryUnits: async () => [unit("Keep the original preference", "2025-01-03T00:00:00Z")] },
+		(preferences) => { captured = preferences; });
+	const result = await handler!({ systemPrompt: "BASE" });
+	assert.ok(captured?.includes("Keep the original preference"));
+	assert.equal(result?.systemPrompt, `BASE\n\n${captured}`);
+});

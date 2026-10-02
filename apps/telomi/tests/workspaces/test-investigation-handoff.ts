@@ -1,3 +1,4 @@
+import { type InvestigationResult } from "../../server/citations/contracts.js";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,7 +10,7 @@ import { publishInvestigationHandoff } from "../../server/main-agent/investigati
 import { createMainAgentSandbox, createMainAgentSandboxProxyTools } from "../../server/main-agent/main-agent-sandbox.js";
 import { MainWorkspaceRuntime } from "../../server/main-agent/main-workspace-runtime.js";
 import { createDeliverInvestigationTool, createInvestigateTool } from "../../server/main-agent/tools/investigate.js";
-import type { InvestigationResult } from "../../server/research/investigate.js";
+import { readInvestigationResult } from "../../server/research/investigate.js";
 import { runInInvestigationThread } from "../../server/research/investigation-threads.js";
 import { ensureGoalWorkspace } from "../../server/workspaces/goal-project.js";
 import { openMainAgentFiles } from "../../server/workspaces/main-agent-files.js";
@@ -36,6 +37,12 @@ try {
 		goalId, id, question: result.question, context: "", language: "en", allowExternal: false,
 	}));
 	writeFileSync(join(runDir, "result.json"), JSON.stringify(result));
+	const frozenCitations = { schema_version: 1, citations: [{ ref: "C1", wiki: {
+		ref: "C1", page: { ref: "P1", path: "wiki/evidence.md", title: "Frozen evidence", type: "concept", content: "Saved Wiki bytes" },
+		entry: { id: "entry:frozen", index: 1, section: "Evidence", cue: "Saved finding", note: "Supported conclusion",
+			source: { id: "source:frozen", title: "Frozen source", url: "https://example.com/frozen" }, anchors: [] }, evidence: [],
+	} }] };
+	writeFileSync(join(runDir, "citations.json"), JSON.stringify(frozenCitations));
 	const threaded = await runInInvestigationThread({
 		goalDir, executionId: "2".repeat(24), question: result.question, title: "Saved evidence review",
 	}, async () => ({ ...result, id: "2".repeat(24) }));
@@ -100,6 +107,9 @@ try {
 	assert.equal((await runtime.publish(session.id)).status, "no_change", "Runtime handoff is not an Agent write");
 	assert.equal(existsSync(session.sandboxDir), false);
 	assert.deepEqual(JSON.parse(readFileSync(saved, "utf8")), result, "handoff survives Turn cleanup");
+	const savedCitations = join(dirname(saved), "citations.json");
+	assert.deepEqual(JSON.parse(readFileSync(savedCitations, "utf-8")), frozenCitations,
+		"the Goal artifact freezes exact evidence alongside the answer for future Turns and Replay");
 	assert.deepEqual(publishInvestigationHandoff(goalDir, result).receipt, receipt, "identical publication is idempotent");
 	assert.throws(() => publishInvestigationHandoff(goalDir, { ...result, answer: "different" }), /hash changed/u);
 
@@ -136,6 +146,21 @@ try {
 	await assert.rejects(runtime.publish(unrelated.id), /may only modify artifacts\/main/u,
 		"exposing a trusted artifact must not accept unrelated Agent writes");
 	assert.equal(existsSync(dirname(saved)), true);
+	// Legacy result-only handoffs acquire evidence before the next logical input snapshot.
+	rmSync(savedCitations);
+	writeFileSync(join(runDir, "result.json"), JSON.stringify({ ...result, answer: "Changed control <cite>C1</cite>." }));
+	assert.deepEqual(readInvestigationResult(goalDir, id), result, "a mutable control file cannot override the published result");
+	assert.throws(() => runtime.prepare({ conversationId: "mismatched-evidence" }), /does not belong to the saved result/u);
+	assert.equal(existsSync(savedCitations), false, "migration does not pair a frozen result with conflicting control evidence");
+	writeFileSync(join(runDir, "result.json"), JSON.stringify(result));
+	const migrated = runtime.prepare({ conversationId: "migrated-evidence" });
+	assert.deepEqual(JSON.parse(readFileSync(join(migrated.sandboxDir, "artifacts", "investigations", id, "citations.json"), "utf-8")),
+		frozenCitations, "migration occurs before copying the Main artifact mount");
+	await runtime.abort(migrated.id);
+	rmSync(runDir, { recursive: true });
+	assert.deepEqual(readInvestigationResult(goalDir, id), result, "a restored Goal tree suffices without server controls");
+	const replayDelivery = await createDeliverInvestigationTool(goalDir).execute("replay-delivery", { investigation_id: id });
+	assert.deepEqual(replayDelivery.content, [{ type: "text", text: result.answer }]);
 	console.log("Investigation file handoff tests passed");
 } finally {
 	await sandbox?.close();

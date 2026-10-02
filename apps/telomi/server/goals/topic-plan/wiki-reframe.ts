@@ -12,6 +12,7 @@ import { publishCompilation } from "../../wiki/publication.js";
 import type { GoalTopicPlanProposal } from "./contracts.js";
 import { GoalTopicPlanStore } from "./store.js";
 import { toErrorMessage } from "../../lib/values.js";
+import { withGoalWikiExecution } from "../../wiki/update-runner.js";
 
 export async function reframeActivatedGoalWiki(input: {
 	goalId: string;
@@ -30,6 +31,10 @@ export async function reframeActivatedGoalWiki(input: {
 	usage: ResearchModelUsage;
 	changedPaths: string[];
 }> {
+	return withGoalWikiExecution(input.goalDir, () => reframeGoalWiki(input));
+}
+
+async function reframeGoalWiki(input: Parameters<typeof reframeActivatedGoalWiki>[0]): Promise<Awaited<ReturnType<typeof reframeActivatedGoalWiki>>> {
 	const store = new GoalTopicPlanStore(input.goalId, input.workspaceDir);
 	const knowledgeRoot = join(input.goalDir, "wiki", "knowledge");
 	if (!existsSync(join(knowledgeRoot, ".note-registry.json"))) {

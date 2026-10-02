@@ -3,8 +3,7 @@ import { dirname } from "node:path";
 import type { ExtraEnvGetter } from "../extra-env.js";
 import { asTerminalTool } from "./terminal-action.js";
 import { createResearchScheduleTool } from "./research-schedule.js";
-import { createGenerateReportTool } from "./generate-report.js";
-import { createMainResearchTool, createResearchHistoryTool } from "./research.js";
+import { createResearchHistoryTool } from "./research.js";
 import { createDeliverInvestigationTool, createInvestigateTool } from "./investigate.js";
 import { createWikiUpdateTool } from "./wiki-update.js";
 import { createGeneratePodcastTool, type PodcastGenerationDispatchHandler } from "./generate-podcast.js";
@@ -18,50 +17,41 @@ export interface CreateMainAgentToolsOptions {
 	description?: string;
 	getGoalTitle?: () => string;
 	getGoalDescription?: () => string;
-	getDiscoveryEnabled?: () => boolean;
 	getOutputLanguage?: () => OutputLanguage;
 	getExtraEnv?: ExtraEnvGetter;
-	getOriginalQuestion?: () => string | undefined;
 	exposeInvestigationResult?: (artifact: RunArtifactRef) => void;
 	generatePodcast?: PodcastGenerationDispatchHandler;
+	/** Main node Replay captures the turn and durable Cues; Wiki has its own Replay boundary. */
+	deferCueWikiUpdates?: boolean;
 }
 
 export function createMainAgentTools(
 	goalDir: string,
-	_getAttachments: () => Array<{
-		id: string;
-		fileName: string;
-		mimeType: string;
-		size: number;
-		content: string;
-		extractedText?: string;
-	}>,
-	_opts: CreateMainAgentToolsOptions,
+	options: CreateMainAgentToolsOptions,
 ): AgentTool<any>[] {
 	return [
-		createResearchHistoryTool(_opts),
-		createInvestigateTool(goalDir, _opts),
+		createResearchHistoryTool(options),
+		createInvestigateTool(goalDir, options),
 		asTerminalTool(createDeliverInvestigationTool(goalDir), "deliver_investigation", "local_knowledge_delivered"),
-		asTerminalTool(createMainResearchTool(goalDir, _opts), "research", "external_research_requested"),
-		asTerminalTool(createGenerateReportTool(goalDir, _opts), "generate_report", "wiki_report_generated"),
-		asTerminalTool(createGeneratePodcastTool(_opts.goalId, goalDir, (request) => {
-			if (!_opts.generatePodcast) throw new Error("Podcast generation is not configured");
-			return _opts.generatePodcast(request);
+		asTerminalTool(createGeneratePodcastTool(options.goalId, goalDir, (request) => {
+			if (!options.generatePodcast) throw new Error("Podcast generation is not configured");
+			return options.generatePodcast(request);
 		}), "generate_podcast", "podcast_generation_requested"),
 		createWikiUpdateTool({
-			goalId: _opts.goalId,
+			goalId: options.goalId,
 			goalDir,
-			workspaceDir: _opts.workspaceDir ?? dirname(goalDir),
-			goalTitle: _opts.title,
-			goalDescription: _opts.description,
-			getGoalTitle: _opts.getGoalTitle,
-			getGoalDescription: _opts.getGoalDescription,
-			getOutputLanguage: _opts.getOutputLanguage,
-			getEnv: () => _opts.getExtraEnv?.() ?? {},
+			workspaceDir: options.workspaceDir ?? dirname(goalDir),
+			goalTitle: options.title,
+			goalDescription: options.description,
+			getGoalTitle: options.getGoalTitle,
+			getGoalDescription: options.getGoalDescription,
+			getOutputLanguage: options.getOutputLanguage,
+			getEnv: () => options.getExtraEnv?.() ?? {},
+			deferCueWikiUpdates: options.deferCueWikiUpdates,
 		}),
 		createResearchScheduleTool({
-			goalId: _opts.goalId,
-			workspaceDir: _opts.workspaceDir ?? dirname(goalDir),
+			goalId: options.goalId,
+			workspaceDir: options.workspaceDir ?? dirname(goalDir),
 		}),
 	];
 }

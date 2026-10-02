@@ -42,9 +42,10 @@ export async function renderGlobalPreferences(client: Pick<HindsightClient, "lis
 	}, "global-preferences").content;
 }
 
-export function registerGlobalPreferences(pi: ExtensionAPI, client: Pick<HindsightClient, "listMemoryUnits">): void {
+export function registerGlobalPreferences(pi: ExtensionAPI, client: Pick<HindsightClient, "listMemoryUnits">, onPreferences?: (preferences: string | undefined) => void): void {
 	pi.on("before_agent_start", async (event) => {
 		const preferences = await renderGlobalPreferences(client);
+		onPreferences?.(preferences);
 		return preferences ? { systemPrompt: `${event.systemPrompt}\n\n${preferences}` } : undefined;
 	});
 }

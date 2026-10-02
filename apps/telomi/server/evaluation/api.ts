@@ -138,7 +138,7 @@ function operationsHandlers(
 			if (!goalId) return;
 			try {
 				if (typeof req.query.ref !== "string" || !req.query.ref) throw new Error("ref is required");
-				res.sendFile(service.caseFile(goalId, caseRef(req), req.query.ref));
+				res.sendFile(service.caseFile(goalId, caseRef(req), req.query.ref), { dotfiles: "allow" });
 			} catch (error) {
 				res.status(404).json({ error: toErrorMessage(error) });
 			}
@@ -151,7 +151,7 @@ function operationsHandlers(
 				const bundle = await service.exportCaseBundle(found.id, found.title, caseRef(req));
 				res.type("application/x-tar");
 				res.setHeader("Content-Disposition", `attachment; filename="${req.params.caseId}.tar"`);
-				res.sendFile(bundle.path, (error) => {
+				res.sendFile(bundle.path, { dotfiles: "allow" }, (error) => {
 					bundle.cleanup();
 					if (error && !res.headersSent) res.status(500).json({ error: toErrorMessage(error) });
 				});
@@ -168,7 +168,7 @@ function operationsHandlers(
 				const bundle = await service.exportCaseBundle(found.id, found.title, ref);
 				res.type("application/x-tar");
 				res.setHeader("Content-Disposition", `attachment; filename="${ref.caseId}.tar"`);
-				res.sendFile(bundle.path, (error) => {
+				res.sendFile(bundle.path, { dotfiles: "allow" }, (error) => {
 					bundle.cleanup();
 					if (error && !res.headersSent) res.status(500).json({ error: toErrorMessage(error) });
 				});
@@ -220,7 +220,7 @@ function operationsHandlers(
 			if (!goalId) return;
 			try {
 				if (typeof req.query.ref !== "string" || !req.query.ref) throw new Error("ref is required");
-				res.sendFile(service.replayFile(goalId, param(req, "runId"), req.query.ref));
+				res.sendFile(service.replayFile(goalId, param(req, "runId"), req.query.ref), { dotfiles: "allow" });
 			} catch (error) {
 				res.status(404).json({ error: toErrorMessage(error) });
 			}
@@ -243,7 +243,7 @@ function operationsHandlers(
 				const label = param(req, "label");
 				if (label !== "A" && label !== "B") throw new Error("label must be A or B");
 				const file = typeof req.query.file === "string" && req.query.file ? req.query.file : undefined;
-				res.sendFile(service.evaluationArtifactFile(goalId, param(req, "runId"), param(req, "pairId"), label, file));
+				res.sendFile(service.evaluationArtifactFile(goalId, param(req, "runId"), param(req, "pairId"), label, file), { dotfiles: "allow" });
 			} catch (error) {
 				res.status(404).json({ error: toErrorMessage(error) });
 			}
@@ -254,7 +254,7 @@ function operationsHandlers(
 			if (!goalId) return;
 			try {
 				const file = typeof req.query.file === "string" && req.query.file ? req.query.file : undefined;
-				res.sendFile(service.artifactFile(goalId, param(req, "runId"), param(req, "executionId"), file));
+				res.sendFile(service.artifactFile(goalId, param(req, "runId"), param(req, "executionId"), file), { dotfiles: "allow" });
 			} catch (error) {
 				res.status(404).json({ error: toErrorMessage(error) });
 			}

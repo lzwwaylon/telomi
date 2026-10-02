@@ -1,6 +1,7 @@
 import { inferOutputLanguage, type ResolvedOutputLanguage } from "../../shared/languages.js";
 import type { PublishedArtifactDirectoryRef, RunArtifactRef } from "../agent-runtime/artifact-store.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
+import type { WikiCueOrigin } from "./wiki-update-job.js";
 import type { GoalTopicPlan } from "../goals/topic-plan/contracts.js";
 
 /**
@@ -43,6 +44,8 @@ export interface WikiCompilationRequest {
 	runDirectory: string;
 	controlDirectory: string;
 	cornellNotesSnapshot: RunArtifactRef;
+	/** Frozen investigation origins, retained for Case lineage rather than Agent instructions. */
+	cueOrigins?: WikiCueOrigin[];
 	/** Frozen Goal Topic Plan used to organize the resulting Wiki. */
 	topicPlan: GoalTopicPlan;
 	/** Build from an empty candidate Wiki, while still publishing against the current Wiki revision. */

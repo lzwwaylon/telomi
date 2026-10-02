@@ -32,7 +32,7 @@ export function createGeneratePodcastTool(
 	return {
 		name: "generate_podcast",
 		label: "generate_podcast",
-		description: "Generate a Podcast from one Canonical Report, replacing the report's current Podcast. Durable Podcast Preferences are resolved automatically; instruction applies only to this generation.",
+		description: "Generate audio only when the user requests a Podcast or audio, from one existing Canonical Report, replacing its current Podcast. Written report creation or revision uses investigate. Durable Podcast Preferences are resolved automatically; instruction applies only to this generation.",
 		parameters: schema,
 		execute: async (_toolCallId, input) => {
 			const requested = input.report.trim();

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { resolveCitationSourcePreview, resolveReportCoverAsset } from "../../server/citations/preview.js";
+import { sha256 } from "../../server/lib/hash.js";
 import { jpegSize } from "../../server/workspaces/source-view.js";
 
 const root = mkdtempSync(join(tmpdir(), "citation-preview-"));
@@ -186,6 +187,73 @@ try {
 		citations: [{ number: 1, title: "Paper", url: "https://example.com/paper", provenance: "provider:test:source:group" }],
 	}));
 	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/paper"), null);
+
+	// Investigation reports carry the exact Cornell/Deep Cue and original Source bytes.
+	// No live Wiki, Cue artifact or original Run needs to exist for these frozen previews.
+	const cornellRef = "cornell:old-run:entry:revision";
+	const deepRef = "deep-search:saved:1";
+	const frozenAnchor = {
+		source_run_id: "old-run", source_id: "source:frozen", source_revision_sha256: "a".repeat(64),
+		source_path: "paper.md", start_line: 7, end_line: 8, excerpt: "Frozen line one.\nFrozen line two.",
+		content_sha256: sha256("Frozen line one.\nFrozen line two.\n"),
+	};
+	const frozenCornell = {
+		ref: cornellRef, cue: "Exact Cornell detail", note: "Preserved Cornell Note.",
+		source_title: "Frozen paper", canonical_locator: "https://example.com/frozen",
+		evidence: [frozenAnchor],
+	};
+	const frozenDeep = {
+		ref: deepRef, cue: "Exact local detail", note: "Preserved Deep Search Note.",
+		evidence: [{ ...frozenAnchor, title: "Local source", url: "" }],
+	};
+	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [
+		{ number: 4, title: "Frozen paper", url: "https://example.com/frozen", refs: [cornellRef], cue: frozenCornell },
+		{ number: 5, title: "Another exact Cue", url: "https://example.com/frozen", refs: [deepRef],
+			cue: { ...frozenDeep, evidence: [{ ...frozenAnchor, url: "https://example.com/frozen" }] } },
+		{ number: 6, title: "Local source", refs: [deepRef], cue: frozenDeep },
+		{ number: 7, title: "Local Wiki evidence", refs: ["C8"], wiki: [{
+			ref: "C8", page: { ref: "P8", path: "wiki/local.md", title: "Local Page", type: "concept", content: "Frozen Wiki Page." },
+			entry: { cue: "Local Wiki Cue", note: "Frozen Wiki Note.",
+				source: { id: "source:local", title: "Local document", url: "" },
+				anchors: [{ path: "local.md", startLine: 2, endLine: 2, content: "Frozen Wiki excerpt.", assets: [] }] },
+		}] },
+	] }));
+	const frozenPreview = resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/frozen", 4);
+	assert.equal(frozenPreview?.clues[0]?.cue, "Exact Cornell detail");
+	assert.deepEqual(frozenPreview?.clues[0]?.excerpts, [{
+		path: frozenAnchor.source_path, startLine: 7, endLine: 8, text: frozenAnchor.excerpt,
+		sourceId: frozenAnchor.source_id, sourceRevisionSha256: frozenAnchor.source_revision_sha256,
+		sourceRunId: frozenAnchor.source_run_id,
+		contentSha256: frozenAnchor.content_sha256,
+	}]);
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/frozen", 5)?.clues[0]?.cue,
+		"Exact local detail", "different Cue numbers sharing a URL keep their exact evidence");
+	const localPreview = resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 6);
+	assert.equal(localPreview?.url, "", "a local Source does not get an invented URL");
+	assert.equal(localPreview?.clues[0]?.note, "Preserved Deep Search Note.");
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 7)?.clues[0]?.page?.content,
+		"Frozen Wiki Page.", "numbered local Wiki citations use their frozen Page rather than live knowledge");
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 4), null,
+		"number-only lookup cannot select a URL-backed citation");
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 99), null);
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", undefined), null);
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "javascript:alert(1)", 6), null);
+	const localWiki = JSON.parse(readFileSync(join(reportRoot, "final.json"), "utf-8"));
+	localWiki.citations[3].wiki[0].entry.source.url = "file:///saved/local.md";
+	writeFileSync(join(reportRoot, "final.json"), JSON.stringify(localWiki));
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 7)?.clues[0]?.page?.content,
+		"Frozen Wiki Page.", "a local file locator remains accessible through its citation number");
+	for (const corruptCue of [
+		{ ...frozenDeep, ref: "unrelated" },
+		{ ...frozenDeep, evidence: [{ ...frozenAnchor, content_sha256: "bad-hash" }] },
+		{ ...frozenDeep, evidence: [{ ...frozenAnchor, end_line: 6 }] },
+	]) {
+		writeFileSync(join(reportRoot, "final.json"), JSON.stringify({
+			citations: [{ number: 6, refs: [deepRef], cue: corruptCue }],
+		}));
+		assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 6), null,
+			"corrupt frozen Cue identity, hash or range must fail closed");
+	}
 	console.log("Citation preview test passed");
 } finally {
 	rmSync(root, { recursive: true, force: true });

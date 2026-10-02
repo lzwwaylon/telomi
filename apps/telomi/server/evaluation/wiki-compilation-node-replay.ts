@@ -18,6 +18,8 @@ import { writeJsonAtomic } from "../lib/fs.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
 import { recordCaseCaptureFailure } from "../observability/case-capture.js";
 import { frozenWikiEnv, wikiModels, type FrozenWikiModels } from "./wiki-replay.js";
+import { WikiCueOriginSchema, type WikiCueOrigin } from "../wiki/wiki-update-job.js";
+import { validateJsonSchema } from "../agent-runtime/structured-output.js";
 
 const RECIPE = { id: "wiki-compilation", version: 1 };
 interface FrozenRequest {
@@ -55,7 +57,10 @@ export function readWikiCompilationCaseInput(directory: string) {
 	if (request.has_previous_edition !== existsSync(join(directory, "previous-edition"))
 		|| (request.operation === "reindex" && (!request.has_previous_edition || request.rebuild))
 		|| (request.operation === "compile") !== existsSync(join(directory, "evidence.json"))) throw new Error("Wiki compilation operation/input mismatch");
+	const originsPath = join(directory, "cue-origins.json");
+	const cueOrigins = existsSync(originsPath) ? readCueOrigins(originsPath) : undefined;
 	return { request, topicPlan: validateGoalTopicPlan(JSON.parse(readFileSync(join(directory, "topic-plan.json"), "utf8"))),
+		...(cueOrigins ? { cueOrigins } : {}),
 		...(request.operation === "compile" ? { evidence: validateCornellNotesSnapshot(JSON.parse(readFileSync(join(directory, "evidence.json"), "utf8"))) } : {}) };
 }
 
@@ -67,7 +72,7 @@ export async function runWikiCompilationNodeEvaluation(request: WikiCompilationR
 		freeze: destination => freezeInput(destination, { operation: "compile", goalContext: request.goalContext, models: wikiModels(env),
 			goal: request.goal, rebuild: request.rebuild ?? false, has_previous_edition: existsSync(join(request.goalDir, "wiki", "knowledge")) },
 			request.topicPlan, join(request.goalDir, "wiki", "knowledge"),
-			new RunArtifactStore(request.runDirectory).openFile(request.cornellNotesSnapshot).absolutePath),
+			new RunArtifactStore(request.runDirectory).openFile(request.cornellNotesSnapshot).absolutePath, request.cueOrigins),
 		execute: () => options.execute({ ...request, env }),
 		result: result => ({ baseKnowledgeSha256: result.baseKnowledgeSha256, knowledgeRoot: result.knowledge.absolutePath, usage: result.usage,
 			sessionPaths: result.sessionPaths, failureCount: result.failedBatches.length }), traceRoot: request.controlDirectory });
@@ -86,14 +91,22 @@ export async function runWikiReindexNodeEvaluation(request: NoteFirstReindexRequ
 		result: result => ({ ...result, baseKnowledgeSha256: hashWikiDirectory(request.knowledgeRoot), failureCount: result.failedTopics.length }), traceRoot: request.workRoot });
 }
 
-function freezeInput(directory: string, request: Omit<FrozenRequest, "schema_version">, topicPlan: GoalTopicPlan, previousRoot: string, notesPath?: string): void {
+function freezeInput(directory: string, request: Omit<FrozenRequest, "schema_version">, topicPlan: GoalTopicPlan, previousRoot: string, notesPath?: string, cueOrigins?: WikiCueOrigin[]): void {
 	const store = new RunArtifactStore(directory);
 	writeJsonAtomic(join(directory, "request.json"), { schema_version: 1, ...request });
 	writeJsonAtomic(join(directory, "topic-plan.json"), validateGoalTopicPlan(topicPlan));
 	if (request.has_previous_edition) store.publishDirectory(previousRoot, "previous-edition");
 	if (notesPath) store.publishFile(notesPath, "evidence.json");
+	if (cueOrigins) writeJsonAtomic(join(directory, "cue-origins.json"), cueOrigins);
 	writeJsonAtomic(join(directory, "input-manifest.json"), { schema_version: 1, files: describe(directory).files });
 	readWikiCompilationCaseInput(directory);
+}
+
+function readCueOrigins(path: string): WikiCueOrigin[] {
+	const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+	if (!Array.isArray(value) || !value.length) throw new Error("Wiki Cue provenance is invalid");
+	for (const origin of value) validateJsonSchema(WikiCueOriginSchema, origin);
+	return value as WikiCueOrigin[];
 }
 
 async function captureProduction<T>(input: {
@@ -201,7 +214,7 @@ export function createWikiCompilationReplayRecipe(compiler: Pick<NoteFirstWikiCo
 			if (frozen.request.operation === "compile") {
 				const notes = store.publishFile(join(directory, "input", "evidence.json"), "cornell-notes.json");
 				const result = await compiler.compile({ ...common, goalDir, runId: prepared.runId, runDirectory: directory, controlDirectory: traceRoot,
-					goal: frozen.request.goal, rebuild: frozen.request.rebuild, cornellNotesSnapshot: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength } });
+					goal: frozen.request.goal, rebuild: frozen.request.rebuild, cueOrigins: frozen.cueOrigins, cornellNotesSnapshot: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength } });
 				outcome = { baseKnowledgeSha256: result.baseKnowledgeSha256, knowledgeRoot: result.knowledge.absolutePath, usage: result.usage, sessionPaths: result.sessionPaths, failureCount: result.failedBatches.length };
 			} else {
 				const result = await compiler.reindex({ ...common, knowledgeRoot: join(goalDir, "wiki", "knowledge"), workRoot: traceRoot });

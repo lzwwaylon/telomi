@@ -8,6 +8,7 @@ import { join } from "node:path";
 import express from "express";
 
 import { createArtifactsRouter } from "../../server/media/artifacts-api.js";
+import { sha256 } from "../../server/lib/hash.js";
 import type { GoalService } from "../../server/goals/service.js";
 import {
 	isUserFacingArtifact,
@@ -28,6 +29,9 @@ const privatePath = join(goalDir, "private.md");
 let server: Server | undefined;
 
 try {
+	for (const name of ["investigations/id/result.json", "investigations/id/citations.json", "deep-search/id.json"]) {
+		assert.equal(isUserFacingArtifact(name), false, "Investigation evidence sidecars stay out of product cards");
+	}
 	mkdirSync(reportDir, { recursive: true });
 	mkdirSync(join(artifactsDir, "main"), { recursive: true });
 	writeFileSync(reportPath, "# Workspace Report\n\nVisible report body.\n", "utf-8");
@@ -45,6 +49,7 @@ try {
 	const app = express();
 	app.use(createArtifactsRouter(root, {
 		listGoals: () => [{ id: goalId, title: "Reports" }, { id: "goal_second", title: "Second Goal" }],
+		getGoal: (id: string) => id === goalId ? { id: goalId, title: "Reports" } : undefined,
 	} as GoalService));
 	server = app.listen(0, "127.0.0.1");
 	await once(server, "listening");
@@ -55,6 +60,31 @@ try {
 	);
 	assert.equal(escapedBlob.status, 400, "the Product Artifact file endpoint must reject a symlink escape");
 	assert.doesNotMatch(await escapedBlob.text(), /Must not be served/u);
+
+	const frozenRef = "deep-search:frozen:1";
+	writeFileSync(join(reportDir, "final.json"), JSON.stringify({ citations: [{
+		number: 1, refs: [frozenRef], cue: {
+			ref: frozenRef, cue: "Local evidence", note: "Frozen Source Note.", evidence: [{
+				source_run_id: "prior", source_id: "source:local", source_revision_sha256: "a".repeat(64),
+				source_path: "source.md", start_line: 1, end_line: 1, excerpt: "Frozen evidence.",
+				content_sha256: sha256("Frozen evidence.\n"), title: "Local Source", url: "",
+			}],
+		},
+	}] }));
+	const previewBase = `http://127.0.0.1:${address.port}/api/goals/${goalId}/artifacts/citations/preview`;
+	for (const name of ["wiki/runs/workspace_1/report/final.md", "/reports/Workspace Report/report.md"]) {
+		const response = await fetch(`${previewBase}?${new URLSearchParams({ name, number: "1" })}`);
+		assert.equal(response.status, 200, "report citations without URLs resolve by exact number from both report paths");
+		const preview = await response.json();
+		assert.equal(preview.url, "");
+		assert.equal(preview.clues[0].excerpts[0].text, "Frozen evidence.");
+	}
+	const canonical = "wiki/runs/workspace_1/report/final.md";
+	for (const number of ["0", "1.5", "bad"]) {
+		assert.equal((await fetch(`${previewBase}?${new URLSearchParams({ name: canonical, number })}`)).status, 400);
+	}
+	assert.equal((await fetch(`${previewBase}?${new URLSearchParams({ name: canonical })}`)).status, 400);
+	assert.equal((await fetch(`${previewBase}?${new URLSearchParams({ name: canonical, number: "2" })}`)).status, 404);
 
 	const all = scanGoalProductArtifacts(root, goalId);
 	const report = all.find((entry) => entry.name === "wiki/runs/workspace_1/report/final.md");

@@ -84,6 +84,7 @@ import { createAvatarRouter } from "./goals/avatar/api.js";
 import { buildTopicPlanConfirmedEvent } from "./main-agent/topic-readiness-guard.js";
 import { listWikiEditions } from "./wiki/editions.js";
 import { resumeWikiUpdate } from "./wiki/update-runner.js";
+import { registerSavedInvestigationCues, startGoalCueWikiUpdates } from "./research/cue-wiki-trigger.js";
 import { createContentSearchRouter } from "./search/content-search.js";
 import { toErrorMessage } from "./lib/values.js";
 
@@ -165,10 +166,10 @@ if (!evalInstance) codexUsageMonitor.start();
 let podcastGenerationHandler: PodcastGenerationDispatchHandler | undefined;
 const goals = new GoalService(workspaceDir, {
 	resumeWikiUpdate,
-	async createRunner({ workspaceDir, goal, goalDir, onSnapshot, getExtraEnv, getDiscoveryEnabled, getOutputLanguage }) {
+	async createRunner({ workspaceDir, goal, goalDir, onSnapshot, getExtraEnv, getOutputLanguage }) {
 		const runner = new GoalRunner(
 			workspaceDir, goal.id, goal.title, goalDir, onSnapshot, goal.description,
-			getExtraEnv, undefined, () => podcastGenerationHandler, getDiscoveryEnabled, getOutputLanguage,
+			getExtraEnv, undefined, () => podcastGenerationHandler, getOutputLanguage,
 			fileIngestService,
 		);
 		try {
@@ -257,6 +258,29 @@ const topicPlanActivation = new GoalTopicPlanActivation({
 	recordConfirmation: async ({ goalId, revision, proposalId }) =>
 		await goals.recordGoalEvent(goalId, buildTopicPlanConfirmedEvent(revision, proposalId)) ? "recorded" : "duplicate",
 	goalEnv: (goalId) => ({ ...process.env, ...goals.getGoalEnvSnapshot(goalId) }),
+});
+function maintainGoalCues(goalId: string, rescan = false): void {
+	const goal = goals.getGoal(goalId);
+	if (!goal) return;
+	try {
+		goals.loadCredentialsFromDisk(goalId);
+		const target = { workspaceDir, goalId, goalDir: join(workspaceDir, goalId) };
+		if (rescan) registerSavedInvestigationCues(target);
+		startGoalCueWikiUpdates({ ...target, goalContext: { title: goal.title, description: goal.description,
+			language: resolveOutputLanguage(goal.outputLanguage, `${goal.title}\n${goal.description}`) },
+			getGoalContext: () => {
+				const current = goals.getGoal(goalId);
+				if (!current) throw new Error(`Unknown Goal: ${goalId}`);
+				return { title: current.title, description: current.description,
+					language: resolveOutputLanguage(current.outputLanguage, `${current.title}\n${current.description}`) };
+			},
+			env: { ...process.env, ...goals.getGoalEnvSnapshot(goalId) } });
+	} catch (error) { console.warn(`[telomi][cue-wiki] ${goalId}: ${toErrorMessage(error)}`); }
+}
+// Explicit runs in evaluation instances own their evidence; copied historical queues stay idle.
+subscribe(event => {
+	if (event.type === "topic-plan:changed" && event.status === "reframed") maintainGoalCues(event.goalId);
+	if (event.type === "wiki-update:changed" && event.status === "succeeded" && (!evalInstance || event.runId.startsWith("wiki_cue_"))) queueMicrotask(() => maintainGoalCues(event.goalId));
 });
 // One Review service for both entry points, so "one Reviewer per Schedule" also holds between
 // a Review the scheduler triggers and one the user asks for.
@@ -900,6 +924,7 @@ if (operations) await operations.runtime.start();
 const httpServer = app.listen(port, host, () => {
 	console.log(`Telomi server listening on http://${host}:${port}`);
 	if (!evalInstance) researchScheduleScheduler.start();
+	if (!evalInstance) for (const goal of goals.listGoals()) maintainGoalCues(goal.id, true);
 });
 // Source logins and keys are checked once the server is up and once a day after that; a
 // research run re-checks before it starts, so this is what the settings page shows in between.

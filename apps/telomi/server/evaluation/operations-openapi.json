@@ -5,7 +5,7 @@
 		"version": "3.0.0",
 		"description": "Loopback-only Evaluation Interface. Generated from server/evaluation/operations-contract.ts; do not edit by hand.",
 		"x-protocol-version": 3,
-		"x-schema-hash": "76122afea6c0c01b4bb9958235d8d4bff6624f6a7dd4f0152f6304ef5bb5469c"
+		"x-schema-hash": "cf5d403f09a9157fc5c7d908a372bab095f5fad5397c63b2924338f82c6b8f85"
 	},
 	"servers": [
 		{
@@ -1549,6 +1549,10 @@
 					"promptMode": {
 						"anyOf": [
 							{
+								"const": "candidate",
+								"type": "string"
+							},
+							{
 								"const": "observed",
 								"type": "string"
 							},
@@ -1586,6 +1590,10 @@
 							},
 							"source": {
 								"anyOf": [
+									{
+										"const": "candidate",
+										"type": "string"
+									},
 									{
 										"const": "observed",
 										"type": "string"
@@ -1787,6 +1795,10 @@
 							"promptMode": {
 								"anyOf": [
 									{
+										"const": "candidate",
+										"type": "string"
+									},
+									{
 										"const": "observed",
 										"type": "string"
 									},
@@ -1824,6 +1836,10 @@
 									},
 									"source": {
 										"anyOf": [
+											{
+												"const": "candidate",
+												"type": "string"
+											},
 											{
 												"const": "observed",
 												"type": "string"
@@ -2686,6 +2702,10 @@
 							"promptMode": {
 								"anyOf": [
 									{
+										"const": "candidate",
+										"type": "string"
+									},
+									{
 										"const": "observed",
 										"type": "string"
 									},
@@ -3175,6 +3195,10 @@
 									"promptMode": {
 										"anyOf": [
 											{
+												"const": "candidate",
+												"type": "string"
+											},
+											{
 												"const": "observed",
 												"type": "string"
 											},
@@ -3212,6 +3236,10 @@
 											},
 											"source": {
 												"anyOf": [
+													{
+														"const": "candidate",
+														"type": "string"
+													},
 													{
 														"const": "observed",
 														"type": "string"

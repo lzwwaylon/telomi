@@ -228,8 +228,8 @@ export function createArtifactsRouter(workspaceDir: string, goals: GoalService):
 		const messageId = String(req.query.messageId ?? "");
 		const url = String(req.query.url ?? "");
 		const number = req.query.number === undefined ? undefined : Number(req.query.number);
-		if ((!name && !messageId) || (!url && !(messageId && number !== undefined))) {
-			return res.status(400).json({ error: "name or messageId, and url or message citation number required" });
+		if ((!name && !messageId) || (!url && number === undefined)) {
+			return res.status(400).json({ error: "name or messageId, and url or citation number required" });
 		}
 		if (number !== undefined && (!Number.isInteger(number) || number < 1)) {
 			return res.status(400).json({ error: "number must be a positive integer" });

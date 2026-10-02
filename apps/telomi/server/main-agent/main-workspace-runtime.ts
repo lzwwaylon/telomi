@@ -30,6 +30,7 @@ import {
 import { comparePaths } from "../lib/paths.js";
 import { RunArtifactStore, type RunArtifactRef } from "../agent-runtime/artifact-store.js";
 import { publishInvestigationThreadCatalog } from "../research/investigation-threads.js";
+import { migrateInvestigationHandoffs } from "./investigation-handoff.js";
 
 const MAIN_WORKSPACE_ROOT = "artifacts/main";
 const MAX_CHANGED_FILES = 200;
@@ -136,6 +137,7 @@ export class MainWorkspaceRuntime {
 			MAIN_WORKSPACE_ROOT,
 		));
 
+		migrateInvestigationHandoffs(this.goalDir);
 		publishInvestigationThreadCatalog(this.goalDir);
 		copyDirectory(join(this.goalDir, "artifacts"), join(sandboxDir, "artifacts"));
 		const skillRoot = join(sandboxDir, agentSkillRoot("main-agent"));

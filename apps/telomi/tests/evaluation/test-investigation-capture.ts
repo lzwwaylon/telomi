@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { findNodeEvaluationCases, readNodeEvaluationCase, readNodeEvaluationFile, type NodeEvaluationInteraction } from "../../server/agent-runtime/node-evaluation.js";
 import { publishInvestigationHandoff } from "../../server/research/investigation-handoff.js";
-import { createFrozenInvestigationTools, createInvestigationReplayRecipe, resolveInvestigationReplayResult, withInvestigationNodeCapture } from "../../server/evaluation/investigation-replay.js";
+import { createFrozenInvestigationReplayPlan, stageFrozenInvestigationReplayPlan, createFrozenInvestigationTools, createInvestigationReplayRecipe, resolveInvestigationReplayResult, withInvestigationNodeCapture } from "../../server/evaluation/investigation-replay.js";
 import type { InvestigationAnswer } from "../../server/research/investigation-answer.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-investigation-case-"));
@@ -104,6 +104,19 @@ try {
 		result: { answer: `The feature exists. <cite>${externalResponse.cues[0]!.ref}</cite>`,
 			citation_refs: [externalResponse.cues[0]!.ref], gaps: [],
 			coverage: [{ requirement_id: "Q1", citation_refs: [externalResponse.cues[0]!.ref], gap: "" }] } };
+	assert.throws(() => createFrozenInvestigationReplayPlan(frozenInteractions),
+		/requires a captured Writer assignment; use promptMode 'observed'/u,
+		"Candidate coordination without a frozen Writer must fail before launching the Root model");
+	const continuedPlan = createFrozenInvestigationReplayPlan([writer], externalResponse.cues);
+	assert.deepEqual(continuedPlan.steps, [{ step: 1, operation: "write_answer",
+		arguments: { evidence_refs: ["N1"], requirements: ["Explain implementation"] } }]);
+	const acquiredPlan = createFrozenInvestigationReplayPlan([frozenInteractions[1]!, writer]);
+	assert.deepEqual(acquiredPlan.steps[1]!.arguments, continuedPlan.steps[0]!.arguments,
+		"Replay plans use the same mapped refs whether evidence is restored or acquired by an earlier frozen operation");
+	const plannedTools = createFrozenInvestigationTools([frozenInteractions[1]!, writer], true, () => {});
+	for (const step of acquiredPlan.steps) plannedTools.replayCall(step.operation as Parameters<typeof plannedTools.replayCall>[0], step.arguments);
+	plannedTools.assertMatched();
+	assert.ok(!JSON.stringify(acquiredPlan).includes("The feature exists"), "Replay plans expose assignments without revealing observed answers");
 	const continuedTools = createFrozenInvestigationTools([writer], true, () => {}, externalResponse.cues);
 	assert.equal(continuedTools.citationsScope.project(externalResponse.cues[0]!.ref), "N1");
 	const continuedAnswer = continuedTools.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain implementation"] }) as InvestigationAnswer;
@@ -146,6 +159,7 @@ try {
 	assert.throws(() => changedRequirements.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain a different algorithm"] }), /different evidence or requirements/u);
 	assert.throws(() => changedRequirements.assertMatched(), /different evidence/u);
 	const writerDir = prepare("with-writer");
+	stageFrozenInvestigationReplayPlan(join(root, "uncaptured-original-input"), writerDir, continuedPlan);
 	await withInvestigationNodeCapture({ goalDir: root, goalId: "g", runDir: writerDir,
 		question: "What is implemented?", context: "Previous implementation discussion", language: "en", wikiSha256, handoffMode: "file", threadId: "b".repeat(24),
 		model: "test/model", thinking: "medium", metrics, execute: async () => {
@@ -154,6 +168,23 @@ try {
 		} });
 	const writerCase = findNodeEvaluationCases(writerDir, "prime-investigation")[0]!;
 	const writerRequest = JSON.parse(readFileSync(join(writerCase.path, "..", "input", "request.json"), "utf-8"));
+	const capturedPlanPath = join(writerCase.path, "..", "input", "replay-plan.json");
+	const capturedPlanBytes = readFileSync(capturedPlanPath, "utf-8");
+	assert.deepEqual(JSON.parse(capturedPlanBytes), continuedPlan, "Candidate Case must freeze the plan its Prompt names");
+	const observedReplayDir = prepare("observed-candidate-case");
+	stageFrozenInvestigationReplayPlan(join(writerCase.path, "..", "input"), observedReplayDir);
+	const restoredPlanBytes = readFileSync(join(observedReplayDir, "workspace", "inputs", "replay-plan.json"), "utf-8");
+	assert.equal(restoredPlanBytes, capturedPlanBytes, "Observed Replay restores the captured plan bytes without regenerating them");
+	assert.equal(readFileSync(join(observedReplayDir, "input", "replay-plan.json"), "utf-8"), capturedPlanBytes,
+		"A subsequent Case capture retains the same reproducible plan");
+	assert.equal(readFileSync(capturedPlanPath, "utf-8"), capturedPlanBytes, "Restoration must leave the source Case unchanged");
+	const restoredTools = createFrozenInvestigationTools([writer], true, () => {}, externalResponse.cues);
+	for (const step of JSON.parse(restoredPlanBytes).steps) restoredTools.replayCall(step.operation, step.arguments);
+	restoredTools.assertMatched();
+	const legacyReplayDir = prepare("observed-legacy-case");
+	stageFrozenInvestigationReplayPlan(join(cases[0]!.path, "..", "input"), legacyReplayDir);
+	assert.equal(existsSync(join(legacyReplayDir, "workspace", "inputs", "replay-plan.json")), false,
+		"Legacy observed Cases gain no fabricated Replay plan");
 	assert.equal(writerRequest.context, "Previous implementation discussion");
 	assert.equal(writerRequest.handoff_mode, "file");
 	assert.equal(writerRequest.thread_id, "b".repeat(24));

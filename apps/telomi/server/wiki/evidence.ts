@@ -15,11 +15,13 @@ interface NoteRegistryEntry {
 	sourceId: string;
 	sourceTitle: string;
 	canonicalLocator: string;
+	sourceRevisionSha256?: string;
 	section: string;
 	sectionSummary?: string;
 	cue: string;
 	detail: string;
-	anchors: Array<{ path: string; startLine: number; endLine: number; sha256: string }>;
+	anchors: Array<{ path: string; startLine: number; endLine: number; sha256: string;
+		sourceRunId?: string; sourceId?: string; sourceRevisionSha256?: string; sourceTitle?: string; canonicalLocator?: string }>;
 }
 
 export interface WikiEvidenceEntry {
@@ -29,8 +31,11 @@ export interface WikiEvidenceEntry {
 	sectionSummary?: string;
 	cue: string;
 	note: string;
-	source: { id: string; title: string; url: string };
-	anchors: SourceEvidenceExcerpt[];
+	source: { id: string; title: string; url: string; runId?: string };
+	anchors: Array<SourceEvidenceExcerpt & {
+		sha256?: string;
+		source?: { id: string; title: string; url: string; runId: string; revisionSha256: string };
+	}>;
 }
 
 export function readWikiPageEvidence(
@@ -52,13 +57,22 @@ export function readWikiPageEvidence(
 	return ids.map((id, index) => {
 		const entry = byId.get(id);
 		if (!entry) throw new Error(`Wiki Evidence Entry is missing: ${id}`);
-		const sourceKey = `${entry.sourceRunId}\0${entry.sourceId}`;
-		let source = sources.get(sourceKey);
-		if (source === undefined) {
-			source = findLogicalSourceInRun(join(goalDir, "wiki", "runs", entry.sourceRunId), entry.sourceId);
-			sources.set(sourceKey, source);
-		}
-		if (!source) throw new Error(`Wiki Evidence Source is missing: ${entry.sourceId}`);
+		const anchors = entry.anchors.map((anchor) => {
+			const runId = anchor.sourceRunId ?? entry.sourceRunId;
+			const sourceId = anchor.sourceId ?? entry.sourceId;
+			const revision = anchor.sourceRevisionSha256 ?? entry.sourceRevisionSha256;
+			const sourceKey = `${runId}\0${sourceId}`;
+			let source = sources.get(sourceKey);
+			if (source === undefined) {
+				source = findLogicalSourceInRun(join(goalDir, "wiki", "runs", runId), sourceId);
+				sources.set(sourceKey, source);
+			}
+			if (!source) throw new Error(`Wiki Evidence Source is missing: ${sourceId}`);
+			if (revision && source.source.revision_sha256 !== revision) throw new Error(`Wiki Evidence Source revision changed: ${sourceId}`);
+			return { ...readSourceEvidenceAnchors(source, [anchor])[0]!, sha256: anchor.sha256,
+				...(anchor.sourceRunId && revision ? { source: { id: sourceId, runId, revisionSha256: revision,
+					title: anchor.sourceTitle ?? entry.sourceTitle, url: anchor.canonicalLocator ?? entry.canonicalLocator } } : {}) };
+		});
 		return {
 			id: entry.id,
 			index: index + 1,
@@ -66,8 +80,8 @@ export function readWikiPageEvidence(
 			...(entry.sectionSummary ? { sectionSummary: entry.sectionSummary } : {}),
 			cue: entry.cue,
 			note: entry.detail,
-			source: { id: entry.sourceId, title: entry.sourceTitle, url: entry.canonicalLocator },
-			anchors: readSourceEvidenceAnchors(source, entry.anchors),
+			source: { id: entry.sourceId, title: entry.sourceTitle, url: entry.canonicalLocator, runId: entry.sourceRunId },
+			anchors,
 		};
 	});
 }

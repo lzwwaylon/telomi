@@ -6,26 +6,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { CONTROL_MARKDOWN } from "../../wiki/model/files.js";
 import { splitFrontmatter } from "../../wiki/model/frontmatter.js";
 import type { PublishedArtifactDirectoryRef } from "../../agent-runtime/artifact-store.js";
-
-interface WikiEvidenceAnchor {
-	path: string;
-	startLine: number;
-	endLine: number;
-	format: "markdown" | "text";
-	content: string;
-	assets: Array<{ sourceId: string; path: string }>;
-}
-
-interface WikiEvidence {
-	id: string;
-	index: number;
-	section: string;
-	sectionSummary?: string;
-	cue: string;
-	note: string;
-	source: { id: string; title: string; url: string };
-	anchors: WikiEvidenceAnchor[];
-}
+import type { WikiEvidenceEntry as WikiEvidence } from "../../wiki/evidence.js";
 
 export interface ResolvedWikiReportCitation {
 	ref: string;

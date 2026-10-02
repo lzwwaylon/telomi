@@ -637,11 +637,6 @@ export class GoalService {
 			goalDir,
 			onSnapshot: (snapshot) => this.updateFromSnapshot(snapshot),
 			getExtraEnv: () => this.getGoalEnvSnapshot(goal.id),
-			getDiscoveryEnabled: () => {
-				const current = this.getGoal(goal.id);
-				if (!current) throw new Error(`Unknown goal: ${goal.id}`);
-				return current.discoveryEnabled;
-			},
 			getOutputLanguage: () => this.getGoal(goal.id)?.outputLanguage ?? "auto",
 		});
 		this.runners.set(goal.id, runner);

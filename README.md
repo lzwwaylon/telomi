@@ -22,9 +22,9 @@ Telomi runs locally for a single user. Models and research sources may use exter
 | Feature | What you can do |
 |---|---|
 | Goal-centered conversation | Keep questions, context and follow-up discussions together around a long-term interest. |
-| Research and cited reports | Investigate a question and inspect the evidence behind the answer. |
-| Reports from your Wiki | Use accumulated knowledge to answer a new question or write for a different audience. |
-| Report-to-audio | Listen to a spoken adaptation with your preferred depth and presentation. |
+| Investigation and cited answers | Investigate a question and inspect the evidence behind the answer. |
+| Answers and reports | Use accumulated knowledge to answer a question or publish a report with traceable citations. |
+| Report-to-audio | Listen to a spoken adaptation of a published report with your preferred depth and presentation. |
 | Goal Wiki | Browse and search connected knowledge accumulated across research runs. |
 | Long-term memory | Bring your expressed preferences and previous context into later conversations. |
 | Scheduled research | Follow developments with recurring research while Telomi is running. |
@@ -73,7 +73,7 @@ To upgrade an existing installation, run `npm run upgrade`: it snapshots the dat
 1. **Configure your models.** Open Settings, connect your preferred provider and choose your conversation model and embedding models for search and memory. Nothing is preselected: Wiki search uses keywords and links until you choose an embedding model, and long-term memory starts once it has one; the memory service's own local model needs no key. Signing in or entering a key only saves the credential; it takes effect after you click **Save and apply**, which validates it first. A credential saved with **Save for later** stays inactive until you apply it. Long-term memory needs a connection whose model API is `openai-completions`, `anthropic-messages` or `openai-responses`; an OpenAI Codex (`openai-codex`) login cannot serve memory, and the memory section of Settings reports such a failure. Add audio services if you want voice features; reading aloud and recognition also start only once you choose their models, including the local speech runtime's.
 2. **Create a Goal.** Describe something you want to understand or keep following.
 3. **Confirm the topic plan.** Discuss the questions and scope with Telomi before starting research.
-4. **Read and follow up.** Open the report, inspect its citations, browse the Wiki and ask further questions. Request an audio version when you prefer listening.
+4. **Ask, follow up or request a report.** Telomi investigates your question and returns a cited answer. Report requests publish the verified content as a report card you can read or turn into audio. Follow up in the same investigation or start another subject.
 5. **Keep learning.** Share feedback and create a research schedule from a published report to follow new developments.
 
 ## Help and contributing

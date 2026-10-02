@@ -36,6 +36,15 @@ const GoalTopicPlanSchema = Type.Object({
 	}, { additionalProperties: false }), { minItems: 1 }),
 }, { additionalProperties: false });
 
+export const WikiCueOriginSchema = Type.Object({
+	investigation_id: NonEmptyString,
+	thread_id: Type.Optional(NonEmptyString),
+	artifact_ref: Type.Object({
+		relative_path: Type.String({ pattern: "^artifacts/deep-search/[A-Za-z0-9._-]+\\.json$" }),
+		sha256: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+	}, { additionalProperties: false }),
+}, { additionalProperties: false });
+
 export const WikiUpdateJobSchema = Type.Object({
 	schema_version: Type.Literal(1),
 	compiler: Type.Optional(Type.Union([Type.Literal("note-first"), Type.Literal("legacy")])),
@@ -52,6 +61,7 @@ export const WikiUpdateJobSchema = Type.Object({
 	run_id: NonEmptyString,
 	wiki_update_id: Type.Optional(NonEmptyString),
 	source_run_id: Type.Optional(NonEmptyString),
+	cue_origins: Type.Optional(Type.Array(WikiCueOriginSchema, { minItems: 1 })),
 	parent_activity_id: Type.Optional(NonEmptyString),
 	trigger: Type.Optional(TriggerSchema),
 	reason: Type.Optional(NonEmptyString),
@@ -123,6 +133,7 @@ export const WikiUpdateJobSchema = Type.Object({
 	}, { additionalProperties: false })),
 }, { additionalProperties: false });
 
+export type WikiCueOrigin = Static<typeof WikiCueOriginSchema>;
 export type WikiUpdateJob = Static<typeof WikiUpdateJobSchema>;
 export type WikiUpdateJobStatus = WikiUpdateJob["status"];
 
@@ -162,6 +173,7 @@ export class WikiUpdateJobStore {
 		cornellNotes: WikiUpdateJob["cornell_notes"];
 		wikiUpdateId?: string;
 		sourceRunId?: string;
+		cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
 		parentActivityId?: string;
 		trigger?: NonNullable<WikiUpdateJob["trigger"]>;
 		reason?: string;
@@ -180,6 +192,7 @@ export class WikiUpdateJobStore {
 				? { wiki_update_id: input.wikiUpdateId ?? previous!.wiki_update_id! } : {}),
 			...(input.sourceRunId || previous?.source_run_id
 				? { source_run_id: input.sourceRunId ?? previous!.source_run_id! } : {}),
+			...(input.cueOrigins || previous?.cue_origins ? { cue_origins: input.cueOrigins ?? previous!.cue_origins! } : {}),
 			...(input.parentActivityId || previous?.parent_activity_id
 				? { parent_activity_id: input.parentActivityId ?? previous!.parent_activity_id! } : {}),
 			...(input.trigger || previous?.trigger ? { trigger: input.trigger ?? previous!.trigger! } : {}),

@@ -1,3 +1,4 @@
+import { validateCanonicalMarkdown } from "../../citations/contracts.js";
 import type { ResolvedOutputLanguage } from "../../../shared/languages.js";
 import {
 	existsSync,
@@ -41,14 +42,7 @@ import {
 	type PublishedArtifactRef,
 	RunArtifactStore,
 } from "../../agent-runtime/artifact-store.js";
-import {
-	buildKnowledgeCitationRegistry,
-	compileCanonicalMarkdown,
-	normalizeCitationSource,
-	resolveUnavailableCitationUrls,
-	validateCanonicalMarkdown,
-	validateChapterCandidate,
-} from "./citation-compiler.js";
+import { buildKnowledgeCitationRegistry, compileCanonicalMarkdown, normalizeCitationSource, resolveUnavailableCitationUrls, validateChapterCandidate } from "./citation-compiler.js";
 import { validateCornellNotesSnapshot, type CornellNotesSnapshot } from "../../cornell/contracts.js";
 import { validateSearchExecutionRecord, type ProviderExecution } from "../../providers/search-contracts.js";
 import type { ExecutableReportPlan } from "./report-plan.js";
@@ -473,7 +467,8 @@ export class Run {
 		writerInput.writeText("search-question.md", `${request.question}\n`);
 		// The note focus the Cornell Notes were written under; the writer reads it to know what depth the Notes carry.
 		if (request.noteFocus) writerInput.writeText("evidence-focus.md", `${request.noteFocus}\n`);
-		writerInput.writeJson(REPORT_WRITER_REQUEST_FILE, { schema_version: 1, language: request.language });
+		writerInput.writeJson(REPORT_WRITER_REQUEST_FILE, { schema_version: 1, language: request.language,
+			temporal_context: request.temporalContext });
 		// 历史报告只是连续性与对比的上下文，事实仍必须引用当前知识接口；Writer 自己决定读哪几份。
 		const priorReports = request.goalWorkspaceDirectory ? stagePriorReports(writerInput, listPriorReports({
 			goalWorkspaceDirectory: request.goalWorkspaceDirectory,

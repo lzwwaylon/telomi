@@ -1,3 +1,4 @@
+import { validateInvestigationResult, type InvestigationResult } from "../citations/contracts.js";
 import { appendFileSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,7 @@ import { materializeSkills, snapshotSkills } from "../agent-runtime/skill-regist
 import { sha256 } from "../lib/hash.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
 import { recordCaseCaptureFailure } from "../observability/case-capture.js";
-import { validateInvestigationResult, type InvestigationResult } from "../research/investigate.js";
+
 import { createInvestigationCitationScope, type InvestigationCitationCue } from "../research/investigation-citations.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { runPrime, startPrimeSourceBridge } from "../research/pipeline/prime-search-batch.js";
@@ -241,6 +242,54 @@ export function resolveInvestigationReplayResult(input: {
 }
 
 /** Frozen Tool replay never contacts Providers; newly acquired evidence comes from the observed response. */
+export function createFrozenInvestigationReplayPlan(
+	frozen: readonly Extract<NodeEvaluationInteraction, { kind: "tool" }>[],
+	initialCues: readonly InvestigationCitationCue[] = [],
+) {
+	if (!frozen.some((interaction) => interaction.name === "write_answer")) {
+		throw new Error("Candidate Prime Investigation requires a captured Writer assignment; use promptMode 'observed' for the historical excerpt-only Writer fallback");
+	}
+	const scope = createInvestigationCitationScope();
+	scope.projectCues(initialCues);
+	const steps = frozen.map((interaction, index) => {
+		let args = interaction.arguments;
+		if (interaction.name === "write_answer") {
+			if (!isRecord(args) || !Array.isArray(args.evidence_refs) || !args.evidence_refs.every((ref) => typeof ref === "string")
+				|| !Array.isArray(args.requirements) || !args.requirements.every((requirement) => typeof requirement === "string")) {
+				throw new Error("Frozen Writer Replay plan requires captured evidence refs and requirements");
+			}
+			args = { evidence_refs: args.evidence_refs.map((ref) => scope.project(ref)), requirements: [...args.requirements] };
+		} else {
+			const response = interaction.result as {
+				cues?: InvestigationCitationCue[]; reading?: { cues?: InvestigationCitationCue[] };
+				pages?: Array<{ evidence?: Array<{ cite_ref?: string }> }>;
+			};
+			for (const page of response.pages ?? []) for (const evidence of page.evidence ?? []) {
+				if (evidence.cite_ref) scope.allowWikiRef(evidence.cite_ref);
+			}
+			scope.projectCues(response.cues ?? response.reading?.cues ?? []);
+		}
+		return { step: index + 1, operation: interaction.name, arguments: args };
+	});
+	return { schema_version: 1, mode: "frozen-coordination", steps };
+}
+
+/** Keep the referenced plan in Case inputs so observed Replay can restore the captured file. */
+export function stageFrozenInvestigationReplayPlan(
+	caseInputDirectory: string,
+	recordDirectory: string,
+	plan?: ReturnType<typeof createFrozenInvestigationReplayPlan>,
+): void {
+	const capturedPath = join(caseInputDirectory, "replay-plan.json");
+	if (!plan && !existsSync(capturedPath)) return;
+	const workspacePath = join(recordDirectory, "workspace", "inputs", "replay-plan.json");
+	mkdirSync(dirname(workspacePath), { recursive: true });
+	if (plan) writeFileSync(workspacePath, `${JSON.stringify(plan, null, 2)}\n`);
+	else copyFileSync(capturedPath, workspacePath);
+	mkdirSync(join(recordDirectory, "input"), { recursive: true });
+	copyFileSync(workspacePath, join(recordDirectory, "input", "replay-plan.json"));
+}
+
 export function createFrozenInvestigationTools(
 	frozen: readonly Extract<NodeEvaluationInteraction, { kind: "tool" }>[],
 	allowExternal: boolean,
@@ -354,7 +403,8 @@ async function executeProductionInvestigationReplay(
 	const frozen = interactions.filter((item): item is Extract<NodeEvaluationInteraction, { kind: "tool" }> => item.kind === "tool"
 		&& (item.name === "knowledge_search" || item.name === "deep_search" || item.name === "github_read" || item.name === "external_search" || item.name === "write_answer"));
 	const prompt = input.promptOverride?.userPrompt ?? historicalPrompt;
-	const responseMode = captured.handoff_mode === "file" || input.promptOverride?.userPrompt !== undefined ? "file" : "inline";
+	const responseMode = captured.handoff_mode === "file" || input.promptMode === "candidate"
+		|| (input.promptMode !== "observed" && input.promptOverride?.userPrompt !== undefined) ? "file" : "inline";
 	const env = pinTaskModelSelection(["primeRoot"], {
 		...process.env, TELOMI_PRIME_AGENT_ROOT_MODEL: captured.model,
 	});
@@ -402,6 +452,8 @@ async function executeProductionInvestigationReplay(
 			throw new Error("Invalid frozen thread evidence");
 		}
 	}
+	stageFrozenInvestigationReplayPlan(join(caseDir, "input"), input.recordDirectory,
+		input.promptMode === "candidate" ? createFrozenInvestigationReplayPlan(frozen, initialEvidence.cues) : undefined);
 	const { replayCall, citationsScope, evidence, hasFrozenWriter, assertMatched } = createFrozenInvestigationTools(
 		frozen, captured.allow_external !== false, (operation, request, response) => {
 			appendFileSync(join(input.recordDirectory, "interactions.jsonl"), `${JSON.stringify({ operation, request, response })}\n`);

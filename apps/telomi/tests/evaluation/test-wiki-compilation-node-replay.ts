@@ -82,6 +82,8 @@ function replayInput(source: ReturnType<typeof cases>[number], record: string): 
 }
 try {
 	const observedRequest = request("observed");
+	observedRequest.cueOrigins = [{ investigation_id: "a".repeat(24), thread_id: "b".repeat(24),
+		artifact_ref: { relative_path: `artifacts/deep-search/${"a".repeat(24)}-1.json`, sha256: "c".repeat(64) } }];
 	const observed = await runWikiCompilationNodeEvaluation(observedRequest, { execute: compile });
 	assert.equal(observed.pageCount, 1);
 	const [source] = cases(observedRequest.controlDirectory);
@@ -93,6 +95,8 @@ try {
 	assert.equal(source.value.observed.metrics?.toolCalls, 1, "duplicated session copies count once");
 	const inputRoot = join(dirname(source.path), "input");
 	assert.equal(readWikiCompilationCaseInput(inputRoot).request.rebuild, true);
+	assert.deepEqual(readWikiCompilationCaseInput(inputRoot).cueOrigins, observedRequest.cueOrigins,
+		"Wiki Case freezes the investigation/thread and exact Cue artifact identity");
 	assert.equal(existsSync(join(dirname(source.path), "observed-output", "rubric.md")), true);
 	const traceRoot = join(observedRequest.controlDirectory, source.value.observed.traceDirectories![0]!.ref);
 	assert.equal(existsSync(join(traceRoot, "stages", "runtime", "credentials")), false);
@@ -104,6 +108,8 @@ try {
 	const candidate = await recipe.replay(candidateInput);
 	assert.equal(candidate.agentId, "wiki-compilation");
 	assert.equal(cases(candidateInput.recordDirectory).length, 1);
+	assert.deepEqual(readWikiCompilationCaseInput(join(candidateInput.recordDirectory, "wiki-compilation", "input")).cueOrigins, observedRequest.cueOrigins,
+		"Candidate retains frozen provenance instead of reading a live investigation");
 	assert.equal(cases(candidateInput.recordDirectory)[0]!.value.capabilitySnapshotId, "caps_test");
 	assert.deepEqual(readWikiCompilationCaseInput(inputRoot).topicPlan, topicPlan);
 	for (const agentId of ["wiki-curator", "wiki-shard-builder", "wiki-compilation-diagnostic"]) {

@@ -141,7 +141,7 @@ const PromptOverride = Type.Object({
 /** Recorded-stage Agent 的 Candidate Prompt，按 Case 固定并按 Hash 绑定。 */
 const CandidatePromptBundle = Type.Object({
 	schemaVersion: Type.Literal(1),
-	source: Type.Union([Type.Literal("observed"), Type.Literal("override")]),
+	source: Type.Union([Type.Literal("candidate"), Type.Literal("observed"), Type.Literal("override")]),
 	sha256: Sha256,
 	cases: Type.Array(Type.Object({
 		caseRef: CaseRef,
@@ -157,7 +157,7 @@ const ResolvedCandidate = Type.Object({
 	capabilitySnapshotId: NonEmptyString,
 	workspaceContentHash: NonEmptyString,
 	capabilityBundleHash: NonEmptyString,
-	promptMode: Type.Optional(Type.Union([Type.Literal("observed"), Type.Literal("override")])),
+	promptMode: Type.Optional(Type.Union([Type.Literal("candidate"), Type.Literal("observed"), Type.Literal("override")])),
 	promptOverride: Type.Optional(PromptOverride),
 	promptBundle: Type.Optional(CandidatePromptBundle),
 	expectedRuntimeBuild: Type.Optional(NonEmptyString),
@@ -214,7 +214,7 @@ const EvaluationCase = Type.Object({
 }, Open);
 
 const VariantRequest = Type.Object({
-	promptMode: Type.Optional(Type.Union([Type.Literal("observed"), Type.Literal("override")])),
+	promptMode: Type.Optional(Type.Union([Type.Literal("candidate"), Type.Literal("observed"), Type.Literal("override")])),
 	promptOverride: Type.Optional(PromptOverride),
 	capabilitySnapshotId: Type.Optional(NonEmptyString),
 	expectedRuntimeBuild: Type.Optional(NonEmptyString),

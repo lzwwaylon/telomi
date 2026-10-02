@@ -7,13 +7,15 @@ import { sourceAssetHttpUrl } from "@/shared/markdown/source-asset";
 import type { WikiEvidenceEntry } from "@/features/wiki/wiki-model";
 import { uiText } from "@/app/ui-text";
 
-export function WikiEvidenceDossier({ goalId, evidence, revision, onOpenSource }: { goalId: string; evidence: WikiEvidenceEntry[]; revision?: string | null; onOpenSource: (sourceId: string) => void }) {
+export function WikiEvidenceDossier({ goalId, evidence, revision, onOpenSource }: { goalId: string; evidence: WikiEvidenceEntry[]; revision?: string | null; onOpenSource: (sourceId: string, runId?: string, documentPath?: string) => void }) {
 	const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 	const [image, setImage] = useState<EvidenceImagePreview | null>(null);
 	const evidenceKey = useMemo(() => evidence.map((entry) => entry.id).join("\u0001"), [evidence]);
 	useEffect(() => setCollapsed(new Set()), [evidenceKey]);
 	if (evidence.length === 0) return null;
-	const sourceCount = new Set(evidence.map((entry) => entry.source.id)).size;
+	const sourceCount = new Set(evidence.flatMap((entry) => entry.anchors.length
+		? entry.anchors.map(anchor => `${anchor.source?.runId ?? entry.source.runId ?? ""}:${anchor.source?.id ?? entry.source.id}`)
+		: [`${entry.source.runId ?? ""}:${entry.source.id}`])).size;
 	const allCollapsed = collapsed.size === evidence.length;
 	const toggle = (id: string) => setCollapsed((current) => {
 		const next = new Set(current);
@@ -35,12 +37,14 @@ export function WikiEvidenceDossier({ goalId, evidence, revision, onOpenSource }
 			<div className="wiki-evidence-list">
 				{evidence.map((entry) => {
 					const isCollapsed = collapsed.has(entry.id);
+					const primaryAnchor = entry.anchors.find(anchor => !anchor.source || anchor.source.id === entry.source.id);
 					return <article key={entry.id} id={`evidence-${entry.index}`} className="wiki-evidence-entry" data-testid="wiki-evidence-entry" tabIndex={-1}>
 						<div className="wiki-evidence-index">E{entry.index}</div>
 						<div className="wiki-evidence-entry-body">
-							<div className="wiki-evidence-cue"><small>{entry.section}</small>{entry.sectionSummary ? <p>{entry.sectionSummary}</p> : null}<h3>{entry.cue}</h3></div>
+							<div className="wiki-evidence-cue"><small>{entry.section}</small>{entry.sectionSummary && entry.sectionSummary.trim() !== entry.note.trim() ? <p>{entry.sectionSummary}</p> : null}<h3>{entry.cue}</h3></div>
 							<div className="wiki-evidence-note"><MarkdownView text={entry.note} goalId={goalId} linkify={false} /></div>
-							<button type="button" className="wiki-evidence-source" onClick={() => onOpenSource(entry.source.id)}>
+							<button type="button" className="wiki-evidence-source" onClick={() => onOpenSource(entry.source.id,
+								primaryAnchor?.source?.runId ?? entry.source.runId, primaryAnchor?.path)}>
 								<Database aria-hidden /><span>{entry.source.title}</span>
 							</button>
 							{/^https?:/iu.test(entry.source.url) ? <a href={entry.source.url} target="_blank" rel="noreferrer" className="wiki-evidence-source" aria-label={entry.source.url}><ExternalLink aria-hidden /><span>{entry.source.url}</span></a> : null}
@@ -48,10 +52,13 @@ export function WikiEvidenceDossier({ goalId, evidence, revision, onOpenSource }
 								<ChevronDown aria-hidden /><span>{isCollapsed ? uiText("wiki.evidencedossier.expandCountSourceExcerpts", { count: entry.anchors.length }) : uiText("wiki.evidencedossier.collapseSourceExcerpts")}</span>
 							</button>
 							{!isCollapsed ? <div className="wiki-evidence-anchors">
-								{entry.anchors.map((anchor, anchorIndex) => <section key={`${anchor.path}:${anchor.startLine}:${anchor.endLine}`} className="wiki-evidence-anchor">
+								{entry.anchors.map((anchor, anchorIndex) => <section key={`${anchor.source?.runId ?? ""}:${anchor.source?.id ?? ""}:${anchor.path}:${anchor.startLine}:${anchor.endLine}`} className="wiki-evidence-anchor">
+									{anchor.source ? <button type="button" className="wiki-evidence-source" onClick={() => onOpenSource(anchor.source!.id, anchor.source!.runId, anchor.path)}><Database aria-hidden /><span>{anchor.source.title}</span></button> : null}
+									{anchor.source && anchor.source.url !== entry.source.url && /^https?:/iu.test(anchor.source.url)
+										? <a href={anchor.source.url} target="_blank" rel="noreferrer" className="wiki-evidence-source"><ExternalLink aria-hidden /><span>{anchor.source.url}</span></a> : null}
 									<header><code>{anchor.path}</code><span>L{anchor.startLine}-{anchor.endLine}</span></header>
 									{anchor.assets.map((asset) => {
-									const src = sourceAssetHttpUrl(`source-asset:${asset.sourceId}/${asset.path}`, goalId, revision);
+									const src = sourceAssetHttpUrl(`source-asset:${asset.sourceId}/${asset.path}`, goalId, revision, anchor.source?.runId);
 										return src ? <button type="button" key={`${asset.sourceId}:${asset.path}`} className="wiki-evidence-image" onClick={() => setImage({ src, alt: entry.cue })} aria-label={uiText("wiki.evidencedossier.enlargeEvidenceImageCue", { cue: entry.cue })}>
 											<img src={src} alt={entry.cue} loading="lazy" /><span><ImageIcon aria-hidden />{uiText("wiki.evidencedossier.viewOriginalImage")}</span>
 										</button> : null;

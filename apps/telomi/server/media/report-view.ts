@@ -1,5 +1,9 @@
+import { validateInvestigationResult, validateCanonicalMarkdown } from "../citations/contracts.js";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isRecord } from "../lib/values.js";
+
+
 import { cardIdFromArtifactName, extractMarkdownTitle, publishedPodcastDir } from "./product-artifacts.js";
 
 /** The guest directory where Main Agent and the file browser see published reports. */
@@ -14,6 +18,8 @@ export interface PublishedReportEntry {
 	artifactName: string;
 	cardId: string;
 	reportFile: string;
+	/** Stable publication time, including reports whose Run id is an opaque investigation identity. */
+	publishedAt?: string;
 	/** The published Podcast transcript, when the report has one. */
 	podcastFile?: string;
 }
@@ -28,24 +34,55 @@ export function listPublishedReports(goalDir: string): PublishedReportEntry[] {
 	return readdirSync(runsDir, { withFileTypes: true })
 		.filter((entry) => entry.isDirectory() && RUN_ID.test(entry.name))
 		.map((entry) => entry.name)
-		.sort()
 		.flatMap((runId) => {
 			const reportFile = join(runsDir, runId, "report", "final.md");
 			if (!existsSync(reportFile) || !lstatSync(reportFile).isFile()) return [];
+			const metadata = publishedInvestigationReportMetadata(goalDir, runId);
+			const publishedAt = metadata?.publishedAt ?? runTimestamp(runId);
 			// The report card falls back to the same generic title.
 			const title = extractMarkdownTitle(readFileSync(reportFile, "utf-8")) ?? "研究报告";
-			const base = [localDate(runId), readableTitle(title) || runId].filter(Boolean).join(" ");
-			const name = taken.has(base) ? `${base} ${runId}` : base;
-			taken.add(name);
 			const artifactName = `wiki/runs/${runId}/report/final.md`;
 			const cardId = cardIdFromArtifactName(artifactName)!;
 			const podcastDir = publishedPodcastDir(goalDir, cardId);
 			const podcastFile = podcastDir ? join(podcastDir, "transcript.md") : undefined;
 			return [{
-				runId, title, name, artifactName, cardId, reportFile,
+				runId, title, artifactName, cardId, reportFile, ...(publishedAt ? { publishedAt } : {}),
 				...(podcastFile && existsSync(podcastFile) ? { podcastFile } : {}),
 			}];
+		})
+		.sort((left, right) => (left.publishedAt ?? left.runId).localeCompare(right.publishedAt ?? right.runId)
+			|| left.runId.localeCompare(right.runId))
+		.map((report) => {
+			const base = [localDate(report.publishedAt ?? report.runId), readableTitle(report.title) || report.runId].filter(Boolean).join(" ");
+			const name = taken.has(base) ? `${base} ${report.runId}` : base;
+			taken.add(name);
+			return { ...report, name };
 		});
+}
+
+/** A completed investigation report owns its metadata; it does not claim full Research Run state. */
+export function publishedInvestigationReportMetadata(goalDir: string, runId: string): { publishedAt: string; question: string } | undefined {
+	const id = /^investigation-([a-f0-9]{24})$/u.exec(runId)?.[1];
+	if (!id) return undefined;
+	try {
+		const root = join(goalDir, "wiki", "runs", runId, "report");
+		if (!["final.json", "final.md"].every((file) => lstatSync(join(root, file)).isFile())) return undefined;
+		const value: unknown = JSON.parse(readFileSync(join(root, "final.json"), "utf-8"));
+		if (!isRecord(value) || typeof value.publishedAt !== "string" || !Number.isFinite(Date.parse(value.publishedAt))
+			|| new Date(value.publishedAt).toISOString() !== value.publishedAt || typeof value.markdown !== "string"
+			|| value.markdown !== readFileSync(join(root, "final.md"), "utf-8") || !isRecord(value.investigation)
+			|| typeof value.investigation.question !== "string" || !value.investigation.question.trim() || !Array.isArray(value.citations)) return undefined;
+		validateCanonicalMarkdown(value.markdown);
+		const result = validateInvestigationResult(value.investigation, id, value.investigation.question);
+		const refs: string[] = [];
+		for (const citation of value.citations) {
+			if (!isRecord(citation) || !Array.isArray(citation.refs) || !citation.refs.length
+				|| citation.refs.some((ref) => typeof ref !== "string")) return undefined;
+			refs.push(...citation.refs as string[]);
+		}
+		if (new Set(refs).size !== refs.length || JSON.stringify(refs.sort()) !== JSON.stringify([...result.citation_refs].sort())) return undefined;
+		return { publishedAt: value.publishedAt, question: result.question };
+	} catch { return undefined; }
 }
 
 /** The report a `/reports/<name>` path points into, whether it names the directory or a file in it. */
@@ -100,11 +137,17 @@ export function syncPublishedReportView(goalDir: string): string {
 	return root;
 }
 
-/** Run ids are UTC timestamps (`2026-09-25T04-31-51.639Z`); the name uses the user's local date. */
-function localDate(runId: string): string {
+function runTimestamp(runId: string): string | undefined {
 	const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})(\.\d+)?Z/u.exec(runId);
-	if (!match) return "";
+	if (!match) return undefined;
 	const date = new Date(`${match[1]}T${match[2]}:${match[3]}:${match[4]}${match[5] ?? ""}Z`);
+	return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+/** Timestamp Run ids and investigation publication metadata use the same user-local report date. */
+function localDate(value: string): string {
+	if (!/^\d{4}-\d{2}-\d{2}T/u.test(value)) return "";
+	const date = new Date(runTimestamp(value) ?? value);
 	if (Number.isNaN(date.getTime())) return "";
 	const pad = (value: number) => String(value).padStart(2, "0");
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;

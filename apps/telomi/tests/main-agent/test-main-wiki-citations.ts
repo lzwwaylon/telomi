@@ -249,6 +249,7 @@ try {
 		text: "Exact evidence.",
 		sourceId: "source:paper",
 		sourceRevisionSha256: "d".repeat(64),
+		sourceRunId: "run-001",
 		contentSha256: sha256("Exact evidence.\n"),
 	}]);
 	assert.equal(resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 2), null);

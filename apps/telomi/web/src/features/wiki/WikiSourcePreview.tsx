@@ -14,7 +14,7 @@ interface SourceDocument {
 	runId?: string;
 }
 
-export function WikiSourcePreview({ goalId, path, revision, onBack }: { goalId: string; path: string; revision?: string | null; onBack: () => void }) {
+export function WikiSourcePreview({ goalId, path, revision, runId, documentPath, onBack }: { goalId: string; path: string; revision?: string | null; runId?: string; documentPath?: string; onBack: () => void }) {
 	const [source, setSource] = useState<SourceDocument | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	useEffect(() => {
@@ -23,6 +23,8 @@ export function WikiSourcePreview({ goalId, path, revision, onBack }: { goalId: 
 		setError(null);
 		const params = new URLSearchParams({ path });
 		if (revision) params.set("revision", revision);
+		if (runId) params.set("run", runId);
+		if (documentPath) params.set("document", documentPath);
 		void apiClient.get<SourceDocument>(`/api/goals/${encodeURIComponent(goalId)}/wiki/source?${params}`, {
 			signal: controller.signal,
 			headers: { Accept: "application/json" },
@@ -32,7 +34,7 @@ export function WikiSourcePreview({ goalId, path, revision, onBack }: { goalId: 
 				if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : String(reason));
 			});
 		return () => controller.abort();
-	}, [goalId, path, revision]);
+	}, [goalId, path, revision, runId, documentPath]);
 
 	return (
 		<div className="grid h-full min-h-0" style={{ gridTemplateRows: "auto minmax(0,1fr)" }} data-testid="wiki/source-preview">
@@ -49,7 +51,9 @@ export function WikiSourcePreview({ goalId, path, revision, onBack }: { goalId: 
 						<h1 id="wiki/source-title" className="font-serif text-[clamp(1.25rem,2vw,1.75rem)] leading-tight text-[var(--ink)]">{source.title}</h1>
 						{source.runId ? <p className="mt-2 font-mono text-[10px] text-[var(--ink-faint)]">{uiText("wiki.sourcepreview.sourceRun")} {source.runId}</p> : null}
 					</header>
-					<div className="text-[var(--ink)]"><MarkdownView text={stripWikiFrontmatter(source.content).replace(/^\s*#\s+.+\r?\n/u, "")} goalId={goalId} /></div>
+					<div className="text-[var(--ink)]">{documentPath && !/\.(?:md|markdown|mdx)$/iu.test(documentPath)
+						? <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-6">{source.content}</pre>
+						: <MarkdownView text={stripWikiFrontmatter(source.content).replace(/^\s*#\s+.+\r?\n/u, "")} goalId={goalId} />}</div>
 				</article> : null}
 			</div>
 		</div>

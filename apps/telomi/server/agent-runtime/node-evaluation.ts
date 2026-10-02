@@ -213,6 +213,7 @@ export interface NodeReplayRecipe {
 		runner: AgentStageRunner;
 		candidateCase?: { sourceRunId: string; capabilitySnapshotId: string };
 		promptOverride?: { systemPrompt?: string; userPrompt?: string };
+		promptMode?: "candidate" | "observed" | "override";
 		signal: AbortSignal;
 	}): Promise<NodeReplayResult>;
 }
@@ -238,6 +239,7 @@ export class NodeEvaluationModule {
 		runner: AgentStageRunner;
 		candidateCase?: { sourceRunId: string; capabilitySnapshotId: string };
 		promptOverride?: { systemPrompt?: string; userPrompt?: string };
+		promptMode?: "candidate" | "observed" | "override";
 		signal: AbortSignal;
 	}): Promise<NodeReplayResult> {
 		const value = readNodeEvaluationCase(input.casePath, input.sourceRunDirectory);

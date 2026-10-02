@@ -210,7 +210,11 @@ try {
 	mkdirSync(join(logicalWorkspacePath, "work"), { recursive: true });
 	writeFileSync(join(logicalWorkspacePath, "work", "topic-plan.json"), "{}\n");
 	writeFileSync(`${logicalWorkspacePath}.json`, JSON.stringify({ schemaVersion: 1, guestCwd: "/work", mounts: [{ guestPath: "/work", access: "read-write" }] }));
+	const mainPromptContext = { title: "Original Goal", description: "Original context", outputLanguage: "en" as const,
+		topicReady: false, topicActive: false, previousSearches: [], globalPreferences: "Prefer original evidence" };
 	captureMainAgentNodeEvaluation({
+		promptContext: mainPromptContext,
+		turnContext: { topicId: "original-topic" },
 		runId: "nodebt_fixture::executions::candidate_fixture_1",
 		runDirectory: replayRecord,
 		question: "What changed?",
@@ -235,6 +239,10 @@ try {
 		join(replayCases, readdirSync(replayCases)[0]!, "manifest.json"),
 		replayRecord,
 	);
+	assert.deepEqual((replayCase.recipeInput as { promptContext: unknown }).promptContext, mainPromptContext);
+	assert.deepEqual((replayCase.recipeInput as { turnContext: unknown }).turnContext, { topicId: "original-topic" });
+	assert.equal((replayCase.recipeInput as { question: string }).question, "What changed?");
+	assert.equal(replayCase.request.composedSystemPrompt.sha256, sha256("Reply from the Goal workspace."));
 	assert.equal(replayCase.runId, "nodebt_fixture::executions::candidate_fixture_1");
 	assert.equal(replayCase.workspace?.input_tree_sha, "1".repeat(64));
 	assert.equal(replayCase.workspace?.output_tree_sha, "2".repeat(64));

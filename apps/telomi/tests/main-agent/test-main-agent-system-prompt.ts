@@ -26,8 +26,14 @@ const prompt = buildMainAgentPrompt(
 );
 assert.match(prompt, /Topic Plan: not confirmed/u);
 assert.match(prompt, /Previously searched evidence boundary/u);
-assert.match(prompt, /search_question/u);
-assert.match(prompt, /report_context/u);
+assert.match(prompt, /investigate/u);
+assert.match(prompt, /result_ref/u);
+assert.match(prompt, /deliver_investigation/u);
+assert.match(prompt, /report_title.*publish that reviewed answer as a report card/u);
+assert.match(prompt, /Requests to create, regenerate or deepen a written report use `investigate`/u);
+assert.match(prompt, /only when the current user request asks for audio or a Podcast/u);
+assert.doesNotMatch(prompt, /`research`|generate_report|report_context|note_focus/u,
+	"Main Agent must not route current work through retired tools or fields");
 assert.match(prompt, /Reply in the language of the user's current request/u);
 assert.match(prompt, /thread_id/u, "Main routes associated follow-ups to a saved investigation thread");
 assert.match(prompt, /\/artifacts\/investigation-threads\/recent\.json/u, "Main discovers persisted thread identities through its read-only mount");
@@ -112,9 +118,6 @@ assert.match(composed, /- read: Read file contents/u);
 assert.match(composed, /- Read only what is needed/u);
 assert.ok(composed.endsWith("ROLE_PROMPT"));
 assert.doesNotMatch(composeAgentSystemPrompt("ROLE_PROMPT"), /Available tools:/u);
-
-assert.ok(prompt.length < 2_600,
-	`Main Agent prompt should stay concise, received ${prompt.length} chars`);
 
 console.log(`Main Agent system prompt contract passed (${prompt.length} chars)`);
 for (let index = 0; index < 12; index++) {

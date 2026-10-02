@@ -3,6 +3,9 @@ import { dirname, join } from "node:path";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
+import { renderMainAgentPrompt } from "../main-agent/system-prompts.js";
+import { capturedMainAgentPromptContext } from "./candidate-prompts.js";
+import type { GoalTurnContext } from "../../shared/types.js";
 import type { GoalSnapshot, PromptInput } from "../../shared/types.js";
 import { GoalRunner } from "../main-agent/runner.js";
 import { attachmentPayloadsFromCase, type AttachmentCaseDescriptor } from "../main-agent/attachment-utils.js";
@@ -52,6 +55,7 @@ async function replayMainAgentCase(
 		artifactStore,
 		candidateCase,
 		promptOverride,
+		promptMode,
 		signal,
 	}: Parameters<NodeReplayRecipe["replay"]>[0],
 	goalId: string,
@@ -77,8 +81,11 @@ async function replayMainAgentCase(
 			);
 		}
 		const recipeInput = mainAgentRecipeInput(value.recipeInput);
-		const systemPrompt = promptOverride?.systemPrompt
-			?? readNodeEvaluationFile(casePath, value.request.composedSystemPrompt);
+		const candidateMode = promptMode === "candidate" || (promptMode === undefined && !promptOverride);
+		const promptContext = candidateMode || recipeInput.promptContext !== undefined
+			? capturedMainAgentPromptContext(recipeInput.promptContext) : undefined;
+		const systemPrompt = promptOverride?.systemPrompt ?? (promptContext
+			? renderMainAgentPrompt(promptContext) : readNodeEvaluationFile(casePath, value.request.composedSystemPrompt));
 		const userPrompt = promptOverride?.userPrompt
 			?? readNodeEvaluationFile(casePath, value.request.userPrompt);
 		// An attachment turn replays the whole hand-off: the originals come back from the Case input
@@ -99,15 +106,14 @@ async function replayMainAgentCase(
 		const runner = new GoalRunner(
 			workspaceDirectory,
 			goalId,
-			"Main Agent Backtest",
+			promptContext?.title ?? "Main Agent Backtest",
 			goalDirectory,
 			(snapshot) => { latest = snapshot; },
-			"Main Agent Node Backtest",
+			promptContext?.description ?? "Main Agent Node Backtest",
 			undefined,
-			{ systemPrompt, ...(promptOverride?.userPrompt ? { userPrompt: promptOverride.userPrompt } : {}) },
+			{ ...(candidateMode ? { systemPrompt } : { composedSystemPrompt: systemPrompt }), ...(promptContext ? { promptContext } : {}) },
 			undefined,
-			undefined,
-			undefined,
+			() => promptContext?.outputLanguage ?? "auto",
 			fileIngestService,
 		);
 		let nativeRunDirectory: string | undefined;
@@ -121,7 +127,7 @@ async function replayMainAgentCase(
 					modelId: value.request.actualModel,
 					thinkingLevel: recipeInput.thinkingLevel,
 				});
-				await runMainAgent(runner, turnInput, signal);
+				await runMainAgent(runner, turnInput, signal, recipeInput.turnContext);
 				latest = runner.getSnapshot();
 				if (latest.errorMessage) throw new Error(latest.errorMessage);
 				terminal = runner.getLastTerminalDetails();
@@ -152,7 +158,8 @@ async function replayMainAgentCase(
 					runId: candidateCase.sourceRunId,
 					runDirectory: recordDirectory,
 					question: userPrompt,
-					systemPrompt,
+					...runner.getLastNodePromptSnapshot(),
+					...(recipeInput.turnContext ? { turnContext: recipeInput.turnContext } : {}),
 					actualModel: value.request.actualModel,
 					thinkingLevel: recipeInput.thinkingLevel,
 					...(contextBeforeBytes ? { contextBefore: contextBeforeBytes } : {}),
@@ -203,6 +210,19 @@ export async function prepareMainAgentReplayGoalWorkspace(input: {
 		await getResearchSourceServiceClient().restoreTree(input.value.workspace.input_tree_sha, goalDirectory);
 	}
 	cpSync(input.harnessWorkspaceDirectory, goalDirectory, { recursive: true, force: true });
+	// Thread identities and evidence stay frozen; only their owning Goal maps to this isolated Replay.
+	const threadsDirectory = join(goalDirectory, "artifacts", "investigation-threads");
+	if (existsSync(threadsDirectory)) {
+		for (const entry of readdirSync(threadsDirectory, { withFileTypes: true })) {
+			if (!entry.isDirectory() || !/^[a-f0-9]{24}$/u.test(entry.name)) continue;
+			const path = join(threadsDirectory, entry.name, "thread.json");
+			const thread = JSON.parse(readFileSync(path, "utf-8"));
+			if (!thread || typeof thread.goal_id !== "string" || !thread.goal_id.trim()) {
+				throw new Error("Frozen investigation thread lacks its owning Goal");
+			}
+			writeFileSync(path, `${JSON.stringify({ ...thread, goal_id: input.goalId }, null, 2)}\n`);
+		}
+	}
 	restoreReplayTopicPlan({
 		caseInputDirectory: join(dirname(input.casePath), "input"),
 		goalDirectory,
@@ -259,7 +279,7 @@ function restoreReplayTopicPlan(input: {
 	}
 }
 
-function runMainAgent(runner: GoalRunner, prompt: PromptInput, signal: AbortSignal): Promise<void> {
+export function runMainAgent(runner: Pick<GoalRunner, "abort" | "subscribe" | "start">, prompt: PromptInput, signal: AbortSignal, context?: GoalTurnContext): Promise<void> {
 	return new Promise((resolve, reject) => {
 		let started = false;
 		let settled = false;
@@ -273,11 +293,14 @@ function runMainAgent(runner: GoalRunner, prompt: PromptInput, signal: AbortSign
 		};
 		const abort = () => {
 			runner.abort();
-			finish(new Error("Main Agent Node Backtest cancelled"));
+			// Once started, the final idle snapshot waits for native Tools and their Workers to close.
+			// Rejecting here would delete the Replay workspace while they can still write their Trace.
+			if (!started) finish(new Error("Main Agent Node Backtest cancelled"));
 		};
 		const unsubscribe = runner.subscribe((event) => {
 			if (!started || event.type !== "snapshot" || event.state.isStreaming) return;
-			finish(event.state.errorMessage ? new Error(event.state.errorMessage) : undefined);
+			finish(signal.aborted ? new Error("Main Agent Node Backtest cancelled")
+				: event.state.errorMessage ? new Error(event.state.errorMessage) : undefined);
 		});
 		if (signal.aborted) {
 			abort();
@@ -285,12 +308,13 @@ function runMainAgent(runner: GoalRunner, prompt: PromptInput, signal: AbortSign
 		}
 		signal.addEventListener("abort", abort, { once: true });
 		started = true;
-		runner.start(prompt);
+		try { runner.start(prompt, undefined, context); }
+		catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
 	});
 }
 
-function mainAgentRecipeInput(value: unknown): { thinkingLevel: ThinkingLevel; attachments?: AttachmentCaseDescriptor[] } {
-	const record = value as { thinkingLevel?: unknown; attachments?: unknown } | undefined;
+function mainAgentRecipeInput(value: unknown): { thinkingLevel: ThinkingLevel; attachments?: AttachmentCaseDescriptor[]; promptContext?: unknown; turnContext?: GoalTurnContext } {
+	const record = value as { thinkingLevel?: unknown; attachments?: unknown; promptContext?: unknown; turnContext?: GoalTurnContext } | undefined;
 	const thinkingLevel = record?.thinkingLevel;
 	if (!["off", "minimal", "low", "medium", "high", "xhigh"].includes(String(thinkingLevel))) {
 		throw new Error("Main Agent Node Case has an invalid thinking level");
@@ -305,6 +329,8 @@ function mainAgentRecipeInput(value: unknown): { thinkingLevel: ThinkingLevel; a
 	}
 	return {
 		thinkingLevel: thinkingLevel as ThinkingLevel,
+		...(record?.promptContext ? { promptContext: record.promptContext } : {}),
+		...(record?.turnContext ? { turnContext: record.turnContext } : {}),
 		...(Array.isArray(attachments) && attachments.length ? { attachments: attachments as AttachmentCaseDescriptor[] } : {}),
 	};
 }

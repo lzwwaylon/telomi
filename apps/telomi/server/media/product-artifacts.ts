@@ -37,6 +37,8 @@ export function isInvestigationThreadControlFile(name: string): boolean {
 export function isUserFacingArtifact(name: string, source: ProductArtifactSource = "artifacts"): boolean {
 	if (source === "workspace-report") return true;
 	return !isInvestigationThreadControlFile(name)
+		&& !normalizeRelPath(name).toLowerCase().startsWith("investigations/")
+		&& !normalizeRelPath(name).toLowerCase().startsWith("deep-search/")
 		&& !INTERNAL_ARTIFACT_PATHS.has(normalizeRelPath(name).toLowerCase())
 		&& !AUXILIARY_ARTIFACT_BASENAMES.has(basename(name).toLowerCase());
 }

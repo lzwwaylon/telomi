@@ -59,6 +59,54 @@ try {
 	const empty = new StageInputView(join(root, "empty-view"));
 	assert.equal(stagePriorReports(empty, []), "");
 	assert.ok(!existsSync(join(empty.root, "prior-reports")));
+
+	const publishInvestigation = (id: string, publishedAt: string, patch: Record<string, unknown> = {}) => {
+		const runId = `investigation-${id}`;
+		const reportDir = join(goal, "wiki", "runs", runId, "report");
+		mkdirSync(reportDir, { recursive: true });
+		const markdown = "# Investigation report\n\nFrozen finding [[1]](https://example.com/paper).\n\n## References\n1. [Paper](https://example.com/paper)\n";
+		writeFileSync(join(reportDir, "final.md"), markdown);
+		writeFileSync(join(reportDir, "final.json"), JSON.stringify({ markdown, publishedAt,
+			citations: [{ number: 1, title: "Paper", url: "https://example.com/paper", refs: ["C1"] }],
+			investigation: { id, question: "Investigation question\nsecond line", answer: "Frozen finding <cite>C1</cite>.",
+				citation_refs: ["C1"], gaps: [], wiki_sha256: "a".repeat(64) },
+			...patch,
+		}));
+		return runId;
+	};
+	publish("2026-09-06T00-00-00.000Z", { status: "published", question: "Older Research without explicit timestamp" }, "# Older fallback\n\nbody");
+	const olderInvestigation = publishInvestigation("f".repeat(24), "2026-09-07T03:00:00.000Z");
+	const newerInvestigation = publishInvestigation("0".repeat(24), "2026-09-12T03:00:00.000Z");
+	const badTimestamp = publishInvestigation("1".repeat(24), "not-a-timestamp");
+	const changedMarkdown = publishInvestigation("2".repeat(24), "2026-09-13T03:00:00.000Z", { markdown: "different" });
+	const wrongIdentity = publishInvestigation("3".repeat(24), "2026-09-13T03:00:00.000Z", {
+		investigation: { id: "4".repeat(24), question: "Mismatched identity" },
+	});
+	const mismatchedRefs = publishInvestigation("5".repeat(24), "2026-09-13T03:00:00.000Z", {
+		citations: [{ number: 1, refs: ["C9"] }],
+	});
+	const incomplete = publishInvestigation("6".repeat(24), "2026-09-13T03:00:00.000Z");
+	rmSync(join(goal, "wiki", "runs", incomplete, "report", "final.md"));
+	const invalidResult = publishInvestigation("7".repeat(24), "2026-09-13T03:00:00.000Z", {
+		investigation: { id: "7".repeat(24), question: "Invalid result", answer: "Missing required metadata" },
+	});
+	publish("2026-09-13T00-00-00.000Z", { status: "failed", question: "Failed Research" }, "# Must not appear");
+	publish("2026-09-14T00-00-00.000Z", { status: "writing", question: "In-flight Research" }, "# Must not appear");
+	const mixed = listPriorReports({ goalWorkspaceDirectory: goal, controlRunsRoot: control,
+		currentRunId: "2026-09-11T00-00-00.000Z" });
+	assert.deepEqual(mixed.map((report) => report.runId), [
+		newerInvestigation, "2026-09-08T03-00-00.000Z", "2026-09-08T00-00-00.000Z",
+		olderInvestigation, "2026-09-06T00-00-00.000Z", "2026-09-01T00-00-00.000Z",
+	], "publication timestamps interleave investigation and Research reports, independent of their id prefixes");
+	assert.equal(mixed[0]!.publishedOn, "2026-09-12");
+	assert.equal(mixed[0]!.question, "Investigation question");
+	for (const runId of [badTimestamp, changedMarkdown, wrongIdentity, mismatchedRefs, incomplete, invalidResult]) {
+		assert.equal(mixed.some((report) => report.runId === runId), false, "invalid or incomplete publication is not prior-report context");
+	}
+	assert.equal(existsSync(join(control, newerInvestigation, "run-state.json")), false,
+		"including an investigation publication never fabricates a full Research Run control state");
+	assert.equal(listPriorReports({ goalWorkspaceDirectory: goal, controlRunsRoot: control,
+		currentRunId: newerInvestigation }).some((report) => report.runId === newerInvestigation), false);
 	console.log("prior reports tests passed");
 } finally {
 	rmSync(root, { recursive: true, force: true });

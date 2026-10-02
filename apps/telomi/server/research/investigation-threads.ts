@@ -1,3 +1,4 @@
+import { type InvestigationResult } from "../citations/contracts.js";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import lockfile from "proper-lockfile";
@@ -7,7 +8,7 @@ import { sha256 } from "../lib/hash.js";
 import { readJson, writeJsonAtomic } from "../lib/fs.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
-import type { InvestigationResult } from "./investigate.js";
+
 
 const ID = /^[a-f0-9]{24}$/u;
 const RECENT_LIMIT = 5;

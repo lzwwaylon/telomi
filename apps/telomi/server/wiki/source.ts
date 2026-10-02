@@ -75,7 +75,7 @@ async function indexedAsset(
 	return null;
 }
 
-export async function resolveWikiSource(goalDir: string, sourceRef: string, pinnedRunId: string): Promise<WikiSourceDocument> {
+export async function resolveWikiSource(goalDir: string, sourceRef: string, pinnedRunId: string, documentPath?: string): Promise<WikiSourceDocument> {
 	const normalized = sourceRef.trim().replace(/\\/gu, "/").replace(/^\/+/, "");
 	if (!SOURCE_ID_REF.test(normalized)) throw new Error("Invalid Wiki Source ID");
 	const runsRoot = resolve(goalDir, "wiki", "runs");
@@ -84,7 +84,7 @@ export async function resolveWikiSource(goalDir: string, sourceRef: string, pinn
 		if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(runId)) throw new Error("Invalid Wiki Source Run ID");
 		const logical = findLogicalSourceInRun(join(runsRoot, runId), normalized);
 		if (logical) {
-			const files = await markdownFiles(logical.sourceRoot);
+			const files = documentPath ? [join(logical.sourceRoot, documentPath)] : await markdownFiles(logical.sourceRoot);
 			for (const file of files) {
 				const found = await textDocument(file, logical.sourceRoot, normalized, runId);
 				if (found) return {
