@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { sha256 } from "../lib/hash.js";
 import { hashWikiDirectory, scheduleWikiIndexRefresh, type WikiCompilationResult } from "./index.js";
 import { GoalWorkspacePublicationLock } from "../workspaces/publication-lock.js";
+import { GoalTopicPlanStore } from "../goals/topic-plan/store.js";
 import { listFilesRecursive } from "../lib/fs.js";
 
 export interface WikiPublicationResult {
@@ -22,9 +23,15 @@ export async function publishCompilation(input: {
 	compilation: WikiCompilationResult;
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
+	/** Cue maintenance cannot publish navigation for a superseded or unconfirmed plan. */
+	topicPlanRevision?: string;
 }): Promise<WikiPublicationResult> {
 	if (input.compilation.publicationReady === false) throw new Error("Incomplete Wiki candidate cannot be published; resume its Wiki Update");
 	const publication = await new GoalWorkspacePublicationLock(input.goalId, input.workspaceDir).withLock("wiki", async (): Promise<WikiPublicationResult> => {
+		input.signal?.throwIfAborted();
+		if (input.topicPlanRevision && new GoalTopicPlanStore(input.goalId, input.workspaceDir).requireResearchReady().revision !== input.topicPlanRevision) {
+			throw new Error("wiki_publication_topic_drift: Goal Topic Plan changed after compilation");
+		}
 		validateCompilationArtifact(input.compilation);
 		const target = join(input.goalDir, "wiki", "knowledge");
 		const baseContentHash = hashWikiDirectory(target);

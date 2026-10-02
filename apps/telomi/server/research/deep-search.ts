@@ -59,6 +59,18 @@ interface CorpusSource {
 	files: SourceFileRecord[];
 }
 
+/** The same frozen question and Source count drive live and Candidate task rendering. */
+export function buildDeepSearchTaskPrompt(question: string, sourceCount: number): string {
+	return [
+		`Question: ${question}`,
+		"Read source/reader-context.json for the original question, verified prior Cue navigation, current anchor mappings and preferred Source refs. It is navigation only; cite exact original Source lines.",
+		`The Goal has ${sourceCount} pinned Source views in source/catalog.json, available as needed to resolve the assigned question. Source refs are navigation handles, not evidence.`,
+		"Write cornell-note.json with exactly this shape:",
+		'{"status":"found|partial|not_found","summary":"short answer or search outcome","gaps":["specific unresolved point"],"sections":[{"section_title":"topic","cue_notes":[{"cue":"topic + keywords","note":"supported conclusion","evidence":[{"source_ref":"S1","source_path":"exact path within that Source","start_line":1,"end_line":2}]}]}]}',
+		"Use found only when the question is answered with evidence; partial when some evidence exists but a gap remains; not_found with empty sections when no evidence was found. Every Cue needs at least one exact original-text citation. Do not cite the catalog or manifests. Do not include hashes, IDs, or extra fields: Runtime supplies them.",
+	].join("\n\n");
+}
+
 /** A single question-scoped Cornell reading over the Goal's pinned original Source views. */
 export async function executeDeepSearch(input: {
 	goalDir: string;
@@ -93,14 +105,7 @@ export async function executeDeepSearch(input: {
 	const env = input.env ?? process.env;
 	const config = input.model && input.thinkingLevel ? undefined : researchConfigFromEnv(env);
 	const system = renderCornellNoteAgentSystemPrompt(undefined, "deep-search");
-	const userPrompt = [
-		`Question: ${question}`,
-		"Read source/reader-context.json for the original question, verified prior Cue navigation, current anchor mappings and preferred Source refs. It is navigation only; cite exact original Source lines.",
-		`The Goal has ${sources.length} pinned Source views in source/catalog.json, available as needed to resolve the assigned question. Source refs are navigation handles, not evidence.`,
-		"Write cornell-note.json with exactly this shape:",
-		'{"status":"found|partial|not_found","summary":"short answer or search outcome","gaps":["specific unresolved point"],"sections":[{"section_title":"topic","cue_notes":[{"cue":"topic + keywords","note":"supported conclusion","evidence":[{"source_ref":"S1","source_path":"exact path within that Source","start_line":1,"end_line":2}]}]}]}',
-		"Use found only when the question is answered with evidence; partial when some evidence exists but a gap remains; not_found with empty sections when no evidence was found. Every Cue needs at least one exact original-text citation. Do not cite the catalog or manifests. Do not include hashes, IDs, or extra fields: Runtime supplies them.",
-	].join("\n\n");
+	const userPrompt = buildDeepSearchTaskPrompt(question, sources.length);
 	const runner = input.stageRunner ?? createProductionResearchStageRunner({ env });
 	const capturedRunner = caseCapture()?.cornellNote?.(runner,
 		{ mode: "deep-search", question, invocationId: input.invocationId }, []) ?? runner;

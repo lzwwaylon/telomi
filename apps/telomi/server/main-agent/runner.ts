@@ -21,19 +21,18 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { resolveAgentDir, resolveAgentPath } from "../config/agent-directory.js";
-import { collectAttachments, sessionEntryAttachments } from "./session-attachments.js";
+import { sessionEntryAttachments } from "./session-attachments.js";
 
 // ResourceExtensionPaths isn't re-exported from the package root; derive it
 // from the interface itself so we don't reach into deep package internals.
 type ResourceExtensionPaths = Parameters<ResourceLoader["extendResources"]>[0];
-import { buildMainAgentPrompt } from "./system-prompts.js";
+import { buildMainAgentPrompt, readMainAgentPromptContext, type MainAgentPromptContext } from "./system-prompts.js";
 import type {
 	AttachmentPayload,
 	GoalEventEnvelope,
 	GoalSnapshot,
 	GoalTurnContext,
 	PromptInput,
-	ResearchAgentOutput,
 	UsageSummary,
 	UserMessageWithAttachmentsPayload,
 } from "../../shared/types.js";
@@ -93,25 +92,7 @@ import { MainWikiCitationSession, registerMainWikiCitationCompiler } from "./wik
 import { isInsideRoot } from "../lib/paths.js";
 import { toErrorMessage } from "../lib/values.js";
 
-const RESEARCH_TOOL_NAMES = new Set(["research", "generate_report"]);
-
 type GoalEventListener = (event: GoalEventEnvelope) => void;
-
-interface ResearchActivityEvent {
-	nodeId: string;
-	status: string;
-	visit: number;
-	attempt: number;
-	timestamp: number;
-	detail?: string;
-	error?: string;
-}
-
-interface ResearchToolActivity {
-	runId?: string;
-	events: ResearchActivityEvent[];
-	outputs: ResearchAgentOutput[];
-}
 
 /**
  * Wire format for `modelId` on the chat config endpoint and snapshots.
@@ -470,7 +451,6 @@ export class GoalRunner {
 	private activeOriginalQuestion?: string;
 	private activeTurnContext?: GoalTurnContext;
 	private readonly partialToolResults = new Map<string, { toolName: string; result: any }>();
-	private readonly researchToolActivity = new Map<string, ResearchToolActivity>();
 	private mainWorkspaceRuntime!: MainWorkspaceRuntime;
 	private activeMainWorkspaceSession?: MainWorkspaceSession;
 	private activeMainSandbox?: SrtAgentSandbox;
@@ -479,6 +459,7 @@ export class GoalRunner {
 	private readonly pendingEvents: string[] = [];
 	private lastTerminalDetails?: MainTerminalDetails;
 	private lastNodeWorkspace?: WorkspaceSnapshotRecord;
+	private lastNodePromptContext?: MainAgentPromptContext;
 	private userMemoryProjector?: UserMemoryProjector;
 	private mainWikiCitations!: MainWikiCitationSession;
 	constructor(
@@ -494,9 +475,10 @@ export class GoalRunner {
 		private readonly nodeBacktestOverride?: {
 			systemPrompt?: string;
 			userPrompt?: string;
+			composedSystemPrompt?: string;
+			promptContext?: MainAgentPromptContext;
 		},
 		private readonly getPodcastGenerationHandler?: () => PodcastGenerationDispatchHandler | undefined,
-		private readonly getDiscoveryEnabled: () => boolean = () => true,
 		private readonly getOutputLanguage: () => import("../../shared/languages.js").OutputLanguage = () => "auto",
 		// Document attachments are parsed before the turn starts. Absent (Node Backtest,
 		// prompt dumps) the hand-off says so in the notice instead of pretending to parse.
@@ -545,7 +527,6 @@ export class GoalRunner {
 		const availableTools = [
 			...createMainAgentTools(
 			this.goalDir,
-			() => collectAttachments(this.agent.state.messages as any[]),
 			{
 				goalId: this.goalId,
 				workspaceDir: this.workspaceDir,
@@ -553,10 +534,9 @@ export class GoalRunner {
 				description: this.description,
 				getGoalTitle: () => this.title,
 				getGoalDescription: () => this.description,
-				getDiscoveryEnabled: this.getDiscoveryEnabled,
 				getOutputLanguage: this.getOutputLanguage,
 				getExtraEnv: this.getExtraEnv,
-				getOriginalQuestion: () => this.activeOriginalQuestion,
+				deferCueWikiUpdates: Boolean(this.nodeBacktestOverride),
 				exposeInvestigationResult: (artifact) => {
 					const session = this.activeMainWorkspaceSession;
 					if (!session) throw new Error("Investigation handoff requires an active Main Workspace");
@@ -660,7 +640,15 @@ export class GoalRunner {
 				}),
 				(pi) => {
 					const memory = resolvePiUserMemoryConfig({ baseUrl: memoryEnv.HINDSIGHT_URL, bankId: memoryEnv.HINDSIGHT_BANK_ID });
-					registerGlobalPreferences(pi, new HindsightClient(memory.baseUrl, memory.bankId));
+					if (!this.nodeBacktestOverride) {
+						registerGlobalPreferences(pi, new HindsightClient(memory.baseUrl, memory.bankId), (preferences) => {
+							if (this.lastNodePromptContext) this.lastNodePromptContext.globalPreferences = preferences ?? null;
+						});
+					} else {
+						pi.on("before_agent_start", (event) => ({ systemPrompt:
+							this.nodeBacktestOverride?.composedSystemPrompt
+							?? [event.systemPrompt, this.nodeBacktestOverride?.promptContext?.globalPreferences].filter(Boolean).join("\n\n") }));
+					}
 				},
 			],
 		});
@@ -759,18 +747,6 @@ export class GoalRunner {
 				}
 				break;
 			}
-			case "tool_execution_update": {
-				if (!RESEARCH_TOOL_NAMES.has(event.toolName)) return;
-				const text = Array.isArray(event.partialResult?.content)
-					? event.partialResult.content
-							.filter((item: any) => item?.type === "text" && typeof item.text === "string")
-							.map((item: any) => item.text.trim())
-							.filter(Boolean)
-							.join(" ")
-					: "";
-				if (text) next = text.slice(0, 240);
-				break;
-			}
 			case "tool_execution_end": {
 				next = this.agent.state.isStreaming ? "正在思考……" : null;
 				break;
@@ -791,86 +767,20 @@ export class GoalRunner {
 	private updatePartialToolResultFromEvent(event: any): void {
 		if (!event || typeof event.type !== "string") return;
 		if (event.type === "tool_execution_update" && typeof event.toolCallId === "string" && event.partialResult) {
-			let result = event.partialResult;
-			if (RESEARCH_TOOL_NAMES.has(event.toolName)) {
-				const details = result.details && typeof result.details === "object"
-					? result.details as Record<string, unknown>
-					: {};
-				const activity = this.researchToolActivity.get(event.toolCallId) ?? { events: [], outputs: [] };
-				let activityChanged = false;
-				if (typeof details.runId === "string") activity.runId = details.runId;
-				const node = details.node && typeof details.node === "object"
-					? details.node as Record<string, unknown>
-					: undefined;
-				if (node && typeof node.nodeId === "string" && typeof node.status === "string") {
-					activity.events.push({
-						nodeId: node.nodeId,
-						status: node.status,
-						visit: typeof node.visit === "number" ? node.visit : 1,
-						attempt: typeof node.attempt === "number" ? node.attempt : 1,
-						timestamp: Date.now(),
-						...(typeof node.detail === "string" ? { detail: node.detail } : {}),
-						...(typeof node.error === "string" ? { error: node.error } : {}),
-					});
-					activityChanged = true;
-				}
-				const agentOutput = details.agentOutput && typeof details.agentOutput === "object"
-					? details.agentOutput as Record<string, unknown>
-					: undefined;
-				if (
-					agentOutput
-					&& typeof agentOutput.stageId === "string"
-					&& typeof agentOutput.attemptId === "string"
-					&& typeof agentOutput.role === "string"
-					&& (agentOutput.status === "running" || agentOutput.status === "succeeded" || agentOutput.status === "failed")
-					&& (agentOutput.kind === "status" || agentOutput.kind === "text" || agentOutput.kind === "tool")
-					&& typeof agentOutput.updatedAt === "number"
-				) {
-					const next: ResearchAgentOutput = {
-						stageId: agentOutput.stageId,
-						attemptId: agentOutput.attemptId,
-						role: agentOutput.role,
-						status: agentOutput.status,
-						kind: agentOutput.kind,
-						updatedAt: agentOutput.updatedAt,
-						...(typeof agentOutput.text === "string" ? { text: agentOutput.text } : {}),
-						...(typeof agentOutput.toolName === "string" ? { toolName: agentOutput.toolName } : {}),
-					};
-					const existing = activity.outputs.findIndex((item) =>
-						item.stageId === next.stageId && item.attemptId === next.attemptId);
-					if (existing >= 0) activity.outputs[existing] = next;
-					else activity.outputs.push(next);
-					activityChanged = true;
-				}
-				if (activityChanged) {
-					this.researchToolActivity.set(event.toolCallId, activity);
-					result = {
-						...result,
-						details: {
-							...details,
-							researchActivity: activity.events,
-							agentOutputs: activity.outputs,
-						},
-					};
-				}
-			}
 			this.partialToolResults.set(event.toolCallId, {
 				toolName: typeof event.toolName === "string" ? event.toolName : "tool",
-				result,
+				result: event.partialResult,
 			});
 			return;
 		}
 		if (event.type === "tool_execution_start" && typeof event.toolCallId === "string") {
 			this.partialToolResults.delete(event.toolCallId);
-			this.researchToolActivity.delete(event.toolCallId);
 		}
 		if (event.type === "tool_execution_end" && typeof event.toolCallId === "string") {
 			this.partialToolResults.delete(event.toolCallId);
-			this.researchToolActivity.delete(event.toolCallId);
 		}
 		if (event.type === "agent_end") {
 			this.partialToolResults.clear();
-			this.researchToolActivity.clear();
 		}
 	}
 
@@ -1016,6 +926,11 @@ export class GoalRunner {
 			...this.lastTerminalDetails,
 			trace: { ...this.lastTerminalDetails.trace },
 		} : undefined;
+	}
+
+	getLastNodePromptSnapshot(): { systemPrompt: string; promptContext?: MainAgentPromptContext } {
+		return { systemPrompt: this.session.systemPrompt ?? this.agent.state.systemPrompt ?? "",
+			...(this.lastNodePromptContext ? { promptContext: this.lastNodePromptContext } : {}) };
 	}
 
 	getLastNodeWorkspaceSnapshot(): WorkspaceSnapshotRecord | undefined {
@@ -1318,6 +1233,9 @@ export class GoalRunner {
 
 				// Rebuild after preparing the isolated Main Workspace so Prompt,
 				// Skills, Tools, and SRT mounts share one immutable snapshot.
+				this.lastNodePromptContext = this.nodeBacktestOverride
+					? this.nodeBacktestOverride.promptContext ? { ...this.nodeBacktestOverride.promptContext } : undefined
+					: readMainAgentPromptContext(this.workspacePath, this.goalId, this.title, this.description, this.getOutputLanguage());
 				phase("rebuild-system-prompt:start");
 				this.session.setActiveToolsByName(this.session.getActiveToolNames());
 				phase("rebuild-system-prompt:done");
@@ -1485,6 +1403,8 @@ export class GoalRunner {
 					runDirectory: workspaceSession.runDirectory,
 					question: this.activeOriginalQuestion,
 					systemPrompt: this.session.systemPrompt ?? this.agent.state.systemPrompt ?? "",
+					promptContext: this.lastNodePromptContext,
+					...(this.activeTurnContext ? { turnContext: this.activeTurnContext } : {}),
 					actualModel: activeModel,
 					thinkingLevel: this.agent.state.thinkingLevel,
 					...(contextBefore ? { contextBefore } : {}),

@@ -34,7 +34,7 @@ export function createResearchScheduleTool(opts: {
 	return {
 		name: "research_schedule",
 		label: "research_schedule",
-		description: "Manage Goal-scoped recurring Research Runs from an existing published baseline. For a fresh recurring request, use research with its schedule input so the first report becomes the baseline. Occurrences run only when the Runtime reaches the cron time; only the user can trigger an immediate run from the UI.",
+		description: "Manage Goal-scoped recurring Research Runs from an existing published baseline. Creation requires a qualifying existing published Research Run; an investigation answer is not a baseline. Occurrences run only when the Runtime reaches the cron time; only the user can trigger an immediate run from the UI.",
 		parameters: schema,
 		execute: async (_toolCallId, args) => {
 			if (args.action === "create") {

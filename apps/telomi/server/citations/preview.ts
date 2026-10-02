@@ -17,6 +17,8 @@ interface CitationRecord {
 	refs?: unknown;
 	ref?: unknown;
 	wiki?: unknown;
+	/** Verified Cue and original Source excerpts frozen by investigation publication. */
+	cue?: unknown;
 }
 
 type WikiPagePreview = { ref: string; path: string; title: string; type: string; content: string };
@@ -48,7 +50,7 @@ export interface CitationSourcePreview {
 		cue: string;
 		note: string;
 		excerpts: Array<{ path: string; startLine: number; endLine: number; text: string;
-			sourceId?: string; sourceRevisionSha256?: string; contentSha256?: string }>;
+			sourceId?: string; sourceRunId?: string; sourceTitle?: string; sourceUrl?: string; sourceRevisionSha256?: string; contentSha256?: string }>;
 		assets: Array<{ sourceId: string; path: string; alt: string; width?: number; height?: number }>;
 	}>;
 }
@@ -85,23 +87,25 @@ export function resolveReportCoverAsset(reportMarkdownPath: string): ReportCover
 	return null;
 }
 
-/** Resolve a report URL citation back to its immutable Source and Cornell Evidence. */
+/** Resolve a report citation by URL or its exact numbered, URL-less Evidence. */
 export function resolveCitationSourcePreview(
 	reportMarkdownPath: string,
 	requestedUrl: string,
 	requestedNumber?: number,
 ): CitationSourcePreview | null {
-	const reportUrl = normalizeUrl(requestedUrl);
-	if (!reportUrl) return null;
+	const reportUrl = requestedUrl ? normalizeUrl(requestedUrl) : null;
+	if ((requestedUrl && !reportUrl) || (!reportUrl && requestedNumber === undefined)) return null;
 	const reportJsonPath = reportMarkdownPath.replace(/\.[^.]+$/u, ".json");
 	if (!existsSync(reportJsonPath)) return null;
 	const report = readJson<{ citations?: CitationRecord[] }>(reportJsonPath);
-	const citation = report.citations?.find((item) => typeof item.url === "string"
-		&& normalizeUrl(item.url) === reportUrl
-		&& (requestedNumber === undefined || item.number === requestedNumber));
+	const citation = report.citations?.find((item) =>
+		(requestedNumber === undefined || item.number === requestedNumber)
+		&& (reportUrl ? typeof item.url === "string" && normalizeUrl(item.url) === reportUrl : !item.url));
 	if (!citation) return null;
-	const wiki = wikiCitationPreview(citation, reportUrl);
+	if (citation.cue !== undefined) return frozenCuePreview(citation);
+	const wiki = wikiCitationPreview(citation, reportUrl ?? "");
 	if (wiki) return wiki;
+	if (!reportUrl) return null;
 	const sourceId = typeof citation.evidenceId === "string" && /^source:[a-z0-9_-]+$/iu.test(citation.evidenceId)
 		? citation.evidenceId
 		: null;
@@ -223,10 +227,50 @@ export function resolveMessageCitationSourcePreview(
 				text: item.excerpt,
 				sourceId: item.source_id,
 				sourceRevisionSha256: item.source_revision_sha256,
+				sourceRunId: item.source_run_id,
 				contentSha256: item.content_sha256,
 			})),
 			assets: [],
 		}],
+	};
+}
+
+/** Published Cue excerpts remain readable without consulting a newer Wiki or live Cue store. */
+function frozenCuePreview(citation: CitationRecord): CitationSourcePreview | null {
+	const value = citation.cue;
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const cue = value as Record<string, unknown>;
+	const refs = citationRefs(citation);
+	if (refs.length !== 1 || cue.ref !== refs[0]) return null;
+	if (typeof cue.cue !== "string" || typeof cue.note !== "string" || !Array.isArray(cue.evidence)
+		|| cue.evidence.length === 0) return null;
+	const excerpts: CitationSourcePreview["clues"][number]["excerpts"] = [];
+	for (const anchor of cue.evidence) {
+		if (!anchor || typeof anchor !== "object" || Array.isArray(anchor)) return null;
+		const item = anchor as Record<string, unknown>;
+		const startLine = positiveInteger(item.start_line);
+		const endLine = positiveInteger(item.end_line);
+		if (!strings(item, ["source_path", "source_id", "source_revision_sha256"])
+			|| !startLine || !endLine || endLine < startLine || typeof item.excerpt !== "string"
+			|| (item.content_sha256 !== undefined && (typeof item.content_sha256 !== "string"
+				|| !/^[a-f0-9]{64}$/u.test(item.content_sha256)))) return null;
+		// Cornell display excerpts omit Markdown assets; the retained hash names the verified original line bytes.
+		excerpts.push({
+			path: item.source_path as string, startLine, endLine, text: item.excerpt,
+			sourceId: item.source_id as string,
+			sourceRevisionSha256: item.source_revision_sha256 as string,
+			...(typeof item.source_run_id === "string" ? { sourceRunId: item.source_run_id } : {}),
+			...(typeof item.content_sha256 === "string" ? { contentSha256: item.content_sha256 } : {}),
+		});
+	}
+	const first = cue.evidence[0] as Record<string, unknown>;
+	return {
+		title: typeof cue.source_title === "string" ? cue.source_title
+			: typeof first.title === "string" ? first.title : cue.cue,
+		url: typeof cue.canonical_locator === "string" ? cue.canonical_locator
+			: typeof first.url === "string" ? first.url : "",
+		sourceId: first.source_id as string,
+		clues: [{ cue: cue.cue, note: cue.note, excerpts, assets: [] }],
 	};
 }
 
@@ -247,8 +291,9 @@ function wikiCitationPreview(citation: { wiki?: unknown }, reportUrl: string): C
 		return page && entry && source
 			&& strings(page, ["ref", "path", "title", "type", "content"])
 			&& strings(entry, ["cue", "note"])
-			&& strings(source, ["id", "title", "url"])
-			&& normalizeUrl(source.url as string) === reportUrl
+			&& strings(source, ["id", "title"])
+			&& typeof source.url === "string"
+			&& (reportUrl ? normalizeUrl(source.url) === reportUrl : !normalizeUrl(source.url))
 			&& Array.isArray(entry.anchors)
 			? [{ page: page as WikiPagePreview, entry, source }]
 			: [];
@@ -274,9 +319,16 @@ function wikiClue(value: unknown): CitationSourcePreview["clues"] {
 		excerpts: entry.anchors.flatMap((anchor) => {
 				if (!anchor || typeof anchor !== "object" || Array.isArray(anchor)) return [];
 				const item = anchor as Record<string, unknown>;
+				const source = item.source && typeof item.source === "object" ? item.source as Record<string, unknown> : null;
 				return typeof item.path === "string" && typeof item.startLine === "number"
 					&& typeof item.endLine === "number" && typeof item.content === "string"
-					? [{ path: item.path, startLine: item.startLine, endLine: item.endLine, text: item.content }]
+					? [{ path: item.path, startLine: item.startLine, endLine: item.endLine, text: item.content,
+						...(source && typeof source.id === "string" ? { sourceId: source.id } : {}),
+						...(source && typeof source.runId === "string" ? { sourceRunId: source.runId } : {}),
+						...(source && typeof source.title === "string" ? { sourceTitle: source.title } : {}),
+						...(source && typeof source.url === "string" ? { sourceUrl: source.url } : {}),
+						...(source && typeof source.revisionSha256 === "string" ? { sourceRevisionSha256: source.revisionSha256 } : {}),
+						...(typeof item.sha256 === "string" ? { contentSha256: item.sha256 } : {}) }]
 					: [];
 		}),
 		assets: entry.anchors.flatMap((anchor) => {

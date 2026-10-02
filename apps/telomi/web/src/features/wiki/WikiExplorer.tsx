@@ -312,7 +312,7 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 	const [graph, setGraph] = useState<WikiGraph | null>(null);
 	const [generatedAt, setGeneratedAt] = useState("");
 	const [selectedPath, setSelectedPath] = useState<string | null>(initialPath);
-	const [sourcePath, setSourcePath] = useState<string | null>(null);
+	const [sourcePreview, setSourcePreview] = useState<{ path: string; runId?: string; documentPath?: string } | null>(null);
 	const [page, setPage] = useState<WikiPage | null>(null);
 	const [loadingIndex, setLoadingIndex] = useState(true);
 	const [loadingPage, setLoadingPage] = useState(false);
@@ -466,13 +466,13 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 
 	// The source preview replaces the article inside the same scroller; remember where the reader was and put it back.
 	const readerScrollRef = useRef(0);
-	const openSource = useCallback((path: string) => {
+	const openSource = useCallback((path: string, runId?: string, documentPath?: string) => {
 		readerScrollRef.current = readerRef.current?.scrollTop ?? 0;
-		setSourcePath(path);
+		setSourcePreview({ path, runId, documentPath });
 	}, []);
 	useLayoutEffect(() => {
-		if (!sourcePath && readerRef.current) readerRef.current.scrollTop = readerScrollRef.current;
-	}, [sourcePath]);
+		if (!sourcePreview && readerRef.current) readerRef.current.scrollTop = readerScrollRef.current;
+	}, [sourcePreview]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -498,7 +498,7 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 		try { return { path: initialPath, anchor: decodeURIComponent(window.location.hash.slice(1)) }; } catch { return null; }
 	});
 	useLayoutEffect(() => {
-		if (!page || loadingPage || sourcePath) return;
+		if (!page || loadingPage || sourcePreview) return;
 		const headings = Array.from(readerRef.current?.querySelectorAll<HTMLElement>(".wiki-markdown h2") ?? []);
 		(page.sections ?? []).forEach((section, index) => {
 			const heading = headings[index];
@@ -509,7 +509,7 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 			if (heading) { heading.scrollIntoView({ block: "start" }); heading.focus({ preventScroll: true }); }
 			setPendingSection(null);
 		}
-	}, [page, loadingPage, pendingSection, sourcePath, view]);
+	}, [page, loadingPage, pendingSection, sourcePreview, view]);
 
 	const [pendingEvidence, setPendingEvidence] = useState<{ path: string; index: number } | null>(null);
 	useEffect(() => {
@@ -526,7 +526,7 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 		setPendingSection(anchor ? { path, anchor } : null);
 		setPendingEvidence(evidenceIndex ? { path, index: evidenceIndex } : null);
 		setView("explore");
-		setSourcePath(null);
+		setSourcePreview(null);
 		setNavOpen(false);
 		if (path === selectedPath) return;
 		setLoadingPage(true);
@@ -665,8 +665,8 @@ export function WikiExplorer({ goalId, topics, activeTopicId, onActiveTopicChang
 					)}
 				</section>
 
-				<main ref={readerRef} className="wiki-detail" data-source-preview={sourcePath ? "true" : undefined} tabIndex={-1}>
-					{sourcePath ? <WikiSourcePreview goalId={goalId} path={sourcePath} revision={revision} onBack={() => setSourcePath(null)} /> : <>
+				<main ref={readerRef} className="wiki-detail" data-source-preview={sourcePreview ? "true" : undefined} tabIndex={-1}>
+					{sourcePreview ? <WikiSourcePreview goalId={goalId} path={sourcePreview.path} revision={revision} runId={sourcePreview.runId} documentPath={sourcePreview.documentPath} onBack={() => setSourcePreview(null)} /> : <>
 					{loadingIndex ? (
 							<div className="wiki-state" role="status"><BookOpenText aria-hidden /><p>{uiText("wiki.explorer.loadingWiki")}</p></div>
 					) : error && !page ? (

@@ -54,7 +54,6 @@ export interface GoalExecution {
 		goalDir: string;
 		onSnapshot: (snapshot: GoalSnapshot) => void;
 		getExtraEnv: () => Record<string, string>;
-		getDiscoveryEnabled: () => boolean;
 		getOutputLanguage: () => OutputLanguage;
 	}): Promise<GoalSession>;
 	/** Persist the Run checkpoint synchronously before yielding during initialization. */

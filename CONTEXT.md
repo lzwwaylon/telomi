@@ -299,15 +299,15 @@ The fixed, read-only set of Wiki, evidence, and prior-artifact snapshots exposed
 _Avoid_: mutable Workspace, global context dump
 
 **Main Agent**:
-The persistent per-Goal Pi Coding Agent that answers from current Goal knowledge or calls the full Research Runtime through the `research` Tool.
+The persistent per-Goal Pi Coding Agent that routes factual questions and reports through `investigate`, reviews the saved result, and either delivers the cited answer or publishes it as a Canonical Report through `deliver_investigation`. It also reads published reports and manages Research Schedules.
 _Avoid_: Search Planner, Research Runtime, one-shot task normalizer
 
 **Search Question**:
-The standalone incremental retrieval task Main Agent passes to the `research` Tool as `search_question`. It names the missing evidence and update scope so earlier research is not repeated. Prime Search Root derives evidence coverage from it directly.
+The standalone incremental retrieval task supplied to Prime Search for a Research Run or investigation acquisition. It names the missing evidence and update scope so earlier research is not repeated. Prime Search Root derives evidence coverage from it directly.
 _Avoid_: Runtime-generated rewrite, report brief, continuation route, report outline
 
 **Report Context**:
-The complete report brief Main Agent passes to the `research` Tool as `report_context`: user objective, audience, prior knowledge, format, depth, and language. Runtime persists it verbatim and passes it through to the Report Agent, which cannot see the conversation.
+The complete brief persisted for a full Research Run: user objective, audience, prior knowledge, format, depth, and language. Runtime passes it through to the Full Report Writer, which cannot see the conversation. A conversational investigation supplies its answer requirements through investigation context instead.
 _Avoid_: Search Question, Runtime summary, report outline
 
 **Source Organizer**:

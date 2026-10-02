@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { publishedInvestigationReportMetadata } from "../../media/report-view.js";
 import type { StageInputView } from "./input-view.js";
 
 /** One earlier published Canonical Report of the same Goal, exposed to the Report Writer as read-only context. */
@@ -16,8 +17,8 @@ export interface PriorReport {
 export const PRIOR_REPORTS_DIRECTORY = "prior-reports";
 
 /**
- * Newest first. Only Runs whose control state says `published` and whose `report/final.md`
- * exists count; skipped, failed or in-flight Runs never appear.
+ * Newest by publication time. Full Research needs a published control state; investigation
+ * reports need validated immutable publication metadata. Unfinished results never appear.
  */
 export function listPriorReports(input: {
 	goalWorkspaceDirectory: string;
@@ -26,26 +27,40 @@ export function listPriorReports(input: {
 }): PriorReport[] {
 	const runsRoot = join(input.goalWorkspaceDirectory, "wiki", "runs");
 	if (!existsSync(runsRoot)) return [];
-	const reports: PriorReport[] = [];
-	const usedNames = new Set<string>();
+	const reports: Array<Omit<PriorReport, "publishedOn" | "fileName"> & { publishedAt: string }> = [];
 	for (const entry of readdirSync(runsRoot, { withFileTypes: true })
-		.filter((item) => item.isDirectory() && item.name !== input.currentRunId)
-		.sort((left, right) => right.name.localeCompare(left.name))) {
+		.filter((item) => item.isDirectory() && item.name !== input.currentRunId)) {
 		const statePath = join(input.controlRunsRoot, entry.name, "run-state.json");
 		const reportPath = join(runsRoot, entry.name, "report", "final.md");
-		if (!existsSync(statePath) || !existsSync(reportPath)) continue;
-		const state = JSON.parse(readFileSync(statePath, "utf-8")) as {
-			status?: unknown; question?: unknown; started_at?: unknown; finished_at?: unknown;
-		};
-		if (state.status !== "published") continue;
+		if (!existsSync(reportPath)) continue;
+		let publishedAt: string;
+		let question: string;
+		if (/^investigation-[a-f0-9]{24}$/u.test(entry.name)) {
+			const publication = publishedInvestigationReportMetadata(input.goalWorkspaceDirectory, entry.name);
+			if (!publication) continue;
+			publishedAt = publication.publishedAt;
+			question = firstLine(publication.question);
+		} else {
+			if (!existsSync(statePath)) continue;
+			const state = JSON.parse(readFileSync(statePath, "utf-8")) as {
+				status?: unknown; question?: unknown; started_at?: unknown; finished_at?: unknown;
+			};
+			if (state.status !== "published") continue;
+			question = typeof state.question === "string" ? firstLine(state.question) : "";
+			publishedAt = String(state.finished_at ?? state.started_at ?? entry.name);
+		}
 		const markdown = readFileSync(reportPath, "utf-8");
-		const question = typeof state.question === "string" ? firstLine(state.question) : "";
 		const title = markdown.match(/^#\s+(.+?)\s*$/mu)?.[1] ?? (question || entry.name);
-		const publishedOn = String(state.finished_at ?? state.started_at ?? entry.name).slice(0, 10);
-		const fileName = uniqueFileName(`${publishedOn}-${slug(title)}`, usedNames);
-		reports.push({ runId: entry.name, publishedOn, title, question, fileName, absolutePath: reportPath });
+		reports.push({ runId: entry.name, title, question, publishedAt, absolutePath: reportPath });
 	}
-	return reports;
+	const usedNames = new Set<string>();
+	return reports.sort((left, right) => {
+		const dateDifference = publicationTime(right.publishedAt) - publicationTime(left.publishedAt);
+		return dateDifference || right.runId.localeCompare(left.runId);
+	}).map(({ publishedAt, ...report }) => {
+		const publishedOn = publishedAt.slice(0, 10);
+		return { ...report, publishedOn, fileName: uniqueFileName(`${publishedOn}-${slug(report.title)}`, usedNames) };
+	});
 }
 
 /** Copies the reports into the Writer input view and returns the index the prompt carries. Empty string when none exist. */
@@ -65,6 +80,12 @@ export function renderPriorReportsIndex(reports: readonly PriorReport[]): string
 			`| ${report.publishedOn} | ${cell(report.title)} | ${cell(report.question)} | ${PRIOR_REPORTS_DIRECTORY}/${report.fileName} |`),
 		"",
 	].join("\n");
+}
+
+function publicationTime(value: string): number {
+	// Older Research metadata falls back to the Run id, whose time uses dashes instead of colons.
+	const timestamp = Date.parse(value.replace(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})/u, "$1:$2:$3"));
+	return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
 }
 
 function firstLine(value: string): string {

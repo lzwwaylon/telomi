@@ -1,9 +1,12 @@
-import { existsSync } from "node:fs";
+import { validateInvestigationResult, type InvestigationResult } from "../citations/contracts.js";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { RunArtifactStore, type RunArtifactRef } from "../agent-runtime/artifact-store.js";
 import { sha256 } from "../lib/hash.js";
-import type { InvestigationResult } from "../research/investigate.js";
+import { readInvestigationResult } from "../research/investigate.js";
+import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
 
 /** Publish only the validated result; Main receives its mapped reference instead of its body. */
 export function publishInvestigationHandoff(goalDir: string, result: InvestigationResult): {
@@ -20,7 +23,18 @@ export function publishInvestigationHandoff(goalDir: string, result: Investigati
 	};
 	const store = new RunArtifactStore(join(goalDir, "artifacts"));
 	if (existsSync(join(store.root, artifact.relative_path))) store.openFile(artifact);
-	else store.publishText(content, artifact.relative_path);
+	const citationsRef = `investigations/${result.id}/citations.json`;
+	const control = join(serverRuntimeDirForGoalDir(goalDir), "research", "investigations", result.id);
+	if (!existsSync(join(store.root, citationsRef)) && existsSync(join(control, "citations.json"))) {
+		// Older handoffs had only a result. Never pair that frozen answer with changed control evidence.
+		const source = new RunArtifactStore(control);
+		const recorded = validateInvestigationResult(JSON.parse(readFileSync(source.describeFile("result.json").absolutePath, "utf-8")),
+			result.id, result.question);
+		if (!isDeepStrictEqual(recorded, result)) throw new Error("Investigation evidence does not belong to the saved result");
+		store.publishFile(source.describeFile("citations.json").absolutePath, citationsRef);
+	}
+	// Complete current investigations publish their evidence before making the result discoverable.
+	if (!existsSync(join(store.root, artifact.relative_path))) store.publishText(content, artifact.relative_path);
 	return {
 		artifact,
 		receipt: {
@@ -31,4 +45,15 @@ export function publishInvestigationHandoff(goalDir: string, result: Investigati
 			byte_length: artifact.byte_length,
 		},
 	};
+}
+
+/** Freeze existing completed handoffs before Main's next input snapshot; never include future results. */
+export function migrateInvestigationHandoffs(goalDir: string): void {
+	const root = join(goalDir, "artifacts", "investigations");
+	if (!existsSync(root)) return;
+	for (const entry of readdirSync(root, { withFileTypes: true })) {
+		if (!entry.isDirectory() || !/^[a-f0-9]{24}$/u.test(entry.name)
+			|| !existsSync(join(root, entry.name, "result.json")) || existsSync(join(root, entry.name, "citations.json"))) continue;
+		publishInvestigationHandoff(goalDir, readInvestigationResult(goalDir, entry.name));
+	}
 }

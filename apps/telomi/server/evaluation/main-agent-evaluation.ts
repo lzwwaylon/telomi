@@ -3,6 +3,8 @@ import { join, relative, sep } from "node:path";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
+import type { MainAgentPromptContext } from "../main-agent/system-prompts.js";
+import type { GoalTurnContext } from "../../shared/types.js";
 import type { UsageSummary } from "../../shared/types.js";
 import type { WorkspaceSnapshotRecord } from "../observability/run-records.js";
 import type { MainTerminalDetails } from "../main-agent/tools/terminal-action.js";
@@ -33,6 +35,8 @@ export function captureMainAgentNodeEvaluation(input: {
 	capabilitySnapshotId?: string;
 	/** This turn's attachments; their bytes are already in the logical workspace under `attachments/`. */
 	attachments?: AttachmentCaseDescriptor[];
+	promptContext?: MainAgentPromptContext;
+	turnContext?: GoalTurnContext;
 }): void {
 	const logicalWorkspace = JSON.parse(readFileSync(`${input.logicalWorkspacePath}.json`, "utf-8")) as unknown;
 	const store = new RunArtifactStore(input.runDirectory);
@@ -61,7 +65,10 @@ export function captureMainAgentNodeEvaluation(input: {
 			recipe: { id: "main-agent", version: 1 },
 			recipeInput: {
 				thinkingLevel: input.thinkingLevel,
+				question: input.question,
 				logicalWorkspace,
+				...(input.promptContext ? { promptContext: input.promptContext } : {}),
+				...(input.turnContext ? { turnContext: input.turnContext } : {}),
 				...(input.attachments?.length ? { attachments: input.attachments } : {}),
 			},
 			inputRelativePath: relative(input.runDirectory, input.logicalWorkspacePath).split(sep).join("/"),

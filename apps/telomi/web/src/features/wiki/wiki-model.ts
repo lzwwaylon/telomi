@@ -33,8 +33,10 @@ export interface WikiEvidenceEntry {
 	sectionSummary?: string;
 	cue: string;
 	note: string;
-	source: { id: string; title: string; url: string };
+	source: { id: string; title: string; url: string; runId?: string };
 	anchors: Array<{
+		sha256?: string;
+		source?: { id: string; title: string; url: string; runId: string; revisionSha256: string };
 		path: string;
 		startLine: number;
 		endLine: number;
@@ -62,13 +64,20 @@ export function normalizeWikiEvidence(value: unknown): WikiEvidenceEntry[] {
 				&& typeof (asset as Record<string, unknown>).sourceId === "string"
 				&& typeof (asset as Record<string, unknown>).path === "string"
 				? [{ sourceId: (asset as Record<string, string>).sourceId, path: (asset as Record<string, string>).path }] : []) : [];
+			const original = value.source && typeof value.source === "object" ? value.source as Record<string, unknown> : null;
+			const originalSource = original && typeof original.id === "string" && typeof original.title === "string"
+				&& typeof original.url === "string" && typeof original.runId === "string" && typeof original.revisionSha256 === "string"
+				? { id: original.id, title: original.title, url: original.url, runId: original.runId, revisionSha256: original.revisionSha256 } : undefined;
 			return [{ path: value.path, startLine: value.startLine, endLine: value.endLine,
-				format: value.format as "markdown" | "text", content: value.content, assets }];
+				format: value.format as "markdown" | "text", content: value.content, assets,
+				...(typeof value.sha256 === "string" ? { sha256: value.sha256 } : {}),
+				...(originalSource ? { source: originalSource } : {}) }];
 		}) : [];
 		return [{ id: row.id, index: row.index, section: row.section,
 			...(typeof row.sectionSummary === "string" ? { sectionSummary: row.sectionSummary } : {}),
 			cue: row.cue, note: row.note,
-			source: { id: source.id, title: source.title, url: source.url }, anchors }];
+			source: { id: source.id, title: source.title, url: source.url,
+				...(typeof source.runId === "string" ? { runId: source.runId } : {}) }, anchors }];
 	});
 }
 

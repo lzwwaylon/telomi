@@ -1,15 +1,20 @@
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
 export const MAIN_TERMINAL_ACTIONS = [
-	"investigate", // Historical Main sessions delivered this tool directly.
 	"deliver_investigation",
-	"research",
-	"generate_report",
 	"generate_podcast",
 ] as const;
 
 export type MainTerminalAction = (typeof MAIN_TERMINAL_ACTIONS)[number];
-export type MainCoarseAction = MainTerminalAction | "assistant_reply";
+export type MainCoarseAction = MainTerminalAction | "investigate" | "research" | "generate_report" | "assistant_reply";
+
+// Persisted Main sessions retain actions from tools that are no longer callable.
+const RECORDED_TERMINAL_ACTIONS: readonly string[] = [
+	...MAIN_TERMINAL_ACTIONS,
+	"investigate",
+	"research",
+	"generate_report",
+];
 
 export interface MainTerminalDetails {
 	terminal: true;
@@ -85,7 +90,7 @@ export function parseMainTerminalDetails(value: unknown): MainTerminalDetails | 
 	const details = value as Record<string, unknown>;
 	if (
 		details.terminal !== true
-		|| !MAIN_TERMINAL_ACTIONS.includes(details.action as MainTerminalAction)
+		|| !RECORDED_TERMINAL_ACTIONS.includes(details.action as string)
 	) {
 		return undefined;
 	}

@@ -200,9 +200,9 @@ try {
 	assert.equal(folder[2]?.extractedText, undefined);
 	assert.match(folderNoticeText, /Folder attachment: project \(3 files\)/u);
 	assert.ok(folderNoticeText.includes(`${attachmentsGuestPath}/f1_project`), folderNoticeText);
-	assert.match(folderNoticeText, new RegExp(`${attachmentsGuestPath}/f1_project/README\\.md — text, read it directly`, "u"));
-	assert.match(folderNoticeText, new RegExp(`${attachmentsGuestPath}/f1_project/docs/docs/paper\\.pdf — parsed; Markdown at ${documentsGuestPath}/[0-9a-f]+/document\\.md`, "u"));
-	assert.match(folderNoticeText, new RegExp(`${attachmentsGuestPath}/f1_project/bin/blob\\.dat — unrecognised binary`, "u"));
+	assert.match(folderNoticeText, new RegExp(`${attachmentsGuestPath}/f1_project/README\\.md[^\\n]* text, read it directly`, "u"));
+	assert.match(folderNoticeText, new RegExp(`${attachmentsGuestPath}/f1_project/docs/docs/paper\\.pdf[^\\n]* parsed; Markdown at ${documentsGuestPath}/[0-9a-f]+/document\\.md`, "u"));
+	assert.match(folderNoticeText, new RegExp(`${attachmentsGuestPath}/f1_project/bin/blob\\.dat[^\\n]* unrecognised binary`, "u"));
 	assert.doesNotMatch(folderNoticeText, /logo\.png/u, "images are not documents and stay out of the folder notice");
 	assert.equal(folder[3]?.content, Buffer.from("png").toString("base64"), "folder images still reach the model as images");
 

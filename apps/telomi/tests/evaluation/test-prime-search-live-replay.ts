@@ -343,7 +343,7 @@ try {
 		const importedRun = importedService.enqueue(goalId, {
 			agentId: "prime-search",
 			cases: [imported.caseRef],
-			candidate: { capabilitySnapshotId: candidate.id, promptMode: "observed" },
+			candidate: { capabilitySnapshotId: candidate.id, promptMode: "candidate" },
 			repetitions: 1,
 			rubricId: "prime-search-provider-environment-v1",
 		});

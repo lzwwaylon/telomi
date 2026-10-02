@@ -172,8 +172,10 @@ export class NoteFirstWikiCompiler {
     data: 'object-notes; unplaced-cues-at-object-merge; downstream-page-and-section-views', diagnosticOnly: false });
    request.onStarted?.(evidence.notes.length);
    const drafts = await mapConcurrentFairly(evidence.notes, 4, async (note, index) => {
-    const noteEntries = incoming.filter(e => e.sourceId === note.note.source_id);
-    const key = `objects/${hashJson({ source: note.note.source_id, revision: note.source_revision_sha256 }).slice(0, 24)}`;
+    const noteIds = new Set(noteWikiEntries({ ...evidence, notes: [note] }, topics.revision).map(e => e.id));
+    const noteEntries = incoming.filter(e => noteIds.has(e.id));
+    const key = `objects/${hashJson({ source: note.note.source_id, revision: note.source_revision_sha256,
+     ...(note.source_run_id ? { sourceRun: note.source_run_id } : {}) }).slice(0, 24)}`;
     const input = make('objects', key, { entries: noteEntries, requiredEntries: noteEntries.map(e => e.id),
      instructions: `Process this one complete Cornell Note: ${note.title}. Its sections and all Cue details are supplied in full.` });
     const progress = { batchIndex: index, totalBatches: evidence.notes.length, pageCount: 0, usage: zero(), reused: false, traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };

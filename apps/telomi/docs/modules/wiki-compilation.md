@@ -1,6 +1,6 @@
 # Wiki Compilation
 
-New Wiki Updates use `NoteFirstWikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; publication remains under the existing Goal Workspace publication lock. Old queued Updates without a compiler identity resume through the legacy compiler. Existing published Editions remain readable.
+New Wiki Updates use `NoteFirstWikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; compilation and publication share one Goal execution turn, and publication remains under the existing Goal Workspace publication lock. Old queued Updates without a compiler identity resume through the legacy compiler. Existing published Editions remain readable.
 
 ## Construction and input views
 
@@ -25,6 +25,8 @@ Candidate writers completely read their primary objects and any historical targe
 Object merging uses Pi Coding Agent in two phases. A Terra session sees the complete new and existing object catalog, titles, descriptions, index paths and read-only bodies for uncertain identity. It assigns each new draft once to an update of a specified existing target, one new object, or unchanged retention. Existing objects omitted from the plan survive. Context concepts cannot be consumed, and shared provenance or mechanics alone does not imply the same object. The planner may group any number of records for one identity; Runtime executes each group serially with at most four incoming drafts per writer, carrying the accepted target and normalized citations into subsequent turns. Existing target reads have no count cap.
 
 Each Luna target writer reads all assigned source members, inventories source-specific records and their actual H2 destinations in `facts.json`, then writes a complete page or vetoes an unsupported merge. Runtime protects the specified old identity, citation preservation, source-section/Cue inventory, exact member ownership and final title/ID uniqueness. It binds accepted ledger and Markdown bytes to checkpoints. Citation and inventory coverage establish structure, not semantic completeness. There is no additional model review session or automatic review-triggered rewrite loop.
+
+Runtime-owned page indexes distinguish file locations from local reference aliases. Section ranges address the staged page file, including its frontmatter, while durable Section identities and hashes retain their original body coordinates. Cue detail availability is explicit; a citation alias does not imply a standalone file. Index paths remain relative to the mounted input root across Pi and Prime adapters. Pi sessions declare the same `/work` directory used by their SRT tools; loaders and execution records retain host paths. Index and section reads are navigation aids and do not replace the target writer's complete-page reading requirement.
 
 Before planning, unplaced Cues are supplied in full to a Luna resolution session. Current pages are read-only context; it can create supported object drafts for subsequent target planning or record final non-adoption reasons. Cue resolution and global target planning additionally expose native `grep` over their read-only page files; target writers retain only `read`, `write` and `edit`. It cannot consume existing pages or discard evidence owned by historical concepts. Object merging retains strict Cue ownership and publication guards, including when no new pages exist. All merge/resolution sessions have at most three total validation submissions; independent safely inspectable violations are reported together with exact files, aliases and source locations. Repairs use the same session. Accepted child stages are reused on retry, and altered accepted outputs reject recovery.
 
@@ -62,3 +64,9 @@ The formal `wiki-compilation@1` recipe captures complete construction or navigat
 Tests cover complete-Note queues, Cue ownership, stage contracts, actual SRT Skill loading, full-text delivery, relation-free construction, failed publication, retry, history, navigation and legacy relationship reading. Deterministic tests do not establish factual correctness or superior Topic selection.
 
 The earlier shard/curator pipeline remains available for historical recovery and its own Replay recipes; see [Wiki Shard Builder](wiki-shard-builder.md).
+
+## Investigation inputs
+
+The Research-owned Cue queue supplies validated Cornell snapshots to this same compiler. It carries investigation/thread origins as execution provenance, preserved in Wiki Update records and frozen `cue-origins.json` Case inputs. Those origins do not become Agent instructions. Per-record and per-anchor Source Run identities override the legacy snapshot-level Run for imported Cues. Stable original Cue refs prevent an import batch or reordering from changing evidence identities.
+
+Wiki evidence previews preserve each original Source revision and line hash. Source and asset requests bind optional Run/document selection to the chosen Edition's registry. An ambiguous Source identity is rejected rather than selecting a different Run, and a selected document must match a recorded evidence anchor.

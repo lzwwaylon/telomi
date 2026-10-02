@@ -71,10 +71,54 @@ try {
  ] };
  const mergeRoot = join(root, 'merge-input');
  createNoteFirstWorkspace(mergeInput, mergeRoot);
+ // Follow the Runtime's paths, not inferred filenames for section or Cue aliases.
+ for (const ref of ['P1', 'P2']) {
+  const index = JSON.parse(readFileSync(join(mergeRoot, `indexes/${ref}.json`), 'utf8'));
+  const lines = readFileSync(join(mergeRoot, `pages/${ref}.md`), 'utf8').split('\n');
+  assert.equal(index.file, `pages/${ref}.md`);
+  assert.ok(index.sections.every((section: { start_line?: number; end_line?: number }) =>
+   Number.isInteger(section.start_line) && Number.isInteger(section.end_line)), 'Section locations need staged-file line ranges');
+  for (const section of index.sections) {
+   const body = lines.slice(section.start_line - 1, section.end_line).join('\n');
+   assert.ok(body.startsWith(`## ${section.heading}`));
+   assert.deepEqual(section.entry_refs, [...body.matchAll(/\[\[(N\d+)\]\]/gu)].map(match => match[1]));
+   section.entry_refs.forEach((cue: string) => assert.equal(index.cue_files[cue], null,
+    'Target writing receives inline citations, without standalone Cue files'));
+  }
+ }
  const mergeUser = piObjectMergeUserContext(mergeInput);
  assert.match(mergeUser, /P1 \| existing/);
  assert.match(mergeUser, /P2 \| incoming/);
  assert.match(mergeUser, /wiki\/indexes\/P1.json \| wiki\/pages\/P1.md/);
+ assert.match(mergeUser, /cue_files.*null means this stage supplies only the page's inline citation/);
+ const writerSystem = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'write-object-target-pi').content;
+ assert.match(writerSystem, /Open only the file paths listed in the catalog or indexes/);
+ const mappedRoot = join(root, 'mapped-input');
+ const mappedInput: NoteFirstInput = { ...mergeInput, pages: [{ ...mergeInput.pages[0]!,
+  page: { ...mergeInput.pages[0]!.page, body: `Preamble.\n\n## Repeated\nEvidence [[${a}]].\n\n\`\`\`md\n## Code heading\n\`\`\`\n\n## Repeated\nEvidence [[${a}]].\n` } }, mergeInput.pages[1]!] };
+ createNoteFirstWorkspace(mappedInput, mappedRoot);
+ const mappedSandbox = createSrtAgentSandbox({ id: 'mapped-object-test', role: 'wiki.object_builder', workDirectory: work,
+  readonlyMounts: [{ hostPath: mappedRoot, guestPath: '/work/wiki', access: 'read-only' }],
+  activeTools: ['read', 'write', 'edit'], network: 'deny' });
+ try {
+  const read = mappedSandbox.tools.find(tool => tool.name === 'read')!;
+  const reads = new Map<string, Set<number>>(), signal = new AbortController().signal;
+  const parameters = { path: '/work/wiki/indexes/P1.json' };
+  const indexResult = await read.execute('mapped-index', parameters, signal, () => undefined);
+  observePiMergeRead(mappedRoot, reads, parameters, indexResult);
+  assert.equal(reads.size, 0, 'Reading an index does not certify a page read');
+  const index = JSON.parse(indexResult.content.filter(block => block.type === 'text').map(block => block.text).join('\n'));
+  assert.deepEqual(index.sections.map((section: { heading: string }) => section.heading), ['Repeated', 'Repeated']);
+  for (const section of index.sections) {
+   const parameters = { path: `/work/wiki/${index.file}`, offset: section.start_line,
+    limit: section.end_line - section.start_line + 1 };
+   const result = await read.execute(`mapped-${section.section_ref}`, parameters, signal, () => undefined);
+   assert.match(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), /^## Repeated\nEvidence \[\[N1\]\]/);
+   observePiMergeRead(mappedRoot, reads, parameters, result);
+  }
+  assert.notEqual(reads.get('P1')!.size, readFileSync(join(mappedRoot, index.file), 'utf8').split('\n').length,
+   'Chapter ranges do not replace complete reads of frontmatter, preamble and trailing lines');
+ } finally { await mappedSandbox.close(); }
  assert.doesNotThrow(() => piObjectMergeUserContext({ ...mergeInput,
   pages: [...Array.from({ length: 8 }, () => mergeInput.pages[0]!), mergeInput.pages[1]!] }));
  assert.throws(() => piObjectMergeUserContext({ ...mergeInput, pages: Array.from({ length: 5 }, () => mergeInput.pages[1]!) }), /1 to 4 incoming/);
@@ -125,11 +169,33 @@ try {
   pages: [{ ...mergeInput.pages[0]!, role: 'context' }, historicalPending], requiredEntries: [b],
   unplacedEntries: [{ entryId: b, reason: 'Not yet in objects' }] };
  assert.match(piResidualCueUserContext(pendingInput), /Detail 1/);
- assert.deepEqual(JSON.parse(piResidualCueUserContext(pendingInput)).cues[0].historical_concept_refs, ['P2']);
+ const pendingContext = JSON.parse(piResidualCueUserContext(pendingInput));
+ assert.deepEqual(pendingContext.cues[0].historical_concept_refs, ['P2']);
+ assert.deepEqual(pendingContext.required_object_adoption_refs, ['N2']);
+ assert.ok(pendingContext.catalog.every((row: { status: string }) => row.status === 'context_only'));
+ const mixedPending = { ...pendingInput, requiredEntries: [a, b],
+  unplacedEntries: [{ entryId: a, reason: 'No accepted object yet' }, { entryId: b, reason: 'Historical concept evidence' }] };
+ assert.deepEqual(JSON.parse(piResidualCueUserContext(mixedPending)).required_object_adoption_refs, ['N2'],
+  'mandatory adoption is derived from historical concept usage, not every unplaced Cue');
+ const residualSystem = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'resolve-object-cues-pi').content;
+ assert.match(residualSystem, /Adoption is recorded only by inline \[\[N#\]\] citations/);
+ assert.match(residualSystem, /Every pages\[\]\.member_refs is \[\]/);
+ assert.match(residualSystem, /"deferred_entries":\[\]/);
  createNoteFirstWorkspace(pendingInput, mergeRoot);
+ const pendingIndex = JSON.parse(readFileSync(join(mergeRoot, 'indexes/P2.json'), 'utf8'));
+ assert.equal(pendingIndex.cue_files.N2, 'evidence/N2.md');
+ assert.match(readFileSync(join(mergeRoot, pendingIndex.cue_files.N2), 'utf8'), /Detail 1/,
+  'Available residual Cue pointers resolve to the actual committed input file');
  writeFileSync(page, '---\ntitle: "Method B"\ndescription: "Additional source record"\n---\n\n## Mechanism\nEvidence [[N2]].\n');
  writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: [] }], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
  const pendingResolved = validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true);
+ writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: ['N2'] }], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
+ assert.throws(() => validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true), /unknown or context-only member N2/,
+  'Cue aliases never become consumable page members');
+ writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: [] }], retained_refs: [], discarded_refs: [],
+  deferred_entries: [{ entry_ref: 'N2', reason: 'Included in the authored draft' }] }));
+ assert.throws(() => validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true), /cited Entry cannot also be deferred/,
+  'adopted Cues cannot appear in the final non-adoption ledger');
  writeFileSync(manifest, JSON.stringify({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [{ entry_ref: 'N2', reason: 'Only a detail' }] }));
  assert.throws(() => validatePiObjectMergeFiles(pendingInput, mergeRoot, work, new Map(), true), error => {
   assert.match(String(error), /historical concept.*N2/);

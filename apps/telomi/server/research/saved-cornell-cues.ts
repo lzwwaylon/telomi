@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
 import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 import { noteWikiEntries } from "../wiki/note-wiki-maintainer.js";
+import { resolveDeepSearchCue } from "./deep-search.js";
 
 const REF = /^cornell:([A-Za-z0-9._-]{1,200}):([a-f0-9]{24}):([a-f0-9]{12})$/u;
 
@@ -14,17 +15,20 @@ interface RegistryEntry {
 	sourceId: string;
 	sourceTitle: string;
 	canonicalLocator: string;
+	originCueRef?: string;
 	section: string;
 	sectionSummary?: string;
 	cue: string;
 	detail: string;
 	topicRefs?: string[];
-	anchors: Array<{ path: string; startLine: number; endLine: number; sha256: string }>;
+	anchors: Array<{ path: string; startLine: number; endLine: number; sha256: string;
+		sourceRunId?: string; sourceId?: string; sourceRevisionSha256?: string; sourceTitle?: string; canonicalLocator?: string }>;
 }
 
 export interface SavedCornellCue {
 	ref: string;
-	kind: "cornell";
+	kind: "cornell" | "deep_search";
+	wiki_entry_id?: string;
 	section_title: string;
 	cue: string;
 	note: string;
@@ -33,7 +37,8 @@ export interface SavedCornellCue {
 	source_title: string;
 	canonical_locator: string;
 	topic_refs: string[];
-	evidence: Array<{ source_path: string; start_line: number; end_line: number; content_sha256: string }>;
+	evidence: Array<{ source_path: string; start_line: number; end_line: number; content_sha256: string;
+		source_run_id?: string; source_id?: string; source_revision_sha256?: string; title?: string; url?: string }>;
 }
 
 /** The frozen Wiki registry retains Cornell Cues even when no Wiki page adopted them. */
@@ -48,9 +53,13 @@ export function listSavedCornellCues(knowledgeRoot: string): SavedCornellCue[] {
 			|| !entry.sourceId || !entry.cue || !entry.detail || !Array.isArray(entry.anchors)) {
 			throw new Error("Wiki Note Registry has an invalid Cornell Cue");
 		}
+		if (entry.originCueRef && !/^deep-search:[A-Za-z0-9._-]{1,100}:cue-[1-9][0-9]*$/u.test(entry.originCueRef)) {
+			throw new Error("Wiki Note Registry has an invalid original Cue ref");
+		}
 		return {
-			ref: `cornell:${entry.sourceRunId}:${entry.id.slice(6)}:${entry.revisionSha256.slice(0, 12)}`,
-			kind: "cornell" as const,
+			ref: entry.originCueRef ?? `cornell:${entry.sourceRunId}:${entry.id.slice(6)}:${entry.revisionSha256.slice(0, 12)}`,
+			kind: entry.originCueRef ? "deep_search" as const : "cornell" as const,
+			...(entry.originCueRef ? { wiki_entry_id: entry.id } : {}),
 			section_title: entry.section,
 			cue: entry.cue,
 			note: entry.detail,
@@ -60,13 +69,22 @@ export function listSavedCornellCues(knowledgeRoot: string): SavedCornellCue[] {
 			canonical_locator: entry.canonicalLocator,
 			topic_refs: entry.topicRefs ?? [],
 			evidence: entry.anchors.map((anchor) => ({ source_path: anchor.path,
-				start_line: anchor.startLine, end_line: anchor.endLine, content_sha256: anchor.sha256 })),
+				start_line: anchor.startLine, end_line: anchor.endLine, content_sha256: anchor.sha256,
+				...(anchor.sourceRunId ? { source_run_id: anchor.sourceRunId, source_id: anchor.sourceId,
+					source_revision_sha256: anchor.sourceRevisionSha256, title: anchor.sourceTitle, url: anchor.canonicalLocator } : {}) })),
 		};
 	});
 }
 
 /** Resolve one durable Cue identity through its original Run, verifying Source revision and line bytes. */
 export function resolveSavedCornellCue(goalDir: string, ref: string) {
+	if (ref.startsWith("deep-search:")) {
+		const cue = resolveDeepSearchCue(goalDir, ref);
+		if (!cue) return null;
+		const primary = cue.evidence[0]!;
+		return { ...cue, source_id: primary.source_id, source_revision_sha256: primary.source_revision_sha256,
+			source_title: primary.title, canonical_locator: primary.url };
+	}
 	const match = REF.exec(ref);
 	if (!match) return null;
 	const [, runId, entryHash, revisionPrefix] = match;
@@ -78,16 +96,24 @@ export function resolveSavedCornellCue(goalDir: string, ref: string) {
 			&& item.revisionSha256.startsWith(revisionPrefix!));
 		if (!entry) continue;
 		const record = snapshot.notes.find((item) => item.note.source_id === entry.sourceId)!;
-		const resolved = findLogicalSourceInRun(join(goalDir, "wiki", "runs", runId!), entry.sourceId);
+		const resolved = findLogicalSourceInRun(join(goalDir, "wiki", "runs", entry.sourceRunId), entry.sourceId);
 		if (!resolved || resolved.source.revision_sha256 !== record.source_revision_sha256) {
 			throw new Error("Cornell Cue Source revision is unavailable");
 		}
-		const excerpts = readSourceEvidenceAnchors(resolved, entry.anchors);
+		const excerpts = entry.anchors.map((anchor) => {
+			const source = anchor.sourceRunId ? findLogicalSourceInRun(join(goalDir, "wiki", "runs", anchor.sourceRunId), anchor.sourceId!) : resolved;
+			if (!source || (anchor.sourceRevisionSha256 && source.source.revision_sha256 !== anchor.sourceRevisionSha256)) {
+				throw new Error("Cornell Cue Source revision is unavailable");
+			}
+			return readSourceEvidenceAnchors(source, [anchor])[0]!;
+		});
 		return { ref, cue: entry.cue, note: entry.detail, source_id: entry.sourceId,
 			source_revision_sha256: record.source_revision_sha256, source_title: entry.sourceTitle,
 			canonical_locator: entry.canonicalLocator,
 			evidence: entry.anchors.map((anchor, index) => ({
-				source_run_id: runId!, source_id: entry.sourceId, source_revision_sha256: record.source_revision_sha256,
+				source_run_id: anchor.sourceRunId ?? entry.sourceRunId, source_id: anchor.sourceId ?? entry.sourceId,
+				source_revision_sha256: anchor.sourceRevisionSha256 ?? record.source_revision_sha256,
+				...(anchor.sourceTitle ? { title: anchor.sourceTitle } : {}), ...(anchor.canonicalLocator ? { url: anchor.canonicalLocator } : {}),
 				source_path: anchor.path, start_line: anchor.startLine, end_line: anchor.endLine,
 				content_sha256: anchor.sha256, excerpt: excerpts[index]!.content,
 			})) };

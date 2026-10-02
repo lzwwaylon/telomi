@@ -1,17 +1,21 @@
 import { resolveGoalOutputLanguage, type OutputLanguage } from "../../../shared/languages.js";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@sinclair/typebox";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import { GoalTopicPlanStore } from "../../goals/topic-plan/index.js";
-import type { RunArtifactRef } from "../../agent-runtime/artifact-store.js";
+import { RunArtifactStore, type RunArtifactRef } from "../../agent-runtime/artifact-store.js";
 import { startWikiUpdateActivity } from "../../wiki/update-runner.js";
+import { registerSavedInvestigationCues, startGoalCueWikiUpdates } from "../../research/cue-wiki-trigger.js";
+import { getCueWikiQueueStatus } from "../../research/cue-wiki-queue.js";
+import { createGoalCornellSnapshot } from "../../research/cue-cornell-snapshot.js";
+import { sha256 } from "../../lib/hash.js";
 
 const schema = Type.Object({
 	source_run_id: Type.Optional(Type.String({ minLength: 1,
-		description: "Research Run id. Omit to use this Goal's latest Run with a Cornell Notes checkpoint." })),
+		description: "Optional historical Research Run id. Omit to refresh saved investigation Cues or rebuild from the Goal's complete Cornell evidence corpus." })),
 	reason: Type.String({ minLength: 1 }),
 	rebuild: Type.Boolean({ description: "True only when the user explicitly asks to rebuild or regenerate the Wiki from scratch." }),
 }, { additionalProperties: false });
@@ -26,26 +30,21 @@ export function createWikiUpdateTool(options: {
 	getGoalDescription?: () => string;
 	getOutputLanguage?: () => OutputLanguage;
 	getEnv: () => Record<string, string | undefined>;
+	deferCueWikiUpdates?: boolean;
 }, startUpdate = startWikiUpdateActivity): AgentTool<typeof schema> {
 	return {
 		name: "wiki_update",
 		label: "wiki_update",
-		description: "Start an independent Goal Wiki update from a Research Run's validated Cornell Notes. Set rebuild=true for an explicit rebuild/regenerate request; false performs an incremental refresh. Returns immediately with a Wiki Update Activity id.",
+		description: "Refresh saved Goal evidence into Wiki or explicitly retry interrupted Cue maintenance. Set rebuild=true only for a requested rebuild from the complete saved Cornell corpus. source_run_id selects one historical Research Run. Returns immediately with the update state and Activity id when available.",
 		parameters: schema,
 		execute: async (_toolCallId, input) => {
 			const runtimeDir = serverRuntimeDirForGoal(options.goalId, options.workspaceDir);
-			const sourceRunId = input.source_run_id
-				? safeId(input.source_run_id)
-				: latestResearchRunId(runtimeDir, options.goalId);
 			const reason = input.reason.trim();
 			if (!reason) throw new Error("wiki_update reason is required");
-			const sourceControl = join(runtimeDir, "runs", sourceRunId);
-			const state = readPublishedRunInput(sourceControl);
-			if (state.goalId !== options.goalId || state.runId !== sourceRunId) {
-				throw new Error(`Unknown Research Run: ${sourceRunId}`);
-			}
-			const cornellNotes = state.cornellNotes.at(-1);
-			if (!cornellNotes) throw new Error(`Research Run '${sourceRunId}' has no Cornell Notes checkpoint`);
+			if (options.deferCueWikiUpdates) return {
+				content: [{ type: "text" as const, text: "Wiki maintenance is deferred to the separate Wiki compilation Replay." }],
+				details: { action: "deferred" },
+			};
 			const goalText = {
 				title: options.getGoalTitle?.() ?? options.goalTitle ?? options.goalId,
 				description: options.getGoalDescription?.() ?? options.goalDescription ?? "",
@@ -54,6 +53,42 @@ export function createWikiUpdateTool(options: {
 				...goalText,
 				language: resolveGoalOutputLanguage(options.getOutputLanguage?.() ?? "auto", goalText),
 			};
+			const target = { workspaceDir: options.workspaceDir, goalId: options.goalId, goalDir: options.goalDir };
+			if (!input.source_run_id && !input.rebuild) {
+				registerSavedInvestigationCues(target);
+				const status = getCueWikiQueueStatus(target);
+				if (status.pendingCount) {
+					const { receipt } = startGoalCueWikiUpdates({ ...target, goalContext, env: { ...process.env, ...options.getEnv() }, retry: true });
+					return { content: [{ type: "text" as const, text: JSON.stringify(receipt) }],
+						 details: { ...receipt, action: receipt.status === "running" ? "started" : "pending" } };
+				}
+				if (existsSync(join(runtimeDir, "cue-wiki-queue.json"))) return {
+					content: [{ type: "text" as const, text: "Saved Cue maintenance has no pending evidence." }],
+					details: { ...status, action: "reused" },
+				};
+			}
+			if (!input.source_run_id && input.rebuild) {
+				const snapshot = createGoalCornellSnapshot({ goalDir: options.goalDir, snapshotId: "goal-cornell-corpus" });
+				if (!snapshot.notes.some(record => record.note.sections.length)) throw new Error("This Goal has no validated Cornell evidence to rebuild Wiki");
+				const text = `${JSON.stringify(snapshot, null, 2)}\n`;
+				const sourceRunDirectory = join(options.goalDir, "wiki", "cue-batches", `corpus-${sha256(text)}`);
+				const store = new RunArtifactStore(sourceRunDirectory);
+				const path = "artifacts/input/cornell-notes.json";
+				const artifact = existsSync(join(sourceRunDirectory, path)) ? store.describeFile(path) : store.publishText(text, path);
+				if (artifact.sha256 !== sha256(text)) throw new Error("Goal Cornell corpus snapshot changed");
+				const started = startUpdate({ ...target, goal: [goalContext.title, goalContext.description].filter(Boolean).join("\n\n"),
+					goalContext, topicPlan: new GoalTopicPlanStore(options.goalId, options.workspaceDir).requireResearchReady(),
+					sourceRunDirectory, cornellNotes: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
+					trigger: { kind: "agent", agent_name: "main_agent" }, reason, rebuild: true, env: { ...process.env, ...options.getEnv() } });
+				if (!started.reused) void started.execution.catch(() => undefined);
+				return { content: [{ type: "text" as const, text: `Wiki Update Activity started: ${started.wikiUpdateId}` }],
+					details: { wikiUpdateId: started.wikiUpdateId, action: started.reused ? "reused" : "started" } };
+			}
+			const sourceRunId = input.source_run_id ? safeId(input.source_run_id) : latestResearchRunId(runtimeDir, options.goalId);
+			const state = readPublishedRunInput(join(runtimeDir, "runs", sourceRunId));
+			if (state.goalId !== options.goalId || state.runId !== sourceRunId) throw new Error(`Unknown Research Run: ${sourceRunId}`);
+			const cornellNotes = state.cornellNotes.at(-1);
+			if (!cornellNotes) throw new Error(`Research Run '${sourceRunId}' has no Cornell Notes checkpoint`);
 			const started = startUpdate({
 				workspaceDir: options.workspaceDir,
 				goalId: options.goalId,

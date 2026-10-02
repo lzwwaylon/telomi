@@ -31,7 +31,7 @@ export function piObjectMergeUserContext(input: NoteFirstInput): string {
   throw new Error('Pi target writer expects 1 to 4 incoming pages and no unplaced Cues');
  const catalog = input.pages.map((row, index) =>
   `P${index + 1} | ${row.role === 'context' ? 'context' : row.previous ? 'existing' : 'incoming'} | ${row.page.kind} | ${row.page.title} | ${row.page.description} | wiki/indexes/P${index + 1}.json | wiki/pages/P${index + 1}.md`).join('\n');
- return `Output language: ${input.language}\nGoal: ${input.goal.title}\n${input.goal.description}\n\n## Complete current page catalog\n${catalog}\n\nRead each incoming page, compare it with this complete existing catalog, and read any existing pages needed to decide its destination. Existing-page reads have no count limit. Page indexes contain section headings and recorded relationships. All input files under /work/wiki are read-only; output goes under /work/pages and /work/result.json.\n${input.instructions}`;
+ return `Output language: ${input.language}\nGoal: ${input.goal.title}\n${input.goal.description}\n\n## Complete current page catalog\n${catalog}\n\nRead each incoming page, compare it with this complete existing catalog, and read any existing pages needed to decide its destination. Existing-page reads have no count limit.\n\n## File access\nOpen the listed P index and page paths under /work. Each page index provides file, sections and cue_files. Index file paths are relative to /work/wiki. S references identify sections of that page: start_line/end_line are inclusive native read coordinates in its file, and entry_refs lists its N citations. N references identify Cues: a non-null cue_files value is an available detail file; null means this stage supplies only the page's inline citation, so use that page's text. Read complete assigned page files before writing; section ranges locate passages and do not replace complete-page reads. All input files under /work/wiki are read-only; output goes under /work/pages and /work/result.json.\n${input.instructions}`;
 }
 
 /** Global object planning sees the entire catalog and may expand uncertain bodies. */
@@ -49,13 +49,14 @@ export function piResidualCueUserContext(input: NoteFirstInput): string {
  const required = new Set(input.unplacedEntries?.map(row => row.entryId));
  if (input.stage !== 'merge-objects' || !required.size || input.pages.some(row => row.role !== 'context'))
   throw new Error('Residual Cue resolution expects unplaced Cues and context-only pages');
- const catalog = input.pages.map((row, index) => ({ ref: `P${index + 1}`, kind: row.page.kind,
+ const catalog = input.pages.map((row, index) => ({ ref: `P${index + 1}`, status: 'context_only', kind: row.page.kind,
   title: row.page.title, description: row.page.description, index: `wiki/indexes/P${index + 1}.json`, file: `wiki/pages/P${index + 1}.md` }));
  const cues = input.entries.flatMap((entry, index) => required.has(entry.id) ? [{ ref: `N${index + 1}`,
   source_title: entry.sourceTitle, section: entry.section, cue: entry.cue, detail: entry.detail,
   historical_concept_refs: input.pages.flatMap((row, pageIndex) => row.previous && row.page.kind === 'concept'
    && objectFirstEntries(row.page.body).includes(entry.id) ? [`P${pageIndex + 1}`] : []) }] : []);
- return JSON.stringify({ output_language: input.language, goal: input.goal, catalog, cues });
+ return JSON.stringify({ output_language: input.language, goal: input.goal, catalog,
+  required_object_adoption_refs: cues.filter(cue => cue.historical_concept_refs.length).map(cue => cue.ref), cues });
 }
 
 export function validatePiObjectMergePlanFiles(input: NoteFirstInput, work: string): NoteFirstResult {

@@ -1,3 +1,4 @@
+import { validateInvestigationResult, type InvestigationResult } from "../citations/contracts.js";
 import { appendFileSync, cpSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,19 +34,17 @@ import { executeInvestigationAnswer, writeInvestigationAnswerInput, type Investi
 import { readLatestInvestigationWriter } from "./investigation-handoff.js";
 import { runInInvestigationThread, writeInvestigationThreadInput, validateInvestigationProgress } from "./investigation-threads.js";
 
-export interface InvestigationResult {
-	thread_id?: string;
-	id: string;
-	question: string;
-	answer: string;
-	citation_refs: string[];
-	gaps: string[];
-	wiki_sha256: string;
-}
 
 /** Resolve a completed investigation for Main's explicit delivery decision. */
 export function readInvestigationResult(goalDir: string, id: string): InvestigationResult {
 	if (!/^[a-f0-9]{24}$/u.test(id)) throw new Error("Invalid investigation id");
+	const durablePath = `investigations/${id}/result.json`;
+	if (existsSync(join(goalDir, "artifacts", durablePath))) {
+		const store = new RunArtifactStore(join(goalDir, "artifacts"));
+		const saved: unknown = store.readJson(store.describeFile(durablePath));
+		if (!isRecord(saved) || typeof saved.question !== "string") throw new Error("Investigation result is invalid");
+		return validateInvestigationResult(saved, id, saved.question);
+	}
 	const runDir = join(serverRuntimeDirForGoalDir(goalDir), "research", "investigations", id);
 	const request = JSON.parse(readFileSync(join(runDir, "request.json"), "utf8")) as { id?: string; question?: string };
 	if (request.id !== id || typeof request.question !== "string") throw new Error("Investigation request is invalid");
@@ -77,6 +76,8 @@ export async function executeInvestigation(input: {
 	env?: NodeJS.ProcessEnv;
 	signal?: AbortSignal;
 	onActivity?: (activity: AgentStageActivity) => void;
+	/** Verified Reader evidence is durable before this notification. */
+	onCuesPersisted?: (origin: { invocationId: string; investigationId: string; threadId: string }) => void;
 }): Promise<InvestigationResult> {
 	const question = input.question.trim();
 	if (!question || question.length > 20_000) throw new Error("Investigation requires a question of at most 20000 characters");
@@ -109,10 +110,10 @@ export async function executeInvestigation(input: {
 
 	const knowledgeRoot = join(runDir, "input", "wiki");
 	const wikiSha256 = snapshotInvestigationKnowledge(input.goalDir, input.goalId, knowledgeRoot);
-	const catalog = [
+	const catalog = [...new Map([
 		...listSavedCornellCues(knowledgeRoot),
 		...listSavedDeepSearchCues(input.goalDir).map((cue) => ({ ...cue, kind: "deep_search" as const })),
-	];
+	].reverse().map((cue) => [cue.ref, cue])).values()];
 	writeJsonAtomic(join(runDir, "input", "knowledge-cues.json"), catalog);
 	const topicPlanPath = join(knowledgeRoot, ".topic-plan.json");
 	const topicPlan = existsSync(topicPlanPath)
@@ -163,7 +164,8 @@ export async function executeInvestigation(input: {
 				const citations = existsSync(citationsPath) ? JSON.parse(readFileSync(citationsPath, "utf8")) as {
 					citations?: Array<{ ref: string; wiki?: { entry?: { id?: string } } }> } : {};
 				const entryId = citations.citations?.find((row) => row.ref === ref)?.wiki?.entry?.id?.replace(/^entry:/u, "");
-				const cue = entryId ? catalog.find((item) => item.ref.startsWith("cornell:") && item.ref.split(":")[2] === entryId) : undefined;
+				const cue = entryId ? catalog.find((item) => ("wiki_entry_id" in item && item.wiki_entry_id === `entry:${entryId}`)
+					|| item.ref.startsWith("cornell:") && item.ref.split(":")[2] === entryId) : undefined;
 				if (cue) previousRefs.add(cue.ref);
 				else unresolvedWikiRefs.push(`Historical ${execution.execution_id}/${ref} cannot be remapped to the current allowed Wiki evidence; search and verify it again.`);
 			}
@@ -242,6 +244,7 @@ export async function executeInvestigation(input: {
 				const reading = await executeDeepSearch({ goalDir: input.goalDir, goalId: input.goalId,
 					question: deepQuestion, originalQuestion: question, knownCues: [...availableCues.values()],
 					invocationId: `${id}-${++deepSearchCount}`, signal, env });
+				if (reading.cues.length) input.onCuesPersisted?.({ invocationId: `${id}-${deepSearchCount}`, investigationId: id, threadId: thread.threadId });
 				const note = { ...reading, cues: enrichInvestigationCues(input.goalDir, reading.cues) };
 				recordInteraction("deep_search", { question: deepQuestion }, note);
 				return { ...note, cues: projectCues(note.cues) };
@@ -254,6 +257,7 @@ export async function executeInvestigation(input: {
 					runDir, investigationId: id, sequence: ++externalSearchCount,
 					question: externalQuestion, originalQuestion: question, knownCues: [...availableCues.values()],
 					signal, env, onActivity: input.onActivity });
+				if (acquired.cues.length) input.onCuesPersisted?.({ invocationId: `${id}-external-${externalSearchCount}`, investigationId: id, threadId: thread.threadId });
 				const result = { ...acquired, cues: enrichInvestigationCues(input.goalDir, acquired.cues) };
 				recordInteraction("external_search", { question: externalQuestion }, result);
 				return { ...result, cues: projectCues(result.cues),
@@ -268,11 +272,14 @@ export async function executeInvestigation(input: {
 						await wikiAdapter.hydrateCitationRefs([ref], signal);
 						const citation = wikiAdapter.resolveCitationRef(ref);
 						const saved = catalog.find((cue) => cue.ref.startsWith("cornell:")
-							&& cue.ref.split(":")[2] === citation.entry.id.replace(/^entry:/u, ""));
-						const original = saved ? resolveSavedCornellCue(input.goalDir, saved.ref) : undefined;
+							&& cue.ref.split(":")[2] === citation.entry.id.replace(/^entry:/u, "")
+							|| "wiki_entry_id" in cue && cue.wiki_entry_id === citation.entry.id);
+						const original = saved ? saved.ref.startsWith("deep-search:")
+							? resolveDeepSearchCue(input.goalDir, saved.ref) : resolveSavedCornellCue(input.goalDir, saved.ref) : undefined;
 						evidence.push({ ref, section_title: citation.entry.section, cue: citation.entry.cue, note: citation.entry.note,
 							evidence: original ? original.evidence.map((anchor) => ({ ...anchor,
-								title: original.source_title, url: original.canonical_locator }))
+								title: "title" in anchor ? anchor.title : citation.entry.source.title,
+								url: "url" in anchor ? anchor.url : citation.entry.source.url }))
 								: citation.entry.anchors.map((anchor) => ({ source_path: anchor.path,
 									start_line: anchor.startLine, end_line: anchor.endLine, excerpt: anchor.content,
 									title: citation.entry.source.title, url: citation.entry.source.url })) });
@@ -382,22 +389,4 @@ export function enrichInvestigationCues<T extends InvestigationCitationCue>(goal
 		if (!resolved) throw new Error(`Prime read unavailable Cue '${cue.ref}'`);
 		return { ...cue, evidence: resolved.evidence.map((evidence, index) => ({ ...cue.evidence[index], ...evidence })) };
 	});
-}
-
-export function validateInvestigationResult(value: unknown, id: string, question: string): InvestigationResult {
-	if (!isRecord(value) || value.id !== id || value.question !== question || typeof value.answer !== "string"
-		|| !value.answer.trim() || value.answer.length > 32_000 || !Array.isArray(value.citation_refs)
-		|| !Array.isArray(value.gaps) || typeof value.wiki_sha256 !== "string"
-		|| (value.thread_id !== undefined && (typeof value.thread_id !== "string" || !/^[a-f0-9]{24}$/u.test(value.thread_id)))) {
-		throw new Error("Invalid Prime investigation result");
-	}
-	const refs = value.citation_refs;
-	const gaps = value.gaps;
-	if (refs.some((ref: unknown) => typeof ref !== "string") || gaps.some((gap: unknown) => typeof gap !== "string")) {
-		throw new Error("Prime investigation refs and gaps must be strings");
-	}
-	const cited = [...value.answer.matchAll(/<cite>([^<>\s]+)<\/cite>/gu)].map((match) => match[1]!);
-	if (JSON.stringify([...new Set(cited)].sort()) !== JSON.stringify([...new Set(refs)].sort())
-		|| refs.length !== new Set(refs).size) throw new Error("Prime investigation answer and citation refs disagree");
-	return value as unknown as InvestigationResult;
 }

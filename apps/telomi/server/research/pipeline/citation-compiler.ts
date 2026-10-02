@@ -1,3 +1,4 @@
+import { validateCanonicalMarkdown } from "../../citations/contracts.js";
 import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
@@ -280,25 +281,6 @@ export function extractExternalUrls(markdown: string): string[] {
 	return [...new Set([...markdown.matchAll(URL_PATTERN)].map((match) => trimMarkdownUrl(match[0])))];
 }
 
-export function validateCanonicalMarkdown(markdown: string): void {
-	if (!markdown.trim()) throw new Error("Canonical Markdown is empty");
-	if (ANY_CITE.test(markdown)) throw new Error("Canonical Markdown contains unresolved inline Evidence citations");
-	const lines = markdown.split(/\r?\n/gu);
-	const referencesIndexes = lines
-		.map((line, index) => line.trim() === "## References" ? index : -1)
-		.filter((index) => index >= 0);
-	const referencesIndex = referencesIndexes[0] ?? -1;
-	if (
-		referencesIndexes.length === 0
-		|| !lines.slice(referencesIndex + 1).some((line) => /^\d+\.\s+\S/u.test(line.trim()))
-	) {
-		throw new Error("Canonical Markdown requires at least one Evidence Reference");
-	}
-	if (referencesIndexes.length !== 1) {
-		throw new Error("Canonical Markdown requires exactly one Runtime-owned References Section");
-	}
-	if (!markdown.endsWith("\n")) throw new Error("Canonical Markdown must end with a newline");
-}
 
 function compileChapter(args: {
 	section: ExecutableReportSection;

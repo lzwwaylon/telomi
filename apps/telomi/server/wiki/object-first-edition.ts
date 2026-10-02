@@ -90,10 +90,13 @@ export function writeObjectFirstEdition(root: string, pages: ObjectFirstPage[], 
   const body = page.body.replace(/\[\[(entry:[a-f0-9]{24})\]\]/gu, (_match, id: string) => `[^${ids.indexOf(id) + 1}]`);
 
   writeFileSync(target, ["---", `page_id: ${JSON.stringify(page.id)}`, `type: ${page.kind}`, `title: ${JSON.stringify(page.title)}`,
-   `description: ${JSON.stringify(page.description)}`, `entry_ids: ${JSON.stringify(ids)}`, `sources: ${JSON.stringify([...new Set(ids.map(id => byId.get(id)!.sourceId))])}`,
+   `description: ${JSON.stringify(page.description)}`, `entry_ids: ${JSON.stringify(ids)}`, `sources: ${JSON.stringify([...new Set(ids.flatMap(id => {
+    const entry = byId.get(id)!; return [entry.sourceId, ...entry.anchors.flatMap(anchor => anchor.sourceId ? [anchor.sourceId] : [])];
+   }))])}`,
    "---", "", `# ${page.title}`, "", body, ...(related.length ? ["", "## Related", ...related] : []), "", "## Evidence", "",
    ...ids.map((id, i) => { const entry = byId.get(id)!;
-    const sources = [...new Map([[entry.canonicalLocator, entry.sourceTitle] as const, ...entry.members.map(member => [member.canonical_locator, member.title] as const)]).entries()];
+    const sources = [...new Map([[entry.canonicalLocator, entry.sourceTitle] as const, ...entry.members.map(member => [member.canonical_locator, member.title] as const),
+     ...entry.anchors.flatMap(anchor => anchor.canonicalLocator && anchor.sourceTitle ? [[anchor.canonicalLocator, anchor.sourceTitle] as const] : [])]).entries()];
     return `[^${i + 1}]: ${sources.map(([url, title]) => `[${title}](${url})`).join("; ")}; Cornell Entry \`${id}\`; ${entry.anchors.map(anchor => `${anchor.path}:${anchor.startLine}-${anchor.endLine} (${anchor.sha256.slice(0, 12)})`).join("; ")}`;
    }), ""].join("\n"));
  }

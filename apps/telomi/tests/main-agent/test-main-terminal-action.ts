@@ -10,19 +10,21 @@ import { Type } from "@sinclair/typebox";
 import {
 	asTerminalTool,
 	createAssistantReplyDetails,
+	MAIN_TERMINAL_ACTIONS,
 	parseMainTerminalDetails,
 } from "../../server/main-agent/tools/terminal-action.js";
-import { createMainResearchTool } from "../../server/main-agent/tools/research.js";
 import { createDeliverInvestigationTool, createInvestigateTool } from "../../server/main-agent/tools/investigate.js";
 import { createMainAgentTools } from "../../server/main-agent/tools/index.js";
 import { serverRuntimeDirForGoalDir } from "../../server/workspaces/server-runtime-paths.js";
 
 const signal = new AbortController().signal;
 const update = () => undefined;
-const researchTool = createMainResearchTool("/tmp/goal", { goalId: "goal-test" });
 const investigateTool = createInvestigateTool("/tmp/goal", { goalId: "goal-test" });
-const mainToolNames = createMainAgentTools("/tmp/goal", () => [], { goalId: "goal-test" }).map((tool) => tool.name);
-assert.ok(mainToolNames.includes("investigate") && mainToolNames.includes("wiki_update"));
+const mainToolNames = createMainAgentTools("/tmp/goal", { goalId: "goal-test" }).map((tool) => tool.name);
+assert.deepEqual(mainToolNames, [
+	"research_history", "investigate", "deliver_investigation", "generate_podcast", "wiki_update", "research_schedule",
+]);
+assert.deepEqual(MAIN_TERMINAL_ACTIONS, ["deliver_investigation", "generate_podcast"]);
 assert.deepEqual(mainToolNames.filter((name) => ["wiki_search", "wiki_read_page", "wiki_graph_search"].includes(name)), []);
 assert.equal(validateToolArguments(investigateTool, {
 	type: "toolCall", id: "missing-scope", name: "investigate", arguments: { question: "Check saved materials." },
@@ -31,16 +33,6 @@ assert.equal(validateToolArguments(investigateTool, {
 	type: "toolCall", id: "local-scope", name: "investigate",
 	arguments: { question: "Check saved materials.", source_scope: "local_only" },
 }).source_scope, "local_only");
-assert.deepEqual(validateToolArguments(researchTool, {
-	type: "toolCall",
-	id: "research-null-schedule",
-	name: "research",
-	arguments: { search_question: "Research speech generation.", report_context: "Report new findings for an expert reader.", schedule: null },
-}), { search_question: "Research speech generation.", report_context: "Report new findings for an expert reader.", schedule: null });
-assert.throws(() => validateToolArguments(researchTool, {
- type: "toolCall", id: "missing-report-context", name: "research",
- arguments: { search_question: "Research speech generation." },
-}), /report_context/u);
 const directResult = createAssistantReplyDetails(" 已保存笔记。 ");
 assert.equal(directResult.action, "assistant_reply");
 assert.equal(directResult.userResponse, "已保存笔记。");
@@ -49,8 +41,8 @@ assert.equal(directResult.trace.reasonCode, "assistant_reply");
 assert.throws(() => createAssistantReplyDetails("  "), /without a reply/u);
 
 const taskScopeBase: AgentTool<any> = {
-	name: "research",
-	label: "research",
+	name: "generate_podcast",
+	label: "generate_podcast",
 	description: "test",
 	parameters: Type.Object({}),
 	execute: async () => ({
@@ -58,10 +50,10 @@ const taskScopeBase: AgentTool<any> = {
 		details: { runId: "run-child" },
 	}),
 };
-const taskScope = asTerminalTool(taskScopeBase, "research", "external_research_requested");
-const taskScopeResult = await taskScope.execute("research", {}, signal, update);
+const taskScope = asTerminalTool(taskScopeBase, "generate_podcast", "podcast_generation_requested");
+const taskScopeResult = await taskScope.execute("generate_podcast", {}, signal, update);
 assert.equal(taskScopeResult.terminate, true);
-assert.equal(taskScopeResult.details.action, "research");
+assert.equal(taskScopeResult.details.action, "generate_podcast");
 assert.equal(taskScopeResult.details.trace.selectedRunId, "run-child");
 assert.equal(taskScopeResult.details.userResponse, "Published report");
 
@@ -71,8 +63,8 @@ const concise = asTerminalTool({
 		content: [{ type: "text", text: "# Full report\n\nLong report body" }],
 		details: { runId: "run-concise", userResponse: "Research complete. Short summary." },
 	}),
-}, "research", "external_research_requested");
-const conciseResult = await concise.execute("research", {}, signal, update);
+}, "generate_podcast", "podcast_generation_requested");
+const conciseResult = await concise.execute("generate_podcast", {}, signal, update);
 assert.equal(conciseResult.details.userResponse, "Research complete. Short summary.");
 
 const cited = "A=8+n-1 <cite>deep-search:read-1:cue-1</cite>";
@@ -85,8 +77,11 @@ const investigationDelivery = asTerminalTool({
 const deliveryResult = await investigationDelivery.execute("deliver_investigation", {}, signal, update);
 assert.equal(deliveryResult.terminate, true);
 assert.equal(parseMainTerminalDetails(deliveryResult.details)?.userResponse, cited);
-assert.equal(parseMainTerminalDetails({ ...deliveryResult.details, action: "investigate",
-	trace: { coarseAction: "investigate", reasonCode: "local_knowledge_investigated" } })?.action, "investigate");
+for (const action of ["investigate", "research", "generate_report"] as const) {
+	assert.equal(parseMainTerminalDetails({ ...deliveryResult.details, action,
+		trace: { coarseAction: action, reasonCode: "historical_action" } })?.action, action,
+		"Historical sessions remain readable without registering retired tools");
+}
 
 const root = mkdtempSync(join(tmpdir(), "main-investigation-delivery-"));
 try {

@@ -12,8 +12,8 @@ Runtime owns only deterministic mechanisms. Agents make every semantic judgment 
 ## Execution Flow
 
 ```text
-Main Agent (Pi Coding Agent)
-  -> research Tool
+Research Schedule or user-requested recovery
+  -> Research execution interface
   -> Prime Search Root
        -> one Prime child per Root-selected Provider
   -> Runtime Source validation and immutable materialization
@@ -31,17 +31,17 @@ There is no independent retrieval Worker, Meta Gate, or Source Agent Proposal fa
 
 `server/research/execute-run.ts` is the sole execution and recovery Interface for Research Runs. It owns Topic Plan admission, Run directory reservation, `resume-request.json` persistence, Run checkpoint claiming, the Final Runtime Gate, and User Task History recording. It returns the Run identity, status, report reference, and user receipt.
 
-All three entry points invoke the same operation: the Main Agent's `research` Tool only converts the protocol; scheduled Research and user-requested resumes call it directly from `app.ts` without constructing a Tool Call. Recovery restores the Goal title, description, language, and Task Source from the persisted resume request, preserving the original Run identity and checkpoints. Admission and recovery claims are synchronously persisted before the first yield, preventing concurrent requests from claiming the same Run.
+Scheduled Research and user-requested resumes call the operation directly from `app.ts`. Conversational Main Agent questions use `investigate` instead; that path does not execute this full report-and-Wiki pipeline. Recovery restores the Goal title, description, language, and Task Source from the persisted resume request, preserving the original Run identity and checkpoints. Admission and recovery claims are synchronously persisted before the first yield, preventing concurrent requests from claiming the same Run.
 
-## 1. Main Agent
+## 1. Conversational entry point
 
-The Main Agent is the Pi Coding Agent in Goal conversations. It submits a complete research task and an optional report title or schedule configuration through the `research` Tool.
+Main Agent uses `investigate` for factual Goal questions and report-style answers. Prime checks saved knowledge, reads original Sources through Cornell Deep Search, acquires external material when permitted, and delegates an answer to the Report Writer. Main reads the saved result before `deliver_investigation` delivers it unchanged. For a report request, `report_title` at delivery publishes that same answer as a Canonical Report with its frozen evidence, enabling the report card, file reading and Podcasts. Runtime queues newly committed and validated Cues for asynchronous Wiki maintenance. Answer delivery proceeds independently, using the investigation's saved evidence. See [Research Agents](modules/research-agents.md) for this path.
 
-The Main Agent supplies an independent incremental search task through `search_question`, and user preferences, existing understanding, and report requirements through `report_context`. An optional `note_focus` carries what the user wants the evidence notes to record in most detail; it reaches only the Cornell Note stage and never changes the search or the Wiki. Runtime preserves both inputs, pins the Goal, server-bundled Harness Snapshot, Topic Plan, Wiki and Skill content versions, temporal constraints, and Run directory, then starts the sole Research Runtime.
+## 2. Full Research Run inputs
 
-## 2. Main Agent Search and Report Inputs
+Scheduled Research and recovery preserve an incremental search question, a complete report brief, and optional note focus. The search question identifies missing or updated evidence; Report Context contains the user objective, audience, existing understanding, format, depth and language. Note focus reaches only the Cornell Note stage and does not widen search or change the Wiki.
 
-The Main Agent plans `search_question` using existing research and user context, explicitly identifying missing evidence and the scope of updates to avoid redundant searches. `report_context` is persisted unchanged and passed to the Report Agent, including user objectives, audience, existing understanding, format, depth, and language preferences.
+Runtime pins the Goal, server-bundled Harness Snapshot, Topic Plan, Wiki and Skill content versions, temporal constraints, and Run directory. Recovery restores these persisted task inputs instead of deriving them again from Main's current conversation.
 
 Prime Search Root directly receives the search question, time range, Topic Plan, and optional Scheduled Research occurrence. The general search Provider is available only to the Root, which uses it as needed to resolve uncertainty affecting retrieval; no Child Agent may call it. Specialized Provider children remain responsible for source retrieval and original-material acquisition.
 
@@ -137,7 +137,7 @@ See [Cornell Note Agent](cornell-note-agent.md) for the complete contract.
 
 ## 6. Report Writer
 
-There is one Prime Report Root. The Research flow freezes the current Cornell Notes into Find Out material; the Main Agent's `generate_report` Tool freezes the current Goal Wiki into Wiki material. Both Adapters hand material to the same Root, which selects material, determines sections, delegates Section children, and performs final editing. There is no separate report-outline Agent.
+There is one Prime Full Report Root. Full Research Runs freeze current Cornell Notes into Find Out material. The retained Wiki material Adapter supports report snapshots and historical replay; it is not a separate Main Agent Tool. These Adapters hand material to the same Root, which selects material, determines sections, delegates Section children, and performs final editing. Investigation uses the answer variant without Section children; a requested report publishes that validated answer at delivery, with frozen citation compilation and no second Writer pass.
 
 Both Adapters generate the same read-only reference inventory at `inputs/materials.json`. Before launching Section children, the Prime Worker validates every Source handle or Wiki path in the Root Outline. Runtime validates the complete Outline and references again at final publication.
 

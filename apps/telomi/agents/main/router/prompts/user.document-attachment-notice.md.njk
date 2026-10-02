@@ -11,6 +11,6 @@ The Runtime is still parsing it and parsing has not finished yet. When it finish
 {% else %}
 The Runtime could not parse it: {{ parse_error }}. Only the original file above is available, and it may be binary: report the failure and its reason to the user and suggest a different format instead of guessing at the bytes.
 {% endif %}
-Summarising, answering questions about, or quoting this document is direct work: read the file yourself with the read Tool and answer. Do not start research for that.
-Use research only when this document's content has to enter the Wiki or a report as cited evidence.
+Summarising, answering questions about, or quoting this document is direct work: read the file yourself with the read Tool and answer.
+For a broader Goal question, use `investigate` with the relevant question and constraints. Reading attachments here does not publish their content to the Wiki or a Canonical Report.
 Never install, download, or improvise parser code and never shell out to convert the file. The Runtime owns parsing through its internal FastAPI document parsing service; if parsing failed, say so and what the user can do instead.]

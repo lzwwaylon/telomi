@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { prepareMainAgentReplayGoalWorkspace } from "../../server/evaluation/main-agent-replay.js";
+import { publishInvestigationThreadCatalog } from "../../server/research/investigation-threads.js";
 import {
 	goalTopicDocumentFromPlan,
 	GoalTopicPlanStore,
@@ -48,6 +49,13 @@ try {
 	const frozenGoalTree = join(sourceRunDirectory, "workspace", "input");
 	mkdirSync(join(frozenGoalTree, "artifacts", "main"), { recursive: true });
 	writeFileSync(join(frozenGoalTree, TOPIC_PLAN_DOCUMENT_PATH), confirmedDocument, "utf-8");
+	const threadId = "a".repeat(24);
+	const frozenThreadPath = join(frozenGoalTree, "artifacts", "investigation-threads", threadId, "thread.json");
+	mkdirSync(join(frozenGoalTree, "artifacts", "investigation-threads", threadId), { recursive: true });
+	const frozenThread = { schema_version: 1, thread_id: threadId, goal_id: observedGoalId,
+		number: 1, title: "Saved investigation", created_at: "2026-09-01T00:00:00Z",
+		updated_at: "2026-09-01T00:00:00Z", execution_ids: [] };
+	writeFileSync(frozenThreadPath, JSON.stringify(frozenThread));
 	const caseDirectory = join(root, "case");
 	const caseInput = join(caseDirectory, "input");
 	mkdirSync(join(caseInput, "work"), { recursive: true });
@@ -80,6 +88,10 @@ try {
 	});
 
 	const replayStore = new GoalTopicPlanStore(replayGoalId, workspaceDirectory);
+	publishInvestigationThreadCatalog(goalDirectory);
+	const restoredThread = JSON.parse(readFileSync(join(goalDirectory, "artifacts", "investigation-threads", threadId, "thread.json"), "utf-8"));
+	assert.deepEqual(restoredThread, { ...frozenThread, goal_id: replayGoalId }, "Replay maps ownership while retaining thread identity and state");
+	assert.deepEqual(JSON.parse(readFileSync(frozenThreadPath, "utf-8")), frozenThread, "the frozen input is unchanged");
 	const active = replayStore.requireResearchReady();
 	assert.equal(active.revision, confirmed.revision, "Replay must keep the confirmed Topic Plan revision");
 	assert.equal(active.goal_id, replayGoalId, "the restored Topic Plan belongs to the Replay Goal");

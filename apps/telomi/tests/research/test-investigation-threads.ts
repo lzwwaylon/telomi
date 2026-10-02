@@ -1,3 +1,4 @@
+import { type InvestigationResult } from "../../server/citations/contracts.js";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,7 +6,7 @@ import { dirname, join } from "node:path";
 import { mock } from "node:test";
 
 import { sha256 } from "../../server/lib/hash.js";
-import type { InvestigationResult } from "../../server/research/investigate.js";
+
 import {
 	publishInvestigationThreadCatalog, runInInvestigationThread, validateInvestigationProgress,
 	writeInvestigationThreadInput, type InvestigationProgress,

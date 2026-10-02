@@ -10,11 +10,14 @@ import { createWikiRuntime } from "./model/index.js";
 import { resolveWikiSource, resolveWikiSourceAsset } from "./source.js";
 import { resolveWikiEdition } from "./editions.js";
 import { toErrorMessage } from "../lib/values.js";
+import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 
 function errorStatus(error: unknown): number {
 	if (error instanceof Error && "code" in error && error.code === "ENOENT") return 404;
 	const message = toErrorMessage(error);
 	if (/Wiki Edition not found/iu.test(message)) return 404;
+	if (/Wiki Source provenance is ambiguous/iu.test(message)) return 409;
+	if (/Wiki Source Run is not part|Wiki Source document is not part|Invalid Wiki Source Run/iu.test(message)) return 400;
 	return /path must|invalid .* path|escapes the wiki root|outside the wiki root/i.test(message) ? 400 : 500;
 }
 
@@ -95,8 +98,11 @@ export function createWikiRouter(
 		if (!sourcePath) return res.status(400).json({ error: "path query parameter required" });
 		try {
 			const edition = editionFor(req.params.goalId, req.query);
-			res.json(await resolveWikiSource(join(workspaceDir, req.params.goalId), sourcePath,
-				sourceRunForEdition(edition.root, sourcePath)));
+			const goalDir = join(workspaceDir, req.params.goalId);
+			const runId = sourceRunForEdition(edition.root, sourcePath, goalDir, req.query.run);
+			const documentPath = req.query.document === undefined ? undefined
+				: sourceDocumentForEdition(edition.root, goalDir, sourcePath, runId, req.query.document);
+			res.json(await resolveWikiSource(goalDir, sourcePath, runId, documentPath));
 		} catch (error) {
 			res.status(errorStatus(error) === 500 && /not found/iu.test(errorMessage(error)) ? 404 : errorStatus(error)).json({ error: errorMessage(error) });
 		}
@@ -111,8 +117,10 @@ export function createWikiRouter(
 			// Report citations reference Research Runs that may predate any Wiki Edition; fall back to searching all Runs.
 			let pinnedRunId: string | null = null;
 			try {
-				pinnedRunId = sourceRunForEdition(editionFor(req.params.goalId, req.query).root, sourceId);
-			} catch {
+				pinnedRunId = sourceRunForEdition(editionFor(req.params.goalId, req.query).root, sourceId,
+					join(workspaceDir, req.params.goalId), req.query.run);
+			} catch (error) {
+				if (req.query.revision || req.query.run || !/Wiki Edition not found|Wiki Note Registry is missing|Wiki Source provenance is missing/iu.test(errorMessage(error))) throw error;
 				pinnedRunId = null;
 			}
 			const asset = await resolveWikiSourceAsset(join(workspaceDir, req.params.goalId), sourceId, assetPath, pinnedRunId);
@@ -126,18 +134,58 @@ export function createWikiRouter(
 	return router;
 }
 
-function sourceRunForEdition(editionRoot: string, sourceId: string): string {
+function sourceDocumentForEdition(editionRoot: string, goalDir: string, sourceId: string, runId: string, document: unknown): string {
+	const registry = JSON.parse(readFileSync(join(editionRoot, ".note-registry.json"), "utf8")) as {
+		entries?: Array<{ sourceId: string; sourceRunId: string; anchors?: Array<{
+			path: string; startLine: number; endLine: number; sha256: string; sourceId?: string; sourceRunId?: string;
+		}> }>;
+	};
+	const anchor = typeof document === "string" && registry.entries?.flatMap(entry => (entry.anchors ?? [])
+		.filter(item => item.path === document && (item.sourceId ?? entry.sourceId) === sourceId
+			&& (item.sourceRunId ?? entry.sourceRunId) === runId))[0];
+	if (!anchor) throw new Error("Wiki Source document is not part of this Edition");
+	const source = findLogicalSourceInRun(join(goalDir, "wiki", "runs", runId), sourceId);
+	if (!source) throw new Error(`Wiki Source not found: ${sourceId}`);
+	readSourceEvidenceAnchors(source, [anchor]);
+	return anchor.path;
+}
+
+function sourceRunForEdition(editionRoot: string, sourceId: string, goalDir: string, preferredRun?: unknown): string {
+	if (preferredRun !== undefined && (typeof preferredRun !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(preferredRun))) {
+		throw new Error("Invalid Wiki Source Run ID");
+	}
 	const path = join(editionRoot, ".note-registry.json");
 	if (!existsSync(path)) throw new Error("Wiki Note Registry is missing");
 	const registry = JSON.parse(readFileSync(path, "utf-8")) as { entries?: Array<{
 		sourceId?: unknown;
 		sourceRunId?: unknown;
 		members?: Array<{ source_id?: unknown }>;
+		anchors?: Array<{ sourceId?: unknown; sourceRunId?: unknown; sourceRevisionSha256?: unknown }>;
 	}> };
-	const entry = registry.entries?.find((candidate) => candidate.sourceId === sourceId
-		|| candidate.members?.some((member) => member.source_id === sourceId));
-	if (typeof entry?.sourceRunId !== "string" || !entry.sourceRunId) {
+	const runs = new Set<string>();
+	for (const entry of registry.entries ?? []) {
+		if (typeof entry.sourceRunId === "string" && (entry.sourceId === sourceId
+			|| entry.members?.some((member) => member.source_id === sourceId))) runs.add(entry.sourceRunId);
+		for (const anchor of entry.anchors ?? []) {
+			if (typeof anchor.sourceRunId !== "string" || typeof anchor.sourceId !== "string"
+				|| !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(anchor.sourceRunId)) continue;
+			const source = findLogicalSourceInRun(join(goalDir, "wiki", "runs", anchor.sourceRunId), anchor.sourceId);
+			if (anchor.sourceId !== sourceId && !source?.source.members?.some((member) => member.source_id === sourceId)) continue;
+			if (!source || (anchor.sourceRevisionSha256 && source.source.revision_sha256 !== anchor.sourceRevisionSha256)) {
+				throw new Error(`Wiki Source revision changed: ${anchor.sourceId}`);
+			}
+			runs.add(anchor.sourceRunId);
+		}
+	}
+	if (preferredRun !== undefined) {
+		if (!runs.has(preferredRun as string)) throw new Error(`Wiki Source Run is not part of this Edition: ${preferredRun}`);
+		return preferredRun as string;
+	}
+	if (!runs.size) {
 		throw new Error(`Wiki Source provenance is missing: ${sourceId}`);
 	}
-	return entry.sourceRunId;
+	if (runs.size !== 1) throw new Error(`Wiki Source provenance is ambiguous: ${sourceId}; select its original Run`);
+	const run = [...runs][0]!;
+	if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(run)) throw new Error("Invalid Wiki Source Run ID");
+	return run;
 }

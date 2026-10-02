@@ -49,14 +49,19 @@ const routerSkillBodies = new Map(routerSkillPaths.map((path) => [
 ]));
 for (const [tool, owner] of Object.entries({
 	wiki_update: "research-monitoring",
-	generate_report: "report-products",
+	investigate: "report-products",
+	deliver_investigation: "report-products",
 	generate_podcast: "report-products",
-	research: "research-monitoring",
+	research_history: "research-monitoring",
 	research_schedule: "research-monitoring",
 })) {
 	const marker = `\`${tool}\``;
 	assert.deepEqual([...routerSkillBodies].filter(([, body]) => body.includes(marker)).map(([name]) => name), [owner],
 		`${tool} instructions must have exactly one owning Skill`);
+}
+for (const [name, body] of routerSkillBodies) {
+	assert.doesNotMatch(body, /`research`|generate_report|report_context|note_focus/u,
+		`${name} must use the current investigation contract`);
 }
 assert.deepEqual(bundledAgentSkillPaths("research", "report-writer").map((path) => path.split("/").at(-1)),
 	["wiki-report", "writing-skill"]);
@@ -86,10 +91,9 @@ assert.deepEqual(loadAgentPromptConfig("evolution", "browser-skill-evolution").s
 	tools: ["read", "write", "edit", "bash", "ls", "find", "grep", "run_browser_replay", "submit_stage_output"],
 });
 assert.deepEqual(loadAgentPromptConfig("main", "router").sandbox?.tools, [
+	"research_history",
 	"investigate",
 	"deliver_investigation",
-	"research",
-	"generate_report",
 	"generate_podcast",
 	"wiki_update",
 	"research_schedule",

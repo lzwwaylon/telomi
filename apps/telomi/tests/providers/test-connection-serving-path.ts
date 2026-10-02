@@ -68,7 +68,7 @@ const goals = new GoalService(workspaceDir, {
 	async createRunner(input) {
 		const runner = new GoalRunner(
 			input.workspaceDir, input.goal.id, input.goal.title, input.goalDir, input.onSnapshot,
-			input.goal.description, input.getExtraEnv, undefined, undefined, () => false, () => "en",
+			input.goal.description, input.getExtraEnv, undefined, undefined, () => "en",
 		);
 		runners.push(runner);
 		await runner.init();
