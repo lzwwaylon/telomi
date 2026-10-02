@@ -1462,6 +1462,82 @@ def test_huggingface_model_tags_exposes_provider_filter_catalog(tmp_path, author
     assert [row["metadata"]["tag_id"] for row in response.json()["results"]] == ["text-to-speech"]
 
 
+def test_huggingface_tag_catalog_shared_by_search_and_validation(tmp_path, authorization, monkeypatch) -> None:
+    catalog = {
+        "pipeline_tag": [{"id": "text-to-speech", "label": "Text-to-Speech"}],
+        "language": [{"id": "zh", "label": "Chinese"}],
+        "library": [{"id": "transformers", "label": "Transformers"}],
+        "license": [{"id": "mit", "label": "MIT"}],
+        "other": [{"id": "safetensors", "label": "Safetensors"}],
+    }
+    catalog_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal catalog_calls
+        if request.url.path == "/api/models-tags-by-type":
+            catalog_calls += 1
+            return httpx.Response(200, json=catalog)
+        assert request.url.path == "/api/models"
+        return httpx.Response(200, json=[])
+
+    def search(client, operation, parameters, token="catalog-test-token"):
+        return client.post("/v1/search", headers=authorization, json={
+            "schema_version": 1, "source_id": "huggingface", "query": "tags", "max_results": 10,
+            "credential": {"SOURCE_SERVICE_HUGGINGFACE_TOKEN": token},
+            "provider_request": {"operation": operation, "parameters": parameters},
+        })
+
+    settings = {"material_cache_root": tmp_path / "cache", "material_cache_ttl_seconds": 60}
+    with client_for(tmp_path, handler, **settings) as client:
+        speech = search(client, "model_tags", {"search": "speech"})
+        language = search(client, "model_tags", {"tag_type": "language", "search": "Chinese"})
+        invalid = search(client, "models_list", {"pipeline_tag": "text-to-speach"})
+        assert speech.status_code == language.status_code == 200
+        assert speech.json()["results"][0]["metadata"]["tag_id"] == "text-to-speech"
+        assert language.json()["results"][0]["metadata"]["tag_id"] == "zh"
+        assert invalid.status_code == 400
+        assert invalid.json()["error"]["code"] == "huggingface_model_tag_not_found"
+        assert catalog_calls == 1, "tag searches and validation must share the complete catalog"
+
+    with client_for(tmp_path, handler, **settings) as client:
+        assert search(client, "model_tags", {"tag_type": "library"}).status_code == 200
+        assert catalog_calls == 1, "catalog cache survives Source Service restart"
+        assert search(client, "model_tags", {}, token="other-catalog-token").status_code == 200
+        assert catalog_calls == 2, "catalogs must remain isolated by credential"
+        monkeypatch.setattr("research_source_service.material_cache.time.time", lambda: 10**12)
+        catalog["language"].append({"id": "en", "label": "English"})
+        refreshed = search(client, "model_tags", {"tag_type": "language", "search": "English"})
+        assert refreshed.status_code == 200
+        assert refreshed.json()["results"][0]["metadata"]["tag_id"] == "en"
+        assert catalog_calls == 3, "expired catalog must be fetched again"
+
+
+@pytest.mark.parametrize("incomplete", [[], {}, {"pipeline_tag": []}])
+def test_huggingface_does_not_cache_invalid_tag_catalog(tmp_path, authorization, incomplete) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        assert request.url.path == "/api/models-tags-by-type"
+        calls += 1
+        return httpx.Response(200, json=incomplete if calls == 1 else {
+            "pipeline_tag": [{"id": "text-to-speech", "label": "Text-to-Speech"}],
+            "language": [], "library": [], "license": [], "other": [],
+        })
+
+    body = {
+        "schema_version": 1, "source_id": "huggingface", "query": "speech",
+        "provider_request": {"operation": "model_tags", "parameters": {"search": "speech"}},
+    }
+    with client_for(tmp_path, handler, material_cache_root=tmp_path / "cache") as client:
+        assert client.post("/v1/search", headers=authorization, json=body).status_code != 200
+        recovered = client.post("/v1/search", headers=authorization, json=body)
+        assert recovered.status_code == 200
+        assert recovered.json()["results"][0]["metadata"]["tag_id"] == "text-to-speech"
+        assert client.post("/v1/search", headers=authorization, json=body).status_code == 200
+        assert calls == 2, "invalid catalog must not prevent recovery or populate the cache"
+
+
 def test_huggingface_paper_operations_map_native_responses(tmp_path, authorization) -> None:
     captured: list[httpx.Request] = []
     paper = {
