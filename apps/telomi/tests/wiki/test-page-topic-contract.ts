@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import { createPageTopicTask } from '../../server/wiki/page-topic-contract.js';
-import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
-import { objectFirstSections } from '../../server/wiki/object-first-contract.js';
+import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
+import { wikiPageSections } from '../../server/wiki/wiki-page-contract.js';
 import { renderAgentPrompt } from '../../server/agent-runtime/prompt-registry.js';
 
-const prompt = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'page-topics');
+const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'page-topics');
 assert.ok(prompt.content.includes('section_ref') && prompt.content.includes('topic_ref'));
 assert.ok(!prompt.content.includes('{{'), 'registered prompt must render without unresolved variables');
 
 const entryId = `entry:${'a'.repeat(24)}`;
-function inputFor(body: string): NoteFirstInput {
+function inputFor(body: string): WikiStageInput {
  const page = { id: 'entity:private', kind: 'entity' as const, title: 'Private metadata title', description: 'Private metadata description', body };
  return {
   stage: 'page-topics', key: 'private-key', language: 'en', goal: { title: 'Private goal', description: 'Private goal description' },
-  pages: [{ ref: 'private-ref', page, role: 'context', previous: true }], sections: objectFirstSections([page]),
+  pages: [{ ref: 'private-ref', page, role: 'context', previous: true }], sections: wikiPageSections([page]),
   topics: [
    { id: 'topic:water', title: 'Water conservation', intent: 'Understand water use', questions: ['How is water conserved?'], include: ['Irrigation'], exclude: ['Electricity alone'] },
    { id: 'topic:energy', title: 'Energy efficiency', intent: 'Understand energy use', questions: ['How is energy reduced?'], include: ['Lighting'], exclude: ['Aesthetics alone'] },
@@ -37,7 +37,7 @@ assert.deepEqual(context.topics[0], { topic_ref: 'T1', title: 'Water conservatio
 
 const changedMetadata = structuredClone(input);
 Object.assign(changedMetadata.pages[0]!.page, { id: 'concept:another-id', kind: 'concept', title: 'Water', description: 'A different description' });
-changedMetadata.sections = objectFirstSections(changedMetadata.pages.map(row => row.page));
+changedMetadata.sections = wikiPageSections(changedMetadata.pages.map(row => row.page));
 assert.equal(createPageTopicTask(changedMetadata).userContext, task.userContext, 'page metadata cannot change model input');
 const enriched = { ...input, sections: input.sections.map((row, index) => ({ ...row, entryIds: index < 2 ? [entryId] : [] })) };
 assert.equal(createPageTopicTask(enriched).userContext, task.userContext, 'Runtime evidence enrichment stays private');

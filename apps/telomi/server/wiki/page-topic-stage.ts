@@ -8,8 +8,8 @@ import { renderAgentPrompt } from '../agent-runtime/prompt-registry.js';
 import { scrubResearchModelError } from '../agent-runtime/models/error-classifier.js';
 import { listJsonl, writeJsonAtomic } from '../lib/fs.js';
 import { hashJson, sha256 } from '../lib/hash.js';
-import type { NoteFirstOutcome, NoteFirstStageRequest } from './note-first-contract.js';
-import { noteFirstTraceUsage, readNoteFirstOutput } from './note-first-stage.js';
+import type { WikiStageOutcome, WikiStageRequest } from './wiki-stage-contract.js';
+import { wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
 import { createPageTopicTask } from './page-topic-contract.js';
 
 export type PageTopicCompletion = (...args: Parameters<typeof completeRegistryModel>) => Promise<
@@ -24,10 +24,10 @@ const transportAttemptLimit = 3;
 const transportRetryPolicy = 'native-sdk-and-empty-websocket';
 
 /** One classification request with bounded empty WebSocket reconnects. The optional transport is the deterministic test seam. */
-export async function runPageTopicStage(request: NoteFirstStageRequest, completeOverride?: PageTopicCompletion): Promise<NoteFirstOutcome> {
+export async function runPageTopicStage(request: WikiStageRequest, completeOverride?: PageTopicCompletion): Promise<WikiStageOutcome> {
  request.signal.throwIfAborted();
  const task = createPageTopicTask(request.input);
- const prompt = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'page-topics');
+ const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'page-topics');
  const definitions = primeModelDefinitions(request.env);
  const primePath = primeAgentModulePath(request.env);
  const aiPath = createRequire(primePath).resolve.paths('@earendil-works/pi-ai')
@@ -39,17 +39,17 @@ export async function runPageTopicStage(request: NoteFirstStageRequest, complete
   sdk: [primePath, aiPath].map(file => sha256(readFileSync(file))) });
  const checkpoint = join(request.workRoot, 'checkpoint.json');
  if (existsSync(checkpoint)) {
-  const saved = JSON.parse(readNoteFirstOutput(checkpoint).toString('utf8'));
+  const saved = JSON.parse(readWikiStageOutput(checkpoint).toString('utf8'));
   if (saved.identity !== identity) throw new Error('Page Topic input or execution contract changed across resume');
   if (saved.status === 'succeeded') {
    for (const [file, digest] of Object.entries(saved.artifacts)) {
-    if (sha256(readNoteFirstOutput(join(saved.attemptRoot, file))) !== digest) throw new Error('Accepted Page Topic artifacts changed');
+    if (sha256(readWikiStageOutput(join(saved.attemptRoot, file))) !== digest) throw new Error('Accepted Page Topic artifacts changed');
    }
    if (hashJson(saved.outcome) !== saved.outcomeHash) throw new Error('Accepted Page Topic outcome changed');
-   const raw = JSON.parse(readNoteFirstOutput(join(saved.attemptRoot, 'work/result.json')).toString('utf8'));
+   const raw = JSON.parse(readWikiStageOutput(join(saved.attemptRoot, 'work/result.json')).toString('utf8'));
    if (hashJson({ kind: 'page-topics', sections: task.validate(raw) }) !== hashJson(saved.outcome.result)) throw new Error('Accepted Page Topic result changed');
    request.onAttemptStarted?.(saved.attemptRoot);
-   return saved.outcome as NoteFirstOutcome;
+   return saved.outcome as WikiStageOutcome;
   }
  }
  mkdirSync(request.workRoot, { recursive: true });
@@ -122,18 +122,18 @@ export async function runPageTopicStage(request: NoteFirstStageRequest, complete
   if (!(response.usage.input + response.usage.cacheRead + response.usage.cacheWrite > 0) || !(response.usage.output > 0)) throw new Error('Page Topic completion is missing token usage');
   const text = response.content.filter(block => block.type === 'text').map(block => block.text).join('\n').trim();
   const raw = JSON.parse(text);
-  const result: NoteFirstOutcome['result'] = { kind: 'page-topics', sections: task.validate(raw) };
+  const result: WikiStageOutcome['result'] = { kind: 'page-topics', sections: task.validate(raw) };
   writeJsonAtomic(join(work, 'result.json'), raw);
   writeJsonAtomic(join(runtime, 'accepted-result.json'), result);
-  const outcome: NoteFirstOutcome = { result, usage: noteFirstTraceUsage(request.workRoot), sessionPaths: sessionPaths(request.workRoot) };
+  const outcome: WikiStageOutcome = { result, usage: wikiStageTraceUsage(request.workRoot), sessionPaths: sessionPaths(request.workRoot) };
   const artifacts = Object.fromEntries(['work/result.json', 'runtime/input.json', 'runtime/accepted-result.json', 'runtime/response.json',
    'runtime/effective-system-prompt.md', 'runtime/agent-context.json', 'runtime/model-metadata.json',
-   ...responseFiles, ...listJsonl(sessions).map(file => file.slice(attemptRoot.length + 1))].map(file => [file, sha256(readNoteFirstOutput(join(attemptRoot, file)))]));
+   ...responseFiles, ...listJsonl(sessions).map(file => file.slice(attemptRoot.length + 1))].map(file => [file, sha256(readWikiStageOutput(join(attemptRoot, file)))]));
   writeJsonAtomic(checkpoint, { identity, status: 'succeeded', attemptRoot, artifacts, outcomeHash: hashJson(outcome), outcome });
   return outcome;
  } catch (error) {
   const message = scrubResearchModelError(error);
-  const usage = noteFirstTraceUsage(request.workRoot);
+  const usage = wikiStageTraceUsage(request.workRoot);
   const paths = sessionPaths(request.workRoot);
   writeJsonAtomic(join(runtime, 'failure.json'), { executionMode, error: message, cancelled: request.signal.aborted });
   writeJsonAtomic(checkpoint, { identity, status: request.signal.aborted ? 'cancelled' : 'failed', attemptRoot, error: message, usage, sessionPaths: paths });

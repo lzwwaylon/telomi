@@ -5,13 +5,13 @@ import {
 } from "../../server/agent-runtime/recorded-stage-replay.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import express from "express";
 
-import { hashJson, sha256, stableJson } from "../../server/lib/hash.js";
+import { hashDirectory, hashJson, sha256, stableJson } from "../../server/lib/hash.js";
 import { listFilesRecursive } from "../../server/lib/fs.js";
 import { WORKSPACE_AGENT_IDS } from "../../server/workspaces/agent-layout.js";
 import { snapshotSkills } from "../../server/agent-runtime/skill-registry.js";
@@ -19,7 +19,7 @@ import { createCaseBundle } from "../../server/evaluation/case-bundle.js";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
 import { createMainAgentReplayRecipe } from "../../server/evaluation/main-agent-replay.js";
 import { createOperationsRouter } from "../../server/evaluation/api.js";
-import { NodeBacktestService, nodeBacktestRunsDirectory } from "../../server/evaluation/node-backtest.js";
+import { NodeBacktestService, nodeBacktestRunsDirectory, materializeCapabilities } from "../../server/evaluation/node-backtest.js";
 import { sweepCapturedCases } from "../../server/evaluation/case-retention.js";
 import {
 	beginNodeEvaluationCase,
@@ -94,7 +94,7 @@ for (const agentId of RECORDED_STAGE_AGENT_IDS) {
 	writeFileSync(entry, `${JSON.stringify({ agentId, variant: "observed" })}\n`);
 	const artifact = store.publishFile(entry, `observed/${agentId}.json`);
 	const request = recordedRequest(agentId, sourceRunId, sourceRun, workDirectory, store);
-	const promptConfig = agentId === "cornell-note" ? {
+	const promptConfig = agentId === "note-agent" ? {
 		...request.promptConfig!,
 		revisions: { system: { domain: "research" as const, id: agentId, kind: "system" as const,
 			variant: "default", revisionId: `pr_${"1".repeat(32)}`, templateSha256: "a".repeat(64),
@@ -137,7 +137,7 @@ for (const agentId of RECORDED_STAGE_AGENT_IDS) {
 	assert.equal(capture.status, "captured");
 	if (capture.status === "captured") {
 		cases.set(agentId, capture.caseId);
-		if (agentId === "cornell-note") {
+		if (agentId === "note-agent") {
 			const captured = readNodeEvaluationCase(capture.casePath, sourceRun);
 			assert.equal(captured.observed.trace?.root, "run");
 			assert.equal(captured.observed.trace?.ref, "session.jsonl");
@@ -163,7 +163,7 @@ for (const manifestPath of readdirSync(join(serverRuntimeDirForGoal(goalId, work
 	writeFileSync(manifestPath, JSON.stringify({ ...manifest, runId: wikiSourceRunId }, null, 2));
 }
 const brokenCaseDirectory = join(sourceRun, "node-evaluation", "cases", "broken-missing-file");
-cpSync(join(sourceRun, "node-evaluation", "cases", cases.get("cornell-note")!), brokenCaseDirectory, { recursive: true });
+cpSync(join(sourceRun, "node-evaluation", "cases", cases.get("note-agent")!), brokenCaseDirectory, { recursive: true });
 rmSync(join(brokenCaseDirectory, "system-prompt.txt"));
 
 const writableRoot = join(sourceRun, "writable-capture");
@@ -175,7 +175,7 @@ const writableStore = new RunArtifactStore(sourceRun);
 const writableEntry = join(writableWork, "result.json");
 writeFileSync(writableEntry, "{}\n");
 const writableArtifact = writableStore.publishFile(writableEntry, "observed/writable.json");
-const writableRequest = recordedRequest("cornell-note", sourceRunId, sourceRun, writableWork, writableStore);
+const writableRequest = recordedRequest("note-agent", sourceRunId, sourceRun, writableWork, writableStore);
 writableRequest.stageId = "writable-capture";
 writableRequest.attemptId = "writable-capture";
 writableRequest.evaluation = { ...writableRequest.evaluation!, writableGuestPaths: ["/wiki"] };
@@ -222,7 +222,7 @@ assert.equal(
 );
 assert.equal(writableCase.observed.providerCalls?.sha256, sha256(`${providerCallLines[0]}\n${providerCallLines[3]}\n`));
 
-const staleRequest = recordedRequest("cornell-note", sourceRunId, sourceRun, writableWork, writableStore);
+const staleRequest = recordedRequest("note-agent", sourceRunId, sourceRun, writableWork, writableStore);
 staleRequest.stageId = "removed-report-architect";
 staleRequest.evaluation = {
 	...staleRequest.evaluation!,
@@ -277,7 +277,7 @@ const primeOutputSource = join(root, "prime-output");
 mkdirSync(primeOutputSource);
 writeFileSync(join(primeOutputSource, "result.json"), "{}\n");
 const primeOutput = new RunArtifactStore(sourceRun).publishDirectory(primeOutputSource, "observed/prime-search-fixture");
-const primeRequest = recordedRequest("cornell-note", sourceRunId, sourceRun, writableWork, writableStore);
+const primeRequest = recordedRequest("note-agent", sourceRunId, sourceRun, writableWork, writableStore);
 primeRequest.stageId = "prime-search-batch-fixture";
 primeRequest.role = "prime_search";
 primeRequest.evaluation = {
@@ -312,12 +312,12 @@ const externalCaseFixtures = [
 	const runId = `external-investigation-${index}-1`;
 	const directory = join(investigation, "external-search-1");
 	const work = join(directory, "work");
-	mkdirSync(join(directory, "inputs", "cornell-note"), { recursive: true });
+	mkdirSync(join(directory, "inputs", "note-agent"), { recursive: true });
 	mkdirSync(work, { recursive: true });
-	writeFileSync(join(directory, "inputs", "cornell-note", "request.json"), "{}\n");
+	writeFileSync(join(directory, "inputs", "note-agent", "request.json"), "{}\n");
 	writeFileSync(join(directory, "session.jsonl"), "{}\n");
 	const store = new RunArtifactStore(directory);
-	const request = recordedRequest("cornell-note", runId, directory, work, store);
+	const request = recordedRequest("note-agent", runId, directory, work, store);
 	request.role = "prime_search";
 	request.evaluation = { ...request.evaluation!, agentId: "prime-search", recipe: { id: "prime-search", version: 4 } };
 	const draft = beginNodeEvaluationCase({
@@ -432,8 +432,8 @@ const runner: AgentStageRunner = {
 		mkdirSync(request.workDirectory, { recursive: true });
 		const entry = join(request.workDirectory, "result.json");
 		writeFileSync(entry, `${JSON.stringify({ agentId, variant })}\n`);
-		if (agentId === "cornell-note") {
-			writeFileSync(join(request.recordDirectory!, "cornell_note--fixture.jsonl"), "{}\n");
+		if (agentId === "note-agent") {
+			writeFileSync(join(request.recordDirectory!, "note_agent--fixture.jsonl"), "{}\n");
 			writeFileSync(join(request.recordDirectory!, "runtime--evaluation.jsonl"), "{}\n");
 		}
 		if (agentId === "report-writer") {
@@ -495,16 +495,16 @@ assert.deepEqual(decideSectionChildren({
 	expected: 1,
 }), {
 	kind: "failed",
-	message: "Prime Report Writer root spawned 2 Section children for 1 Sections",
+	message: "Report Writer Root spawned 2 Section children for 1 Sections",
 });
 assert.deepEqual(decideSectionChildren({ children: [], expected: 0 }), { kind: "ready" });
 assert.deepEqual(decideSectionChildren({ children: [{ id: "a", status: "done" }], expected: 1 }), { kind: "ready" });
 assert.deepEqual(decideSectionChildren({ children: [], expected: 1 }), {
-	kind: "failed", message: "Prime Report Writer root spawned 0 Section children for 1 Sections",
+	kind: "failed", message: "Report Writer Root spawned 0 Section children for 1 Sections",
 });
 for (const status of ["queued", "running", undefined] as const) {
 	assert.deepEqual(decideSectionChildren({ children: [{ id: "a", status }], expected: 1 }), {
-		kind: "failed", message: "Prime Report Writer child state was not terminal after RLM quiescence",
+		kind: "failed", message: "Report Writer Root child state was not terminal after RLM quiescence",
 	});
 }
 for (const status of ["error", "cancelled"] as const) {
@@ -513,12 +513,12 @@ for (const status of ["error", "cancelled"] as const) {
 	});
 }
 await assert.rejects(
-	productionRunner.runStage({ ...recordedRequest("cornell-note", sourceRunId, sourceRun,
+	productionRunner.runStage({ ...recordedRequest("note-agent", sourceRunId, sourceRun,
 		join(sourceRun, "routing-note"), new RunArtifactStore(sourceRun)), readonlyMounts: [],
 		output: { kind: "cornell_note", entryRelativePath: "cornell-note.json",
-			publishRelativePath: "routing/cornell-note.json", validate: () => ({}) } }),
+			publishRelativePath: "routing/note-agent.json", validate: () => ({}) } }),
 	/requires the bounded \/source mount/u,
-	"Cornell Note must route through the Prime production runner",
+	"Note Agent must route through the Prime production runner",
 );
 await assert.rejects(
 	productionRunner.runStage({ ...recordedRequest("report-writer", sourceRunId, sourceRun,
@@ -551,19 +551,25 @@ try {
 	server = app.listen(0, "127.0.0.1");
 	await new Promise<void>((resolveListen) => server!.once("listening", resolveListen));
 	const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+	const catalogResponse = await fetch(`${baseUrl}/operations/v1/agents`);
+	assert.equal(catalogResponse.status, 200);
+	const catalog = await catalogResponse.json() as { ok: true; agents: Array<{ id: string; sourcePath: string | null; presentationKind: string }> };
+	assert.equal(catalog.ok, true);
+	assert.equal(catalog.agents.find((agent) => agent.id === "note-agent")?.presentationKind, "note");
+	assert.equal(catalog.agents.find((agent) => agent.id === "main-agent")?.sourcePath, "apps/telomi/agents/main/main-agent");
 	assert.deepEqual(service.status().recipes, [
-		"cornell-note@3",
 		"main-agent@1",
+		"note-agent@3",
 		"prime-search@4",
 		"report-writer@2",
 	]);
 	assert.equal(service.status().runtimeBuildMatchesDisk, true);
 	assert.equal(service.listCases(goalId, "report-architect", 10).length, 0,
 		"Case listing must hide Nodes whose replay Recipe is no longer registered");
-	const listedCases = service.listCases(goalId, "cornell-note", 10);
+	const listedCases = service.listCases(goalId, "note-agent", 10);
 	assert.ok(listedCases.some(({ ref }) => ref.sourceRunId === wikiSourceRunId),
 		"Wiki Update Cases must use the unified Case interface");
-	const casesResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases?agentId=cornell-note&limit=10`);
+	const casesResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases?agentId=note-agent&limit=10`);
 	assert.equal(casesResponse.status, 200, await casesResponse.clone().text());
 	const externalCase = externalCaseFixtures[0]!;
 	const externalCasesResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/cases?agentId=prime-search`);
@@ -764,8 +770,8 @@ try {
 	frozenPrimeHoldAfter = 0;
 	const candidateSnapshot = service.createCapabilitySnapshot(goalId, harnesses.candidate);
 	assert.throws(() => service.enqueue(goalId, {
-		agentId: "cornell-note",
-		cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent",
+		cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		candidate: { expectedRuntimeBuild: "different-build" },
 		rubricId: "runtime-build-mismatch",
 	}), /expected Runtime build/u);
@@ -773,8 +779,8 @@ try {
 	try {
 		assert.equal(service.status().runtimeBuildMatchesDisk, false);
 		assert.throws(() => service.enqueue(goalId, {
-			agentId: "cornell-note",
-			cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+			agentId: "note-agent",
+			cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 			candidate: {},
 			rubricId: "runtime-disk-drift",
 		}), /repository is .*restart Telomi/u);
@@ -783,8 +789,8 @@ try {
 	}
 	assert.equal(service.status().runtimeBuildMatchesDisk, true);
 	assert.throws(() => service.enqueue(goalId, {
-		agentId: "cornell-note",
-		cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent",
+		cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		candidate: {
 			expectedRuntimeBuild: service.status().runtimeBuild,
 			expectedAgentBundleSha256: "f".repeat(64),
@@ -792,22 +798,22 @@ try {
 		rubricId: "agent-bundle-mismatch",
 	}), /expected Agent Bundle/u);
 	assert.throws(() => service.enqueue(goalId, {
-		agentId: "cornell-note",
-		cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent",
+		cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		candidate: { capabilitySnapshotId: candidateSnapshot.id },
 		rubricId: "missing-candidate-prompt",
 	}), /Candidate Capability Bundle requires promptMode/u);
 	const renderedRun = service.enqueue(goalId, {
-		agentId: "cornell-note", cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent", cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		candidate: { capabilitySnapshotId: candidateSnapshot.id, promptMode: "candidate" },
 		repetitions: 1, rubricId: "render-current-candidate",
 	});
 	assert.equal(renderedRun.candidate.promptMode, "candidate");
 	assert.equal(renderedRun.candidate.promptBundle?.source, "candidate");
 	assert.match(renderedRun.candidate.promptBundle!.cases[0]!.userPrompt, /Captured source question/u);
-	assert.notEqual(renderedRun.candidate.promptBundle!.cases[0]!.systemPrompt, "cornell-note system");
+	assert.notEqual(renderedRun.candidate.promptBundle!.cases[0]!.systemPrompt, "note-agent system");
 	assert.equal((await waitForEvaluation(service, renderedRun.id)).status, "awaiting_evaluation");
-	assert.deepEqual(replayPrompts.get("cornell-note")?.at(-1), {
+	assert.deepEqual(replayPrompts.get("note-agent")?.at(-1), {
 		system: renderedRun.candidate.promptBundle!.cases[0]!.systemPrompt,
 		user: renderedRun.candidate.promptBundle!.cases[0]!.userPrompt,
 	});
@@ -815,25 +821,25 @@ try {
 		agentId: "prime-search", cases: [batchCases[0]!], candidate: { promptMode: "observed" }, rubricId: "unsupported-observed",
 	}), /cannot freeze observed Prompts/u);
 	assert.throws(() => service.enqueue(goalId, {
-		agentId: "cornell-note", cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent", cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		candidate: { promptMode: "candidate", promptOverride: { userPrompt: "hidden override" } }, rubricId: "incompatible-override",
 	}), /does not accept promptOverride/u);
 	assert.equal(fullBatch.candidate.promptMode, "candidate", "native-current Recipes persist their effective mode");
 	const candidateRun = service.enqueue(goalId, {
-		agentId: "cornell-note",
-		cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent",
+		cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		candidate: { capabilitySnapshotId: candidateSnapshot.id, promptMode: "observed" },
 		repetitions: 1,
-		rubricId: "cornell-note-skill-candidate-v1",
+		rubricId: "note-agent-skill-candidate-v1",
 	});
 	assert.equal(candidateRun.candidate.promptBundle?.source, "observed");
-	assert.equal(candidateRun.candidate.promptBundle?.cases[0]?.systemPrompt, "cornell-note system");
-	assert.equal(candidateRun.candidate.promptBundle?.cases[0]?.userPrompt, "cornell-note user");
+	assert.equal(candidateRun.candidate.promptBundle?.cases[0]?.systemPrompt, "note-agent system");
+	assert.equal(candidateRun.candidate.promptBundle?.cases[0]?.userPrompt, "note-agent user");
 	const candidateCompleted = await waitForEvaluation(service, candidateRun.id);
 	assert.equal(candidateCompleted.status, "awaiting_evaluation", candidateCompleted.error ?? "unexpected status");
-	assert.deepEqual(replayPrompts.get("cornell-note")?.at(-1), {
-		system: "cornell-note system",
-		user: "cornell-note user",
+	assert.deepEqual(replayPrompts.get("note-agent")?.at(-1), {
+		system: "note-agent system",
+		user: "note-agent user",
 	});
 	assert.deepEqual(candidateCompleted.executions.map((execution) => ({
 		variant: execution.variant,
@@ -842,22 +848,22 @@ try {
 			"utf-8",
 		)) as { variant: string },
 	})), [
-		{ variant: "candidate", content: { agentId: "cornell-note", variant: "candidate" } },
+		{ variant: "candidate", content: { agentId: "note-agent", variant: "candidate" } },
 	]);
 	const candidatePair = service.evaluationBatch(goalId, candidateRun.id).pairs[0]!;
 	assert.deepEqual(Object.values(candidatePair.outputs).map((output) =>
 		JSON.parse(output.content ?? "{}") as { variant: string }).map((output) => output.variant).sort(),
 	["candidate", "observed"]);
 	const overriddenRun = service.enqueue(goalId, {
-		agentId: "cornell-note",
-		cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent",
+		cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		candidate: {
 			capabilitySnapshotId: candidateSnapshot.id,
 			promptMode: "override",
 			promptOverride: { systemPrompt: "candidate system", userPrompt: "candidate user" },
 		},
 		repetitions: 1,
-		rubricId: "cornell-note-prompt-candidate-v1",
+		rubricId: "note-agent-prompt-candidate-v1",
 	});
 	assert.equal(overriddenRun.candidate.promptBundle?.source, "override");
 	assert.equal(overriddenRun.candidate.promptBundle?.cases[0]?.systemPrompt, "candidate system");
@@ -866,13 +872,13 @@ try {
 	assert.notEqual(overriddenRun.candidate.capabilityBundleHash, candidateRun.candidate.capabilityBundleHash,
 		"Candidate Capability Bundle identity must include its Prompt Bundle");
 	assert.equal((await waitForEvaluation(service, overriddenRun.id)).status, "awaiting_evaluation");
-	assert.deepEqual(replayPrompts.get("cornell-note")?.at(-1), {
+	assert.deepEqual(replayPrompts.get("note-agent")?.at(-1), {
 		system: "candidate system",
 		user: "candidate user",
 	});
 	assert.throws(() => service.enqueue(goalId, {
-		agentId: "cornell-note",
-		cases: [{ sourceRunId, caseId: cases.get("cornell-note")! }],
+		agentId: "note-agent",
+		cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 		baseline: {},
 		candidate: {},
 		rubricId: "legacy-paired-request",
@@ -897,13 +903,13 @@ try {
 		assert.equal(candidateCase.workspace?.output_tree_sha, "2".repeat(64));
 		recordedRuns.set(agentId, run.id);
 	}
-	const cornellTraceRunId = recordedRuns.get("cornell-note")!;
-	const cornellTraceResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays/${cornellTraceRunId}`);
-	const cornellTraceRun = await cornellTraceResponse.json() as { run: { executions: Array<{ refs?: Record<string, string> }> } };
-	assert.ok(cornellTraceRun.run.executions[0]?.refs?.agentTrace,
-		"Frozen Cornell Note replay must project its Agent Trace");
-	assert.ok(cornellTraceRun.run.executions[0]?.refs?.runtimeTrace,
-		"Frozen Cornell Note replay must project its Runtime Trace");
+	const noteTraceRunId = recordedRuns.get("note-agent")!;
+	const noteTraceResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays/${noteTraceRunId}`);
+	const noteTraceRun = await noteTraceResponse.json() as { run: { executions: Array<{ refs?: Record<string, string> }> } };
+	assert.ok(noteTraceRun.run.executions[0]?.refs?.agentTrace,
+		"Frozen Note Agent replay must project its Agent Trace");
+	assert.ok(noteTraceRun.run.executions[0]?.refs?.runtimeTrace,
+		"Frozen Note Agent replay must project its Runtime Trace");
 	const reportTraceRunId = recordedRuns.get("report-writer")!;
 	const reportTraceResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays/${reportTraceRunId}`);
 	const reportTraceRun = await reportTraceResponse.json() as { run: { executions: Array<{ refs?: Record<string, string> }> } };
@@ -918,7 +924,7 @@ try {
 	assert.match(reportTraceRun.run.executions[0]?.refs?.reportInitialPrompt ?? "", /writer-report-1-execution\/initial-prompt\.md$/u);
 	assert.ok(Object.values(reportTraceRun.run.executions[0]?.refs ?? {}).every((ref) => !ref.includes("writer-report-0-previous")));
 	for (const agentId of RECORDED_STAGE_AGENT_IDS) {
-		assert.equal(replayed.get(agentId), agentId === "cornell-note" ? 4 : 1);
+		assert.equal(replayed.get(agentId), agentId === "note-agent" ? 4 : 1);
 	}
 	const missingPromptResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays`, {
 		method: "POST",
@@ -973,10 +979,88 @@ try {
 		outputs: Record<"A" | "B", { content?: string }>;
 	}> } };
 	assert.equal(batch.batch.pairs.length, 1);
+	// A real pre-rename Bundle binds the original ordered Skill owners, including empty entries.
+	const frozenRoster = ["main-agent", "podcast-writer", "prime-search", "cornell-note", "report-writer", "wiki-shard-builder", "wiki-curator"];
+	const historicalContent = join(root, "historical-capability");
+	materializeCapabilities(goalDirectory, historicalContent, ["wiki"]);
+	renameSync(join(historicalContent, "skills/note-agent"), join(historicalContent, "skills/cornell-note"));
+	rmSync(join(historicalContent, ".capability-roster.json"));
+	const historicalHash = sha256(stableJson({ skills: frozenRoster.map((agentId) => ({ agentId,
+		sha256: snapshotSkills([join(historicalContent, "skills", agentId)]).sha256 })),
+		wiki: hashDirectory(join(historicalContent, "wiki")) }));
+	const renamedRosterHash = sha256(stableJson({ skills: WORKSPACE_AGENT_IDS.map((agentId) => ({ agentId,
+		sha256: snapshotSkills([join(historicalContent, "skills", agentId)]).sha256 })),
+		wiki: hashDirectory(join(historicalContent, "wiki")) }));
+	assert.notEqual(historicalHash, renamedRosterHash, "today's Agent names must not redefine an immutable Snapshot identity");
+	const historicalSnapshot = { ...httpSnapshot, id: `caps_${historicalHash}`, workspaceContentHash: historicalHash,
+		ref: `evaluation/capability-snapshots/caps_${historicalHash}/content` };
+	const historicalStore = join(serverRuntimeDirForGoal(goalId, workspaceDir), historicalSnapshot.ref);
+	cpSync(historicalContent, historicalStore, { recursive: true });
+	writeFileSync(join(dirname(historicalStore), "manifest.json"), JSON.stringify(historicalSnapshot));
+	assert.deepEqual(service.readCapabilitySnapshot(goalId, historicalSnapshot.id), historicalSnapshot);
+	const historicalRef = { sourceRunId, caseId: cases.get("report-writer")! };
+	const historicalBundle = await createCaseBundle({ dataDir: workspaceDir, goalId, goalTitle: "Frozen owners",
+		value: service.readCase(goalId, historicalRef), casePath: join(sourceRun, "node-evaluation/cases", historicalRef.caseId, "manifest.json"),
+		runtimeBuild: service.status().runtimeBuild, agentBundleSha256: service.status().agentBundleSha256,
+		capabilitySnapshotId: historicalSnapshot.id, capabilityContentDirectory: historicalStore,
+		restoreTree: async () => { throw new Error("This Case has no workspace trees"); } });
+	try {
+		const importedData = join(root, "historical-roster-import");
+		const importer = new NodeBacktestService({ workspaceDir: importedData, listGoalIds: () => [goalId], recipes: [] });
+		const imported = importer.importBundle(historicalBundle.path, (id) => mkdirSync(join(importedData, id), { recursive: true }));
+		assert.equal(imported.capabilitySnapshotId, historicalSnapshot.id);
+		assert.equal(importer.readCapabilitySnapshot(goalId, historicalSnapshot.id).workspaceContentHash, historicalHash);
+		const restored = join(root, "historical-roster-restored");
+		materializeCapabilities(join(serverRuntimeDirForGoal(goalId, importedData), historicalSnapshot.ref), restored);
+		assert.equal(snapshotSkills([join(restored, "skills/cornell-note")]).sha256,
+			snapshotSkills([join(historicalContent, "skills/cornell-note")]).sha256, "restoration retains historical Skill ownership and content");
+		const activated = await waitForEvaluation(service, service.enqueue(goalId, {
+			agentId: "report-writer", cases: [historicalRef], candidate: { capabilitySnapshotId: historicalSnapshot.id, promptMode: "observed" },
+			repetitions: 1, rubricId: "canonical-activation",
+		}).id);
+		assert.equal(activated.status, "awaiting_evaluation", activated.error);
+		assert.notEqual(activated.candidate.capabilitySnapshotId, historicalSnapshot.id, "activation explicitly captures a fresh canonical Snapshot");
+		const activatedContent = join(serverRuntimeDirForGoal(goalId, workspaceDir),
+			service.readCapabilitySnapshot(goalId, activated.candidate.capabilitySnapshotId).ref);
+		assert.equal(existsSync(join(activatedContent, "skills/cornell-note")), false);
+		assert.equal(snapshotSkills([join(activatedContent, "skills/note-agent")]).sha256,
+			snapshotSkills([join(historicalContent, "skills/cornell-note")]).sha256, "canonical activation preserves the historical custom Note Skills");
+		assert.deepEqual(service.readCapabilitySnapshot(goalId, historicalSnapshot.id), historicalSnapshot);
+	} finally { historicalBundle.cleanup(); }
+	const futureSource = join(root, "future-skill-owner");
+	cpSync(goalDirectory, futureSource, { recursive: true });
+	cpSync(join(futureSource, "skills/note-agent"), join(futureSource, "skills/future-owner"), { recursive: true });
+	const futureSnapshot = service.createCapabilitySnapshot(goalId, futureSource);
+	const futureContent = join(serverRuntimeDirForGoal(goalId, workspaceDir), futureSnapshot.ref);
+	const rosterPath = join(futureContent, ".capability-roster.json");
+	const rosterBytes = readFileSync(rosterPath, "utf8");
+	const frozenFutureRoster = JSON.parse(rosterBytes) as { schemaVersion: number; skillAgentIds: string[] };
+	assert.ok(frozenFutureRoster.skillAgentIds.includes("future-owner"), "Snapshot owners are captured data, not today's executable Agent enum");
+	const restoredFuture = join(root, "future-skill-owner-restored");
+	materializeCapabilities(futureContent, restoredFuture);
+	assert.equal(snapshotSkills([join(restoredFuture, "skills/future-owner")]).sha256,
+		snapshotSkills([join(futureSource, "skills/future-owner")]).sha256);
+	writeFileSync(rosterPath, JSON.stringify({ ...frozenFutureRoster,
+		skillAgentIds: frozenFutureRoster.skillAgentIds.filter((id) => id !== "future-owner") }));
+	assert.throws(() => service.readCapabilitySnapshot(goalId, futureSnapshot.id), /Skill roster is invalid/u,
+		"a captured Skill namespace cannot be omitted from integrity verification");
+	writeFileSync(rosterPath, rosterBytes);
+	assert.deepEqual(service.readCapabilitySnapshot(goalId, futureSnapshot.id), futureSnapshot);
+	const conflictingSource = join(root, "conflicting-skill-owners");
+	cpSync(goalDirectory, conflictingSource, { recursive: true });
+	cpSync(join(conflictingSource, "skills/note-agent"), join(conflictingSource, "skills/cornell-note"), { recursive: true });
+	const conflictingFile = listFilesRecursive(join(conflictingSource, "skills/cornell-note"), { absolute: true })
+		.find((path) => path.endsWith("SKILL.md"))!;
+	writeFileSync(conflictingFile, `${readFileSync(conflictingFile, "utf8")}\nConflicting custom instruction.\n`);
+	const conflictingSnapshot = service.createCapabilitySnapshot(goalId, conflictingSource);
+	assert.throws(() => service.enqueue(goalId, { agentId: "report-writer", cases: [historicalRef],
+		candidate: { capabilitySnapshotId: conflictingSnapshot.id, promptMode: "observed" }, repetitions: 1, rubricId: "conflict" }),
+		/conflicting cornell-note and note-agent Skills/u);
+	assert.deepEqual(service.readCapabilitySnapshot(goalId, conflictingSnapshot.id), conflictingSnapshot);
 	// Persist the pre-filter format independently: old Snapshot IDs still bind the entire Wiki.
 	for (const name of ["阿.md", "中.md"]) {
 		writeFileSync(join(goalDirectory, "wiki", "knowledge", name), name);
-		writeFileSync(join(goalDirectory, "skills", "cornell-note", "fixture", name), name);
+		writeFileSync(join(goalDirectory, "skills", "note-agent", "fixture", name), name);
 	}
 	for (const locale of ["en", "zh"]) {
 		const compare = new Intl.Collator(locale).compare;
@@ -1046,7 +1130,7 @@ try {
 	const directInputResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ agentId: "cornell-note", input: { question: "new source note question" } }),
+		body: JSON.stringify({ agentId: "note-agent", input: { question: "new source note question" } }),
 	});
 	assert.equal(directInputResponse.status, 400);
 	assert.match(await directInputResponse.text(), /ReplayRequest is invalid/u);
@@ -1067,11 +1151,11 @@ function recordedRequest(
 	artifactStore: RunArtifactStore,
 ): AgentStageRequest<unknown> {
 	const roles = {
-		"cornell-note": "cornell_note",
+		"note-agent": "note_agent",
 		"report-writer": "report_writer",
 	} as const;
 	const kinds: Record<typeof agentId, StageArtifactKind> = {
-		"cornell-note": "cornell_note",
+		"note-agent": "cornell_note",
 		"report-writer": "writer_chapters",
 	};
 	const knowledgeMount = agentId === "report-writer" ? {
@@ -1088,7 +1172,7 @@ function recordedRequest(
 		evaluation: {
 			agentId,
 			recipe: { id: agentId, version: RECORDED_STAGE_RECIPE_VERSIONS[agentId] },
-			recipeInput: agentId === "cornell-note" ? { question: "Captured source question",
+			recipeInput: agentId === "note-agent" ? { question: "Captured source question",
 				goal: { title: "Captured Goal", description: "Original Source" }, discoveryEnabled: false } : {},
 			inputRelativePath: `inputs/${agentId}`,
 			harnessMounts: [

@@ -7,7 +7,7 @@ import type { ResearchRuntimeConfig } from "./research-types.js";
 import type { ResolvedOutputLanguage } from "../../shared/languages.js";
 
 /** Everything a Research Run needs beyond its model selection, which is always configured. */
-export const DEFAULT_RESEARCH_CONFIG: Omit<ResearchRuntimeConfig, "cornellNoteModel" | "cornellNoteThinkingLevel"> = {
+export const DEFAULT_RESEARCH_CONFIG: Omit<ResearchRuntimeConfig, "noteAgentModel" | "noteAgentThinkingLevel"> = {
 	outputLanguage: "en",
 	documentConcurrency: 4,
 };
@@ -17,14 +17,14 @@ export function researchConfigFromEnv(
 	settingsOverride?: PiSettings,
 ): ResearchRuntimeConfig {
 	const base = { ...DEFAULT_RESEARCH_CONFIG };
-	const cornellNoteModel = resolveLLMConfig({
-		envVarName: TASK_MODEL_ROLE_INFO.cornellNote.legacyEnvVar,
-		taskModelRole: "cornellNote",
+	const noteAgentModel = resolveLLMConfig({
+		envVarName: TASK_MODEL_ROLE_INFO.noteAgent.modelEnvVar,
+		taskModelRole: "noteAgent",
 		envOverride: env,
 		...(settingsOverride ? { settingsOverride } : {}),
 	}).model;
-	if (!cornellNoteModel?.includes("/")) {
-		throw new Error("Cornell Note requires a configured provider/model");
+	if (!noteAgentModel?.includes("/")) {
+		throw new Error("Note Agent requires a configured provider/model");
 	}
 	const outputLanguage = (): ResolvedOutputLanguage => {
 		const explicit = env.TELOMI_RESEARCH_OUTPUT_LANGUAGE?.trim();
@@ -43,8 +43,8 @@ export function researchConfigFromEnv(
 	return {
 		...base,
 		outputLanguage: outputLanguage(),
-		cornellNoteModel,
-		cornellNoteThinkingLevel: resolveStageThinkingLevel("cornellNote", "evidenceNote", env, settingsOverride).thinkingLevel,
+		noteAgentModel,
+		noteAgentThinkingLevel: resolveStageThinkingLevel("noteAgent", "evidenceNote", env, settingsOverride).thinkingLevel,
 		documentConcurrency: integer("TELOMI_RESEARCH_DOCUMENT_CONCURRENCY", base.documentConcurrency, 1, 32),
 	};
 }

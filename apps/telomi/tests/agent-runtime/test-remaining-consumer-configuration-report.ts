@@ -28,13 +28,13 @@ try {
 	let firstReportLiveIndex = "";
 	control.duringRequest = async () => {
 		const bound = readRuntimeRecords(reportRoot, "research").find((event) => event.type === "runtime.agent_bound");
-		assert.ok(bound, "Reporter registers its trace before the first model request");
+		assert.ok(bound, "Report Writer Root registers its trace before the first model request");
 		firstReportLiveIndex = readFileSync(join(reportRoot, `${bound.session_file}.sessions.json`), "utf8");
 		const manifest = JSON.parse(firstReportLiveIndex);
 		assert.equal(manifest.schemaVersion, 1);
 		assert.deepEqual(manifest.sessions, [
-			{ path: `runtime/${bound.execution_id}/session`, label: "Reporter" },
-			{ path: `runtime/${bound.execution_id}/session-artifacts`, label: "Section" },
+			{ path: `runtime/${bound.execution_id}/session`, label: "Report Writer Root" },
+			{ path: `runtime/${bound.execution_id}/session-artifacts`, label: "Report Writer Section" },
 		]);
 		firstReportRootSessionDirectory = join(reportRoot, manifest.sessions[0].path);
 		writeFileSync(join(reportRoot, manifest.sessions[1].path, "section.jsonl"),
@@ -59,7 +59,7 @@ try {
 	const reportTrace = join(reportRoot, String(reportRecord?.trace_ref));
 	const preservedSessions = JSON.parse(readFileSync(`${reportTrace}.sessions.json`, "utf8")).sessions as Array<{ path: string; label: string }>;
 	assert.ok(existsSync(reportTrace), "native Root trace is archived");
-	assert.deepEqual(preservedSessions.map((entry) => entry.label), ["Reporter", "Section 1"]);
+	assert.deepEqual(preservedSessions.map((entry) => entry.label), ["Report Writer Root", "Report Writer Section 1"]);
 	for (const entry of preservedSessions) assert.ok(existsSync(join(reportRoot, entry.path)));
 	assert.match(readFileSync(join(reportRoot, preservedSessions[1]!.path), "utf8"), /Section trace survives failure/);
 	assert.deepEqual(selected("report/agent").scoped, [{ model: "second", thinking: "high" }, { model: "second", thinking: "high" }]);

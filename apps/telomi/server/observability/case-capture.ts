@@ -11,7 +11,7 @@
  * Hook 的签名用 `typeof` 绑定到真实实现，只做 type-only import，运行时不加载
  * Evaluation 代码，也不需要在这里重复声明一遍参数类型。
  */
-import type { withResearchNodeEvaluationCapture, withCornellNoteCapture } from "../agent-runtime/recorded-stage-replay.js";
+import type { withResearchNodeEvaluationCapture, withNoteAgentCapture } from "../agent-runtime/recorded-stage-replay.js";
 import type { withPrimeSearchNodeEvaluationCapture } from "../evaluation/prime-search-replay.js";
 import type { withInvestigationNodeCapture } from "../evaluation/investigation-replay.js";
 import type { runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "../evaluation/wiki-compilation-node-replay.js";
@@ -23,7 +23,7 @@ import { toErrorMessage } from "../lib/values.js";
 
 export interface CaseCaptureHooks {
 	researchStages: typeof withResearchNodeEvaluationCapture;
-	cornellNote: typeof withCornellNoteCapture;
+	noteAgent: typeof withNoteAgentCapture;
 	primeSearchBatch: typeof withPrimeSearchNodeEvaluationCapture;
 	investigation: typeof withInvestigationNodeCapture;
 	wikiShard: typeof runWikiShardNodeEvaluation;

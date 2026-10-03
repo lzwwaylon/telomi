@@ -35,7 +35,7 @@ import { wikiCuratorReplayRecipe, wikiShardReplayRecipe } from "./wiki-replay.js
 import {
 	createRecordedStageReplayRecipes,
 	withResearchNodeEvaluationCapture,
-	withCornellNoteCapture,
+	withNoteAgentCapture,
 } from "../agent-runtime/recorded-stage-replay.js";
 import { withPrimeSearchNodeEvaluationCapture } from "./prime-search-replay.js";
 import { runWikiCuratorNodeEvaluation, runWikiShardNodeEvaluation } from "./wiki-replay.js";
@@ -72,7 +72,7 @@ export function createOperationsRuntime(options: {
 		}),
 	} : {
 		researchStages: withResearchNodeEvaluationCapture,
-		cornellNote: withCornellNoteCapture,
+		noteAgent: withNoteAgentCapture,
 		primeSearchBatch: withPrimeSearchNodeEvaluationCapture,
 		investigation: withInvestigationNodeCapture,
 		wikiShard: runWikiShardNodeEvaluation,

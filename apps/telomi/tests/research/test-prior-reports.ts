@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-	findOutSelfDirectedWriterUserPrompt,
+	notesSelfDirectedWriterUserPrompt,
 	listPriorReports,
 	StageInputView,
 	stagePriorReports,
@@ -48,7 +48,7 @@ try {
 	assert.equal(readFileSync(join(view.root, "prior-reports", "2026-09-08-TTS-landscape-update-2.md"), "utf-8"), "# TTS landscape update\n\nbody");
 
 	const args = { language: "zh-CN", currentDate: "2026-09-11", timeZone: "Asia/Shanghai" };
-	for (const render of [wikiSelfDirectedWriterUserPrompt, findOutSelfDirectedWriterUserPrompt]) {
+	for (const render of [wikiSelfDirectedWriterUserPrompt, notesSelfDirectedWriterUserPrompt]) {
 		assert.doesNotMatch(render(args), /prior-reports/u);
 		const withIndex = render({ ...args, priorReports: index });
 		assert.match(withIndex, /inputs\/prior-reports\//u);

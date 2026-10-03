@@ -1,5 +1,6 @@
 schema_version: 2
 id: browser-skill-evolution
+display_name: Browser Skill Evolution
 skills: [browser-skill-evolution]
 prompts:
   system:

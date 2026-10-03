@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import { hashWikiDirectory } from "../../wiki/files.js";
-import { NoteFirstWikiCompiler } from "../../wiki/note-first-compiler.js";
+import { WikiCompiler } from "../../wiki/wiki-compiler.js";
 import type { WikiGoalContext } from "../../wiki/contracts.js";
 import { caseCapture } from "../../observability/case-capture.js";
 import type { ResearchModelUsage } from "../../agent-runtime/model-usage.js";
@@ -23,7 +23,7 @@ export async function reframeActivatedGoalWiki(input: {
 	proposal: GoalTopicPlanProposal;
 	env: Record<string, string | undefined>;
 	signal: AbortSignal;
-	reindex?: NoteFirstWikiCompiler["reindex"];
+	reindex?: WikiCompiler["reindex"];
 	publish?: typeof publishCompilation;
 }): Promise<{
 	status: "promoted" | "no_change" | "no_wiki";
@@ -54,7 +54,7 @@ async function reframeGoalWiki(input: Parameters<typeof reframeActivatedGoalWiki
 			env: input.env,
 			signal: input.signal,
 		};
-		const execute = input.reindex ?? ((request) => new NoteFirstWikiCompiler().reindex(request));
+		const execute = input.reindex ?? ((request) => new WikiCompiler().reindex(request));
 		const capture = caseCapture()?.wikiReindex;
 		const curated = await (capture ? capture(request, {
 			recordDirectory: workRoot, runId: input.proposal.proposal_id, execute,

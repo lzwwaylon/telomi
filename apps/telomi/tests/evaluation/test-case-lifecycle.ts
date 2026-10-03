@@ -127,7 +127,7 @@ assert.deepEqual(
 	"Case ownership never reaches into the evaluation/ tree",
 );
 assert.ok(capturedCaseRunRoots(workspaceDir, goalId).includes(join(runtimeDir, "research", "investigations")));
-assert.ok(capturedCaseRunRoots(workspaceDir, goalId).includes(join(workspaceDir, goalId, ".pi", "runtime", "deep-search")));
+assert.ok(capturedCaseRunRoots(workspaceDir, goalId).includes(join(workspaceDir, goalId, ".pi", "runtime", "note-reading")));
 
 // A Bundle export owns the Case until its tar is complete, even when the Case is otherwise expired.
 writeCapturedCase("run-exporting", "case-exporting", now - 90 * DAY, 100);
@@ -484,9 +484,9 @@ function draftFor(nodeId: string): NodeEvaluationCaseDraft {
 			runId: recoveryRunId,
 			stageId: nodeId,
 			attemptId: "1",
-			role: "cornell_note",
+			role: "note_agent",
 			recordKind: "research",
-			promptConfig: { domain: "research", id: "recovery-fixture", sandboxRole: "research.cornell-note" },
+			promptConfig: { domain: "research", id: "recovery-fixture", sandboxRole: "research.note-agent" },
 			evaluation: {
 				agentId: "recovery-fixture",
 				recipe: { id: "recovery-fixture", version: 1 },
@@ -508,7 +508,7 @@ function draftFor(nodeId: string): NodeEvaluationCaseDraft {
 			signal: new AbortController().signal,
 		} as unknown as AgentStageRequest<unknown>,
 		recordDirectory: recoveryRun,
-		promptConfig: { domain: "research", id: "recovery-fixture", sandboxRole: "research.cornell-note" },
+		promptConfig: { domain: "research", id: "recovery-fixture", sandboxRole: "research.note-agent" },
 		sessionContextFile: join(recoveryRun, ".missing-session.jsonl"),
 		composedSystemPrompt: "system",
 		actualModel: "openai-codex/gpt-5.4-mini",

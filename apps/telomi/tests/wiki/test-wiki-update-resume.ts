@@ -3,8 +3,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LlmWikiCompiler } from "../../server/wiki/compiler.js";
-import { noteWikiEntries } from "../../server/wiki/note-wiki-maintainer.js";
+import { WikiShardCompiler } from "../../server/wiki/wiki-shard-compiler.js";
+import { noteWikiEntries } from "../../server/wiki/wiki-shard-builder.js";
 import {
 	canResumeWikiUpdateJob,
 	MAX_WIKI_UPDATE_ATTEMPTS,
@@ -61,7 +61,7 @@ async function testPartialGoalChangeRetry(): Promise<void> {
 	const published = join(workspace.request.goalDir, "wiki", "knowledge");
 	let fail = false;
 	let calls = 0;
-	const compiler = new LlmWikiCompiler({ maintain: async ({ evidence, workRoot }) => {
+	const compiler = new WikiShardCompiler({ maintain: async ({ evidence, workRoot }) => {
 		calls += 1;
 		if (fail && batchIndex(evidence) === 1) throw new Error("partial failure");
 		return writeBatchWiki(workRoot, batchIndex(evidence));
@@ -160,7 +160,7 @@ async function testCompilerStreamingIsolation(): Promise<void> {
 	const lastGate = new Promise<void>((resolve) => { releaseLast = resolve; });
 	const fourWorkers = new Promise<void>((resolve) => { fourWorkersStarted = resolve; });
 	const firstFallback = setTimeout(() => { releaseFirst(); releaseLast(); fourWorkersStarted(); }, 5_000);
-	const compiler = new LlmWikiCompiler({
+	const compiler = new WikiShardCompiler({
 		maintain: async ({ evidence, workRoot, sessionRoot }) => {
 			const index = batchIndex(evidence);
 			const trace = readTraceManifest(progress.findLast((item) => item.batchIndex === index)?.traceRef);
@@ -259,7 +259,7 @@ async function testCompilerRejectsAllFailedBatches(): Promise<void> {
 	mkdirSync(join(knowledgeRoot, "concepts"), { recursive: true });
 	mkdirSync(join(knowledgeRoot, "entities"), { recursive: true });
 	writeFileSync(join(knowledgeRoot, ".note-registry.json"), JSON.stringify({ schema_version: 2, entries: [] }));
-	const compiler = new LlmWikiCompiler({
+	const compiler = new WikiShardCompiler({
 		maintain: async () => { throw new Error("all failed"); },
 		curate: async () => { throw new Error("Curator must not run without a successful Shard"); },
 	});
@@ -481,7 +481,7 @@ async function testCompilerBatchResume(): Promise<void> {
 	let batchZeroDone!: () => void;
 	const batchZero = new Promise<void>((resolve) => { batchZeroDone = resolve; });
 	let failBatch: number | undefined = 1;
-	const compiler = new LlmWikiCompiler({
+	const compiler = new WikiShardCompiler({
 		maintain: async ({ evidence, workRoot, sessionRoot, batch }) => {
 			const index = batchIndex(evidence);
 			sessionRoots.add(sessionRoot);
@@ -531,7 +531,7 @@ async function testCompilerBatchResume(): Promise<void> {
 	// 第二个 Shard checkpoint 内容对不上时，只重跑该独立 Shard。
 	const other = prepareWorkspace("batch-digest");
 	const digestExecuted: number[] = [];
-	const digestCompiler = new LlmWikiCompiler({
+	const digestCompiler = new WikiShardCompiler({
 		maintain: async ({ evidence, workRoot }) => {
 			const index = batchIndex(evidence);
 			digestExecuted.push(index);
@@ -560,7 +560,7 @@ async function testCompilerBatchResume(): Promise<void> {
 async function testCompilerClaimsPublishedKnowledge(): Promise<void> {
 	const workspace = prepareWorkspace("published-knowledge");
 	let calls = 0;
-	const compiler = new LlmWikiCompiler({
+	const compiler = new WikiShardCompiler({
 		maintain: async ({ evidence, workRoot }) => {
 			calls += 1;
 			return writeBatchWiki(workRoot, batchIndex(evidence));
@@ -824,7 +824,7 @@ async function testInterruptedJobResume(): Promise<void> {
 }
 
 function prepareWorkspace(name: string, noteCount = 150): {
-	request: Parameters<LlmWikiCompiler["compile"]>[0];
+	request: Parameters<WikiShardCompiler["compile"]>[0];
 	runDirectory: string;
 	controlDirectory: string;
 } {
@@ -841,7 +841,7 @@ function prepareWorkspace(name: string, noteCount = 150): {
 		runDirectory,
 		controlDirectory,
 		request: {
-			env: { TELOMI_WIKI_MAINTAINER_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child" },
+			env: { TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child" },
 			goalDir,
 			goal: "Research resume",
 			goalContext: { title: "Goal title", description: "Goal description" },

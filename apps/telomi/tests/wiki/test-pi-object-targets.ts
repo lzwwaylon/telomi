@@ -2,17 +2,17 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
+import { createWikiStageWorkspace } from '../../server/wiki/wiki-stage-workspace.js';
 import { observePiMergeRead, piObjectMergePlanUserContext, validatePiObjectMergePlanFiles, validatePiObjectMergeFiles } from '../../server/wiki/pi-object-stage.js';
 import { validateTargetWriter } from '../../server/wiki/pi-object-targets.js';
-import { noteFirstOutputHash } from '../../server/wiki/note-first-stage.js';
-import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
+import { wikiStageOutputHash } from '../../server/wiki/wiki-stage.js';
+import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'object-targets-'));
 const inputRoot = join(root, 'input'), work = join(root, 'work');
 mkdirSync(join(work, 'pages'), { recursive: true });
 const a = `entry:${'a'.repeat(24)}`, b = `entry:${'b'.repeat(24)}`;
-const input: NoteFirstInput = { stage: 'merge-objects', key: 'target', language: 'en', goal: { title: 'Study models', description: '' },
+const input: WikiStageInput = { stage: 'merge-objects', key: 'target', language: 'en', goal: { title: 'Study models', description: '' },
  entries: [a, b].map(id => ({ id, revisionSha256: 'r', sourceRunId: 'run', sourceId: 'source', sourceTitle: 'Source', canonicalLocator: '', members: [], section: 'Mechanism', cue: 'Supported record', detail: 'Evidence', anchors: [] })),
  pages: [
   { ref: 'old:a', previous: true, role: 'member', page: { id: 'entity:a', kind: 'entity', title: 'Model A', description: 'Existing model', body: `## Mechanism\nOld value 30 [[${a}]].` } },
@@ -28,7 +28,7 @@ try {
  if (plan.kind === 'object-target-plan') assert.equal(plan.jobs[0]!.targetRef, 'old:a');
  writeFileSync(manifest, JSON.stringify({ jobs: [{ action: 'update', target_ref: 'P2', page_refs: ['P1', 'P2'], reason: 'Wrong target' }] }));
  assert.throws(() => validatePiObjectMergePlanFiles(input, work), /existing member/);
- createNoteFirstWorkspace(input, inputRoot);
+ createWikiStageWorkspace(input, inputRoot);
  const reads = new Map<string, Set<number>>();
  for (const ref of ['P1', 'P2']) observePiMergeRead(inputRoot, reads, { path: `wiki/pages/${ref}.md` }, { content: [{ type: 'text', text: readFileSync(join(inputRoot, 'pages', `${ref}.md`), 'utf8') }] });
  const facts = [{ source_section_ref: 'S1', claim: 'Old value is 30', entry_refs: ['N1'], destination_heading: 'Record' },
@@ -42,9 +42,9 @@ try {
  if (target.kind !== 'object-target-pages') throw new Error('wrong result kind');
  assert.equal(target.value.pages[0]!.id, 'entity:a');
  assert.equal(target.facts.length, 2);
- const hash = noteFirstOutputHash(work);
+ const hash = wikiStageOutputHash(work);
  writeFileSync(ledger, JSON.stringify({ facts: facts.slice(0, 1) }));
- assert.notEqual(noteFirstOutputHash(work), hash);
+ assert.notEqual(wikiStageOutputHash(work), hash);
  assert.throws(() => validateTargetWriter(input, work, accepted), /S2.*Release/);
  writeFileSync(ledger, JSON.stringify({ facts: [{ ...facts[0], entry_refs: ['N2'] }, facts[1]] }));
  assert.throws(() => validateTargetWriter(input, work, accepted), /Cue outside/);

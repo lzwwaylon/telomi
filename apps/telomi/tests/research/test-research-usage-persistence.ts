@@ -71,7 +71,7 @@ const runtime = new Run({
 					bundleDirectory,
 					"artifacts/source-bundles/test",
 				)],
-				findOutSources: request.artifactStore.publishDirectory(
+				organizedSources: request.artifactStore.publishDirectory(
 					findOutDirectory,
 					"artifacts/find-out-sources/sequence-1",
 				),
@@ -106,7 +106,7 @@ const execution = runtime.run({
 	controlDirectory,
 	goalWorkspaceDirectory: join(root, "goal"),
 	workspaceRootDirectory: root,
-	agentSkillIndexes: { "prime-search": "", "cornell-note": "", "report-writer": "" },
+	agentSkillIndexes: { "prime-search": "", "note-agent": "", "report-writer": "" },
 	providerCatalog: [{ id: "test", capability: "test", sourceClass: "professional" }],
 	temporalContext: { schemaVersion: 1, currentDate: "2026-08-28", timeZone: "UTC" },
 	pipeline: { id: "test", version: "1", sha256: "b".repeat(64) },

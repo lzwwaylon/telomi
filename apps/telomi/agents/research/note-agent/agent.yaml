@@ -1,0 +1,20 @@
+schema_version: 2
+id: note-agent
+display_name: Note Agent
+prompts:
+  system-append:
+    default: system.md.njk
+    question-reading: system.question-reading.md.njk
+  reference:
+    evidence-reading-quality: reference.evidence-reading-quality.md.njk
+  user:
+    default: user.md.njk
+    prime-execution: user.prime-execution.md.njk
+    question-reading: user.question-reading.md.njk
+    repair: user.repair.md.njk
+    question-reading-repair: user.question-reading-repair.md.njk
+sandbox:
+  role: report.note_agent
+  execution_profile: prime_ipython
+  network: deny
+  tools: [ipython]

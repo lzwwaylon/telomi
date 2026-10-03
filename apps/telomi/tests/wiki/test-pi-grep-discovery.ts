@@ -3,21 +3,21 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSrtAgentSandbox } from '../../server/agent-runtime/srt-agent-sandbox.js';
-import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
+import { createWikiStageWorkspace } from '../../server/wiki/wiki-stage-workspace.js';
 import { createConceptReadCoverage, validatePiConceptFiles } from '../../server/wiki/pi-concept-contract.js';
-import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
+import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'wiki-pi-grep-'));
 const inputRoot = join(root, 'input'), work = join(root, 'work');
 mkdirSync(work);
 const entryId = `entry:${'a'.repeat(24)}`;
-const input: NoteFirstInput = { stage: 'audit-concepts', key: 'grep-audit', language: 'en', goal: { title: 'Mechanisms', description: '' },
+const input: WikiStageInput = { stage: 'audit-concepts', key: 'grep-audit', language: 'en', goal: { title: 'Mechanisms', description: '' },
  entries: [{ id: entryId, revisionSha256: 'r', sourceRunId: 'run', sourceId: 'source', sourceTitle: 'Source', canonicalLocator: '',
   members: [], section: 'Mechanism', cue: 'Needle', detail: 'Evidence', anchors: [] }],
  pages: [true, false].map((previous, index) => ({ ref: `concept:${index}`, previous, role: 'member',
   page: { id: `concept:${index}`, kind: 'concept', title: `Explanation ${index}`, description: 'Mechanism', body: `## Mechanism\nNeedle mechanism [[${entryId}]].` } })),
  requiredEntries: [], requiredPages: ['concept:0', 'concept:1'], previousRelations: [], instructions: '', topics: [], sections: [] };
-createNoteFirstWorkspace(input, inputRoot);
+createWikiStageWorkspace(input, inputRoot);
 const coverage = createConceptReadCoverage(input, inputRoot);
 writeFileSync(join(work, 'result.json'), JSON.stringify({ reviewed_pages: ['P1', 'P2'].map(page_ref => ({ page_ref, reason: 'Overlapping explanation' })),
  conflict_groups: [{ page_refs: ['P1', 'P2'], reason: 'Same mechanism' }], discarded_refs: [] }));

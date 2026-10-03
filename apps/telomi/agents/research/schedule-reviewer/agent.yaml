@@ -1,5 +1,6 @@
 schema_version: 2
 id: schedule-reviewer
+display_name: Schedule Reviewer
 skills: [schedule-review]
 prompts:
   system-append:

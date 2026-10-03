@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import { applicationRoot, DataDirectoryError, resolveBackupDir, resolveDataDir } from "./data-dir.js";
 import { moveInstallationStateIntoDataDirectory } from "./data-layout.js";
 import { removeTopicPlanCopiesFromUserMemory, scopeUserMemoryToGoals } from "../goals/memory/user-memory-migrations.js";
+import { canonicalizeAgentNames } from "./canonical-agent-migration.js";
 
 export { DataDirectoryError };
 
@@ -34,6 +35,7 @@ export const MIGRATIONS: readonly DataMigration[] = [
 	moveInstallationStateIntoDataDirectory,
 	scopeUserMemoryToGoals,
 	removeTopicPlanCopiesFromUserMemory,
+	canonicalizeAgentNames,
 ];
 
 export const CURRENT_FORMAT_VERSION = 1 + MIGRATIONS.length;

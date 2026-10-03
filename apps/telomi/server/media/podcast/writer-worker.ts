@@ -31,7 +31,7 @@ const rootSelector = required("PRIME_PODCAST_ROOT_MODEL");
 const childSelector = required("PRIME_PODCAST_CHILD_MODEL");
 const prime = await import(required("PRIME_AGENT_MODULE_PATH"));
 const eventLog = join(runtimeRoot, "root-events.jsonl");
-/** 每个阶段最多两轮修复，与 Prime Report Writer 一致。 */
+/** 每个阶段最多两轮修复，与 Report Writer Root 一致。 */
 const MAX_REPAIRS = 2;
 const rlmSessionDir = join(runtimeRoot, "session-artifacts");
 const rootSessionDir = join(runtimeRoot, "session");

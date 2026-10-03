@@ -40,10 +40,10 @@ for (const domain of domains) {
 }
 
 assert.ok(rendered > 0, "expected Prompt templates");
-assert.deepEqual(loadAgentPromptConfig("main", "router").skills,
+assert.deepEqual(loadAgentPromptConfig("main", "main-agent").skills,
 	["report-products", "research-monitoring", "topic-plan", "user-memory"]);
-const routerSkillPaths = bundledAgentSkillPaths("main", "router");
-const routerSkillBodies = new Map(routerSkillPaths.map((path) => [
+const mainSkillPaths = bundledAgentSkillPaths("main", "main-agent");
+const mainSkillBodies = new Map(mainSkillPaths.map((path) => [
 	path.split("/").at(-1)!,
 	readFileSync(join(path, "SKILL.md"), "utf-8"),
 ]));
@@ -56,20 +56,15 @@ for (const [tool, owner] of Object.entries({
 	research_schedule: "research-monitoring",
 })) {
 	const marker = `\`${tool}\``;
-	assert.deepEqual([...routerSkillBodies].filter(([, body]) => body.includes(marker)).map(([name]) => name), [owner],
+	assert.deepEqual([...mainSkillBodies].filter(([, body]) => body.includes(marker)).map(([name]) => name), [owner],
 		`${tool} instructions must have exactly one owning Skill`);
 }
-for (const [name, body] of routerSkillBodies) {
+for (const [name, body] of mainSkillBodies) {
 	assert.doesNotMatch(body, /`research`|generate_report|report_context|note_focus/u,
 		`${name} must use the current investigation contract`);
 }
 assert.deepEqual(bundledAgentSkillPaths("research", "report-writer").map((path) => path.split("/").at(-1)),
-	["wiki-report", "writing-skill"]);
-assert.deepEqual(bundledAgentSkillPaths("research", "find-out-report-writer")
-	.map((path) => relative(agentRoot, path)), [
-	"research/find-out-report-writer/skills/find-out-report",
-	"research/report-writer/skills/writing-skill",
-]);
+	["wiki-report", "notes-report", "writing-skill"]);
 assert.deepEqual(loadAgentPromptConfig("wiki", "wiki-curator").skills, ["wiki-curator"]);
 for (const task of ["entity", "concept"] as const) {
 	const prompt = renderAgentPrompt("wiki", "wiki-shard-builder", "user", {
@@ -90,7 +85,7 @@ assert.deepEqual(loadAgentPromptConfig("evolution", "browser-skill-evolution").s
 	network: "deny",
 	tools: ["read", "write", "edit", "bash", "ls", "find", "grep", "run_browser_replay", "submit_stage_output"],
 });
-assert.deepEqual(loadAgentPromptConfig("main", "router").sandbox?.tools, [
+assert.deepEqual(loadAgentPromptConfig("main", "main-agent").sandbox?.tools, [
 	"research_history",
 	"investigate",
 	"deliver_investigation",
@@ -105,20 +100,20 @@ assert.deepEqual(loadAgentPromptConfig("main", "router").sandbox?.tools, [
 	"find",
 	"grep",
 ]);
-const mainRouterPrompt = renderAgentPrompt("main", "router", "system", {
+const mainAgentPrompt = renderAgentPrompt("main", "main-agent", "system", {
 	goal: "Become a speech generation expert",
 	output_language: "auto",
 	topic_ready: true,
 	topic_active: false,
 	previous_searches: "[]",
 }).content;
-assert.doesNotMatch(mainRouterPrompt, /Goal Harness|capability snapshot|historical Run/iu);
-assert.doesNotMatch(mainRouterPrompt, /rebuild=true|research\.schedule|recurring monitoring/iu);
-assert.doesNotMatch(mainRouterPrompt, /topic_plan_activate/u);
-assert.equal(loadAgentPromptConfig("research", "cornell-note").sandbox?.network, "deny");
-const readingQuality = renderAgentPrompt("research", "cornell-note", "reference", {}, "evidence-reading-quality").content;
-for (const variant of ["default", "deep-search"] as const) {
-	const scope = renderAgentPrompt("research", "cornell-note", "system-append", {}, variant);
+assert.doesNotMatch(mainAgentPrompt, /Goal Harness|capability snapshot|historical Run/iu);
+assert.doesNotMatch(mainAgentPrompt, /rebuild=true|research\.schedule|recurring monitoring/iu);
+assert.doesNotMatch(mainAgentPrompt, /topic_plan_activate/u);
+assert.equal(loadAgentPromptConfig("research", "note-agent").sandbox?.network, "deny");
+const readingQuality = renderAgentPrompt("research", "note-agent", "reference", {}, "evidence-reading-quality").content;
+for (const variant of ["default", "question-reading"] as const) {
+	const scope = renderAgentPrompt("research", "note-agent", "system-append", {}, variant);
 	const composed = renderNoteAgentSystemPrompt(undefined, variant);
 	assert.equal(composed.content, `${scope.content}\n\n${readingQuality}`,
 		`${variant} Reader must include the registered quality rules exactly once`);
@@ -126,7 +121,7 @@ for (const variant of ["default", "deep-search"] as const) {
 }
 assert.match(buildNoteAgentSystemPrompt(), /one supplied Source/u);
 assert.match(buildNoteAgentSystemPrompt(), /same language as the original Source/u);
-assert.match(renderNoteAgentSystemPrompt(undefined, "deep-search").content, /question's language/u);
+assert.match(renderNoteAgentSystemPrompt(undefined, "question-reading").content, /question's language/u);
 assert.throws(() => loadAgentPromptConfig("research", "../escape"), /Invalid Prompt identity/u);
 assert.equal(existsSync(new URL("../../prompts", import.meta.url)), false, "legacy Prompt root must not exist");
 assert.equal(existsSync(new URL("../../skills", import.meta.url)), false, "legacy Skill root must not exist");
@@ -145,7 +140,7 @@ const cornellPrompt = `${buildNoteAgentSystemPrompt()}\n${buildNoteAgentUserProm
 	discoveryEnabled: true,
 	topicPlan,
 })}`;
-assert.match(cornellPrompt, /Discovery is enabled only for this Cornell Note stage/u);
+assert.match(cornellPrompt, /Discovery is enabled only for this Note Agent stage/u);
 assert.match(cornellPrompt, /"discovery":\{"finding"/u);
 assert.match(cornellPrompt, /T1 \| Multilingual/u);
 assert.match(cornellPrompt, /"topic_refs":\["T1"\]/u);

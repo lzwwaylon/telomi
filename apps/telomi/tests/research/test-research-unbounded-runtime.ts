@@ -29,9 +29,9 @@ for (const removedKey of [
 }
 
 assert.equal(DEFAULT_RESEARCH_CONFIG.documentConcurrency, 4);
-assert.equal(researchConfigFromEnv({ TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/model" }).documentConcurrency, 4);
-assert.equal(researchConfigFromEnv({ TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/model", TELOMI_RESEARCH_DOCUMENT_CONCURRENCY: "32" }).documentConcurrency, 32);
-assert.throws(() => researchConfigFromEnv({ TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/model", TELOMI_RESEARCH_DOCUMENT_CONCURRENCY: "33" }),
+assert.equal(researchConfigFromEnv({ TELOMI_NOTE_AGENT_MODEL: "test/model" }).documentConcurrency, 4);
+assert.equal(researchConfigFromEnv({ TELOMI_NOTE_AGENT_MODEL: "test/model", TELOMI_RESEARCH_DOCUMENT_CONCURRENCY: "32" }).documentConcurrency, 32);
+assert.throws(() => researchConfigFromEnv({ TELOMI_NOTE_AGENT_MODEL: "test/model", TELOMI_RESEARCH_DOCUMENT_CONCURRENCY: "33" }),
 	/TELOMI_RESEARCH_DOCUMENT_CONCURRENCY must be an integer from 1 to 32/u);
 const policyYaml = (documentConcurrency: number) => `kind: pi_research_run_policy
 contract_version: 1

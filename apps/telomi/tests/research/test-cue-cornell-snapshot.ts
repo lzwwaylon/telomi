@@ -10,9 +10,9 @@ import { validateCornellNoteArtifact, validateCornellNotesSnapshot } from "../..
 import { sha256 } from "../../server/lib/hash.js";
 import { createCueCornellSnapshot, createGoalCornellSnapshot } from "../../server/research/cue-cornell-snapshot.js";
 import { listSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
-import { noteWikiEntries } from "../../server/wiki/note-wiki-maintainer.js";
-import { NoteFirstWikiCompiler } from "../../server/wiki/note-first-compiler.js";
-import type { NoteFirstInput, NoteFirstOutcome, NoteFirstResult } from "../../server/wiki/note-first-contract.js";
+import { noteWikiEntries } from "../../server/wiki/wiki-shard-builder.js";
+import { WikiCompiler } from "../../server/wiki/wiki-compiler.js";
+import type { WikiStageInput, WikiStageOutcome, WikiStageResult } from "../../server/wiki/wiki-stage-contract.js";
 import { readWikiPageEvidence } from "../../server/wiki/evidence.js";
 import { ensureGoalWorkspace } from "../../server/workspaces/goal-project.js";
 import { createWikiRouter } from "../../server/wiki/api.js";
@@ -75,9 +75,9 @@ try {
 	assert.throws(() => validateCornellNoteArtifact(snapshot.notes[0]!.note), /Runtime-owned/u,
 		"Reader artifacts cannot forge Runtime-only original Cue identities");
 
-	const seenObjects: NoteFirstInput[] = [];
-	const compiler = new NoteFirstWikiCompiler({ runStage: async ({ input }): Promise<NoteFirstOutcome> => {
-		let result: NoteFirstResult;
+	const seenObjects: WikiStageInput[] = [];
+	const compiler = new WikiCompiler({ runStage: async ({ input }): Promise<WikiStageOutcome> => {
+		let result: WikiStageResult;
 		const pages = { pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] };
 		if (input.stage === "objects") {
 			seenObjects.push(input);
@@ -105,7 +105,7 @@ try {
 		goalContext: { title: "Reference protocols", description: "Compare reference protocol requirements" },
 		topicPlan: { schema_version: 1, goal_id: "goal", revision: "topics-v1", status: "active", topics: [{ id: "references",
 			title: "References", intent: "Reference protocol requirements", questions: [], include: [], exclude: [] }] },
-		env: { TELOMI_WIKI_MAINTAINER_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: "low" },
+		env: { TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" },
 		signal: new AbortController().signal });
 	assert.equal(compiled.publicationReady, true);
 	assert.equal(seenObjects.length, 2);
@@ -148,7 +148,7 @@ try {
 	writeFileSync(join(notesRoot, "snapshot-2.json"), JSON.stringify(legacy));
 	const corpus = createGoalCornellSnapshot({ goalDir, snapshotId: "rebuild-corpus" });
 	assert.equal(corpus.notes.length, 2);
-	assert.equal(noteWikiEntries(corpus).length, 3, "rebuild includes old Cornell Cues and all saved Deep Search Cues");
+	assert.equal(noteWikiEntries(corpus).length, 3, "rebuild includes old Cornell Cues and all saved Note Reading Cues");
 	assert.deepEqual(noteWikiEntries(corpus)[0], noteWikiEntries(legacy)[0], "adding per-record Run identity and new sections preserves legacy Entry identity and revision");
 	assert.deepEqual(noteWikiEntries(corpus).slice(1).map(entry => entry.originCueRef), original.cues.map(cue => cue.ref));
 	assert.match(readFileSync(join(knowledge, "entities", "run-a.md"), "utf8"), /https:\/\/example.test\/run-b/u,

@@ -10,10 +10,10 @@ import { readNodeEvaluationCase, type NodeReplayRecipe } from "../../server/agen
 import { caseCaptureHealth, resetCaseCaptureForTest } from "../../server/observability/case-capture.js";
 import { createWikiCompilationReplayRecipe, readWikiCompilationCaseInput, runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "../../server/evaluation/wiki-compilation-node-replay.js";
 import type { WikiCompilationRequest, WikiCompilationResult } from "../../server/wiki/contracts.js";
-import type { NoteFirstReindexRequest, NoteFirstReindexResult } from "../../server/wiki/note-first-compiler.js";
+import type { WikiReindexRequest, WikiReindexResult } from "../../server/wiki/wiki-compiler.js";
 
 const root = mkdtempSync(join(tmpdir(), "wiki-compilation-case-"));
-const env = { TELOMI_WIKI_MAINTAINER_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: "low" };
+const env = { TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" };
 const notes = { schema_version: 1, snapshot_id: "snapshot-1", run_id: "source-run", pipeline: { id: "cornell", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [], notes: [] };
 const goalContext = { title: "Topic navigation", description: "Evidence-grounded methods", language: "en" as const };
 const topicPlan = { schema_version: 1 as const, goal_id: "goal", revision: "v1", status: "active" as const, topics: [{ id: "methods", title: "Methods", intent: "Reusable methods", questions: [], include: [], exclude: [] }] };
@@ -55,8 +55,8 @@ async function compile(input: WikiCompilationRequest): Promise<WikiCompilationRe
 	assert.deepEqual(input.goalContext, goalContext);
 	assert.deepEqual(input.topicPlan, topicPlan);
 	assert.equal(input.rebuild, true);
-	assert.equal(input.env?.TELOMI_WIKI_MAINTAINER_MODEL, "test/root");
-	assert.equal(input.env?.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL, "low");
+	assert.equal(input.env?.TELOMI_WIKI_CURATOR_MODEL, "test/root");
+	assert.equal(input.env?.TELOMI_WIKI_CURATOR_THINKING_LEVEL, "low");
 	assert.deepEqual(json(new RunArtifactStore(input.runDirectory).openFile(input.cornellNotesSnapshot).absolutePath), notes);
 	assert.equal(readFileSync(join(input.goalDir, "wiki", "knowledge", "existing.md"), "utf8"), "Frozen existing page\n");
 	assert.equal(existsSync(join(input.goalDir, "wiki", "knowledge", "live.md")), false, "Candidate must not read live Goal Wiki");
@@ -65,7 +65,7 @@ async function compile(input: WikiCompilationRequest): Promise<WikiCompilationRe
 		knowledge: new RunArtifactStore(input.runDirectory).describeDirectory("knowledge"), pageCount: 1, usage, agentStages: 1,
 		sessionPaths: [trace(input.controlDirectory)], failedBatches: [] };
 }
-async function reindex(input: NoteFirstReindexRequest): Promise<NoteFirstReindexResult> {
+async function reindex(input: WikiReindexRequest): Promise<WikiReindexResult> {
 	assert.deepEqual(input.goalContext, goalContext);
 	assert.deepEqual(input.topicPlan, topicPlan);
 	assert.equal(readFileSync(join(input.knowledgeRoot, "existing.md"), "utf8"), "Frozen existing page\n");
@@ -189,7 +189,7 @@ try {
 		if (kind === "partial") assert.ok(existsSync(join(dirname(cases(req.controlDirectory)[0]!.path), "terminal-workspace", "terminal-knowledge", "page.md")), "partial knowledge remains terminal evidence, never an Observed Baseline");
 	}
 	const retry = request("partial");
-	await runWikiCompilationNodeEvaluation({ ...retry, env: { ...env, TELOMI_WIKI_MAINTAINER_MODEL: "test/changed", TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: "high" } }, { execute: compile });
+	await runWikiCompilationNodeEvaluation({ ...retry, env: { ...env, TELOMI_WIKI_CURATOR_MODEL: "test/changed", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "high" } }, { execute: compile });
 	assert.equal(cases(retry.controlDirectory).length, 2, "a resumed execution captures a new Case instead of overwriting its Recovery Case");
 	assert.deepEqual(cases(retry.controlDirectory).map(item => item.value.status).sort(), ["failed", "succeeded"]);
 	for (const item of cases(retry.controlDirectory)) assert.equal(readWikiCompilationCaseInput(join(dirname(item.path), "input")).request.models.root, "test/root", "Capture must record the resumed model pin, not current settings");

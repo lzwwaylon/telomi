@@ -7,7 +7,7 @@ import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { AgentStageRequest, AgentStageRunner, ValidatedStageArtifact } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { readExternalSources } from "../../server/research/external-search.js";
 import { resolveNoteReadingCue } from "../../server/research/note-reading.js";
-import { materializeFindOutSources } from "../../server/research/pipeline/find-out-sources.js";
+import { materializeOrganizedSources } from "../../server/research/pipeline/organized-sources.js";
 import type { SearchBatchRequest, SearchBatchExecutor, SearchBatchResult } from "../../server/research/pipeline/search-batch.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-external-search-"));
@@ -23,7 +23,7 @@ function materialize(store: RunArtifactStore, workingDirectory: string, text: st
 	const material = join(workingDirectory, "material");
 	mkdirSync(material, { recursive: true });
 	writeFileSync(join(material, "paper.md"), text);
-	return materializeFindOutSources({ artifactStore: store, sequence: 1, workingDirectory,
+	return materializeOrganizedSources({ artifactStore: store, sequence: 1, workingDirectory,
 		members: [{ candidateId: "candidate-paper", sourceId: "source-paper", providerId: "arxiv",
 			title: "Official paper", url: "https://arxiv.org/abs/2601.00001", summary: "Feature description",
 			sourceDirectory: material }], organization: { groups: [],
@@ -54,7 +54,7 @@ try {
 			acquired = materialize(request.artifactStore, join(request.controlDirectory, "test-source-build"), content);
 			assert.equal(acquired.sources[0]!.id, previous.sources[0]!.id);
 			assert.notEqual(acquired.sources[0]!.revisionSha256, previous.sources[0]!.revisionSha256);
-			return { logicalSources: acquired.sources, findOutSources: acquired.artifact, sourceBundles: [],
+			return { logicalSources: acquired.sources, organizedSources: acquired.artifact, sourceBundles: [],
 				executionRecords: [], usage, agentStages: 1, toolCalls: 1 };
 		},
 	};
@@ -84,7 +84,7 @@ try {
 		},
 	};
 	const input = { goalDir, goalId: "goal", runDir, investigationId, sequence: 1, question,
-		signal: new AbortController().signal, env: { TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/model" },
+		signal: new AbortController().signal, env: { TELOMI_NOTE_AGENT_MODEL: "test/model" },
 		searchBatchExecutor: executor, sourceStatus, stageRunner };
 	const result = await readExternalSources(input);
 	assert.equal(searches, 1);

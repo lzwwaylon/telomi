@@ -1,5 +1,6 @@
 import { daemonRunsDirByName } from "../workspaces/goal-runtime-paths.js";
 import { RECORDED_STAGE_AGENT_IDS } from "../agent-runtime/recorded-stage-replay.js";
+import { agentReplayCapabilities, evaluationAgentCatalog, type AgentDescriptor } from "../agent-runtime/agent-catalog.js";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
@@ -289,6 +290,7 @@ export class NodeBacktestService {
 	private readonly queue: QueueRef[] = [];
 	private readonly active = new Map<string, Promise<void>>();
 	private readonly controllers = new Map<string, AbortController>();
+
 	private stopped = true;
 	// ponytail: cache one settled Run up to 32 MiB serialized; add LRU only if concurrent archives thrash it.
 	private replayReadCache?: ReplayReadProjection;
@@ -303,6 +305,10 @@ export class NodeBacktestService {
 		this.concurrency = Math.max(1, Math.floor(options.concurrency ?? 1));
 		this.loadedRuntimeBuild = applicationBuildIdentity(options.applicationDir ?? process.cwd());
 		this.loadedAgentBundleSha256 = hashDirectory(join(options.applicationDir ?? process.cwd(), "agents"));
+	}
+
+	agentCatalog(): AgentDescriptor[] {
+		return evaluationAgentCatalog(this.options.recipes.map((recipe) => recipe.identity.id), this.options.applicationDir);
 	}
 
 	start(): void {
@@ -401,7 +407,7 @@ export class NodeBacktestService {
 		const kind = resolveCaseClass(caseValues.map((item) => item.value));
 		const now = new Date().toISOString();
 		const snapshot = parsed.candidate.capabilitySnapshotId
-			? this.requireCapabilitySnapshot(goalId, parsed.candidate.capabilitySnapshotId)
+			? this.activateCapabilitySnapshot(goalId, parsed.candidate.capabilitySnapshotId)
 			: this.createCapabilitySnapshot(goalId, goalDirectory, caseValues.flatMap(({ value }) =>
 				value.mounts.flatMap((mount) => mount.kind === "harness" ? [mount.workspaceRelativePath] : [])));
 		const promptCandidate = resolvePromptSelection(parsed.agentId, parsed.candidate);
@@ -580,7 +586,7 @@ export class NodeBacktestService {
 			path,
 			dataDir: this.options.workspaceDir,
 			ensureGoal,
-			capabilityContentHash: (directory) => capabilityContentHash(directory),
+			capabilityContentHash: (directory, expectedHash) => capabilityContentHash(directory, undefined, expectedHash),
 		});
 	}
 
@@ -1017,7 +1023,7 @@ export class NodeBacktestService {
 				throw new Error("Node Backtest Candidate Capability Snapshot identity changed");
 			}
 			materializeCapabilities(this.capabilitySnapshotContentDirectory(run.goalId, snapshot.id), workspaceDirectory);
-			if (capabilityContentHash(workspaceDirectory) !== run.candidate.workspaceContentHash) {
+			if (capabilityContentHash(workspaceDirectory, undefined, run.candidate.workspaceContentHash) !== run.candidate.workspaceContentHash) {
 				throw new Error("Node Backtest Candidate Capability Snapshot changed");
 			}
 			for (let caseIndex = 0; caseIndex < run.cases.length; caseIndex += 1) {
@@ -1398,6 +1404,37 @@ export class NodeBacktestService {
 		return this.requireCapabilitySnapshot(goalId, snapshotId);
 	}
 
+	/** Validate frozen bytes first; rename historical Skill ownership only in a fresh activation copy. */
+	private activateCapabilitySnapshot(goalId: string, snapshotId: string): NodeBacktestCapabilitySnapshot {
+		const snapshot = this.requireCapabilitySnapshot(goalId, snapshotId);
+		const content = this.capabilitySnapshotContentDirectory(goalId, snapshot.id);
+		if (!existsSync(join(content, "skills", "cornell-note"))) return snapshot;
+		const temporary = join(this.capabilitySnapshotsDirectory(goalId), `.activation-${randomUUID()}`);
+		mkdirSync(temporary, { recursive: true });
+		try {
+			materializeCapabilities(content, temporary);
+			if (capabilityContentHash(temporary, undefined, snapshot.workspaceContentHash) !== snapshot.workspaceContentHash) {
+				throw new Error("Capability Snapshot changed before activation");
+			}
+			const oldSkillRoot = join(temporary, "skills", "cornell-note");
+			const activeSkillRoot = join(temporary, "skills", "note-agent");
+			const oldSkills = snapshotSkills([oldSkillRoot]);
+			const activeSkills = snapshotSkills([activeSkillRoot]);
+			if (oldSkills.skills.length && activeSkills.skills.length && oldSkills.sha256 !== activeSkills.sha256) {
+				throw new Error("Capability Snapshot activation has conflicting cornell-note and note-agent Skills; choose their ownership before replaying");
+			}
+			if (oldSkills.skills.length || !activeSkills.skills.length) {
+				rmSync(activeSkillRoot, { recursive: true, force: true });
+				renameSync(oldSkillRoot, activeSkillRoot);
+			} else rmSync(oldSkillRoot, { recursive: true, force: true });
+			rmSync(join(temporary, CAPABILITY_ROSTER_FILE), { force: true });
+			// Preserve the full frozen Wiki, rather than applying today's narrower creation filter.
+			return this.createCapabilitySnapshot(goalId, temporary, ["wiki"]);
+		} finally {
+			rmSync(temporary, { recursive: true, force: true });
+		}
+	}
+
 	private requireCapabilitySnapshot(goalId: string, snapshotId: string): NodeBacktestCapabilitySnapshot {
 		const id = safeCapabilitySnapshotId(snapshotId);
 		const root = join(this.capabilitySnapshotsDirectory(goalId), id);
@@ -1409,7 +1446,7 @@ export class NodeBacktestService {
 			throw new Error(`Capability Snapshot '${id}' manifest is invalid`);
 		}
 		const content = join(root, "content");
-		if (!existsSync(content) || capabilityContentHash(content) !== snapshot.workspaceContentHash) {
+		if (!existsSync(content) || capabilityContentHash(content, undefined, snapshot.workspaceContentHash) !== snapshot.workspaceContentHash) {
 			throw new Error(`Capability Snapshot '${id}' content changed`);
 		}
 		return snapshot;
@@ -1617,7 +1654,7 @@ function validateVariant(value: NodeBacktestVariantRequest, label: string): Node
 
 function resolvePromptSelection(agentId: string, candidate: NodeBacktestVariantRequest): NodeBacktestVariantRequest {
 	const recorded = RECORDED_STAGE_AGENT_IDS.includes(agentId as typeof RECORDED_STAGE_AGENT_IDS[number]);
-	const investigation = agentId === "prime-investigation";
+	const capabilities = agentReplayCapabilities(agentId);
 	if (recorded && !candidate.promptMode) {
 		throw new Error("Candidate Capability Bundle requires promptMode 'candidate', 'observed' or 'override'");
 	}
@@ -1629,17 +1666,17 @@ function resolvePromptSelection(agentId: string, candidate: NodeBacktestVariantR
 		if (recorded && (!candidate.promptOverride?.systemPrompt || !candidate.promptOverride.userPrompt)) {
 			throw new Error("Candidate promptMode 'override' requires complete systemPrompt and userPrompt");
 		}
-		if (!recorded && agentId !== "main-agent" && agentId !== "prime-search" && !investigation) {
+		if (!capabilities.replayPromptModes.includes("override")) {
 			throw new Error(`Agent '${agentId}' uses its Candidate Agent Bundle and does not accept Prompt overrides`);
 		}
-		if ((agentId === "prime-search" || investigation) && candidate.promptOverride?.systemPrompt !== undefined) {
+		if (!capabilities.promptOverrideFields.includes("systemPrompt") && candidate.promptOverride?.systemPrompt !== undefined) {
 			throw new Error(`Agent '${agentId}' does not accept systemPrompt override`);
 		}
 		if (!candidate.promptOverride || !Object.values(candidate.promptOverride).some((prompt) => prompt?.trim())) {
 			throw new Error("Candidate promptMode 'override' requires a non-empty Prompt override");
 		}
 	}
-	if (promptMode === "observed" && !recorded && !investigation && agentId !== "main-agent") {
+	if (promptMode === "observed" && !capabilities.replayPromptModes.includes("observed")) {
 		throw new Error(`Agent '${agentId}' cannot freeze observed Prompts; use promptMode 'candidate'`);
 	}
 	return { ...candidate, promptMode };
@@ -1793,7 +1830,7 @@ export function capturedCaseRunRoots(workspaceDir: string, goalId: string): stri
 		...(existsSync(investigations) && lstatSync(investigations).isDirectory()
 			? readdirSync(investigations, { withFileTypes: true }).filter((entry) => entry.isDirectory())
 				.map((entry) => join(investigations, entry.name)) : []),
-		join(workspaceDir, requiredSegment(goalId, "Goal id"), ".pi", "runtime", "deep-search"),
+		join(workspaceDir, requiredSegment(goalId, "Goal id"), ".pi", "runtime", "note-reading"),
 		daemonRunsDirByName(join(workspaceDir, requiredSegment(goalId, "Goal id")), "podcast-ai"),
 	];
 }
@@ -1843,24 +1880,71 @@ function requiredSegment(value: unknown, label: string): string {
 	return segment;
 }
 
-function capabilityContentHash(goalDirectory: string, wikiPaths?: readonly string[]): string {
-	return sha256(stableJson({
-		skills: WORKSPACE_AGENT_IDS.map((agentId) => ({
+
+const CAPABILITY_ROSTER_FILE = ".capability-roster.json";
+// These are immutable pre-roster storage formats, including empty Skill entries and their order.
+// They never register executable Agents. New snapshots freeze their actual roster in the content.
+const PRE_ROSTER_SKILL_ORDERS = [
+	["main-agent", "podcast-writer", "prime-search", "cornell-note", "report-writer", "wiki-shard-builder", "wiki-curator"],
+	["main-agent", "podcast-writer", "prime-search", "note-agent", "report-writer", "wiki-shard-builder", "wiki-curator"],
+] as const;
+
+function capabilityContentHash(goalDirectory: string, wikiPaths?: readonly string[], expectedHash?: string): string {
+	const frozenRoster = readCapabilityRoster(goalDirectory);
+	const hash = (roster: readonly string[]) => sha256(stableJson({
+		skills: roster.map((agentId) => ({
 			agentId,
 			sha256: snapshotSkills([join(goalDirectory, "skills", agentId)]).sha256,
 		})),
 		wiki: hashDirectory(join(goalDirectory, "wiki"), capabilityWikiFilter(wikiPaths)),
 	}));
+	if (frozenRoster) return hash(frozenRoster);
+	if (expectedHash) {
+		for (const roster of PRE_ROSTER_SKILL_ORDERS) {
+			if (skillDirectories(goalDirectory).some((id) => !(roster as readonly string[]).includes(id))) continue;
+			const historicalHash = hash(roster);
+			if (historicalHash === expectedHash) return historicalHash;
+		}
+	}
+	return hash(currentCapabilityRoster(goalDirectory));
+}
+
+function readCapabilityRoster(directory: string): string[] | undefined {
+	const path = join(directory, CAPABILITY_ROSTER_FILE);
+	if (!existsSync(path)) return undefined;
+	const value = JSON.parse(readFileSync(path, "utf8")) as { schemaVersion?: unknown; skillAgentIds?: unknown };
+	if (value.schemaVersion !== 1 || !Array.isArray(value.skillAgentIds)
+		|| !value.skillAgentIds.every((id): id is string => typeof id === "string" && isFileNameSegment(id))
+		|| new Set(value.skillAgentIds).size !== value.skillAgentIds.length
+		|| stableJson([...value.skillAgentIds].sort()) !== stableJson(skillDirectories(directory))) {
+		throw new Error("Capability Snapshot Skill roster is invalid");
+	}
+	return value.skillAgentIds;
+}
+
+function skillDirectories(directory: string): string[] {
+	const root = join(directory, "skills");
+	return existsSync(root) ? readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name).sort() : [];
+}
+
+function currentCapabilityRoster(directory: string): string[] {
+	return [...WORKSPACE_AGENT_IDS, ...skillDirectories(directory).filter((id) => !WORKSPACE_AGENT_IDS.includes(id as typeof WORKSPACE_AGENT_IDS[number]))];
 }
 
 /** Omit wikiPaths only when restoring an already frozen Snapshot, including historical ones. */
 export function materializeCapabilities(goalDirectory: string, destination: string, wikiPaths?: readonly string[]): void {
 	const includeWiki = capabilityWikiFilter(wikiPaths);
-	for (const agentId of WORKSPACE_AGENT_IDS) {
+	const frozenRoster = readCapabilityRoster(goalDirectory);
+	const roster = frozenRoster ?? (wikiPaths ? currentCapabilityRoster(goalDirectory) : skillDirectories(goalDirectory));
+	for (const agentId of roster) {
 		materializeSkills(
 			snapshotSkills([join(goalDirectory, "skills", agentId)]),
 			join(destination, "skills", agentId),
 		);
+	}
+	if (wikiPaths || frozenRoster) {
+		writeFileAtomic(join(destination, CAPABILITY_ROSTER_FILE), `${JSON.stringify({ schemaVersion: 1, skillAgentIds: roster }, null, 2)}\n`);
 	}
 	if (existsSync(join(goalDirectory, "wiki"))) {
 		cpSync(join(goalDirectory, "wiki"), join(destination, "wiki"), {

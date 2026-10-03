@@ -78,7 +78,7 @@ import { isInsideRoot } from "../lib/paths.js";
 import { toErrorMessage } from "../lib/values.js";
 
 export type ResearchAgentStageRole =
-	| "cornell_note"
+	| "note_agent"
 	| "report_writer";
 
 export type AgentStageRole = ResearchAgentStageRole | (string & {});
@@ -126,6 +126,7 @@ export interface AgentStageRequest<T> {
 		domain: PromptDomain;
 		id: string;
 		sandboxRole: SandboxRole;
+		systemVariant?: string;
 		userVariant?: string;
 		revisions?: { system?: PromptRevisionIdentity; user?: PromptRevisionIdentity };
 	};
@@ -443,13 +444,14 @@ export class SrtStageRuntime implements AgentStageRunner {
 		const promptIdentity = request.promptConfig ?? defaultResearchPromptConfig(request.role);
 		const promptConfig = loadAgentPromptConfig(promptIdentity.domain, promptIdentity.id);
 		const promptRevisions = promptIdentity.revisions ?? {};
-		const systemKind = promptConfig.prompts.system?.default ? "system" as const
-			: promptConfig.prompts["system-append"]?.default ? "system-append" as const
+		const systemVariant = promptIdentity.systemVariant ?? "default";
+		const systemKind = promptConfig.prompts.system?.[systemVariant] ? "system" as const
+			: promptConfig.prompts["system-append"]?.[systemVariant] ? "system-append" as const
 				: undefined;
 		if (promptRevisions.system && !systemKind) {
-			throw new Error(`Agent '${request.role}' carries a system Prompt revision but declares no default system Prompt`);
+			throw new Error(`Agent '${request.role}' carries a system Prompt revision but declares no system Prompt variant ${systemVariant}`);
 		}
-		if (systemKind) validateCarriedPromptRevision(promptRevisions.system, promptIdentity, systemKind, "default");
+		if (systemKind) validateCarriedPromptRevision(promptRevisions.system, promptIdentity, systemKind, systemVariant);
 		validateCarriedPromptRevision(promptRevisions.user, promptIdentity, "user", promptIdentity.userVariant ?? "default");
 		const requestedPromptSha256 = { system: sha256(request.systemPrompt), user: sha256(request.userPrompt) };
 		const sandboxPolicy = promptConfig.sandbox;
@@ -1300,7 +1302,7 @@ function assertStageEntryInsideWorkDirectory(workDirectory: string, entryPath: s
 
 function reportSandboxRole(role: ResearchAgentStageRole): ReportSandboxRole {
 	const roles: Record<ResearchAgentStageRole, ReportSandboxRole> = {
-		cornell_note: "report.cornell_note",
+		note_agent: "report.note_agent",
 		report_writer: "report.report_writer",
 	};
 	return roles[role];
@@ -1308,7 +1310,7 @@ function reportSandboxRole(role: ResearchAgentStageRole): ReportSandboxRole {
 
 function researchPromptId(role: ResearchAgentStageRole): string {
 	const ids: Record<ResearchAgentStageRole, string> = {
-		cornell_note: "cornell-note",
+		note_agent: "note-agent",
 		report_writer: "report-writer",
 	};
 	return ids[role];
@@ -1321,6 +1323,7 @@ function defaultResearchPromptConfig(role: AgentStageRole): NonNullable<AgentSta
 	return {
 		domain: "research",
 		id: researchPromptId(role),
+		...(role === "report_writer" ? { systemVariant: "wiki" } : {}),
 		sandboxRole: reportSandboxRole(role),
 	};
 }
@@ -1340,7 +1343,7 @@ function validateCarriedPromptRevision(
 
 function isResearchAgentStageRole(role: AgentStageRole): role is ResearchAgentStageRole {
 	return [
-		"cornell_note",
+		"note_agent",
 		"report_writer",
 	].includes(role);
 }

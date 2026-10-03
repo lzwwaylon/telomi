@@ -36,7 +36,7 @@ import type { SearchBatchRequest, SearchBatchResult } from "../../server/researc
 
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "telomi-case-capture-"));
-const modelEnv = { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/note", TELOMI_WIKI_MAINTAINER_MODEL: "test/root" };
+const modelEnv = { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_NOTE_AGENT_MODEL: "test/note", TELOMI_WIKI_CURATOR_MODEL: "test/root" };
 
 // ---------------------------------------------------------------------------
 // 依赖方向：产品模块不得 import Evaluation 实现。
@@ -84,10 +84,10 @@ function stageRequest(): AgentStageRequest<unknown> {
 		runId: "run-1",
 		stageId: "stage-1",
 		attemptId: "1",
-		role: "cornell_note",
+		role: "note_agent",
 		recordKind: "research",
-		promptConfig: { domain: "research", id: "cornell-note", sandboxRole: "research.cornell-note" } as never,
-		session: { key: "cornell-note", policy: "fresh" },
+		promptConfig: { domain: "research", id: "note-agent", sandboxRole: "research.note-agent" } as never,
+		session: { key: "note-agent", policy: "fresh" },
 		modelPolicy: { preferred: ["openai-codex/gpt-5.4-mini"] },
 		systemPrompt: "system",
 		userPrompt: "user",
@@ -111,13 +111,13 @@ const recordingRunner: AgentStageRunner = {
 await recordingRunner.runStage(stageRequest());
 await withResearchNodeEvaluationCapture(recordingRunner, harnessDirectory).runStage(stageRequest());
 assert.equal(specs[0], undefined, "the undecorated product Stage Runner carries no Case Capture spec");
-assert.equal(specs[1]?.agentId, "cornell-note", "the Capture decorator adds the Case Capture spec");
+assert.equal(specs[1]?.agentId, "note-agent", "the Capture decorator adds the Case Capture spec");
 
 // 无 spec 的请求写不出 Case 目录；有 spec 的会写出来。这是没有 Hook 时在磁盘上的含义。
 assert.equal(beginNodeEvaluationCase({
 	request: stageRequest(),
 	recordDirectory,
-	promptConfig: { domain: "research", id: "cornell-note", sandboxRole: "research.cornell-note" },
+	promptConfig: { domain: "research", id: "note-agent", sandboxRole: "research.note-agent" },
 	sessionContextFile: join(recordDirectory, ".missing"),
 	composedSystemPrompt: "system",
 	actualModel: "openai-codex/gpt-5.4-mini",
@@ -128,7 +128,7 @@ assert.ok(!existsSync(join(recordDirectory, "node-evaluation")),
 const captured = beginNodeEvaluationCase({
 	request: { ...stageRequest(), evaluation: specs[1]! },
 	recordDirectory,
-	promptConfig: { domain: "research", id: "cornell-note", sandboxRole: "research.cornell-note" },
+	promptConfig: { domain: "research", id: "note-agent", sandboxRole: "research.note-agent" },
 	sessionContextFile: join(recordDirectory, ".missing"),
 	composedSystemPrompt: "system",
 	actualModel: "openai-codex/gpt-5.4-mini",

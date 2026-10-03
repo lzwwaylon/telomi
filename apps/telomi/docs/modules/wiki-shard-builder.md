@@ -30,4 +30,4 @@ Wiki cases under `tests/wiki/` and `tests/evaluation/` cover deterministic contr
 This module produces candidate Shards only and does not establish the final Curator publication's quality. Fact attribution, version/metric conditions, and omissions from compression still require semantic review; do not add keyword-based Runtime semantic rules.
 
 
-Formal Note-first Cases use the separate `wiki-compilation@1` production capture boundary described in [Wiki Compilation](wiki-compilation.md). Historical private diagnostics remain outside product Replay and do not become formal Cases or Attestations.
+Formal Wiki compilation Cases use the separate `wiki-compilation@1` production capture boundary described in [Wiki Compilation](wiki-compilation.md). Historical private diagnostics remain outside product Replay and do not become formal Cases or Attestations.

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { derivePrimeSearchSourceId } from "../../server/providers/search-contracts.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import {
-	materializeFindOutReportView,
+	materializeNotesReportView,
 	materializeReportKnowledgeView,
 } from "../../server/research/pipeline/report-knowledge-view.js";
 import { Run } from "../../server/research/pipeline/orchestrator.js";
@@ -53,12 +53,12 @@ try {
 	};
 	const cornellNotesArtifact = sourceStore.publishText(`${JSON.stringify(evidence, null, 2)}\n`,
 		"artifacts/cornell-notes/snapshot.json");
-	const findOut = materializeFindOutReportView({
-		targetStore: new RunArtifactStore(join(root, "findout-compact")), evidence, cornellNotesArtifact,
+	const organized = materializeNotesReportView({
+		targetStore: new RunArtifactStore(join(root, "notes-compact")), evidence, cornellNotesArtifact,
 		targetRelativePath: "snapshot",
 	});
-	assert.equal(existsSync(join(findOut.absolutePath, "notes/0001-1.md")), false);
-	assert.equal(JSON.parse(readFileSync(join(findOut.absolutePath, "index.json"), "utf-8"))
+	assert.equal(existsSync(join(organized.absolutePath, "notes/0001-1.md")), false);
+	assert.equal(JSON.parse(readFileSync(join(organized.absolutePath, "index.json"), "utf-8"))
 		.notes[0].path, undefined);
 	const view = materializeReportKnowledgeView({
 		targetStore: new RunArtifactStore(targetRoot), sourceStore,

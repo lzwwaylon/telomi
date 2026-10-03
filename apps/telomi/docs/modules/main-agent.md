@@ -65,10 +65,10 @@ The authoritative list is `MAIN_TERMINAL_ACTIONS` in `server/main-agent/tools/te
 - Main Agent owns user semantics, ongoing conversation, and high-level tool selection. It does not generate Search Plans.
 - New Goal knowledge questions go to Prime through `investigate`; Main has no Wiki search or page-reading tools. Runtime still resolves Wiki citation refs when compiling Prime's answer.
 - When a Goal is created, its description changes, or Cornell Notes yield a new Discovery, Runtime wakes the same Main Agent Session through an internal event. Main Agent progressively reads the Topic Plan Skill, maintains the semantic draft through native file Tools, and reports new findings to the user. Only when the user confirms does Runtime append a JSONL history snapshot, activate the revision, and trigger a Wiki Curator reframe. Research and Research Schedules cannot start before Topic Plan activation or while a revision awaits confirmation.
-- Prime Search, Source Organizer, Cornell Note, Report Writer, and Wiki Maintainer are Agents inside tools, not user conversation entry points.
+- Prime Search, Source Organizer, Note Agent, Report Writer, and Wiki Curator are Agents inside tools, not user conversation entry points.
 - Runtime owns sessions, isolation, state, validation, caching, publication, and terminal-action constraints. It does not make semantic judgments.
 - Hindsight results are historical data with provenance; the current user message always takes precedence. User memory is neither written into Goal Workspace nor injected into Research Agents.
-- When delegating, Main Agent includes only constraints needed by the current step in the task Prompt. Only two Agents read the User Memory Service: Main Agent and the read-only Research Schedule Reviewer. Search, Source Organizer, Cornell Note, and Wiki Maintainer do not access User Memory Tools.
+- When delegating, Main Agent includes only constraints needed by the current step in the task Prompt. Only two Agents read the User Memory Service: Main Agent and the read-only Research Schedule Reviewer. Search, Source Organizer, Note Agent, and Wiki Curator do not access User Memory Tools.
 - Every Goal has exactly one authoritative Wiki, `wiki/knowledge`. There is no desktop LLM Wiki project or permanent dual write.
 
 ## Verification

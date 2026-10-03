@@ -49,7 +49,7 @@ function browserBatchExecutor(childId: string): SearchBatchExecutor {
 			const bundle = store.publishDirectory(bundleSource, `artifacts/source-bundles/browser/${childId}`);
 			const findOutSource = join(request.controlDirectory, `capture-find-out-${childId}`);
 			mkdirSync(findOutSource, { recursive: true });
-			const findOutSources = store.publishDirectory(findOutSource, `artifacts/find-out-sources/${childId}`);
+			const organizedSources = store.publishDirectory(findOutSource, `artifacts/find-out-sources/${childId}`);
 			const record = {
 				schema_version: 3,
 				run_id: request.runId,
@@ -74,7 +74,7 @@ function browserBatchExecutor(childId: string): SearchBatchExecutor {
 			return {
 				logicalSources: [],
 				sourceBundles: [bundle],
-				findOutSources,
+				organizedSources,
 				executionRecords: [{ record, artifact: store.publishText("{}\n", `artifacts/search-executions/${childId}.json`) }],
 				usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, calls: 1 },
 				agentStages: 1,

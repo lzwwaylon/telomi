@@ -82,7 +82,7 @@ const ReportFlowCheckpointSchema = Type.Object({
 	execution_plan: ArtifactRefSchema,
 	cornell_notes_snapshot: Type.Optional(ArtifactRefSchema),
 	knowledge_input: Type.Optional(Type.Object({
-		mode: Type.Union([Type.Literal("wiki"), Type.Literal("findout")]),
+		mode: Type.Union([Type.Literal("wiki"), Type.Literal("notes")]),
 		ref: NonEmptyString,
 		sha256: Sha256,
 		byte_length: Type.Integer({ minimum: 0 }),

@@ -470,7 +470,7 @@ assert.throws(() => resolveTraceFile({
 }), /Invalid Trace file ref/u);
 
 // The Wiki Run pins its Curator model at the start; the Trace reads that pin when no Case names a model.
-writeFileSync(join(wikiUpdateDir, "wiki-model-selection.json"), JSON.stringify({ TELOMI_WIKI_MAINTAINER_MODEL: "telomi-test/wiki-1", TELOMI_PRIME_AGENT_CHILD_MODEL: "telomi-test/child-1", TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: "low" }));
+writeFileSync(join(wikiUpdateDir, "wiki-model-selection.json"), JSON.stringify({ TELOMI_WIKI_CURATOR_MODEL: "telomi-test/wiki-1", TELOMI_PRIME_AGENT_CHILD_MODEL: "telomi-test/child-1", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" }));
 const wiki = readTraceRun({ workspaceDir, goalId, kind: "wiki", runId: wikiUpdateId });
 assert.equal(wiki.status, "succeeded");
 assert.equal(wiki.model, "telomi-test/wiki-1");

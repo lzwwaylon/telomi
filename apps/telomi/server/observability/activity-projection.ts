@@ -1,4 +1,4 @@
-import { manifestSessionSections, reporterSessionSections, safeSessionPath, wikiSessionSections, type SessionSection } from "./session-traces.js";
+import { manifestSessionSections, reportWriterSessionSections, safeSessionPath, wikiSessionSections, type SessionSection } from "./session-traces.js";
 import { sha256 } from "../lib/hash.js";
 import { closeSync, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -386,7 +386,7 @@ export function recordedAgentActivityAt(pointer: RecordedAgentPointer): string |
 	try {
 		sections = sessionRef
 			? pointer.agent === "report_writer"
-				? reporterSessionSections(pointer.runDirectory, sessionRef)
+				? reportWriterSessionSections(pointer.runDirectory, sessionRef)
 				: manifestSessionSections(pointer.runDirectory, `${sessionRef}.sessions.json`) ?? []
 			: [];
 	} catch {
@@ -537,7 +537,7 @@ function readPointerLines(pointer: OutputPointer): ActivityOutputLine[] | null {
 	const sessionPath = sessionRef ? safeSessionPath(pointer.runDirectory, sessionRef) : undefined;
 	if (sessionRef) {
 		const sections = pointer.agent === "report_writer"
-			? reporterSessionSections(pointer.runDirectory, sessionRef)
+			? reportWriterSessionSections(pointer.runDirectory, sessionRef)
 			: manifestSessionSections(pointer.runDirectory, `${sessionRef}.sessions.json`);
 		if (sections) return withTracePlaceholder(sectionLines(sections), pointer.lifecycle);
 	}

@@ -55,7 +55,7 @@ export function manifestSessionSections(root: string, ref: string, boundary = ro
 	return sessionSections(root, manifest.sessions, boundary);
 }
 
-export function reporterSessionSections(root: string, sessionRef: string): SessionSection[] {
+export function reportWriterSessionSections(root: string, sessionRef: string): SessionSection[] {
 	return manifestSessionSections(root, `${sessionRef}.sessions.json`) ?? [];
 }
 

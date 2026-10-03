@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { freezeModelDefinitions } from '../../server/agent-runtime/model-policy.js';
 import { listJsonl } from '../../server/lib/fs.js';
 import { type PageTopicCompletion, PAGE_TOPIC_MODEL, runPageTopicStage } from '../../server/wiki/page-topic-stage.js';
-import type { NoteFirstInput, NoteFirstStageRequest } from '../../server/wiki/note-first-contract.js';
-import { objectFirstSections } from '../../server/wiki/object-first-contract.js';
+import type { WikiStageInput, WikiStageRequest } from '../../server/wiki/wiki-stage-contract.js';
+import { wikiPageSections } from '../../server/wiki/wiki-page-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'page-topic-stage-'));
 const canonical = join(root, 'canonical');
@@ -19,8 +19,8 @@ writeFileSync(join(canonical, 'models-store.json'), JSON.stringify({ 'openai-cod
 const env = freezeModelDefinitions({ ...process.env, PRIME_AGENT_CODING_AGENT_DIR: canonical }, join(root, 'frozen'));
 const entryId = `entry:${'a'.repeat(24)}`;
 const page = { id: 'entity:demo', kind: 'entity' as const, title: 'Hidden page title', description: 'Hidden description', body: `## Water\nUses drip irrigation. [[${entryId}]]\n\n## Context\nUnrelated note.` };
-const input: NoteFirstInput = { stage: 'page-topics', key: 'demo', language: 'en', goal: { title: 'Hidden goal', description: '' },
- pages: [{ ref: 'private-page-ref', page, previous: true, role: 'context' }], sections: objectFirstSections([page]),
+const input: WikiStageInput = { stage: 'page-topics', key: 'demo', language: 'en', goal: { title: 'Hidden goal', description: '' },
+ pages: [{ ref: 'private-page-ref', page, previous: true, role: 'context' }], sections: wikiPageSections([page]),
  entries: [{ id: entryId, revisionSha256: 'r', sourceRunId: 'run', sourceId: 'source', sourceTitle: 'Hidden source', canonicalLocator: '', members: [], section: 'Hidden cue', cue: 'Hidden cue', detail: 'Hidden detail', anchors: [] }],
  requiredEntries: [], requiredPages: [], previousRelations: [], instructions: '',
  topics: [{ id: 'topic:water', title: 'Water use', intent: 'Water conservation', questions: [], include: ['Irrigation'], exclude: ['Electricity'] }],
@@ -29,7 +29,7 @@ const output = { sections: [{ section_ref: 'S1', matches: [{ topic_ref: 'T1', re
 const response = (text = JSON.stringify(output)): Awaited<ReturnType<PageTopicCompletion>> => ({ role: 'assistant', api: 'openai-codex-responses', provider: 'openai-codex', model: 'gpt-6-luna',
  content: [{ type: 'text', text }], stopReason: 'stop', timestamp: Date.now(),
  usage: { input: 100, cacheRead: 40, cacheWrite: 0, output: 30, totalTokens: 170, cost: { input: 0.01, cacheRead: 0.001, cacheWrite: 0, output: 0.002, total: 0.013 } } });
-const request = (name: string): NoteFirstStageRequest => ({ input, env, workRoot: join(root, name), signal: new AbortController().signal });
+const request = (name: string): WikiStageRequest => ({ input, env, workRoot: join(root, name), signal: new AbortController().signal });
 const json = (file: string) => JSON.parse(readFileSync(file, 'utf8'));
 let calls = 0;
 const complete: PageTopicCompletion = async (resolved, context, options) => {

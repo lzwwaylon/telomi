@@ -94,14 +94,14 @@ const CHAT_CONFIG: ProviderConfig = {
   providerFallbackModels: [],
   taskModels: { primeRoot: "telomi-test/small-1" },
   taskModelRoles: [
-    { id: "cornellNote", label: "Cornell Note", description: "", legacyEnvVar: "", stages: { evidenceNote: { label: "Evidence note", envVar: "" } } },
-    { id: "primeRoot", label: "Prime Root", description: "", legacyEnvVar: "", stages: { reportWriter: { label: "Report writing", envVar: "" } } },
+    { id: "noteAgent", label: "Cornell Note", description: "", modelEnvVar: "", stages: { evidenceNote: { label: "Evidence note", envVar: "" } } },
+    { id: "primeRoot", label: "Prime Root", description: "", modelEnvVar: "", stages: { reportWriter: { label: "Report writing", envVar: "" } } },
   ],
   providers: [],
   thinkingLevels: ["off", "low", "high"],
   consumers: [
     { id: "mainAgent", effectiveModel: "telomi-test/large-1", status: "pending", pendingCount: 2, stages: [] },
-    { id: "cornellNote", effectiveModel: "telomi-test/large-1", status: "active", pendingCount: 0, stages: [{ key: "cornellNote.evidenceNote", label: "Evidence note", thinkingLevel: "low", source: "settings" }] },
+    { id: "noteAgent", effectiveModel: "telomi-test/large-1", status: "active", pendingCount: 0, stages: [{ key: "noteAgent.evidenceNote", label: "Evidence note", thinkingLevel: "low", source: "settings" }] },
     { id: "primeRoot", effectiveModel: "telomi-test/small-1", status: "active", pendingCount: 0, stages: [{ key: "primeRoot.reportWriter", label: "Report writing", thinkingLevel: "high", source: "override" }] },
   ],
 };
@@ -138,9 +138,9 @@ test("the assignment board shows the default, marks inherited rows, and offers a
   // The Runtime's adoption state is stated per row, not derived by the page.
   assert.match(html, new RegExp(`data-testid="chat-board-status-default"[^>]*>${literal(i18next.t("settings.board.pendingGoals", { count: 2 }))}`));
   // An inherited row shows the default's value and has no reset; an own row has one.
-  assert.match(html, /data-testid="chat-board-row-cornellNote" data-inherited="true"/);
-  assert.match(html, /data-testid="chat-board-model-cornellNote"[^>]*>[\s\S]*?<option value="large-1" selected="">/);
-  assert.ok(!html.includes('data-testid="chat-board-reset-cornellNote"'));
+  assert.match(html, /data-testid="chat-board-row-noteAgent" data-inherited="true"/);
+  assert.match(html, /data-testid="chat-board-model-noteAgent"[^>]*>[\s\S]*?<option value="large-1" selected="">/);
+  assert.ok(!html.includes('data-testid="chat-board-reset-noteAgent"'));
   assert.match(html, /data-testid="chat-board-reset-primeRoot"/);
   assert.match(html, /data-testid="chat-board-depth-primeRoot.reportWriter"[^>]*>[\s\S]*?<option value="high" selected="">/);
   // A connection without a credential is not offered at all; only ones that can serve now are.
@@ -548,11 +548,11 @@ test("a connection row counts every model it serves and names its users as the m
 
   const chat = renderToStaticMarkup(<ConnectionBadges summary={{ ...CONNECTIONS[0], usedBy: [
     { capability: "chat", consumer: "default", connection: "telomi-test", model: "large-1" },
-    { capability: "chat", consumer: "wikiMaintainer", connection: "telomi-test", model: "small-1" },
+    { capability: "chat", consumer: "wikiCurator", connection: "telomi-test", model: "small-1" },
     { capability: "embedding", consumer: "memory", connection: "telomi-test", model: "embed-1" },
   ] }} />);
   for (const label of [i18next.t("settings.board.default"), "Wiki Curator", i18next.t("settings.embedding.memory")]) assert.ok(chat.includes(label), label);
-  assert.doesNotMatch(chat, /wikiMaintainer|· memory/);
+  assert.doesNotMatch(chat, /wikiCurator|· memory/);
 });
 
 test("a saved key waits to be activated with a test model the user picks, and says so", () => {

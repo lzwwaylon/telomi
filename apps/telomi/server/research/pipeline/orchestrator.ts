@@ -58,9 +58,9 @@ import {
 import { StageInputView } from "./input-view.js";
 import { listPriorReports, stagePriorReports } from "./prior-reports.js";
 import {
-	buildFindOutReportWriterSystemPrompt,
-	buildFullReportWriterSystemPrompt,
-	findOutSelfDirectedWriterUserPrompt,
+	buildNotesReportWriterSystemPrompt,
+	buildWikiReportWriterSystemPrompt,
+	notesSelfDirectedWriterUserPrompt,
 	materializeReportPlan,
 	validateWriterAuthoredOutline,
 	wikiSelfDirectedWriterUserPrompt,
@@ -68,7 +68,7 @@ import {
 } from "./report-prompts.js";
 import type { SearchBatchExecutor, SearchBatchResult } from "./search-batch.js";
 import { validateSourceBundleDirectory } from "./source-bundle.js";
-import { materializeFindOutReportView, materializeReportKnowledgeView } from "./report-knowledge-view.js";
+import { materializeNotesReportView, materializeReportKnowledgeView } from "./report-knowledge-view.js";
 import { createWikiReportReferenceAdapter } from "./wiki-report-references.js";
 import {
 	filterProcessedSources,
@@ -76,7 +76,7 @@ import {
 	scheduledSourceIdentity,
 } from "./source-version.js";
 import type { RunArtifactRef } from "../../agent-runtime/artifact-store.js";
-import { loadFindOutSources } from "./find-out-sources.js";
+import { loadOrganizedSources } from "./organized-sources.js";
 import {
 	RUN_WORKFLOW_ID,
 	RUN_WORKFLOW_VERSION,
@@ -124,7 +124,7 @@ export interface RunRequest {
 	signal: AbortSignal;
 	/**
 	 * 只跑 Report Flow：Cornell Notes 已经冻结，直接从它开始。
-	 * 没有 wikiCompilation 就是 Find Out 模式，Knowledge 视图当场从 Notes 物化。
+	 * 没有 wikiCompilation 就是 Notes 模式，Knowledge 视图当场从 Notes 物化。
 	 */
 	reportInput?: {
 		sourceRunId: string;
@@ -303,7 +303,7 @@ export class Run {
 					schema_version: 1,
 					run_id: request.runId,
 					source_run_id: reportInput.sourceRunId,
-					input_mode: reportInput.wikiCompilation ? "wiki" : "findout",
+					input_mode: reportInput.wikiCompilation ? "wiki" : "notes",
 					...(reportInput.knowledgeInput ? { knowledge_input: reportInput.knowledgeInput } : {}),
 					created_at: state.started_at,
 				}, null, 2)}\n`, "artifacts/report-run/manifest.json");
@@ -410,7 +410,7 @@ export class Run {
 		const { request, artifactStore, state, transition, emit, evidence } = args;
 		const reportModelPolicy = primeReportWriterStageModelPolicy(request.env);
 		const reportChild = resolvePrimeAgentModels(request.env).child;
-		const knowledgeMode = args.wikiCompilation ? "wiki" as const : "findout" as const;
+		const knowledgeMode = args.wikiCompilation ? "wiki" as const : "notes" as const;
 		const knowledgeSnapshot = this.reportKnowledgeSnapshot({ request, artifactStore, evidence,
 			cornellNotesArtifact: args.cornellNotesArtifact, wikiCompilation: args.wikiCompilation });
 		const availableReportTools = knowledgeMode === "wiki" ? request.reportTools ?? createGoalLlmWikiTools({
@@ -483,10 +483,10 @@ export class Run {
 					.map((record) => requireAgentEvidenceHandle(handles, record.note.source_id)).sort(),
 		});
 		if (cornellFailures) writerInput.writeJson("cornell-failures.json", cornellFailures);
-		if (knowledgeMode === "findout") copyFindOutView(writerInput, knowledgeSnapshot);
+		if (knowledgeMode === "notes") copyNotesView(writerInput, knowledgeSnapshot);
 		let outlineEvidenceIds = new Set<string>();
 		// N ref 一直保留到 final.json：同一 Source 的不同 Note 必须拥有不同 Citation identity。
-		const noteWorkspaceForRefs = knowledgeMode === "findout"
+		const noteWorkspaceForRefs = knowledgeMode === "notes"
 			? loadReportNoteWorkspace(knowledgeSnapshot.absolutePath)
 			: undefined;
 		const resolveWriterRefs = (output: WriterOutput): WriterOutput => {
@@ -587,13 +587,15 @@ export class Run {
 				stageId: writerStageId,
 				attemptId: "1",
 				role: "report_writer",
+				promptConfig: { domain: "research", id: "report-writer", sandboxRole: "report.report_writer",
+					systemVariant: knowledgeMode, userVariant: `${knowledgeMode}-plan` },
 				session: { key: writerStageId, policy: "fresh" },
 				modelPolicy: reportModelPolicy,
-				systemPrompt: knowledgeMode === "findout"
-					? buildFindOutReportWriterSystemPrompt()
-					: buildFullReportWriterSystemPrompt(),
-				userPrompt: (knowledgeMode === "findout"
-					? findOutSelfDirectedWriterUserPrompt
+				systemPrompt: knowledgeMode === "notes"
+					? buildNotesReportWriterSystemPrompt()
+					: buildWikiReportWriterSystemPrompt(),
+				userPrompt: (knowledgeMode === "notes"
+					? notesSelfDirectedWriterUserPrompt
 					: wikiSelfDirectedWriterUserPrompt)({
 						language: request.language,
 						currentDate: request.temporalContext.currentDate,
@@ -635,7 +637,7 @@ export class Run {
 				});
 			});
 		}
-		// 唯一的 Prime Report Root 产出 Outline 与章节。Runtime 只在这里校验并发布结构产物。
+		// 唯一的 Report Writer Root 产出 Outline 与章节。Runtime 只在这里校验并发布结构产物。
 		if (!plan) throw new Error("Report Flow finished the Writer Stage without an executable Plan");
 		const reportPlan = plan;
 		if (!outline) throw new Error("Report Flow finished without an authoritative Outline");
@@ -645,14 +647,14 @@ export class Run {
 			? artifactStore.describeFile(outlinePath)
 			: artifactStore.publishText(outlineText, outlinePath);
 		if (readFileSync(reportOutlineArtifact.absolutePath, "utf-8") !== outlineText) {
-			throw new Error("Published Report Outline does not match the Prime Report Root output");
+			throw new Error("Published Report Outline does not match the Report Writer Root output");
 		}
 		const planText = `${JSON.stringify(reportPlan, null, 2)}\n`;
 		const reportPlanArtifact = existsSync(join(request.workspaceDirectory, planPath))
 			? artifactStore.describeFile(planPath)
 			: artifactStore.publishText(planText, planPath);
 		if (readFileSync(reportPlanArtifact.absolutePath, "utf-8") !== planText) {
-			throw new Error("Published Report Plan does not match the Prime Report Root output");
+			throw new Error("Published Report Plan does not match the Report Writer Root output");
 		}
 		if (state.status !== "chapters_writing") transition("chapters_writing");
 		emit("report_writer", "succeeded");
@@ -760,11 +762,11 @@ export class Run {
 		wikiCompilation?: WikiCompilationResult;
 	}): PublishedArtifactDirectoryRef {
 		if (!input.wikiCompilation) {
-			return materializeFindOutReportView({
+			return materializeNotesReportView({
 				targetStore: input.artifactStore,
 				evidence: input.evidence,
 				cornellNotesArtifact: input.cornellNotesArtifact,
-				targetRelativePath: "artifacts/report-flow/findout-snapshot",
+				targetRelativePath: "artifacts/report-flow/notes-snapshot",
 			});
 		}
 		if (input.request.reportInput?.knowledgeInput) {
@@ -824,7 +826,7 @@ export class Run {
 		const request = input.request;
 		// Wiki Update is an independent execution, not a continuation of this Run.
 		const wikiEnv = { ...request.env };
-		for (const role of RUN_MODEL_ROLES) delete wikiEnv[TASK_MODEL_ROLE_INFO[role].legacyEnvVar];
+		for (const role of RUN_MODEL_ROLES) delete wikiEnv[TASK_MODEL_ROLE_INFO[role].modelEnvVar];
 		for (const { role, info } of taskModelStages()) {
 			if (RUN_MODEL_ROLES.some((runRole) => runRole === role)) delete wikiEnv[info.envVar];
 		}
@@ -989,7 +991,7 @@ export class Run {
 			args.cumulativeBundleRefs.push(...batch.sourceBundles.map((bundle) => bundle.relativePath));
 			args.transition("evidence_materializing", (draft) => {
 				draft.source_bundles.push(...batch.sourceBundles.map(artifactRef));
-				(draft.find_out_sources ??= []).push(artifactRef(batch.findOutSources));
+				(draft.find_out_sources ??= []).push(artifactRef(batch.organizedSources));
 				draft.search_execution_records.push(...batch.executionRecords.map((item) => artifactRef(item.artifact)));
 				recordDegradedSearches(draft, batch);
 				draft.usage.search_attempts += batch.executionRecords.length;
@@ -1230,7 +1232,7 @@ function hydrateCheckpoint(
 		return { snapshot, artifact };
 	});
 	const findOutDocuments = (state.find_out_sources ?? []).flatMap((reference) =>
-		loadFindOutSources(artifactStore.openDirectory(reference)));
+		loadOrganizedSources(artifactStore.openDirectory(reference)));
 	return {
 		documents: findOutDocuments.length > 0 ? findOutDocuments : documents,
 		bundleRefs,
@@ -1387,16 +1389,16 @@ function classifyFailure(message: string): string {
 	return "runtime_invariant";
 }
 
-function copyFindOutView(input: StageInputView, snapshot: PublishedArtifactDirectoryRef): void {
+function copyNotesView(input: StageInputView, snapshot: PublishedArtifactDirectoryRef): void {
 	for (const file of snapshot.files) {
-		input.copyFile(`findout/${file.relativePath}`, join(snapshot.absolutePath, file.relativePath));
+		input.copyFile(`notes/${file.relativePath}`, join(snapshot.absolutePath, file.relativePath));
 	}
 }
 
 function persistedOutline(
 	outline: ReportOutline,
 	handles: AgentEvidenceHandles,
-	mode: "wiki" | "findout",
+	mode: "wiki" | "notes",
 ): unknown {
 	if (mode === "wiki") return outline;
 	return {

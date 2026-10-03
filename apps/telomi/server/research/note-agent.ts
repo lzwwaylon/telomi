@@ -34,22 +34,22 @@ import { toErrorMessage } from "../lib/values.js";
 import { safeName } from "../lib/paths.js";
 
 export function noteAgentToolNames(): string[] {
-	const config = loadAgentPromptConfig("research", "cornell-note");
-	if (config.sandbox?.role !== "report.cornell_note"
+	const config = loadAgentPromptConfig("research", "note-agent");
+	if (config.sandbox?.role !== "report.note_agent"
 		|| config.sandbox.executionProfile !== "prime_ipython"
 		|| config.sandbox.network !== "deny"
 		|| config.sandbox.tools.join("\0") !== "ipython") {
-		throw new Error("Cornell Note Prompt Tool contract must be ipython with network denied");
+		throw new Error("Note Agent Prompt Tool contract must be ipython with network denied");
 	}
 	return [...config.sandbox.tools];
 }
 
 export function noteAgentContractIdentity(): {
-	id: "research-cornell-note";
+	id: "research-note-agent";
 	version: "13";
 	sha256: string;
 } {
-	const id = "research-cornell-note" as const;
+	const id = "research-note-agent" as const;
 	const version = "13" as const;
 	return {
 		id,
@@ -73,7 +73,7 @@ export function noteAgentContractIdentity(): {
 
 /** One fresh Prime Agent reads one complete organized Source. */
 /**
- * Cornell Note 的生产构造入口。Research Run 与 Cornell Note 的节点 Evaluation 都从这里取
+ * Note Agent 的生产构造入口。Research Run 与 Note Agent 的节点 Evaluation 都从这里取
  * Materializer，两边因此拿到同一套 Skill 上下文与同一份 Python Skill 环境。
  */
 export async function createProductionNoteAgentProcessor(input: {
@@ -84,13 +84,13 @@ export async function createProductionNoteAgentProcessor(input: {
 	env: Record<string, string | undefined>;
 	skillWorkspaceDirectory: string;
 }): Promise<RuntimeNoteAgentProcessor> {
-	const snapshot = input.harness.agentSkills["cornell-note"];
+	const snapshot = input.harness.agentSkills["note-agent"];
 	const bindings = await Promise.all(snapshot.skills.map(async (asset) => {
-		const hostPath = join(input.skillWorkspaceDirectory, "cornell-note", asset.name);
+		const hostPath = join(input.skillWorkspaceDirectory, "note-agent", asset.name);
 		const python = await preparePythonSkillEnvironment(hostPath, { dataDir: input.dataDir, env: input.env });
 		return {
 			hostPath,
-			workspaceRelativePath: `skills/cornell-note/${asset.name}`,
+			workspaceRelativePath: `skills/note-agent/${asset.name}`,
 			pythonPaths: python?.pythonPaths ?? [],
 		};
 	}));
@@ -147,7 +147,7 @@ export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
 		// Stage 身份按 Source batch 与 Source 固定。恢复后 pending 列表会因复用检查点而缩短或重排，
 		// 按位置编号会让同一个逻辑节点换一个身份，也会和另一批次的另一个 Source 撞号。
 		const segment = `${input.sequence}-${safeName(document.id, { maxLength: 100, fallback: "source" })}`;
-		const workRoot = join(input.controlDir, "workspaces", "cornell-notes", segment);
+		const workRoot = join(input.controlDir, "workspaces", "note-agent", segment);
 		rmSync(workRoot, { recursive: true, force: true });
 		mkdirSync(workRoot, { recursive: true });
 		const sourceView = materializeAgentSourceView(document.directoryPath, join(workRoot, "source"), document);
@@ -166,27 +166,27 @@ export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
 		};
 		const systemPrompt = renderNoteAgentSystemPrompt();
 		const userPrompt = renderNoteAgentUserPrompt(request);
-		const runner = caseCapture()?.cornellNote?.(this.stageRunner, {
+		const runner = caseCapture()?.noteAgent?.(this.stageRunner, {
 			...request, document: { id: document.id, title: document.title, url: document.url, provider: document.providerId },
 		}, this.skills) ?? this.stageRunner;
 		const result = await runner.runStage<CornellNote>({
 			runId: input.runId,
-			stageId: `cornell-note-${segment}`,
+			stageId: `note-agent-${segment}`,
 			attemptId: `attempt-${randomUUID().slice(0, 8)}`,
 			attempt: 1,
-			role: "cornell_note",
+			role: "note_agent",
 			// 一次 Source batch 的所有 Note 是同一次逻辑扇出，并发上限只决定它们分几波起跑。
 			parallelGroup: `sequence-${input.sequence}`,
 			promptConfig: {
 				domain: "research",
-				id: "cornell-note",
-				sandboxRole: "report.cornell_note",
+				id: "note-agent",
+				sandboxRole: "report.note_agent",
 				revisions: { system: systemPrompt.revision, user: userPrompt.revision },
 			},
-			session: { key: `cornell-note/${document.id}`, policy: "fresh" },
+			session: { key: `note-agent/${document.id}`, policy: "fresh" },
 			modelPolicy: {
-				preferred: [this.config.cornellNoteModel],
-				reasoning: this.config.cornellNoteThinkingLevel,
+				preferred: [this.config.noteAgentModel],
+				reasoning: this.config.noteAgentThinkingLevel,
 			},
 			systemPrompt: systemPrompt.content,
 			userPrompt: userPrompt.content,

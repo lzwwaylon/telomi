@@ -361,10 +361,10 @@ function findCornellNote(runRoot: string, sourceId: string): CornellNote | null 
 	return null;
 }
 
-/** All cited Notes, or null when any ref is missing from the Run's frozen Find Out snapshot. */
+/** All cited Notes, or null when any ref is missing from the Run's frozen Notes snapshot. */
 function findReportNotes(runRoot: string, refs: readonly string[]): NoteWorkspaceItem[] | null {
 	try {
-		const workspace = loadReportNoteWorkspace(join(runRoot, "artifacts", "report-flow", "findout-snapshot"));
+		const workspace = loadReportNoteWorkspace(join(runRoot, "artifacts", "report-flow", "notes-snapshot"));
 		const notes = refs.map((ref) => workspace.citation(ref));
 		return notes.every((note) => note !== undefined) ? notes as NoteWorkspaceItem[] : null;
 	} catch {

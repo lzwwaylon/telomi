@@ -43,7 +43,7 @@ const evidence = {
 	schema_version: 1 as const,
 	snapshot_id: "snapshot-1",
 	run_id: sourceRunId,
-	pipeline: { id: "cornell-note", version: "1", sha256: "a".repeat(64) },
+	pipeline: { id: "note-agent", version: "1", sha256: "a".repeat(64) },
 	source_bundle_refs: ["artifacts/source-bundles/source-1"],
 	notes: [],
 };
@@ -73,11 +73,11 @@ const capturedShard = await runWikiShardNodeEvaluation({
 	batch: { id: "batch-1", index: 0, total: 1, sourceIds: ["source-1"] },
 	signal: new AbortController().signal,
 }, {
-	env: { TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: "low", TELOMI_WIKI_MAINTAINER_MODEL: "test/root", TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child" },
+	env: { TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low", TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child" },
 	recordDirectory: sourceRun,
 	runId: sourceRunId,
 	execute: async (input) => {
-		assert.equal(input.env?.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL, "low");
+		assert.equal(input.env?.TELOMI_WIKI_CURATOR_THINKING_LEVEL, "low");
 		writeLogicalWorkspaces(input.logicalWorkspaceCaptureRoot!, "wiki-shard-builder");
 		return fakeWikiResult(join(input.workRoot, "knowledge"), [
 			...shardRootSessions,
@@ -96,11 +96,11 @@ await runWikiCuratorNodeEvaluation({
 	sessionRoot: join(sourceRun, "wiki-curator-sessions"),
 	signal: new AbortController().signal,
 }, {
-	env: { TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: "low", TELOMI_WIKI_MAINTAINER_MODEL: "test/root", TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child" },
+	env: { TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low", TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child" },
 	recordDirectory: sourceRun,
 	runId: sourceRunId,
 	execute: async (input) => {
-		assert.equal(input.env?.TELOMI_WIKI_MAINTAINER_THINKING_LEVEL, "low");
+		assert.equal(input.env?.TELOMI_WIKI_CURATOR_THINKING_LEVEL, "low");
 		writeLogicalWorkspaces(input.logicalWorkspaceCaptureRoot!, "wiki-curator");
 		return fakeWikiResult(join(input.workRoot, "knowledge"), [
 			curatorRootSession,

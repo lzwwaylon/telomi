@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { isRecord } from '../lib/values.js';
-import { readNoteFirstOutput } from './note-first-stage.js';
-import { objectFirstEntries, objectFirstSections } from './object-first-contract.js';
-import type { NoteFirstInput, NoteFirstResult } from './note-first-contract.js';
+import { readWikiStageOutput } from './wiki-stage.js';
+import { wikiPageEntryIds, wikiPageSections } from './wiki-page-contract.js';
+import type { WikiStageInput, WikiStageResult } from './wiki-stage-contract.js';
 
 function fields(value: unknown, keys: string[], path: string): Record<string, unknown> {
  if (!isRecord(value) || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key)))
@@ -10,7 +10,7 @@ function fields(value: unknown, keys: string[], path: string): Record<string, un
  return value;
 }
 
-export function targetWriterContext(input: NoteFirstInput): string {
+export function targetWriterContext(input: WikiStageInput): string {
  if (input.requiredPages.length > 1) throw new Error('Object writer expects at most one canonical target');
  const target = input.requiredPages[0];
  const index = target ? input.pages.findIndex(row => row.ref === target && row.previous && row.role === 'member') : -1;
@@ -19,8 +19,8 @@ export function targetWriterContext(input: NoteFirstInput): string {
   : 'Target: a new independent object. Write facts.json before the article.';
 }
 
-export function validateTargetWriter(input: NoteFirstInput, work: string,
- accepted: { result: Extract<NoteFirstResult, { kind: 'pages' }>; completePageReads: string[] }): NoteFirstResult {
+export function validateTargetWriter(input: WikiStageInput, work: string,
+ accepted: { result: Extract<WikiStageResult, { kind: 'pages' }>; completePageReads: string[] }): WikiStageResult {
  targetWriterContext(input);
  const members = input.pages.flatMap((row, index) => row.role === 'member' ? [{ ...row, alias: `P${index + 1}` }] : []);
  const unread = members.filter(row => !accepted.completePageReads.includes(row.alias));
@@ -39,18 +39,18 @@ export function validateTargetWriter(input: NoteFirstInput, work: string,
  // ponytail: allow source-backed technical terms shaped like aliases; semantic review must check their context.
  const leaked = aliases.filter(alias => !members.some(row => `${row.page.title}\n${row.page.body}`.includes(alias)));
  if (leaked.length) throw new Error(`Knowledge prose contains temporary task references [${[...new Set(leaked)].join(', ')}]; use proper object names and inline Cue citations`);
- const headings = new Set(objectFirstSections([page]).map(section => section.heading));
- const sections = objectFirstSections(input.pages.map(row => row.page));
+ const headings = new Set(wikiPageSections([page]).map(section => section.heading));
+ const sections = wikiPageSections(input.pages.map(row => row.page));
  const sourceSections = sections.flatMap((section, index) => {
   const owner = members.find(row => row.page.id === section.pageId);
   if (!owner) return [];
   const body = owner.page.body.split('\n').slice(section.startLine - 1, section.endLine).join('\n');
-  return [{ ref: `S${index + 1}`, owner, section, ids: objectFirstEntries(body) }];
+  return [{ ref: `S${index + 1}`, owner, section, ids: wikiPageEntryIds(body) }];
  });
- const ledger = fields(JSON.parse(readNoteFirstOutput(join(work, 'facts.json')).toString('utf8')), ['facts'], 'facts.json');
+ const ledger = fields(JSON.parse(readWikiStageOutput(join(work, 'facts.json')).toString('utf8')), ['facts'], 'facts.json');
  if (!Array.isArray(ledger.facts)) throw new Error('facts.json.facts: expected an array');
  const covered = new Map<string, Set<string>>();
- const facts: Extract<NoteFirstResult, { kind: 'object-target-pages' }>['facts'] = [];
+ const facts: Extract<WikiStageResult, { kind: 'object-target-pages' }>['facts'] = [];
  const violations: string[] = [];
  ledger.facts.forEach((item, index) => {
   try {

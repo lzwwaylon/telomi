@@ -55,7 +55,7 @@ import {
 	type NodeEvaluationCaseDraft,
 } from "../../agent-runtime/node-evaluation.js";
 import {
-	findOutSelfDirectedDelegationPrompt,
+	notesSelfDirectedDelegationPrompt,
 	primeWriterCompletedSectionsPrompt,
 	primeWriterFinalPrompt,
 	primeWriterFinalRepairPrompt,
@@ -118,7 +118,7 @@ export function readReportWriterLanguage(inputRoot: string): string | undefined 
 	if (!existsSync(path)) return undefined;
 	const language = (JSON.parse(readFileSync(path, "utf-8")) as { language?: unknown }).language;
 	if (typeof language !== "string" || !language.trim()) {
-		throw new Error(`Prime Report Writer ${REPORT_WRITER_REQUEST_FILE} requires a non-empty language`);
+		throw new Error(`Report Writer Root ${REPORT_WRITER_REQUEST_FILE} requires a non-empty language`);
 	}
 	return language.trim();
 }
@@ -175,6 +175,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 					domain: request.promptConfig?.domain ?? "research",
 					id: request.promptConfig?.id ?? "report-writer",
 					sandboxRole: request.promptConfig?.sandboxRole ?? "report.report_writer",
+					...(request.promptConfig?.systemVariant ? { systemVariant: request.promptConfig.systemVariant } : {}),
 					...(request.promptConfig?.userVariant ? { userVariant: request.promptConfig.userVariant } : {}),
 					...(request.promptConfig?.revisions ? { revisions: request.promptConfig.revisions } : {}),
 					requestedSha256: { system: sha256(request.systemPrompt), user: sha256(request.userPrompt) },
@@ -233,10 +234,10 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 		let outputAccepted = false;
 		let outcome!: Awaited<ReturnType<typeof spawnPrimeWorker>>;
 		const input = request.readonlyMounts.find((mount) => mount.guestPath === "/inputs");
-		if (!input) throw new Error("Prime Report Writer requires the bounded /inputs mount");
-		const mode = existsSync(join(input.hostPath, "findout", "index.json")) ? "findout" as const : "wiki" as const;
+		if (!input) throw new Error("Report Writer Root requires the bounded /inputs mount");
+		const mode = existsSync(join(input.hostPath, "notes", "index.json")) ? "notes" as const : "wiki" as const;
 		const tools = mode === "wiki" ? reportWikiTools(request.additionalTools ?? []) : new Map<string, AgentTool>();
-		const noteWorkspace = mode === "findout" ? loadReportNoteWorkspace(join(input.hostPath, "findout")) : undefined;
+		const noteWorkspace = mode === "notes" ? loadReportNoteWorkspace(join(input.hostPath, "notes")) : undefined;
 		const env = this.options.env ?? process.env;
 		const root = parseResearchModelRef(request.modelPolicy.preferred[0] ?? "");
 		const rootProvider = root.provider;
@@ -265,19 +266,20 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 		mkdirSync(runtimeRoot, { recursive: true });
 		mkdirSync(inputRoot, { recursive: true });
 		cpSync(realpathSync(input.hostPath), inputRoot, { recursive: true });
-		if (mode === "findout") {
-			rmSync(join(inputRoot, "findout", "notes"), { recursive: true, force: true });
-			writeFileSync(join(inputRoot, "findout", "index.json"), `${JSON.stringify({
+		if (mode === "notes") {
+			rmSync(join(inputRoot, "notes", "notes"), { recursive: true, force: true });
+			writeFileSync(join(inputRoot, "notes", "index.json"), `${JSON.stringify({
 				schema_version: 2,
 				knowledge_interface: "notes_report",
 				note_count: noteWorkspace!.size,
 			}, null, 2)}\n`);
 		}
 		const configuredSkillPaths = bundledAgentSkillPaths("research",
-			mode === "findout" ? "find-out-report-writer" : "report-writer");
-		const configuredSkillNames = configuredSkillPaths.map((path) => basename(path));
+			"report-writer");
+		const relevantSkillPaths = configuredSkillPaths.filter((path) => basename(path) !== (mode === "notes" ? "wiki-report" : "notes-report"));
+		const configuredSkillNames = relevantSkillPaths.map((path) => basename(path));
 		const stagedSkills = materializeSkills(
-			snapshotSkills(configuredSkillPaths),
+			snapshotSkills(relevantSkillPaths),
 			join(runtimeRoot, "skills"),
 		);
 		const stagedSkillPaths = configuredSkillNames.map((name) => stagedSkills.get(name)!);
@@ -295,8 +297,8 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 			request.userPrompt.replaceAll("{{CHILD_MODEL}}", `${childProvider}/${childModel}`),
 			...(completedSections.length > 0 ? [primeWriterResumeContextPrompt(completedSections)] : []),
 		].join("\n\n"));
-		const delegationPrompt = mode === "findout"
-			? findOutSelfDirectedDelegationPrompt(`${childProvider}/${childModel}`)
+		const delegationPrompt = mode === "notes"
+			? notesSelfDirectedDelegationPrompt(`${childProvider}/${childModel}`)
 			: wikiSelfDirectedDelegationPrompt(`${childProvider}/${childModel}`);
 		writeFileSync(join(runtimeRoot, "delegation-prompt.md"), [
 			delegationPrompt,
@@ -308,8 +310,8 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 
 		const tracePath = agentSessionPath(recordRoot, "report_writer", executionId);
 		writeWriterSessionIndex(tracePath, [
-			{ path: relative(recordRoot, join(runtimeRoot, "session")), label: "Reporter" },
-			{ path: relative(recordRoot, join(runtimeRoot, "session-artifacts")), label: "Section" },
+			{ path: relative(recordRoot, join(runtimeRoot, "session")), label: "Report Writer Root" },
+			{ path: relative(recordRoot, join(runtimeRoot, "session-artifacts")), label: "Report Writer Section" },
 		]);
 		appendRuntimeContext(recordRoot, recordKind, {
 			type: "runtime.agent_bound",
@@ -340,7 +342,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 				let validationQueue = Promise.resolve();
 				try {
 					outcome = await spawnPrimeWorker({
-						name: "Prime Report Writer",
+						name: "Report Writer Root",
 						worker: stagedWorker,
 						agentRoot,
 						runtimeRoot,
@@ -430,9 +432,9 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 				} finally {
 					await validationQueue;
 				}
-				if (!outputAccepted) throw new Error("Prime Report Writer exited without Runtime validation");
+				if (!outputAccepted) throw new Error("Report Writer Root exited without Runtime validation");
 				const authoredOutline = join(agentRoot, "work", "report-outline.json");
-				if (!existsSync(authoredOutline)) throw new Error("Prime Report Writer did not preserve its authored Outline");
+				if (!existsSync(authoredOutline)) throw new Error("Report Writer Root did not preserve its authored Outline");
 				copyFileSync(authoredOutline, join(request.workDirectory, "writer-output", "outline.json"));
 				await writeProseLintEvidence({
 					outputRoot: join(request.workDirectory, "writer-output"),
@@ -456,7 +458,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 				}),
 				root_model: worker.root_model,
 				child_model: worker.child_model,
-				knowledge: mode === "findout" ? "find-out-notes" : "wiki-tools-only",
+				knowledge: mode === "notes" ? "notes-tools-only" : "wiki-tools-only",
 				prose_lint: useChineseLint ? "performed"
 					: readReportWriterLanguage(input.hostPath) ? "skipped_non_chinese" : "skipped_language_missing",
 				prompt_sha256: {
@@ -504,7 +506,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 				stage_id: request.stageId,
 				root_model: worker.root_model,
 				child_model: worker.child_model,
-				knowledge: mode === "findout" ? "find-out-notes" : "wiki-tools-only",
+				knowledge: mode === "notes" ? "notes-tools-only" : "wiki-tools-only",
 				output_ref: finalized.artifact.relativePath,
 				metrics: worker.usage,
 			});
@@ -529,7 +531,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 					model: `${rootProvider}/${rootModel}`,
 					child_model: `${childProvider}/${childModel}`,
 					execution_profile: "prime_ipython",
-					knowledge: mode === "findout" ? "find-out-notes" : "wiki-tools-only",
+					knowledge: mode === "notes" ? "notes-tools-only" : "wiki-tools-only",
 				},
 				output: {
 					artifact_ref: finalized.artifact.relativePath,
@@ -558,7 +560,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 				role: request.role,
 				status: "succeeded",
 				kind: "status",
-				text: `Prime Report Writer completed in ${Math.round((Date.now() - startedAt) / 1000)}s`,
+				text: `Report Writer Root completed in ${Math.round((Date.now() - startedAt) / 1000)}s`,
 			});
 			// 会话已经另存到 Run 根目录，让下游读那一份而不是 Stage 目录里的原件：
 			// Stage 目录随后会被回收，而 Node Evaluation Case 要在本方法返回之后才去读
@@ -602,7 +604,7 @@ function isStageOutputCandidate(value: unknown): value is { type: "stage_output_
 /** Preserve every depth accepted by unified configuration and the native SDK. */
 function reportThinkingLevel(value: ResearchModelPolicy["reasoning"] | string | undefined): ThinkingLevel {
 	if (value === undefined) return "off";
-	if (!isThinkingLevel(value)) throw new Error(`Unsupported Prime Report Writer thinking level '${value}'`);
+	if (!isThinkingLevel(value)) throw new Error(`Unsupported Report Writer Root thinking level '${value}'`);
 	return value;
 }
 
@@ -629,9 +631,9 @@ function preserveWriterTrace(
 	try {
 		if (sessionPath && existsSync(sessionPath)) {
 			copyFileSync(sessionPath, target);
-			sessions.push({ path: basename(target), label: "Reporter" });
+			sessions.push({ path: basename(target), label: "Report Writer Root" });
 		} else if (strict) {
-			throw new Error("Prime Report Writer evaluation is missing its Root trace");
+			throw new Error("Report Writer Root evaluation is missing its Root trace");
 		}
 		const stem = basename(target).replace(/\.jsonl$/u, "");
 		let bridgeLogCopied = false;
@@ -642,14 +644,14 @@ function preserveWriterTrace(
 				bridgeLogCopied = true;
 			}
 		}
-		if (strict && !bridgeLogCopied) throw new Error("Prime Report Writer evaluation is missing its Knowledge call log");
+		if (strict && !bridgeLogCopied) throw new Error("Report Writer Root evaluation is missing its Knowledge call log");
 		const children = join(runtimeRoot, "session-artifacts");
 		const childSessions = listFilesRecursive(children).filter((rel) => rel.endsWith(".jsonl"));
-		if (strict && childSessions.length === 0) throw new Error("Prime Report Writer evaluation is missing Section child traces");
+		if (strict && childSessions.length === 0) throw new Error("Report Writer Root evaluation is missing Section child traces");
 		for (const [index, path] of childSessions.entries()) {
 			const name = `${stem}-child-${String(index + 1).padStart(2, "0")}.jsonl`;
 			copyFileSync(join(children, path), join(recordRoot, name));
-			sessions.push({ path: name, label: `Section ${index + 1}` });
+			sessions.push({ path: name, label: `Report Writer Section ${index + 1}` });
 		}
 		writeWriterSessionIndex(target, sessions);
 	} catch (error) {
@@ -664,7 +666,7 @@ function reportWikiTools(tools: readonly AgentTool[]): Map<string, AgentTool> {
 		.filter((tool) => ["wiki_search", "wiki_read_page", "wiki_graph_search"].includes(tool.name))
 		.map((tool) => [tool.name, tool]));
 	for (const name of ["wiki_search", "wiki_read_page", "wiki_graph_search"]) {
-		if (!selected.has(name)) throw new Error(`Prime Report Writer requires ${name}`);
+		if (!selected.has(name)) throw new Error(`Report Writer Root requires ${name}`);
 	}
 	return selected;
 }
@@ -686,16 +688,16 @@ async function writeProseLintEvidence(input: {
 		sections?: Array<{ section_id?: unknown; path?: unknown; title?: unknown }>;
 	};
 	if (!Array.isArray(manifest.sections) || manifest.sections.length === 0) {
-		throw new Error("Prime Report Writer prose lint requires a non-empty manifest");
+		throw new Error("Report Writer Root prose lint requires a non-empty manifest");
 	}
 	const sections = manifest.sections.map((section, index) => {
 		if (typeof section.section_id !== "string" || typeof section.path !== "string"
 			|| typeof section.title !== "string" || !section.title.trim()
 			|| !/^sections\/[A-Za-z0-9._-]+\.md$/u.test(section.path)) {
-			throw new Error(`Prime Report Writer prose lint manifest Section ${index + 1} is invalid`);
+			throw new Error(`Report Writer Root prose lint manifest Section ${index + 1} is invalid`);
 		}
 		const body = readFileSync(join(input.outputRoot, section.path), "utf-8").trim();
-		if (!body) throw new Error(`Prime Report Writer prose lint Section '${section.section_id}' is empty`);
+		if (!body) throw new Error(`Report Writer Root prose lint Section '${section.section_id}' is empty`);
 		return { title: section.title.trim(), body };
 	});
 	const lintInput = join(input.runtimeRoot, "prose-lint-input.md");
@@ -725,9 +727,9 @@ async function writeProseLintEvidence(input: {
 		child.once("error", reject);
 		child.once("exit", (code) => resolveExit(code ?? 1));
 	}).finally(() => input.signal.removeEventListener("abort", abort));
-	if (input.signal.aborted) throw new Error("Prime Report Writer prose lint cancelled");
+	if (input.signal.aborted) throw new Error("Report Writer Root prose lint cancelled");
 	if (exitCode !== 0) {
-		throw new Error(`Prime Report Writer prose lint exited with code ${exitCode}: ${Buffer.concat(stderr).toString("utf-8").trim()}`);
+		throw new Error(`Report Writer Root prose lint exited with code ${exitCode}: ${Buffer.concat(stderr).toString("utf-8").trim()}`);
 	}
 	writeFileSync(reportPath, Buffer.concat(stdout));
 }
@@ -825,10 +827,10 @@ export function reuseCompletedSections(workDirectory: string): string[] {
 }
 
 function readWorkerResult(path: string): PrimeWorkerResult {
-	if (!existsSync(path)) throw new Error("Prime Report Writer did not produce runtime/result.json");
+	if (!existsSync(path)) throw new Error("Report Writer Root did not produce runtime/result.json");
 	const value = JSON.parse(readFileSync(path, "utf-8")) as PrimeWorkerResult;
 	if (value.schema_version !== 1 || !value.root_model || !value.child_model || !value.session_path) {
-		throw new Error("Prime Report Writer produced invalid runtime metadata");
+		throw new Error("Report Writer Root produced invalid runtime metadata");
 	}
 	return value;
 }

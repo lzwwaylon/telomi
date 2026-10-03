@@ -175,7 +175,7 @@ function readInvestigationInteractions(runDir: string): NodeEvaluationInteractio
 	if (!existsSync(path)) return [];
 	return readFileSync(path, "utf-8").split("\n").filter(Boolean).map((line): NodeEvaluationInteraction => {
 		const row = JSON.parse(line) as { operation: string; request: unknown; response: unknown };
-		if (row.operation !== "knowledge_search" && row.operation !== "deep_search" && row.operation !== "github_read" && row.operation !== "external_search" && row.operation !== "write_answer") {
+		if (row.operation !== "knowledge_search" && row.operation !== "read_sources" && row.operation !== "github_read" && row.operation !== "external_search" && row.operation !== "write_answer") {
 			throw new Error("Unknown Prime investigation interaction");
 		}
 		return { kind: "tool", name: row.operation, label: row.operation, description: "Frozen investigation Tool result",
@@ -309,7 +309,7 @@ export function createFrozenInvestigationTools(
 		}
 	};
 	registerCues(initialCues);
-	const replayCall = (name: "knowledge_search" | "deep_search" | "github_read" | "external_search" | "write_answer", request: unknown): unknown => {
+	const replayCall = (name: "knowledge_search" | "read_sources" | "github_read" | "external_search" | "write_answer", request: unknown): unknown => {
 		if ((name === "external_search" || name === "github_read") && !allowExternal) {
 			unmatchedInteraction = new Error("This Case disallows external sources");
 			throw unmatchedInteraction;
@@ -402,7 +402,7 @@ async function executeProductionInvestigationReplay(
 		? JSON.parse(readNodeEvaluationFile(input.casePath, input.value.request.interactions)) as NodeEvaluationInteraction[]
 		: [];
 	const frozen = interactions.filter((item): item is Extract<NodeEvaluationInteraction, { kind: "tool" }> => item.kind === "tool"
-		&& (item.name === "knowledge_search" || item.name === "deep_search" || item.name === "github_read" || item.name === "external_search" || item.name === "write_answer"));
+		&& (item.name === "knowledge_search" || item.name === "read_sources" || item.name === "github_read" || item.name === "external_search" || item.name === "write_answer"));
 	const prompt = input.promptOverride?.userPrompt ?? historicalPrompt;
 	const responseMode = captured.handoff_mode === "file" || input.promptMode === "candidate"
 		|| (input.promptMode !== "observed" && input.promptOverride?.userPrompt !== undefined) ? "file" : "inline";
@@ -474,7 +474,7 @@ async function executeProductionInvestigationReplay(
 		investigation: {
 			responseMode,
 			knowledgeSearch: async (query, limit) => replayCall("knowledge_search", { query, limit }),
-			readSources: async (question) => replayCall("deep_search", { question }),
+			readSources: async (question) => replayCall("read_sources", { question }),
 			externalSearch: async (question) => replayCall("external_search", { question }),
 			githubRead: async (question, repository, ref, paths) => {
 				return replayCall("github_read", { question, repository, ref, paths });

@@ -1,5 +1,6 @@
 schema_version: 2
 id: global-base
+display_name: Global Base
 prompts:
   system:
     default: system.md.njk

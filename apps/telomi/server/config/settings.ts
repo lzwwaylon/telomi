@@ -11,10 +11,10 @@ function settingsPath(): string {
 }
 
 export const TASK_MODEL_ROLES = [
-	"cornellNote",
+	"noteAgent",
 	"primeRoot",
 	"primeChild",
-	"wikiMaintainer",
+	"wikiCurator",
 	"browserEvolution",
 ] as const;
 export type TaskModelRole = (typeof TASK_MODEL_ROLES)[number];
@@ -44,7 +44,7 @@ interface TaskModelRoleInfo {
 	 * Per-execution model pin for Runs and Attestation Replays. Startup clears ambient
 	 * values so they cannot outrank the managed settings.
 	 */
-	legacyEnvVar: string;
+	modelEnvVar: string;
 	/** The Run Stages whose reasoning depth this role carries; empty where it has none of its own. */
 	stages: Readonly<Record<string, TaskModelStageInfo>>;
 }
@@ -55,22 +55,22 @@ interface TaskModelRoleInfo {
  * it, rather than silently running a model nobody chose.
  */
 export const TASK_MODEL_ROLE_INFO = {
-	cornellNote: {
-		label: TASK_MODEL_ROLE_LABELS.cornellNote,
+	noteAgent: {
+		label: TASK_MODEL_ROLE_LABELS.noteAgent,
 		description: "将来源整理为证据笔记",
-		legacyEnvVar: "TELOMI_RESEARCH_CORNELL_NOTE_MODEL",
+		modelEnvVar: "TELOMI_NOTE_AGENT_MODEL",
 		stages: {
 			evidenceNote: {
 				runScoped: true,
 				label: "证据笔记",
-				envVar: "TELOMI_RESEARCH_CORNELL_NOTE_THINKING_LEVEL",
+				envVar: "TELOMI_NOTE_AGENT_THINKING_LEVEL",
 			},
 		},
 	},
 	primeRoot: {
 		label: TASK_MODEL_ROLE_LABELS.primeRoot,
 		description: "搜索、报告、Podcast 文稿与调度审核共享的主 Agent",
-		legacyEnvVar: "TELOMI_PRIME_AGENT_ROOT_MODEL",
+		modelEnvVar: "TELOMI_PRIME_AGENT_ROOT_MODEL",
 		stages: {
 			searchAcquisition: {
 				usesRlmChild: true,
@@ -91,19 +91,19 @@ export const TASK_MODEL_ROLE_INFO = {
 	primeChild: {
 		label: TASK_MODEL_ROLE_LABELS.primeChild,
 		description: "搜索、报告、Podcast 文稿与 Wiki 共享的 RLM child；thinking 跟随对应 Root 环节",
-		legacyEnvVar: "TELOMI_PRIME_AGENT_CHILD_MODEL",
+		modelEnvVar: "TELOMI_PRIME_AGENT_CHILD_MODEL",
 		stages: {},
 	},
-	wikiMaintainer: {
-		label: TASK_MODEL_ROLE_LABELS.wikiMaintainer,
+	wikiCurator: {
+		label: TASK_MODEL_ROLE_LABELS.wikiCurator,
 		description: "Wiki Root 维护；RLM child 使用共享 Prime Child 模型",
-		legacyEnvVar: "TELOMI_WIKI_MAINTAINER_MODEL",
-		stages: { maintenance: { usesRlmChild: true, label: "Wiki 维护", envVar: "TELOMI_WIKI_MAINTAINER_THINKING_LEVEL" } },
+		modelEnvVar: "TELOMI_WIKI_CURATOR_MODEL",
+		stages: { maintenance: { usesRlmChild: true, label: "Wiki 维护", envVar: "TELOMI_WIKI_CURATOR_THINKING_LEVEL" } },
 	},
 	browserEvolution: {
 		label: TASK_MODEL_ROLE_LABELS.browserEvolution,
 		description: "Browser Provider Skill 演进",
-		legacyEnvVar: "TELOMI_EVOLUTION_MODEL",
+		modelEnvVar: "TELOMI_EVOLUTION_MODEL",
 		stages: { evolution: { label: "Skill 演进", envVar: "TELOMI_EVOLUTION_THINKING_LEVEL" } },
 	},
 } as const satisfies Record<TaskModelRole, TaskModelRoleInfo>;

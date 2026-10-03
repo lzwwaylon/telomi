@@ -15,6 +15,7 @@ import { sha256 } from "../lib/hash.js";
 
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020.js";
 import { Type, type TSchema } from "@sinclair/typebox";
+import { AGENT_PRESENTATION_KINDS, PROMPT_OVERRIDE_FIELDS, REPLAY_PROMPT_MODES } from "../agent-runtime/agent-catalog.js";
 
 /** 评估环境在启动 Replay 前比对；不兼容立即失败。破坏性契约变更必须递增。 */
 export const OPERATIONS_PROTOCOL_VERSION = 3;
@@ -29,6 +30,16 @@ const Amount = Type.Number({ minimum: 0 });
 const Closed = { additionalProperties: false } as const;
 /** 开放记录：Telomi 侧是强类型，但对评估环境只保证这些字段存在。 */
 const Open = { additionalProperties: true } as const;
+
+const AgentDescriptor = Type.Object({
+	id: NonEmptyString,
+	displayName: NonEmptyString,
+	sourcePath: Type.Union([NonEmptyString, Type.Null()]),
+	presentationKind: Type.Union(AGENT_PRESENTATION_KINDS.map((kind) => Type.Literal(kind))),
+	impactPaths: Type.Optional(Type.Array(NonEmptyString)),
+	replayPromptModes: Type.Optional(Type.Array(Type.Union(REPLAY_PROMPT_MODES.map((mode) => Type.Literal(mode))))),
+	promptOverrideFields: Type.Optional(Type.Array(Type.Union(PROMPT_OVERRIDE_FIELDS.map((field) => Type.Literal(field))))),
+}, Closed);
 
 const CaseRef = Type.Object({
 	sourceRunId: NonEmptyString,
@@ -207,6 +218,7 @@ const EvaluationCase = Type.Object({
 	nodeId: NonEmptyString,
 	attemptId: NonEmptyString,
 	agentId: NonEmptyString,
+	agent: Type.Optional(AgentDescriptor),
 	role: NonEmptyString,
 	status: Type.Union([Type.Literal("succeeded"), Type.Literal("failed"), Type.Literal("cancelled")]),
 	capturedAt: NonEmptyString,
@@ -302,6 +314,8 @@ const EvaluationInput = Type.Object({
 const ErrorResponse = Type.Object({ error: Type.String() }, Open);
 
 export const SCHEMAS = {
+	AgentDescriptor,
+	AgentCatalogResponse: Type.Object({ ok: Type.Literal(true), agents: Type.Array(AgentDescriptor) }, Closed),
 	CaseRef,
 	EvaluationCase,
 	ExecutionRefs,
@@ -392,6 +406,10 @@ export interface OperationsRoute {
 }
 
 export const OPERATIONS_ROUTES = [
+	{
+		method: "get", path: "/agents", operationId: "getAgentCatalog", access: "read",
+		summary: "Read product Agent names, source Bundles and output presentation contracts", responseSchema: "AgentCatalogResponse",
+	},
 	{
 		method: "get", path: "/status", operationId: "getStatus", access: "read",
 		summary: "Protocol handshake and Replay queue status", responseSchema: "OperationsStatus",

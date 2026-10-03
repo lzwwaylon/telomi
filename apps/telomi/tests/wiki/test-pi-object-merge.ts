@@ -3,37 +3,37 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { hashJson, sha256 } from '../../server/lib/hash.js';
-import { noteFirstOutputHash } from '../../server/wiki/note-first-stage.js';
+import { wikiStageOutputHash } from '../../server/wiki/wiki-stage.js';
 import { runPiObjectMergeStage, validateObjectMergeResult } from '../../server/wiki/pi-object-merge.js';
-import { objectFirstEntries, type ObjectFirstPagesResult } from '../../server/wiki/object-first-contract.js';
-import type { NoteFirstInput, NoteFirstOutcome, NoteFirstResult, NoteFirstStageRequest } from '../../server/wiki/note-first-contract.js';
+import { wikiPageEntryIds, type WikiPagesResult } from '../../server/wiki/wiki-page-contract.js';
+import type { WikiStageInput, WikiStageOutcome, WikiStageResult, WikiStageRequest } from '../../server/wiki/wiki-stage-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'pi-object-merge-'));
 const ids = Array.from({ length: 8 }, (_, index) => `entry:${index.toString(16).padStart(24, '0')}`);
 const entries = ids.map(id => ({ id, revisionSha256: 'r', sourceRunId: 'run', sourceId: 'source', sourceTitle: 'Source',
  canonicalLocator: '', members: [], section: 'Mechanism', cue: 'Fact', detail: 'Supported fact', anchors: [] }));
-const input: NoteFirstInput = { stage: 'merge-objects', key: 'merge', language: 'en', goal: { title: 'Models', description: '' }, entries,
+const input: WikiStageInput = { stage: 'merge-objects', key: 'merge', language: 'en', goal: { title: 'Models', description: '' }, entries,
  pages: ids.slice(0, 7).map((id, index) => ({ ref: `source:${index}`, previous: index === 0, role: 'member',
   page: { id: `entity:${index}`, kind: 'entity', title: index === 0 ? 'Model' : `Model draft ${index}`, description: 'Records', body: `## Record\nFact ${index} [[${id}]].` } })),
  requiredEntries: ids.slice(0, 7), requiredPages: [], topics: [], sections: [], previousRelations: [], instructions: '', unplacedEntries: [] };
-const empty = (): ObjectFirstPagesResult => ({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] });
-const request = (name: string, value = input): NoteFirstStageRequest => ({ input: value, workRoot: join(root, name), env: {}, signal: new AbortController().signal });
+const empty = (): WikiPagesResult => ({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] });
+const request = (name: string, value = input): WikiStageRequest => ({ input: value, workRoot: join(root, name), env: {}, signal: new AbortController().signal });
 
-function accepted(request: NoteFirstStageRequest, result: NoteFirstResult): NoteFirstOutcome {
+function accepted(request: WikiStageRequest, result: WikiStageResult): WikiStageOutcome {
  const attemptRoot = join(request.workRoot, 'attempt-fixture'), work = join(attemptRoot, 'work'), runtime = join(attemptRoot, 'runtime');
  mkdirSync(work, { recursive: true }); mkdirSync(runtime, { recursive: true });
  writeFileSync(join(work, 'result.json'), JSON.stringify(result));
  if (result.kind === 'object-target-pages') writeFileSync(join(work, 'facts.json'), '{"facts":[]}');
  writeFileSync(join(runtime, 'accepted-result.json'), JSON.stringify(result));
- const outcome: NoteFirstOutcome = { result, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 }, sessionPaths: [] };
+ const outcome: WikiStageOutcome = { result, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 }, sessionPaths: [] };
  writeFileSync(join(request.workRoot, 'checkpoint.json'), JSON.stringify({ status: 'succeeded', attemptRoot, outcome,
-  outputHash: noteFirstOutputHash(work), resultHash: sha256(readFileSync(join(runtime, 'accepted-result.json'))), outcomeHash: hashJson(outcome) }));
+  outputHash: wikiStageOutputHash(work), resultHash: sha256(readFileSync(join(runtime, 'accepted-result.json'))), outcomeHash: hashJson(outcome) }));
  return outcome;
 }
 
-const modelInvocations: Array<{ phase: string; input: NoteFirstInput }> = [];
+const modelInvocations: Array<{ phase: string; input: WikiStageInput }> = [];
 let failWriter = false;
-const target = async (request: NoteFirstStageRequest, phase: 'plan' | 'write'): Promise<NoteFirstOutcome> => {
+const target = async (request: WikiStageRequest, phase: 'plan' | 'write'): Promise<WikiStageOutcome> => {
  const checkpoint = join(request.workRoot, 'checkpoint.json');
  if (existsSync(checkpoint)) return JSON.parse(readFileSync(checkpoint, 'utf8')).outcome;
  modelInvocations.push({ phase, input: request.input });
@@ -55,11 +55,11 @@ try {
  assert.equal(first.result.value.pages.length, 1);
  assert.equal(first.result.value.pages[0]!.id, 'entity:0');
  assert.deepEqual(new Set(first.result.value.pages[0]!.member_refs), new Set(input.pages.map(row => row.ref)));
- assert.deepEqual(new Set(objectFirstEntries(first.result.value.pages[0]!.body)), new Set(ids.slice(0, 7)));
+ assert.deepEqual(new Set(wikiPageEntryIds(first.result.value.pages[0]!.body)), new Set(ids.slice(0, 7)));
  const writers = modelInvocations.filter(row => row.phase === 'write');
  assert.deepEqual(writers.map(row => row.input.pages.filter(page => !page.previous).length), [4, 2]);
  assert.equal(writers[1]!.input.requiredPages[0], 'source:0');
- assert.equal(objectFirstEntries(writers[1]!.input.pages[0]!.page.body).length, 5, 'carried target retains earlier normalized Cues');
+ assert.equal(wikiPageEntryIds(writers[1]!.input.pages[0]!.page.body).length, 5, 'carried target retains earlier normalized Cues');
  const calls = modelInvocations.length;
  assert.deepEqual(await runPiObjectMergeStage(request('complete'), { target }), first);
  assert.equal(modelInvocations.length, calls, 'accepted parent is reused without new sessions');
@@ -75,10 +75,10 @@ try {
  await runPiObjectMergeStage(request('retry'), { target });
  assert.equal(modelInvocations.length, beforeRetry + 1, 'resume reuses accepted planner and first writer');
 
- const residualInput: NoteFirstInput = { ...input, pages: input.pages.slice(0, 1), requiredEntries: [ids[0]!, ids[7]!],
+ const residualInput: WikiStageInput = { ...input, pages: input.pages.slice(0, 1), requiredEntries: [ids[0]!, ids[7]!],
   unplacedEntries: [{ entryId: ids[7]!, reason: 'Unplaced source record' }] };
  let residualCalled = false;
- const residual = async (request: NoteFirstStageRequest) => {
+ const residual = async (request: WikiStageRequest) => {
   residualCalled = true;
   assert.ok(request.input.pages.every(row => row.role === 'context'));
   return accepted(request, { kind: 'pages', consideredPages: [], value: { ...empty(), pages: [{ id: 'entity:residual', kind: 'entity',
@@ -88,13 +88,13 @@ try {
  assert.ok(residualCalled);
  if (resolved.result.kind !== 'pages') throw new Error('Unexpected result');
  assert.deepEqual(resolved.result.value.pages[0]!.member_refs, ['source:0'], 'synthetic residual members do not leak into compiler ownership');
- assert.deepEqual(new Set(objectFirstEntries(resolved.result.value.pages[0]!.body)), new Set([ids[0], ids[7]]));
+ assert.deepEqual(new Set(wikiPageEntryIds(resolved.result.value.pages[0]!.body)), new Set([ids[0], ids[7]]));
 
  const existing = await runPiObjectMergeStage(request('existing', { ...input, pages: input.pages.slice(0, 1), requiredEntries: [ids[0]!] }),
   { target: async () => { throw new Error('No model call needed'); } });
  if (existing.result.kind !== 'pages') throw new Error('Unexpected result');
  assert.deepEqual(existing.result.value.retained_refs, ['source:0']);
- const protectedConcept: NoteFirstInput = { ...residualInput, pages: [...residualInput.pages,
+ const protectedConcept: WikiStageInput = { ...residualInput, pages: [...residualInput.pages,
   { ref: 'concept', previous: true, role: 'context', page: { id: 'concept:existing', kind: 'concept', title: 'Concept', description: 'Historical explanation', body: `## Explanation\nFact [[${ids[7]}]].` } }] };
  assert.throws(() => validateObjectMergeResult(protectedConcept, { ...empty(), retained_refs: ['source:0'], deferred_entries: [{entry_ref:ids[7]!,reason:'Discard'}] }), /Cue dispositions/);
  assert.throws(() => validateObjectMergeResult(input, { ...empty(), retained_refs: input.pages.map(row => row.ref).slice(0, -1) }), /every original member/);

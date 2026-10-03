@@ -1,5 +1,6 @@
 schema_version: 2
 id: model-connectivity-test
+display_name: Model Connectivity Test
 prompts:
   system:
     default: system.md.njk

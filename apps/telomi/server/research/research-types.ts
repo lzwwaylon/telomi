@@ -60,9 +60,9 @@ export type ResearchRenderFormat = "markdown";
 export interface ResearchRuntimeConfig {
 	outputLanguage: import("../../shared/languages.js").ResolvedOutputLanguage;
 	documentConcurrency: number;
-	cornellNoteModel: string;
+	noteAgentModel: string;
 	/** Frozen with the model: the Evidence Note Stage reasons at the depth the Run started with. */
-	cornellNoteThinkingLevel: import("../agent-runtime/model-config/resolve.js").ThinkingLevel;
+	noteAgentThinkingLevel: import("../agent-runtime/model-config/resolve.js").ThinkingLevel;
 }
 
 export interface ResearchProgressEvent {

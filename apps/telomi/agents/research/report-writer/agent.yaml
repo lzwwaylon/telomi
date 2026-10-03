@@ -1,14 +1,18 @@
 schema_version: 2
 id: report-writer
-skills: [wiki-report, writing-skill]
+display_name: Report Writer Root
+skills: [wiki-report, notes-report, writing-skill]
 prompts:
   system-append:
-    default: system.md.njk
+    wiki: system.wiki.md.njk
+    notes: system.notes.md.njk
     answer: system.answer.md.njk
   user:
     answer: user.answer.md.njk
-    plan: user.plan.md.njk
-    delegate: user.delegate.md.njk
+    wiki-plan: user.wiki-plan.md.njk
+    notes-plan: user.notes-plan.md.njk
+    wiki-delegate: user.wiki-delegate.md.njk
+    notes-delegate: user.notes-delegate.md.njk
     final: user.final.md.njk
     final-repair: user.final-repair.md.njk
     resume-context: user.resume-context.md.njk

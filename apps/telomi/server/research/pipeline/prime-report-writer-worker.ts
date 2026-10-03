@@ -44,7 +44,7 @@ const materialContract = JSON.parse(readFileSync(join(cwd, "inputs", "materials.
 if (materialContract.schema_version !== 1 || materialContract.kind !== knowledgeMode
 	|| !Array.isArray(materialContract.refs) || materialContract.refs.length === 0
 	|| materialContract.refs.some((ref) => typeof ref !== "string" || !ref.trim())) {
-	throw new Error("Prime Report Writer material contract is invalid");
+	throw new Error("Report Writer Root material contract is invalid");
 }
 const allowedMaterialRefs = new Set(materialContract.refs as string[]);
 const prime = await import(required("PRIME_AGENT_MODULE_PATH"));
@@ -158,7 +158,7 @@ session.subscribe((event: unknown) => {
 
 let terminalValidationError: string | undefined;
 try {
-	console.log("[prime-report] root planning started");
+	console.log("[report-writer-root] root planning started");
 	if (!existsSync(authoredOutlinePath)) {
 		await prompt(initialPrompt);
 	}
@@ -180,11 +180,11 @@ try {
 		}
 	}
 	outline = readOutline(authoredOutlinePath);
-	if (outline.sections.length === 0) throw new Error("Prime Report Writer authored an outline with no Section");
+	if (outline.sections.length === 0) throw new Error("Report Writer Root authored an outline with no Section");
 	await prompt(delegationPrompt, { streamingBehavior: "followUp" });
-	console.log(`[prime-report] waiting for ${outline.sections.length} Section children`);
+	console.log(`[report-writer-root] waiting for ${outline.sections.length} Section children`);
 	await waitForSectionChildren();
-	console.log("[prime-report] child drafts complete; same root editing");
+	console.log("[report-writer-root] child drafts complete; same root editing");
 	await prompt(finalPrompt, { streamingBehavior: "followUp" });
 	materializeFinalOutput();
 	for (let submission = 1; submission <= 2; submission += 1) {
@@ -340,7 +340,7 @@ function materializeFinalOutput(): void {
 }
 
 function requestRuntimeValidation(submission: number): Promise<{ accepted: boolean; error?: string }> {
-	if (!process.send) throw new Error("Prime Report Writer requires a Runtime validation channel");
+	if (!process.send) throw new Error("Report Writer Root requires a Runtime validation channel");
 	return new Promise((resolvePromise) => {
 		const onMessage = (message: unknown) => {
 			if (!isRecord(message) || message.type !== "stage_output_validation" || message.submission !== submission) return;

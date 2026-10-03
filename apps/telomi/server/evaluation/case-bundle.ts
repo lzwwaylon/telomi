@@ -23,11 +23,12 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { runtimeControlRoot } from "../workspaces/server-runtime-paths.js";
 import { listFilesRecursive } from "../lib/fs.js";
 import { toErrorMessage } from "../lib/values.js";
-import { sha256, createSha256 } from "../lib/hash.js";
+import { sha256, createSha256, stableJson } from "../lib/hash.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import type { WorkspaceSnapshotRecord } from "../observability/run-records.js";
 import type { NodeEvaluationCase } from "../agent-runtime/node-evaluation.js";
 import { isFileNameSegment } from "../lib/paths.js";
+import { assertAgentDescriptor, type AgentDescriptor } from "../agent-runtime/agent-catalog.js";
 
 const BLOCK = 512;
 const CHUNK = 1024 * 1024;
@@ -42,6 +43,7 @@ export interface CaseBundleManifest {
 	source_run_id: string;
 	case_id: string;
 	agent_id: string;
+	agent?: AgentDescriptor;
 	node_id: string;
 	attempt_id: string;
 	runtime_build: string;
@@ -152,6 +154,7 @@ export async function createCaseBundle(input: {
 			source_run_id: input.value.runId,
 			case_id: input.value.caseId,
 			agent_id: input.value.agentId,
+			...(input.value.agent ? { agent: input.value.agent } : {}),
 			node_id: input.value.nodeId,
 			attempt_id: input.value.attemptId,
 			runtime_build: input.runtimeBuild,
@@ -305,6 +308,7 @@ function validateManifest(value: unknown): CaseBundleManifest {
 		if (!isFileNameSegment(fieldValue)) throw new Error(`Bundle manifest ${field} is invalid`);
 	}
 	if (!SHA_PATTERN.test(manifest.agent_bundle_sha256)) throw new Error("Bundle manifest agent_bundle_sha256 is invalid");
+	if (manifest.agent !== undefined) assertAgentDescriptor(manifest.agent, manifest.agent_id);
 	if (manifest.capability_snapshot_id !== null && !/^caps_[a-f0-9]{64}$/u.test(manifest.capability_snapshot_id)) {
 		throw new Error("Bundle manifest capability_snapshot_id is invalid");
 	}
@@ -352,6 +356,9 @@ function validateCaseIdentity(value: unknown, manifest: CaseBundleManifest): voi
 		|| nodeCase.runId !== manifest.source_run_id || nodeCase.agentId !== manifest.agent_id
 		|| nodeCase.nodeId !== manifest.node_id || nodeCase.attemptId !== manifest.attempt_id) {
 		throw new Error("Bundled Node Evaluation Case identity does not match the bundle manifest");
+	}
+	if (stableJson(nodeCase.agent ?? null) !== stableJson(manifest.agent ?? null)) {
+		throw new Error("Bundled Agent metadata does not match the bundle manifest");
 	}
 }
 

@@ -47,7 +47,7 @@ export const WikiCueOriginSchema = Type.Object({
 
 export const WikiUpdateJobSchema = Type.Object({
 	schema_version: Type.Literal(1),
-	compiler: Type.Optional(Type.Union([Type.Literal("note-first"), Type.Literal("legacy")])),
+	compiler: Type.Optional(Type.Union([Type.Literal("wiki-compilation"), Type.Literal("shards")])),
 	status: Type.Union([
 		Type.Literal("queued"),
 		Type.Literal("running"),
@@ -164,7 +164,7 @@ export class WikiUpdateJobStore {
 	}
 
 	start(input: {
-		compiler?: "note-first" | "legacy";
+		compiler?: "wiki-compilation" | "shards";
 		goalId: string;
 		runId: string;
 		goal: string;
@@ -451,6 +451,6 @@ function stageOrder(kind: "curation" | "publication"): number {
 }
 
 export function canResumeWikiUpdateJob(job: WikiUpdateJob): boolean {
-	return (job.status === "interrupted" || job.compiler === "note-first" && job.status === "failed")
+	return (job.status === "interrupted" || job.compiler === "wiki-compilation" && job.status === "failed")
 		&& job.attempts < MAX_WIKI_UPDATE_ATTEMPTS;
 }

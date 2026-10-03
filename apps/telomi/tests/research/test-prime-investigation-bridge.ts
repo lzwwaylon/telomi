@@ -49,14 +49,14 @@ async function call(route: string, payload: Record<string, unknown>, identity = 
 try {
 	assert.deepEqual(await call("/v1/knowledge-search", { query: "loss", limit: 5 }),
 		{ status: 200, body: { results: [] } });
-	assert.deepEqual(await call("/v1/deep-search", { question: "Which loss?" }),
+	assert.deepEqual(await call("/v1/read-sources", { question: "Which loss?" }),
 		{ status: 200, body: { status: "not_found", cues: [], gaps: [] } });
 	assert.equal((await call("/v1/external-search", { question: "Find the official dataset paper" })).status, 200);
 	assert.equal((await call("/v1/external-search", { question: "Find the official dataset paper" }, "sub-123")).status, 422);
 	assert.deepEqual(await call("/v1/github-read", { question: "Which loss?", repository: "owner/repo", ref: "v1", paths: ["loss.py"] }),
 		{ status: 200, body: { provider: "github", reading: { status: "found", cues: [] } } });
 	assert.equal((await call("/v1/github-read", { question: "Which loss?", repository: "owner/repo", ref: "v1", paths: ["loss.py"] }, "sub-123")).status, 422);
-	assert.equal((await call("/v1/deep-search", { question: "Which loss?" }, "sub-123")).status, 422);
+	assert.equal((await call("/v1/read-sources", { question: "Which loss?" }, "sub-123")).status, 422);
 	assert.equal((await call("/v1/root-search", { query: "outside" })).status, 422);
 	assert.equal((await call("/v1/search", { source_id: "general_web", query: "outside" })).status, 422);
 	assert.equal((await call("/v1/write-answer", { evidence_refs: ["N1"], requirements: ["Explain loss"] })).status, 200);

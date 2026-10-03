@@ -1,5 +1,5 @@
 import { type AgentStageRunner, SrtStageRuntime } from "../../agent-runtime/agent-stage-runtime.js";
-import { PrimeCornellNoteStageRunner } from "./prime-cornell-note.js";
+import { PrimeNoteAgentStageRunner } from "./prime-note-agent.js";
 import { PrimeReportWriterStageRunner } from "./prime-report-writer.js";
 
 export function createProductionResearchStageRunner(
@@ -7,7 +7,7 @@ export function createProductionResearchStageRunner(
 	delegate: AgentStageRunner = new SrtStageRuntime(),
 ): AgentStageRunner {
 	return new PrimeReportWriterStageRunner(
-		new PrimeCornellNoteStageRunner(delegate, options),
+		new PrimeNoteAgentStageRunner(delegate, options),
 		options,
 	);
 }

@@ -4,9 +4,9 @@ Upstream: https://github.com/grapeot/writing-skill
 Commit: `9f2f6974a143de92c52dc5be1bfd931018a09f39` (2026-08-22)
 License: MIT, retained in `LICENSE`.
 
-This runtime copy keeps the deterministic Chinese prose scanner and the prose/thesis references used by the Research Report Writer. The root `SKILL.md` is adapted to Prime Reporter's unattended stage contract.
+This runtime copy keeps the deterministic Chinese prose scanner and the prose/thesis references used by the Research Report Writer. The root `SKILL.md` is adapted to Report Writer Root's unattended stage contract.
 
-The upstream internal-memo, Twitter, publishing, image, Antigravity, extra-model rewrite, and cold-read workflows are intentionally omitted. They require tools or interactions unavailable to Reporter and would conflict with its one-root, one-child-per-Section orchestration.
+The upstream internal-memo, Twitter, publishing, image, Antigravity, extra-model rewrite, and cold-read workflows are intentionally omitted. They require tools or interactions unavailable to Report Writer Root and would conflict with its one-root, one-child-per-Section orchestration.
 
 The references are kept as one English edition that applies to every report language; the upstream Chinese originals are not bundled.
 

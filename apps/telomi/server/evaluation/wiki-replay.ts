@@ -28,14 +28,14 @@ import { recordCaseCaptureFailure } from "../observability/case-capture.js";
 import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../agent-runtime/workspace-snapshot.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import {
-	runPrimeNoteWikiMaintainer,
-} from "../wiki/note-wiki-maintainer.js";
+	runWikiShardBuilder,
+} from "../wiki/wiki-shard-builder.js";
 import { requireWikiGoalContext, type GoalTopicPlan, type WikiGoalContext } from "../wiki/contracts.js";
 import {
 	curateWikiEdition,
 	type WikiCuratorOperation,
 	type WikiCuratorResult,
-} from "../wiki/wiki-shard-merge.js";
+} from "../wiki/wiki-curator.js";
 import { hashWikiDirectory } from "../wiki/files.js";
 import { toErrorMessage } from "../lib/values.js";
 import { listFilesRecursive, readJson } from "../lib/fs.js";
@@ -43,8 +43,8 @@ import { listFilesRecursive, readJson } from "../lib/fs.js";
 type WikiAgentId = "wiki-shard-builder" | "wiki-curator";
 const RECIPE_VERSION = 1;
 
-type WikiShardInput = Parameters<typeof runPrimeNoteWikiMaintainer>[0];
-type WikiShardResult = Awaited<ReturnType<typeof runPrimeNoteWikiMaintainer>>;
+type WikiShardInput = Parameters<typeof runWikiShardBuilder>[0];
+type WikiShardResult = Awaited<ReturnType<typeof runWikiShardBuilder>>;
 type WikiCuratorInput = Parameters<typeof curateWikiEdition>[0];
 
 export interface WikiReplayExecutionInput {
@@ -74,8 +74,8 @@ export async function runWikiShardNodeEvaluation(
 		env?: NodeJS.ProcessEnv;
 	},
 ): Promise<WikiShardResult> {
-	const env = pinTaskModelSelection(["wikiMaintainer", "primeChild"], options.env ?? input.env ?? process.env);
-	const maintain = options.execute ?? runPrimeNoteWikiMaintainer;
+	const env = pinTaskModelSelection(["wikiCurator", "primeChild"], options.env ?? input.env ?? process.env);
+	const maintain = options.execute ?? runWikiShardBuilder;
 	let models: FrozenWikiModels;
 	let logicalWorkspaces: string;
 	let inputDirectory: string;
@@ -121,7 +121,7 @@ export async function runWikiCuratorNodeEvaluation(
 		env?: NodeJS.ProcessEnv;
 	},
 ): Promise<WikiCuratorResult> {
-	const env = pinTaskModelSelection(["wikiMaintainer", "primeChild"], options.env ?? input.env ?? process.env);
+	const env = pinTaskModelSelection(["wikiCurator", "primeChild"], options.env ?? input.env ?? process.env);
 	const curate = options.execute ?? curateWikiEdition;
 	let models: FrozenWikiModels;
 	let logicalWorkspaces: string;
@@ -223,7 +223,7 @@ async function executeProductionWikiShardReplay(input: WikiReplayExecutionInput)
 		join(input.caseInputDirectory, "request.json"),
 	);
 	const env = frozenWikiEnv(request.models);
-	const result = await runPrimeNoteWikiMaintainer({
+	const result = await runWikiShardBuilder({
 		goal: request.goal,
 		goalContext: requireWikiGoalContext(request.goal_context),
 		evidence: readJson<CornellNotesSnapshot>(join(input.caseInputDirectory, "evidence.json")),
@@ -561,24 +561,24 @@ export interface FrozenWikiModels { root: string; child: string; thinking: Think
 
 export function wikiModels(env: NodeJS.ProcessEnv): FrozenWikiModels {
 	const root = resolveLLMConfig({
-		envVarName: TASK_MODEL_ROLE_INFO.wikiMaintainer.legacyEnvVar,
-		taskModelRole: "wikiMaintainer",
+		envVarName: TASK_MODEL_ROLE_INFO.wikiCurator.modelEnvVar,
+		taskModelRole: "wikiCurator",
 		envOverride: env,
 	});
 	if (!root.model) throw new Error("Wiki evaluation requires a configured Root model");
 	return {
 		root: root.model,
 		child: resolvePrimeModel("primeChild", env).selector,
-		thinking: resolveStageThinkingLevel("wikiMaintainer", "maintenance", env).thinkingLevel,
+		thinking: resolveStageThinkingLevel("wikiCurator", "maintenance", env).thinkingLevel,
 	};
 }
 
 export function frozenWikiEnv(models: FrozenWikiModels): NodeJS.ProcessEnv {
 	return {
 		...process.env,
-		TELOMI_WIKI_MAINTAINER_MODEL: models.root,
+		TELOMI_WIKI_CURATOR_MODEL: models.root,
 		TELOMI_PRIME_AGENT_CHILD_MODEL: models.child,
-		TELOMI_WIKI_MAINTAINER_THINKING_LEVEL: models.thinking,
+		TELOMI_WIKI_CURATOR_THINKING_LEVEL: models.thinking,
 	};
 }
 

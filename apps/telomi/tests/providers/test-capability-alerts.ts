@@ -82,7 +82,7 @@ test("a fresh install is told what to choose first", async () => {
 
 test("a Worker's model refusal reaches the capability that uses it until a success clears it", async () => {
 	const chat = "deepseek/deepseek-v4-pro";
-	observeModelFailureText(`Prime Cornell Note exited with code 1: model '${chat}' failed: 402 Insufficient Balance`);
+	observeModelFailureText(`Note Agent exited with code 1: model '${chat}' failed: 402 Insufficient Balance`);
 	assert.ok(existsSync(join(root, MODEL_VERDICTS_FILE)), "the refusal survives a restart");
 	assert.match(readFileSync(join(root, MODEL_VERDICTS_FILE), "utf-8"), /Insufficient Balance/u);
 	const [rejected] = await describeCapabilityAlerts(deps({ chat, embedding: wikiEmbedding }));
