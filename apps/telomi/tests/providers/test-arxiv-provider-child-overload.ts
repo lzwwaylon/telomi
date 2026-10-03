@@ -31,7 +31,7 @@ assert.equal(production.maxAttempts, 1, "requests outside a Provider Child keep 
 interface ErrorBody { error: { code: string; message: string; details?: Record<string, unknown> } }
 
 /** One Prime Search bridge whose fake arXiv upstream fails with 429 on the calls `retryAfter` returns a delay for. */
-async function scenario(name: string, minIntervalMs: number, retryAfter: (call: number) => number | undefined) {
+async function scenario(name: string, minIntervalMs: number, retryAfter: (call: number, operation: string) => number | undefined) {
 	const upstream: string[] = [];
 	const upstreamAt: number[] = [];
 	const runtime = new ProviderRuntime({ databasePath: join(root, `${name}.sqlite3`) });
@@ -55,7 +55,7 @@ async function scenario(name: string, minIntervalMs: number, retryAfter: (call: 
 		async search(request) {
 			upstream.push(request.providerRequest?.operation ?? "search");
 			upstreamAt.push(Date.now());
-			const delay = retryAfter(upstream.length);
+			const delay = retryAfter(upstream.length, request.providerRequest?.operation ?? "search");
 			if (delay !== undefined) {
 				throw new ResearchNodeError("arXiv returned HTTP 429: Rate exceeded.", "rate_limit", true, {
 					code: "provider_rate_limit",
@@ -120,22 +120,102 @@ function assertUnavailable(response: { status: number; body: ErrorBody }, expect
 }
 
 try {
+	// API discovery can stop while the same child still acquires already known papers.
+	const isolated = await scenario("api-main-isolated", 0, (_call, operation) => operation === "query" ? 5_000 : undefined);
+	try {
+		assertUnavailable(await isolated.month("sub-a", 1), { attempts: 1, arxiv_access_scope: "api" });
+		assert.equal((await isolated.post("sub-a", "known paper", "download_pdf", { arxiv_id: "2601.00001v1" })).status, 200);
+		assert.equal((await isolated.post("sub-a", "front", "paper_front", { arxiv_id: "2601.00002v1" })).status, 200);
+		assertUnavailable(await isolated.month("sub-a", 2), { attempts: 1, arxiv_access_scope: "api" });
+		assert.deepEqual(isolated.upstream, ["query", "download_pdf", "paper_front"], "new query parameters do not restore an exhausted API budget");
+	} finally {
+		await isolated.close();
+	}
+
+	// PDF throttling has its own fixed budget, shared with profiles and categories.
+	const limitedPdf = await scenario("main-limited", 0, (call, operation) => operation === "query" ? undefined : call === 1 ? 20 : 5_000);
+	try {
+		assertUnavailable(await limitedPdf.post("sub-a", "PDF", "download_pdf", { arxiv_id: "2601.00001v1" }), { attempts: 2, arxiv_access_scope: "main" });
+		assertUnavailable(await limitedPdf.post("sub-a", "next PDF", "download_pdf", { arxiv_id: "2601.00002v1" }), { attempts: 2, arxiv_access_scope: "main" });
+		assertUnavailable(await limitedPdf.post("sub-a", "taxonomy", "categories", {}), { attempts: 2, arxiv_access_scope: "main" });
+		assert.equal((await limitedPdf.month("sub-a", 1)).status, 200, "main-site overload does not stop API discovery");
+		assert.deepEqual(limitedPdf.upstream, ["download_pdf", "download_pdf", "query"]);
+	} finally {
+		await limitedPdf.close();
+	}
+
+	// A queued API cooldown must not hold the main-domain admission queue.
+	const queuedApi = await scenario("api-cooling-main-ready", 0, (call, operation) => operation === "query" ? call === 1 ? 200 : 5_000 : undefined);
+	try {
+		const api = queuedApi.month("sub-a", 1);
+		let polling = 0;
+		while (!queuedApi.events().some((event) => event.type === "runtime.provider_access" && event.state === "cooling")) {
+			assert.ok(polling++ < 2_000, "API request must report cooling before the test timeout");
+			await new Promise((resolve) => setTimeout(resolve, 1));
+		}
+		assert.equal((await queuedApi.post("sub-a", "known paper", "download_pdf", { arxiv_id: "2601.00001v1" })).status, 200);
+		assertUnavailable(await api, { attempts: 2, arxiv_access_scope: "api" });
+		assert.deepEqual(queuedApi.upstream, ["query", "download_pdf", "query"], "API backoff does not queue healthy main-site requests behind it");
+	} finally {
+		await queuedApi.close();
+	}
+
+	// Provider-wide denial still stops both fixed domains for this child and new siblings.
+	const deniedRuntime = new ProviderRuntime({ databasePath: join(root, "broad-denial.sqlite3") });
+	const deniedBudget = new ProviderOverloadBudget();
+	let deniedCalls = 0;
+	const deniedProvider: ResearchSearchProvider = {
+		id: "arxiv",
+		runtimePolicy: (request) => ({ ...builtInFastApiRuntimePolicy({ sourceId: "arxiv", env: {} })(request), cacheScope: undefined, overloadBudgetMs: BUDGET_MS }),
+		async search() {
+			deniedCalls += 1;
+			throw new ResearchNodeError("HTTP 403: provider-wide access denied", "permanent", false, {
+				code: "provider_credentials", retryAfterMs: 60_000,
+				details: { failure_scope: "provider", upstream_status: 403 },
+			});
+		},
+	};
+	const broadDenied = (error: unknown) => error instanceof ResearchNodeError && error.code === "source_unavailable"
+		&& error.details?.reason === "provider_access_denied" && error.details.arxiv_access_scope === undefined;
+	try {
+		await assert.rejects(deniedRuntime.search(deniedProvider, policyRequest, { overloadBudget: deniedBudget }), broadDenied);
+		assert.ok(deniedBudget.terminal, "a provider-wide ban stops the budget owner");
+		for (const budget of [deniedBudget, new ProviderOverloadBudget()]) {
+			await assert.rejects(deniedRuntime.search(deniedProvider, { ...policyRequest,
+				providerRequest: { operation: "download_pdf", parameters: { arxiv_id: "2601.00001v1" } },
+			}, { overloadBudget: budget }), broadDenied);
+		}
+		assert.equal(deniedCalls, 1, "provider-wide denial cannot be bypassed by switching domains or children");
+		const reopened = new ProviderRuntime({ databasePath: join(root, "broad-denial.sqlite3") });
+		try {
+			await assert.rejects(reopened.search(deniedProvider, { ...policyRequest,
+				providerRequest: { operation: "download_pdf", parameters: { arxiv_id: "2601.00001v1" } },
+			}, { overloadBudget: new ProviderOverloadBudget() }), broadDenied);
+			assert.equal(deniedCalls, 1, "a persisted provider-wide denial remains broad after Runtime restart");
+		} finally {
+			reopened.close();
+		}
+
+	} finally {
+		deniedRuntime.close();
+	}
+
 	// Seven consecutive failing months: the first 429 earns one controlled retry, the second trips the child.
-	const consecutive = await scenario("consecutive", 0, (call) => call === 1 ? 150 : 900);
+	const consecutive = await scenario("consecutive", 0, (call) => call === 1 || call === 3 ? 150 : 900);
 	try {
 		const startedAt = Date.now();
 		for (let index = 1; index <= 7; index += 1) {
 			assertUnavailable(await consecutive.month("sub-a", index), { attempts: 2, reason: "retry_attempts_exhausted" });
 		}
-		assertUnavailable(await consecutive.post("sub-a", "paper_front=2601.00001", "paper_front", { arxiv_id: "2601.00001" }), { attempts: 2 });
+		assertUnavailable(await consecutive.post("sub-a", "paper_front=2601.00001", "paper_front", { arxiv_id: "2601.00001" }), { attempts: 2, arxiv_access_scope: "main" });
 		assertUnavailable(await consecutive.post("sub-a", "download_pdf=2601.00001", "download_pdf", { arxiv_id: "2601.00001" }), { attempts: 2 });
 		const elapsedMs = Date.now() - startedAt;
-		assert.deepEqual(consecutive.upstream, ["query", "query"], "after the circuit opens no month, profile, or download reaches arXiv");
+		assert.deepEqual(consecutive.upstream, ["query", "query", "paper_front", "paper_front"], "each exhausted domain blocks its later operations");
 		// Per-month accumulation would wait 150 ms and then 900 ms for each later month (over 5 seconds).
 		assert.ok(elapsedMs < 3_000, `seven failing months must not accumulate cooldowns (took ${elapsedMs} ms)`);
 		const calls = consecutive.calls();
 		assert.equal(calls.length, 9);
-		assert.deepEqual(calls.map((call) => call.execution?.attempts), [2, 0, 0, 0, 0, 0, 0, 0, 0]);
+		assert.deepEqual(calls.map((call) => call.execution?.attempts), [2, 0, 0, 0, 0, 0, 0, 2, 0]);
 		// Anchor on the fake upstream's own timestamps: the recorded gate wait can be shorter than
 		// Retry-After when a busy host spends part of the cooldown elsewhere before the gate.
 		assert.ok(consecutive.upstreamAt[1]! - consecutive.upstreamAt[0]! >= 140, `the controlled retry waited out Retry-After (retried after ${consecutive.upstreamAt[1]! - consecutive.upstreamAt[0]!} ms)`);
@@ -143,10 +223,10 @@ try {
 		assert.ok(calls.reduce((sum, call) => sum + (call.execution?.rate_limit_wait_ms ?? 0), 0) <= BUDGET_MS);
 		assert.ok(calls.every((call) => call.response.error_code === "source_unavailable"));
 		assert.deepEqual(primeProviderAccess(calls, { provider_id: "arxiv", workspace_path: "provider-executions/sub-a" }), {
-			upstream_attempts: 2,
+			upstream_attempts: 4,
 			interval_wait_ms: calls.reduce((sum, call) => sum + (call.execution?.interval_wait_ms ?? 0), 0),
 			rate_limit_wait_ms: calls.reduce((sum, call) => sum + (call.execution?.rate_limit_wait_ms ?? 0), 0),
-			termination: { code: "source_unavailable", reason: "retry_attempts_exhausted" },
+			termination: { code: "source_unavailable", reason: "retry_attempts_exhausted", arxiv_access_scope: "api" },
 		});
 		assert.equal(primeProviderAccess(calls, { provider_id: "arxiv", workspace_path: "provider-executions/sub-b" }), undefined);
 	} finally {
@@ -166,12 +246,23 @@ try {
 		assert.equal(typeof states[0]?.budget_deadline_at, "string");
 		assert.equal(typeof states[0]?.next_attempt_at, "string");
 		assert.equal(states[1]?.reason, "retry_after_exceeds_budget");
-		assert.doesNotMatch(JSON.stringify(states), /query|credential|access_scope|workspace/u);
+		assert.doesNotMatch(JSON.stringify(states), /query|credential|fastapi:|workspace/u);
 		assertUnavailable(await longRetryAfter.month("sub-a", 2), { attempts: 1 });
 		assert.ok(Date.now() - startedAt < 2_000, "a Retry-After beyond the budget must not be waited out");
 		assert.equal(longRetryAfter.upstream.length, 1);
 	} finally {
 		await longRetryAfter.close();
+	}
+
+	// Ordinary spacing overlaps Retry-After but cannot make a retry fit its hard deadline.
+	const overlapping = await scenario("spacing-overlaps-cooldown", 400, () => 700);
+	try {
+		const startedAt = Date.now();
+		assertUnavailable(await overlapping.month("sub-a", 1), { attempts: 1, reason: "retry_after_exceeds_budget", arxiv_access_scope: "api" });
+		assert.ok(Date.now() - startedAt < BUDGET_MS, "a cooldown beyond the retry deadline is rejected before waiting");
+		assert.equal(overlapping.upstream.length, 1, "ordinary spacing does not grant another retry");
+	} finally {
+		await overlapping.close();
 	}
 
 	// Partial coverage: a recovered retry keeps working months, the next overload trips only that child.
@@ -207,6 +298,48 @@ try {
 	}
 
 	const timeoutRuntime = new ProviderRuntime({ databasePath: join(root, "timeout.sqlite3") });
+	// Outside a Child, a cached arXiv query still has maxAttempts=1 unless Source Service offers an exit.
+	for (const mode of ["direct", "alternate", "long-cooldown", "exhausted", "invalid-hint", "foreign-scope"] as const) {
+		const routedRuntime = new ProviderRuntime({ databasePath: join(root, `routing-${mode}.sqlite3`) });
+		let calls = 0;
+		const startedAt: number[] = [];
+		const routed: ResearchSearchProvider = {
+			id: "arxiv",
+			catalog: { implementationVersion: "routing-test", capability: "test", supportedContentTypes: ["text/html"],
+				fullTextAvailability: "metadata_only", credentialRequirement: "none", reliabilityTier: 1,
+				freshness: "daily", costClass: "free", latencyClass: "low" },
+			runtimePolicy: (request) => ({ ...builtInFastApiRuntimePolicy({ sourceId: "arxiv", env: {} })(request),
+				overloadBudgetMs: BUDGET_MS, ...(mode === "foreign-scope" ? { accessScope: "foreign-provider" } : {}) }),
+			async search() {
+				calls += 1;
+				startedAt.push(Date.now());
+				if (calls === 1 || mode === "exhausted") {
+					throw new ResearchNodeError("arXiv returned HTTP 429", "rate_limit", true, {
+						code: "provider_rate_limit", retryAfterMs: mode === "long-cooldown" ? 5_000 : 20,
+						details: { arxiv_egress_route: calls === 1 ? "direct" : "backup",
+							...(mode !== "direct" ? { arxiv_egress_next_route: mode === "invalid-hint"
+								? "http://proxy-user:secret@proxy" : calls === 1 ? "backup" : "third" } : {}) },
+					});
+				}
+				return [{ id: "routed", title: "Routed", url: "https://arxiv.org/abs/2601.00001", snippet: "",
+					metadata: { arxiv_egress_route: "backup" } }];
+			},
+		};
+		try {
+			if (mode === "alternate") {
+				const outcome = await routedRuntime.search(routed, policyRequest);
+				assert.equal(outcome.execution.attempts, 2);
+				assert.equal(outcome.results[0]?.metadata?.arxiv_egress_route, "backup");
+				assert.ok(startedAt[1]! - startedAt[0]! >= 15, "alternate is admitted after cooldown");
+			} else {
+				await assert.rejects(routedRuntime.search(routed, policyRequest));
+			}
+			assert.equal(calls, mode === "alternate" || mode === "exhausted" ? 2 : 1,
+				"routing never creates one retry per exit and never exceeds cooldown budget");
+		} finally {
+			routedRuntime.close();
+		}
+	}
 	const timeoutBudget = new ProviderOverloadBudget();
 	try {
 		await assert.rejects(timeoutRuntime.search({

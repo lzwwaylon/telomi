@@ -108,5 +108,35 @@ const historicalWait = item().steps.find((step) => step.stepId === "provider-acc
 assert.equal(historicalWait?.lifecycle, "finished", "resuming cannot reactivate an abandoned Provider wait");
 assert.equal(historicalWait?.timing.finishedAt, "2026-09-14T08:04:00.000Z");
 
+appendRuntime({
+	type: "runtime.provider_access", provider_id: "arxiv", sub_execution_id: "sub-scoped",
+	arxiv_access_scope: "api", state: "unavailable", failure_class: "rate_limit",
+	wait_started_at: "2026-09-14T08:05:00.000Z", ended_at: "2026-09-14T08:05:01.000Z",
+	created_at: "2026-09-14T08:05:01.000Z", reason: "retry_after_exceeds_budget",
+});
+appendRuntime({
+	type: "runtime.provider_access", provider_id: "arxiv", sub_execution_id: "sub-scoped",
+	arxiv_access_scope: "main", state: "recovered", failure_class: "rate_limit",
+	wait_started_at: "2026-09-14T08:05:02.000Z", ended_at: "2026-09-14T08:05:03.000Z",
+	created_at: "2026-09-14T08:05:03.000Z",
+});
+const scopedSteps = item().steps.filter((step) => step.stepId.startsWith("provider-access:sub-scoped:arxiv"));
+assert.equal(scopedSteps.length, 2, "PDF recovery must not hide the same Child's API failure");
+assert.equal(scopedSteps.find((step) => step.stepId.endsWith(":api"))?.providerAccess?.kind, "unavailable");
+assert.equal(scopedSteps.find((step) => step.stepId.endsWith(":main"))?.providerAccess?.kind, "recovered");
+assert.match(activityText(scopedSteps.find((step) => step.stepId.endsWith(":api"))!.title), /arXiv API/u);
+assert.match(activityText(scopedSteps.find((step) => step.stepId.endsWith(":main"))!.title), /arXiv PDF \/ HTML/u);
+assert.equal(scopedSteps.find((step) => step.stepId.endsWith(":api"))?.providerAccess?.arxivAccessScope, "api");
+appendRuntime({
+	type: "runtime.provider_access", provider_id: "arxiv", sub_execution_id: "sub-invalid-scope",
+	arxiv_access_scope: "/Users/private/proxy-credential", state: "recovered",
+	wait_started_at: "2026-09-14T08:05:02.000Z", ended_at: "2026-09-14T08:05:03.000Z",
+	created_at: "2026-09-14T08:05:03.000Z",
+});
+const invalidScope = item().steps.find((step) => step.stepId === "provider-access:sub-invalid-scope:arxiv");
+assert.equal(invalidScope?.providerAccess?.arxivAccessScope, undefined);
+assert.doesNotMatch(JSON.stringify(item()), /\/Users\/private|proxy-credential/u,
+	"only validated access domains enter public Activity labels and metadata");
+
 console.log("Provider cooldown, circuit break and fallback survive Activity projection reload");
 rmSync(workspaceDir, { recursive: true, force: true });

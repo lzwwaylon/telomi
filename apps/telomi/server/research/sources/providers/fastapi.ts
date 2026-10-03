@@ -124,7 +124,7 @@ export function builtInFastApiRuntimePolicy(
 				: Math.min(parameters.max_results ?? request.maxResults, request.maxResults);
 			return {
 				...base,
-				accessScope: "fastapi:arxiv:public",
+				accessScope: `fastapi:arxiv:public:${request.providerRequest?.operation === "query" ? "api" : "main"}`,
 				...("arxiv_id" in parameters ? {} : {
 					cacheScope: "fastapi:arxiv:public",
 					cacheKey: request.providerRequest?.operation === "categories"

@@ -152,6 +152,21 @@ export class HttpResearchSourceServiceClient implements ResearchSourceServiceCli
 		);
 	}
 
+	/** Publish only managed routes; the service owns static routes and drains retired clients before acknowledging. */
+	async setManagedArxivEgressRoutes(routes: Record<string, string>, signal?: AbortSignal): Promise<void> {
+		try {
+			const payload = await this.postJson("/v1/arxiv/egress", { schema_version: 1, routes }, "managed-arxiv-egress", signal, Object.keys(routes).length > 0);
+			if (payload.schema_version !== 1 || !Array.isArray(payload.route_names)
+				|| !payload.route_names.every((name) => typeof name === "string")
+				|| !Object.keys(routes).every((name) => (payload.route_names as string[]).includes(name))) {
+				throw new Error("Incompatible Source Service");
+			}
+		} catch (error) {
+			throw new ResearchNodeError("The Source Service cannot apply managed arXiv routes", "provider", true,
+				{ code: "source_service_unavailable", cause: asError(error) });
+		}
+	}
+
 	/** The source ids the running service registers. */
 	async listSources(signal?: AbortSignal): Promise<string[]> {
 		const service = this.configuredBaseUrl
@@ -217,10 +232,14 @@ export class HttpResearchSourceServiceClient implements ResearchSourceServiceCli
 		body: Record<string, unknown>,
 		label: string,
 		signal?: AbortSignal,
+		requireLoopback = false,
 	): Promise<Record<string, unknown>> {
 		const service = this.configuredBaseUrl
 			? { baseUrl: this.configuredBaseUrl, token: this.configuredToken ?? "" }
 			: await this.ensureReady(signal);
+		if (requireLoopback && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(service.baseUrl).hostname)) {
+			throw new Error("Managed loopback routes require a local Source Service");
+		}
 		let response: Response;
 		try {
 			response = await this.fetcher(`${service.baseUrl}${route}`, {

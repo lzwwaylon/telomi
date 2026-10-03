@@ -60,6 +60,7 @@ const SearchExecutionRecordSchema = Type.Object({
 		termination: Type.Optional(Type.Object({
 			code: NonEmptyString,
 			reason: Type.Optional(NonEmptyString),
+			arxiv_access_scope: Type.Optional(Type.Union([Type.Literal("api"), Type.Literal("main")])),
 		}, { additionalProperties: false })),
 	}, { additionalProperties: false })),
 	bundle_ref: Type.Optional(NonEmptyString),

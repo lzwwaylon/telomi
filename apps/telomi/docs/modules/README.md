@@ -25,6 +25,7 @@ When changing module responsibilities or interfaces, read the relevant documents
 | Media Playback | Global audio playback, bottom bar and expanded player, transcripts, and resume | [Media Playback](media-playback.md) |
 | Audio | STT/TTS protocol dispatch, endpoint extensions, model and voice defaults, managed telomi-audio and its contract | [Audio](audio.md) |
 | Voice | Push-to-talk, live preview, live voice conversations, recognition configuration, and voice history | [Voice](voice.md) |
+| Network egress | Tailscale peer approval, owned SSH forwarding and managed arXiv transport lifecycle | [Network egress](network-egress.md) |
 
 ## Agent definitions
 

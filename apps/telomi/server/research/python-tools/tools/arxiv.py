@@ -144,7 +144,7 @@ class ArxivDiscovery(TypedDict):
     saturated_lanes: list[str]  # Lanes truncated at DISCOVERY_LANE_LIMIT.
     failed_lanes: dict[str, str]  # Months whose Provider request failed, with the error.
     uncovered_ranges: list[dict[str, str]]  # Contiguous start_date/end_date ranges the failed months leave out.
-    source_unavailable: bool  # Runtime stopped this Provider Child after exhausting its overload budget.
+    source_unavailable: bool  # API discovery stopped; known papers may still download through the main domain.
     guidance: str
     unique_count: int  # Every unique record returned by the monthly lanes.
     returned_count: int
@@ -404,17 +404,17 @@ def discover_papers(
 
     Returns:
         One compact page, lane counts, failed lanes with their uncovered date
-        ranges, pool count, and next cursor. Once arXiv is unavailable to this
-        Provider Child, the remaining months are not requested and count as
-        failed.
+        ranges, pool count, and next cursor. Once API discovery is unavailable to
+        this Provider Child, the remaining months are not requested and count
+        as failed. Known paper IDs may still be passed to ``download_pdf()``.
 
     Raises:
         ValueError: If categories, concepts, or dates are invalid.
         ResearchRuntimeError: If every monthly lane fails. The code is
-            ``source_unavailable`` when arXiv is temporarily unavailable; its
+            ``source_unavailable`` when arXiv API discovery is unavailable; its
             ``details`` then carry ``provider_id``, ``failure_class``,
-            ``elapsed_ms``, ``attempts``, ``retry_after_ms``, and
-            ``uncovered_ranges``.
+            ``elapsed_ms``, ``attempts``, ``retry_after_ms``,
+            ``arxiv_access_scope``, and ``uncovered_ranges``.
     """
     global _discovery_pool, _inside_discovery, _pending_discovery
     offset = _discovery_offset(cursor)
@@ -1106,15 +1106,19 @@ def download_pdf(
 
     Returns:
         Paper records whose ``download_path`` points to converted Markdown;
-        ``pdf_path`` preserves each original PDF. A paper whose download or
+        ``pdf_path`` preserves each original PDF. Acquisition does not require a
+        live metadata query. ``arxiv_metadata_incomplete`` marks identity-only
+        metadata; retain bibliographic facts from earlier discovery records.
+        A paper whose download or
         conversion fails is omitted and recorded in ``download_failures()``
         and the Provider log; the call raises only when every paper fails.
 
     Raises:
         ValueError: If no usable ID is supplied.
         ResearchRuntimeError: If every download or conversion fails; the
-            ``source_unavailable`` error itself when arXiv became unavailable,
-            after which no further paper is requested.
+            ``source_unavailable`` error itself when main-site acquisition became
+            unavailable, after which no further paper is requested. API-only
+            discovery overload does not stop this operation.
     """
     identifiers = _normalize_ids(arxiv_ids)
     if not identifiers:

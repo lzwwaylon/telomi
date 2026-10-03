@@ -87,6 +87,8 @@ import { resumeWikiUpdate } from "./wiki/update-runner.js";
 import { registerSavedInvestigationCues, startGoalCueWikiUpdates } from "./research/cue-wiki-trigger.js";
 import { createContentSearchRouter } from "./search/content-search.js";
 import { toErrorMessage } from "./lib/values.js";
+import { NetworkEgressManager } from "./network/manager.js";
+import { createNetworkEgressRouter } from "./network/api.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const rootDir = join(__dirname, "..");
@@ -128,6 +130,7 @@ if (discoveredCredentials.length > 0) {
 	console.log(`[telomi] local credentials discovered: ${discoveredCredentials.join(", ")}`);
 }
 // Install lifecycle handling before the first managed service can be spawned.
+const networkEgress = new NetworkEgressManager({ dataDir: workspaceDir, sourceService: getResearchSourceServiceClient() });
 let startupComplete = false;
 let shutdownPromise: Promise<void> | undefined;
 // Stay subscribed: node --watch forwards the process-group signal again, and the
@@ -142,6 +145,7 @@ const browserHost = new BrowserHost({
 });
 try {
 	await getResearchSourceServiceManager().ensureReady();
+	void networkEgress.start().catch(() => console.warn("[network] Managed egress recovery is deferred; retry in Settings"));
 } catch (error) {
 	await getResearchSourceServiceManager().close();
 	throw error;
@@ -379,6 +383,7 @@ console.log(
 const app = express();
 app.use(cors({ origin: (origin, callback) => callback(null, isAllowedBrowserOrigin(origin, port)) }));
 app.use(express.json({ limit: "50mb" }));
+app.use(createNetworkEgressRouter(networkEgress, port));
 app.use(createBrowserToolRouter(browserSessions, browserToolToken));
 app.use(createBrowserObservationRouter(browserSessions, (goalId) => Boolean(goals.getGoal(goalId))));
 const audioLocalRuntime = getAudioLocalRuntimeManager();
@@ -960,6 +965,12 @@ function shutdown(signal: NodeJS.Signals): Promise<void> {
 }
 async function performShutdown(signal: NodeJS.Signals): Promise<void> {
 	console.log(`[telomi] received ${signal}, shutting down`);
+	const exitsClosed = await networkEgress.close(async () => {
+		if (process.env.TELOMI_RESEARCH_SOURCE_BASE_URL?.trim()) return false;
+		await getResearchSourceServiceManager().close();
+		return true;
+	});
+	if (!exitsClosed) console.warn("[network] External Source Service did not acknowledge route removal before shutdown");
 	if (!startupComplete) {
 		await getResearchSourceServiceManager().close();
 		await getHindsightRuntimeManager().close();

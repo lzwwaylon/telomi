@@ -125,7 +125,9 @@ export class ProviderRuntime {
 					details: { provider_id: provider.id, operation: request.providerRequest?.operation ?? "search", next_action: "correct_request" },
 				});
 			}
+			const scopedBudget = context.overloadBudget?.forAccessScope(policy.accessScope);
 			if (context.overloadBudget?.terminal) throw context.overloadBudget.terminal;
+			if (scopedBudget?.terminal) throw scopedBudget.terminal;
 			const outcome = await this.executeSearch(provider, request, policy, context.overloadBudget);
 			this.recordEvent(provider.id, policy.accessScope, outcome, startedAt, Date.now());
 			if (context.recorder) recordProviderCall(context.recorder, {
@@ -340,19 +342,21 @@ export class ProviderRuntime {
 	): Promise<ProviderSearchOutcome> {
 		const gate = this.accessGates.get(policy.accessScope) ?? new AccessGate(policy);
 		this.accessGates.set(policy.accessScope, gate);
-		const maxAttempts = sharedBudget ? 2 : policy.maxAttempts ?? 3;
+		let maxAttempts = sharedBudget ? 2 : policy.maxAttempts ?? 3;
 		// A caller outside a Provider Child still gets a budget of its own for this one request.
 		const budgetMs = policy.overloadBudgetMs;
-		const budget = budgetMs === undefined ? undefined : sharedBudget ?? new ProviderOverloadBudget();
+		const budgetOwner = budgetMs === undefined ? undefined : sharedBudget ?? new ProviderOverloadBudget();
+		const budget = budgetOwner?.forAccessScope(policy.accessScope);
+		const denialScope = arxivAccessScope(policy.accessScope) ? "fastapi:arxiv:public" : policy.accessScope;
 		const blockProvider = (cause: ResearchNodeError): number => {
 			const now = Date.now();
-			const existing = this.terminalProviderFailures.get(policy.accessScope);
+			const existing = this.terminalProviderFailures.get(denialScope);
 			if (existing && existing.expiresAt > now) return existing.expiresAt - now;
 			const untilTomorrow = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate() + 1) - now;
 			const delayMs = cause.retryAfterMs ?? (cause.code === "provider_daily_budget_exhausted" ? untilTomorrow : 15 * 60_000);
-			this.terminalProviderFailures.set(policy.accessScope, { cause, expiresAt: now + delayMs });
+			this.terminalProviderFailures.set(denialScope, { cause, expiresAt: now + delayMs });
 			gate.cooldown(delayMs);
-			this.persistCooldown(policy.accessScope, delayMs);
+			this.persistCooldown(denialScope, delayMs);
 			gate.rejectQueued(cause);
 			return delayMs;
 		};
@@ -372,13 +376,24 @@ export class ProviderRuntime {
 		let execution!: AccessResult<ResearchSearchResult[]>;
 		for (;;) {
 			const now = Date.now();
+			if (budgetOwner?.terminal) throw failure(budgetOwner.terminal);
 			if (budget?.terminal) throw failure(budget.terminal);
-			const blocked = this.terminalProviderFailures.get(policy.accessScope);
-			if (blocked && blocked.expiresAt <= now) this.terminalProviderFailures.delete(policy.accessScope);
+			let blocked = this.terminalProviderFailures.get(denialScope);
+			const sharedRestrictionUntil = denialScope !== policy.accessScope ? this.persistedCooldownUntil(denialScope) : 0;
+			if (!blocked && sharedRestrictionUntil > now) {
+				// The shared denial survives restart even when its in-memory upstream cause does not.
+				blocked = { expiresAt: sharedRestrictionUntil, cause: new ResearchNodeError(
+					"The shared arXiv provider-wide access restriction is still active", "provider", false,
+					{ code: "provider_shared_cooldown", retryAfterMs: sharedRestrictionUntil - now, details: { failure_scope: "provider" } },
+				) };
+			}
+			if (blocked && blocked.expiresAt <= now) this.terminalProviderFailures.delete(denialScope);
 			if (blocked && blocked.expiresAt > now) {
 				if (!budget) throw failure(blocked.cause);
 				budget.lastCause = blocked.cause;
-				throw failure(budget.trip(provider.id, terminalProviderReason(blocked.cause), blocked.expiresAt - now));
+				const terminal = budget.trip(provider.id, terminalProviderReason(blocked.cause), blocked.expiresAt - now);
+				budgetOwner!.terminal = terminal;
+				throw failure(terminal);
 			}
 			const priorFailures = key ? this.requestFailureBudget(key, now) : 0;
 			if (priorFailures >= maxAttempts) {
@@ -388,7 +403,7 @@ export class ProviderRuntime {
 				budget.lastCause = exhausted;
 				throw failure(budget.trip(provider.id, "request_retry_budget_exhausted", gate.cooldownRemainingMs()));
 			}
-			const persistedCooldownUntil = this.persistedCooldownUntil(policy.accessScope);
+			const persistedCooldownUntil = Math.max(this.persistedCooldownUntil(policy.accessScope), this.persistedCooldownUntil(denialScope));
 			gate.cooldown(Math.max(0, persistedCooldownUntil - now));
 			const controlled = retryPending;
 			retryPending = false;
@@ -404,7 +419,10 @@ export class ProviderRuntime {
 			try {
 				execution = await gate.run(signal, policy, async () => {
 					// A request queued before the Child's circuit opened must not reach the Provider.
+					if (budgetOwner?.terminal) throw budgetOwner.terminal;
 					if (budget?.terminal) throw budget.terminal;
+					const denied = this.terminalProviderFailures.get(denialScope);
+					if (denied && denied.expiresAt > Date.now()) throw denied.cause;
 					attempts += 1;
 					upstreamStartedAt = Date.now();
 					if (controlled) budget!.attempts += 1;
@@ -414,6 +432,14 @@ export class ProviderRuntime {
 						// filed under must describe the same credential.
 						return await provider.search(budget ? { ...request, signal } : request, { credential: policy.credential });
 					} catch (error) {
+						// A configured arXiv alternate may use the existing bounded retry, never a retry per exit.
+						if (budget && provider.id === "arxiv" && arxivAccessScope(policy.accessScope) !== undefined
+							&& error instanceof ResearchNodeError && error.retryable
+							&& typeof error.details?.arxiv_egress_next_route === "string"
+							&& /^[A-Za-z0-9_-]{1,64}$/u.test(error.details.arxiv_egress_next_route)
+							&& error.details.arxiv_egress_next_route !== error.details.arxiv_egress_route) {
+							maxAttempts = Math.max(maxAttempts, 2);
+						}
 						// Publish provider-wide failure before the gate releases a queued sibling.
 						if (isTerminalProviderFailure(error)) blockProvider(error);
 						const decision = retryDecision(error, attempts, maxAttempts);
@@ -446,7 +472,9 @@ export class ProviderRuntime {
 					if (!budget) throw failure(cause);
 					budget.lastCause = cause;
 					budget.attempts += attempts;
-					throw failure(budget.trip(provider.id, terminalProviderReason(cause), delayMs));
+					const terminal = budget.trip(provider.id, terminalProviderReason(cause), delayMs);
+					budgetOwner!.terminal = terminal;
+					throw failure(terminal);
 				}
 				const overloaded = isUpstreamOverload(cause);
 				const overloadFailures = key && overloaded
@@ -590,8 +618,8 @@ export class ProviderRuntime {
 
 /**
  * Overload state one Provider Child shares across all its requests to one Provider, owned by the
- * bridge serving that Child. Once it trips, every later request fails with `source_unavailable`
- * without reaching the Provider, so a new request key cannot extend the wait.
+ * bridge serving that Child. arXiv separates API and main-site overloads; all other Providers
+ * retain one budget. New request keys and routes never extend the affected domain's budget.
  */
 export type ProviderOverloadTripReason =
 	| "provider_access_denied"
@@ -601,7 +629,7 @@ export type ProviderOverloadTripReason =
 	| "budget_exhausted"
 	| "request_retry_budget_exhausted";
 
-export type ProviderOverloadState =
+export type ProviderOverloadState = { arxivAccessScope?: "api" | "main" } & (
 	| {
 		state: "cooling";
 		providerId: string;
@@ -624,7 +652,7 @@ export type ProviderOverloadState =
 		waitStartedAt: number;
 		endedAt: number;
 		reason: ProviderOverloadTripReason;
-	};
+	});
 
 export class ProviderOverloadBudget {
 	spentMs = 0;
@@ -635,13 +663,36 @@ export class ProviderOverloadBudget {
 	terminal: ResearchNodeError | undefined;
 	private waitStartedAt: number | undefined;
 
-	constructor(private readonly onState?: (state: ProviderOverloadState) => void) {}
+	private readonly domains = new Map<string, ProviderOverloadBudget>();
+
+	constructor(
+		private readonly onState?: (state: ProviderOverloadState) => void,
+		private readonly arxivScope?: "api" | "main",
+		private readonly owner?: ProviderOverloadBudget,
+	) {}
+
+	forAccessScope(scope: string): ProviderOverloadBudget {
+		const domain = arxivAccessScope(scope);
+		if (!domain || domain === this.arxivScope) return this;
+		if (this.owner) return this.owner.forAccessScope(scope);
+		let budget = this.domains.get(domain);
+		if (!budget) {
+			budget = new ProviderOverloadBudget(this.onState, domain, this);
+			this.domains.set(domain, budget);
+		}
+		return budget;
+	}
+
+	hasTerminalFailure(): boolean {
+		return this.terminal !== undefined || [...this.domains.values()].some((budget) => budget.terminal !== undefined);
+	}
 
 	cooling(providerId: string, failureClass: string, budgetMs: number, cooldownMs: number): void {
 		const now = Date.now();
 		this.waitStartedAt ??= now;
 		this.onState?.({
 			state: "cooling",
+			...(this.arxivScope ? { arxivAccessScope: this.arxivScope } : {}),
 			providerId,
 			failureClass,
 			waitStartedAt: this.waitStartedAt,
@@ -654,6 +705,7 @@ export class ProviderOverloadBudget {
 		if (this.waitStartedAt === undefined || this.terminal) return;
 		this.onState?.({
 			state: "recovered",
+			...(this.arxivScope ? { arxivAccessScope: this.arxivScope } : {}),
 			providerId,
 			failureClass: this.lastCause instanceof ResearchNodeError ? this.lastCause.failureClass : "rate_limit",
 			waitStartedAt: this.waitStartedAt,
@@ -664,14 +716,16 @@ export class ProviderOverloadBudget {
 
 	trip(providerId: string, reason: ProviderOverloadTripReason, cooldownMs: number): ResearchNodeError {
 		const cause = this.lastCause;
+		const domain = reason === "provider_access_denied" || reason === "free_budget_exhausted" ? undefined : this.arxivScope;
 		const failureClass = cause instanceof ResearchNodeError ? cause.failureClass : "rate_limit";
 		const retryAfterMs = cooldownMs > 0 ? cooldownMs : cause instanceof ResearchNodeError ? cause.retryAfterMs : undefined;
 		const lastError = cause === undefined
 			? "the Provider cooldown shared with other requests is still active"
 			: toErrorMessage(cause).replace(/\s+/gu, " ").trim().slice(0, 500);
 		this.terminal = new ResearchNodeError(
-			`Provider '${providerId}' is temporarily unavailable (${reason}): ${lastError} `
-			+ "This Provider Child makes no further requests to it; report the uncovered scope instead of retrying.",
+			`Provider '${providerId}'${domain ? ` ${domain} access` : ""} is temporarily unavailable (${reason}): ${lastError} `
+			+ (domain ? `This Provider Child makes no further ${domain} requests; the other arXiv access domain may still work. ` : "This Provider Child makes no further requests to it; ")
+			+ "Report the uncovered scope instead of retrying.",
 			failureClass,
 			false,
 			{
@@ -680,6 +734,7 @@ export class ProviderOverloadBudget {
 				code: "source_unavailable",
 				details: {
 					provider_id: providerId,
+					...(domain ? { arxiv_access_scope: domain } : {}),
 					failure_class: failureClass,
 					elapsed_ms: Math.round(this.spentMs),
 					attempts: this.attempts,
@@ -698,6 +753,7 @@ export class ProviderOverloadBudget {
 		const endedAt = Date.now();
 		this.onState?.({
 			state: "unavailable",
+			...(domain ? { arxivAccessScope: domain } : {}),
 			providerId,
 			failureClass,
 			waitStartedAt: this.waitStartedAt ?? endedAt,
@@ -706,6 +762,10 @@ export class ProviderOverloadBudget {
 		});
 		return this.terminal;
 	}
+}
+
+function arxivAccessScope(scope: string): "api" | "main" | undefined {
+	return scope === "fastapi:arxiv:public:api" ? "api" : scope === "fastapi:arxiv:public:main" ? "main" : undefined;
 }
 
 function terminalProviderReason(cause: ResearchNodeError): ProviderOverloadTripReason {
@@ -819,8 +879,9 @@ class AccessGate {
 		if (waitMs > 0) {
 			const head = this.queue[0]!;
 			const cooling = this.cooldownUntil > intervalReadyAt;
-			const cooldownMs = Math.max(0, this.cooldownUntil - Math.max(now, intervalReadyAt));
-			if (cooling && head.cooldownLimitMs !== undefined && cooldownMs > head.cooldownLimitMs) {
+			// Admission must fit the hard deadline even when ordinary spacing overlaps the cooldown.
+			const cooldownMs = Math.max(0, this.cooldownUntil - now);
+			if (head.cooldownLimitMs !== undefined && cooldownMs > head.cooldownLimitMs) {
 				this.queue.shift();
 				head.signal.removeEventListener("abort", head.onAbort);
 				head.reject(new CooldownBeyondBudget(cooldownMs));
