@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Eye, EyeOff, Loader2, LogIn, RefreshCw, Trash2 } from "lucide-react";
-import { sourceUnavailable, type SourceAuth, type SourceStatus, type SourceSummary, type SourcesResponse } from "@shared/sources.js";
+import { hasConfiguredSourceCredential, sourceUnavailable, type SourceAuth, type SourceStatus, type SourceSummary, type SourcesResponse } from "@shared/sources.js";
 import { apiClient } from "@/shared/lib/api-client";
 import { formatRelativeTime } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/utils";
@@ -412,7 +412,7 @@ function SearchCredentialControls({
   const [busy, setBusy] = useState<"save" | "delete" | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  const configured = provider.fields.some((field) => !field.optional && field.configured);
+  const configured = hasConfiguredSourceCredential(provider.fields);
   const staged = provider.fields.some((field) => field.pendingConfigured);
   const legacyEnv = [...new Set(provider.fields.flatMap((field) => field.legacyEnvSet))];
 

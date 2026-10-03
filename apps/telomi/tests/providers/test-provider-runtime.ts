@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { sha256 } from "../../server/lib/hash.js";
 import { startPrimeSourceBridge } from "../../server/research/pipeline/prime-search-batch.js";
 import { readProviderCallRecords } from "../../server/providers/provider-call-record.js";
-import { ProviderRuntime, ResearchSourceRegistry, builtInFastApiRuntimePolicy } from "../../server/research/index.js";
+import { ProviderOverloadBudget, ProviderRuntime, ResearchSourceRegistry, builtInFastApiRuntimePolicy } from "../../server/research/index.js";
 import { ResearchNodeError } from "../../server/agent-runtime/retry-policy.js";
 import {
 	type ResearchProviderRequest,
@@ -116,7 +116,16 @@ try {
 	assert.deepEqual(records[0]?.response.material_sha256, [sha256(readFileSync(materialFile))]);
 	assert.equal(records[2]?.response.error, "upstream down");
 
-	const bridgeProvider: ResearchSearchProvider = { ...recordedProvider, id: "bridge" };
+	const bridgeProvider: ResearchSearchProvider = {
+		...recordedProvider, id: "bridge",
+		runtimePolicy: (searchRequest) => ({ ...provider.runtimePolicy(request), cacheKey: { query: searchRequest.query } }),
+		async search(searchRequest) {
+			if (searchRequest.query === "missing paper") throw new ResearchNodeError("Paper not indexed", "validation", false, {
+				code: "not_found", details: { operation: "paper_info", upstream_status: 404, failure_scope: "object", next_action: "resolve_identity" },
+			});
+			return recordedProvider.search(searchRequest);
+		},
+	};
 	const bridgeRegistry = new ResearchSourceRegistry(runtime).register(bridgeProvider).register({ ...recordedProvider, id: "general_web" });
 	const bridgeWorkspace = join(root, "bridge-workspace");
 	const childWorkspace = join(bridgeWorkspace, "provider-executions", "sub-3171269c");
@@ -140,6 +149,17 @@ try {
 			}),
 		});
 		assert.equal(response.status, 200, await response.text());
+		const missing = await fetch(`${bridge.baseUrl}/v1/search`, {
+			method: "POST", headers: { authorization: `Bearer ${primeExecutionToken(bridge.token, "sub-3171269c")}`, "content-type": "application/json" },
+			body: JSON.stringify({ agent_session_id: "sub-3171269c", source_id: bridgeProvider.id,
+				query: "missing paper", max_results: 1, workspace_dir: childWorkspace }),
+		});
+		assert.equal(missing.status, 422);
+		const diagnostic = await missing.json() as { error: { code: string; retryable: boolean; details: Record<string, unknown> } };
+		assert.equal(diagnostic.error.code, "not_found");
+		assert.equal(diagnostic.error.retryable, false);
+		assert.deepEqual(diagnostic.error.details, { operation: "paper_info", upstream_status: 404, failure_scope: "object", next_action: "resolve_identity" },
+			"object-level cause and recovery action must survive the actual Source bridge");
 		// General Web reaches the bridge from ipython (research_runtime.search_general_web); the
 		// caller names its execution id and only the Search Root is served.
 		const generalInput = { query: "root discovery", max_results: 5 };
@@ -209,6 +229,23 @@ try {
 	assert.equal((await runtime.search(githubProvider, githubQueryRequest)).cache.status, "miss");
 	assert.equal((await runtime.search(githubProvider, githubQueryRequest)).cache.status, "hit");
 	assert.equal(githubCalls, 1, "GitHub query operations must use the Provider Runtime cache");
+
+	let openalexCalls = 0;
+	const openalexProvider: ResearchSearchProvider = {
+		...provider, id: "openalex",
+		runtimePolicy: builtInFastApiRuntimePolicy({ sourceId: "openalex", env: {} }),
+		async search(searchRequest) {
+			openalexCalls += 1;
+			return [{ id: searchRequest.temporalRange!.startDate, title: "Date-filtered paper", url: "https://openalex.org/W1", snippet: "" }];
+		},
+	};
+	for (const startDate of ["2026-01-01", "2026-02-01"]) {
+		const datedRequest = { ...request, providerRequest: providerRequest("query", { filter: "topics.id:T1" }),
+			temporalRange: { startDate, endDate: "2026-03-01" } };
+		assert.equal((await runtime.search(openalexProvider, datedRequest)).results[0]?.id, startDate);
+		assert.equal((await runtime.search(openalexProvider, datedRequest)).cache.status, "hit");
+	}
+	assert.equal(openalexCalls, 2, "OpenAlex caches must distinguish the effective publication date range");
 
 	const arxivPolicy = builtInFastApiRuntimePolicy({ sourceId: "arxiv", env: {}, minIntervalMs: 4_000 })(
 		{ ...request, providerRequest: providerRequest("query", { search_query: "cat:cs.SD", max_results: 1 }) },
@@ -509,6 +546,53 @@ try {
 	await leader;
 	await follower.catch(() => undefined);
 	assert.equal(followerStatus, "cancelled", "a cancelled follower must detach without cancelling the shared upstream call");
+	for (const [code, reason, failureClass] of [
+		["provider_daily_budget_exhausted", "free_budget_exhausted", "budget"],
+		["provider_credentials", "provider_access_denied", "permanent"],
+	] as const) {
+		let calls = 0;
+		const terminalProvider: ResearchSearchProvider = {
+			...provider, id: code,
+			runtimePolicy: () => ({ accessScope: `${code}:key`, maxConcurrency: 1, minIntervalMs: 0, overloadBudgetMs: 60_000 }),
+			async search() {
+				calls += 1;
+				throw new ResearchNodeError("terminal upstream failure", failureClass, false, {
+					code, retryAfterMs: 60_000,
+					details: { failure_scope: "provider", operation: "query", upstream_status: code === "provider_credentials" ? 401 : 429 },
+				});
+			},
+		};
+		const budget = new ProviderOverloadBudget();
+		const terminal = (error: unknown) => error instanceof ResearchNodeError
+			&& error.code === "source_unavailable" && !error.retryable
+			&& error.details?.reason === reason && error.details?.cause_code === code
+			&& error.details?.operation === "query"
+			&& error.details?.next_action === "submit_partial_and_handoff";
+		await Promise.all([
+			assert.rejects(runtime.search(terminalProvider, request, { overloadBudget: budget }), terminal),
+			assert.rejects(runtime.search(terminalProvider, { ...request, query: "already queued sibling" }, { overloadBudget: new ProviderOverloadBudget() }), terminal),
+			assert.rejects(runtime.search({ ...terminalProvider,
+				runtimePolicy: () => ({ ...terminalProvider.runtimePolicy!(request), overloadBudgetMs: undefined }),
+			}, { ...request, query: "queued caller without child budget" }),
+			(error: unknown) => error instanceof ResearchNodeError && error.code === code),
+		]);
+		await assert.rejects(runtime.search(terminalProvider, { ...request, query: "different query" }, { overloadBudget: budget }), terminal);
+		await assert.rejects(runtime.search(terminalProvider, { ...request, query: "new child" }, { overloadBudget: new ProviderOverloadBudget() }), terminal);
+		assert.equal(calls, 1, "provider-wide terminal failure blocks new queries and sibling children");
+		const rotated = { ...terminalProvider, runtimePolicy: () => ({ ...terminalProvider.runtimePolicy!(request), accessScope: `${code}:rotated` }), async search() { return []; } };
+		assert.deepEqual((await runtime.search(rotated, request)).results, [], "a new credential has its own access scope");
+	}
+	let invalidUpstreamCalls = 0;
+	await assert.rejects(runtime.search({
+		...provider, id: "invalid_parameters",
+		runtimePolicy() { throw new Error("Unknown native parameter"); },
+		async search() { invalidUpstreamCalls += 1; return []; },
+	}, { ...request, providerRequest: providerRequest("query", { unknown: true }) }),
+	(error: unknown) => error instanceof ResearchNodeError && error.code === "invalid_provider_request"
+		&& !error.retryable && error.details?.operation === "query" && error.details?.next_action === "correct_request");
+	assert.equal(invalidUpstreamCalls, 0);
+	assert.ok(runtime.recentEvents().some((event) => event.providerId === "invalid_parameters"
+		&& event.errorCode === "invalid_provider_request" && !event.upstreamCalled));
 	runtime.close();
 
 	const reopened = new ProviderRuntime({ databasePath: join(root, "provider-runtime.sqlite3") });

@@ -7,8 +7,9 @@ import hashlib
 import json
 import os
 import tempfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 from urllib.parse import urlparse
 
 
@@ -17,7 +18,6 @@ class CandidateLedger:
 
     def __init__(self) -> None:
         self._candidates: dict[str, dict[str, Any]] = {}
-        self._written = False
 
     def add(
         self,
@@ -63,9 +63,7 @@ class CandidateLedger:
         }
 
     def write(self, path: str | Path) -> None:
-        """Atomically write the Ledger once for this builder instance."""
-        if self._written:
-            raise RuntimeError("CandidateLedger.write() may be called only once")
+        """Atomically save the current draft. Runtime submission freezes the final Ledger."""
         target = Path(path)
         if not target.is_absolute():
             target = Path(os.environ.get("PRIME_AGENT_ARTIFACT_WORKSPACE", "/workspace")) / target
@@ -76,7 +74,6 @@ class CandidateLedger:
             file.write("\n")
         try:
             os.replace(temporary, target)
-            self._written = True
         finally:
             temporary.unlink(missing_ok=True)
 

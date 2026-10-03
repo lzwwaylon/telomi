@@ -133,7 +133,7 @@ try {
 	assert.equal(service.seen.length, 0);
 	assert.deepEqual(
 		initial.json.providers?.map((provider) => provider.id),
-		["twitter", "github", "huggingface", "firecrawl", "tavily", "exa"],
+		["twitter", "github", "huggingface", "firecrawl", "tavily", "exa", "openalex"],
 		"the entry point covers the already integrated search Providers and adds no arbitrary API",
 	);
 
@@ -324,8 +324,22 @@ try {
 	assert.equal(remoteExa?.status, "active");
 	assert.equal(remoteExa?.pendingReason, null);
 	assert.deepEqual(remote.json.consumers,
-		[{ id: "sourceService", status: "pending", pendingProviders: ["github", "huggingface", "firecrawl"] }]);
+		[{ id: "sourceService", status: "pending", pendingProviders: ["github", "huggingface", "firecrawl", "openalex"] }]);
 	delete env.TELOMI_RESEARCH_SOURCE_BASE_URL;
+
+	// Optional-only free keys still validate, activate and reach requests; anonymous mode needs no key.
+	const emptyOptional = await call("PUT", "/api/search-credentials/openalex", { mode: "apply", values: {} });
+	assert.equal(emptyOptional.status, 400);
+	const optionalKey = "opaque-optional-key-fixture";
+	service.accepted.add(optionalKey);
+	const optional = await call("PUT", "/api/search-credentials/openalex", {
+		mode: "apply", values: { openalex_api_key: optionalKey },
+	});
+	assert.equal(optional.status, 200, optional.text);
+	assert.equal(optional.json.providers?.find((provider) => provider.id === "openalex")?.status, "active");
+	assert.equal(searchCredentialOverride("openalex", searchCredentialEnvironmentFor({}))?.SOURCE_SERVICE_OPENALEX_API_KEY, optionalKey);
+	assert.equal((await call("DELETE", "/api/search-credentials/openalex")).status, 200);
+	assert.equal((await call("GET", "/api/search-credentials")).json.providers?.find((provider) => provider.id === "openalex")?.status, "unconfigured");
 
 	// Neither the entry point's answers nor the settings record ever carry a secret.
 	const settings = readFileSync(join(agentDir, "settings.json"), "utf8");

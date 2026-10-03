@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join, relative } from "node:path";
 
 import type { ResearchModelUsage } from "../../agent-runtime/model-usage.js";
@@ -16,7 +16,8 @@ import type { ResearchHarnessSnapshot } from "../harness/snapshot.js";
 import type { ResearchTemporalContext } from "../research-types.js";
 import type { ResearchSourceRegistry } from "../sources/registry.js";
 import { runPrime, stageProviderSdk, stageProviderWorkerSkills, startPrimeSourceBridge } from "./prime-search-batch.js";
-import { validatePrimeSearchCandidateLedger } from "./prime-search-contract.js";
+import { primeProviderSubmission } from "./prime-search-contract.js";
+import { ResearchNodeError } from "../../agent-runtime/retry-policy.js";
 import { providerExecutionWorkspace } from "./provider-execution-workspace.js";
 import { providerToolRuntime } from "./provider-tool-runtime.js";
 
@@ -66,6 +67,7 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 	const runtimeRoot = join(request.recordDirectory, "runtime");
 	if (existsSync(root)) throw new Error("Provider child replay requires a fresh record directory");
 	mkdirSync(root, { recursive: true });
+	mkdirSync(join(root, ".runtime"), { recursive: true });
 	mkdirSync(runtimeRoot, { recursive: true });
 	const childId = `sub-${randomUUID()}`;
 	const skills = new Map(request.harness.agentSkills["prime-search"].skills.map((asset) => [
@@ -110,6 +112,7 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 			prompt: request.task, skills: skillRoots, tools: ["ipython", "submit_candidate_ledger"], contractTools: true,
 			scopedModels: [], rlmMaxDepth: 1, childReplayId: childId,
 			readonlyRoots: [sdkRoot, skillsDirectory, ...rootPythonPaths],
+			privateRoots: [join(root, ".runtime")],
 			env, signal, tracePath, conditionsPath, launchKind: "provider_child",
 			activity: { stageId: "provider-child", attemptId: childId, role: "prime_search" },
 			extraEnv: {
@@ -126,18 +129,15 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 			},
 		});
 		if (result.rootError) throw new Error(`Provider child model failed: ${result.rootError}`);
-		const ledgerPath = join(workspaceRoot, "work", `${source.id}_candidates.json`);
-		const assignment = join(workspaceRoot, "work", ".provider-assignment");
-		if (!existsSync(assignment) || readFileSync(assignment, "utf8").trim() !== source.id) {
-			throw new Error("Provider child did not submit its assigned Candidate Ledger");
-		}
-		validatePrimeSearchCandidateLedger(workspaceRoot, source.id, ledgerPath, childId);
+		const submission = primeProviderSubmission(root, childId, source.id);
+		if (!submission) throw new ResearchNodeError("Provider child did not submit its assigned Candidate Ledger through the submission Tool.", "permanent", false, { code: "ledger_submission_missing" });
+		const ledgerPath = submission.ledger_path;
 		const sessionFiles = readdirSync(sessionDir).filter((name) => name.endsWith(".jsonl"));
 		if (sessionFiles.length !== 1) throw new Error("Provider child must produce exactly one native session trace");
 		releaseReason = "completed";
 		return { workspaceRoot, skillsDirectory, childId, tracePath, conditionsPath, ledgerPath,
 			providerCallsPath: providerCallsPath(request.recordDirectory),
-			...(existsSync(join(root, ".system-prompt.md")) ? { systemPromptPath: join(root, ".system-prompt.md") } : {}), usage: result.usage, toolCalls: result.toolCalls,
+			...(existsSync(join(workspaceRoot, ".system-prompt.md")) ? { systemPromptPath: join(workspaceRoot, ".system-prompt.md") } : {}), usage: result.usage, toolCalls: result.toolCalls,
 			durationMs: Date.now() - startedAt };
 	} finally {
 		try {
@@ -157,12 +157,12 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 export function restoreProviderChildInput(source: string, destination: string): void {
 	if (!lstatSync(source).isDirectory() || lstatSync(source).isSymbolicLink()) throw new Error("Provider child input must be a real directory");
 	for (const name of readdirSync(source)) {
-		if (["skills", ".prime-kernel"].includes(name)) continue;
+		if (["skills", ".prime-kernel", ".runtime", ".system-prompt.md"].includes(name)) continue;
 		if (name === "work") {
 			if (lstatSync(join(source, name)).isSymbolicLink()) throw new Error("Provider child input must not contain symbolic links");
 			mkdirSync(join(destination, "work"), { recursive: true });
 			for (const entry of readdirSync(join(source, name))) {
-				if (entry === ".execution-id") continue;
+				if ([".execution-id", ".provider-assignment"].includes(entry)) continue;
 				copyChildInputTree(join(source, name, entry), join(destination, name, entry));
 			}
 		} else copyChildInputTree(join(source, name), join(destination, name));

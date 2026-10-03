@@ -66,29 +66,49 @@ export SOURCE_SERVICE_FIRECRAWL_API_KEY='optional'
 export SOURCE_SERVICE_TAVILY_API_KEY='optional'
 export SOURCE_SERVICE_EXA_API_KEY='optional'
 export SOURCE_SERVICE_HUGGINGFACE_TOKEN='optional-for-private-or-higher-rate-Hugging-Face-access'
+export SOURCE_SERVICE_OPENALEX_API_KEY='optional-free-account-key'
 export SOURCE_SERVICE_TWITTER_COOKIE_FILE='/absolute/path/to/x-cookies.txt'
 .venv/bin/python -m research_source_service
 ```
 
 The standalone default listener is `127.0.0.1:8791`. The Node Runtime autostart path also starts at port 8791 and selects another free loopback port when it is occupied. Set `TELOMI_RESEARCH_SOURCE_PORT` to require one explicit autostart port. `SOURCE_SERVICE_HOST` only accepts `localhost` or a loopback IP address.
 
+### Scholarly discovery and free access
+
+arXiv uses native categories and submission-date filters; OpenAlex exposes native Topics and publication-date/cursor-filtered works.
+Provider Skills preserve these different query semantics.
+Runtime bounds retries and reports unavailable Sources to Prime Search Root, which hands off only unmet Evidence Needs.
+Object-not-found, missing full text and invalid parameters remain distinct from a Provider outage.
+
+OpenAlex's key is optional for metadata discovery. Its cached content requires a free key; supplied keys are checked
+against its account endpoint. A shared `openalex-budget.sqlite3` beside the arXiv scheduler conservatively admits at most
+$0.10/day anonymously or $1/day per key. It never buys credit or rotates keys. This local ceiling cannot account for the
+same key spent by other applications or hosts; use a dedicated key without prepaid credit for that spending boundary.
+
 ### arXiv SQLite runtime cache
 
-The Node Runtime and standalone service default to one host-wide database at:
+The Node Runtime and standalone service default to an exact-response cache at:
 
 ```text
 ~/.telomi/runtime/research-sources/arxiv-runtime.sqlite3
 ```
 
 Set `SOURCE_SERVICE_ARXIV_SQLITE_PATH` to override the database location. `SOURCE_SERVICE_ARXIV_CACHE_TTL_SECONDS` controls the exact upstream-query cache and defaults to 86400 seconds.
-All checkouts owned by the same user therefore share one cross-process connection lock, cooldown, and request schedule.
-Legacy API requests use a four-second interval. Main-site taxonomy and PDF requests use a fifteen-second interval.
+Query caches can be isolated by checkout or evaluation instance. Upstream connection admission, request spacing and cooldown use a separate database, shared by default across all checkouts owned by the same user:
+
+```text
+~/.telomi/runtime/research-sources/arxiv-upstream.sqlite3
+```
+
+`SOURCE_SERVICE_ARXIV_SCHEDULER_SQLITE_PATH` overrides this coordination path. Instances sharing an upstream allowance must use the same scheduler; changing the query-cache path does not create a separate allowance. The shared scheduler contains only pacing state, never cached queries or Source material. On multiple hosts, use one Source Service for the shared allowance.
+
+Legacy API requests default to a four-second interval, main-site taxonomy, HTML and PDF requests to eight seconds, and all arXiv requests to a three-second global interval. After waiting for both endpoint and global deadlines, Runtime records the actual admitted request start while holding the cross-process connection lock. Delayed wakeups therefore cannot consume the next request's interval in advance. `request_started_at` in each instance's `arxiv-upstream.jsonl` records this boundary separately from queue entry time.
 
 This is Runtime code, not Agent execution. The Agent still produces native arXiv query intent through `tools.arxiv`. The Runtime then applies this order:
 
 1. Validate and canonicalize native arXiv request parameters.
 2. Reuse an unexpired exact Atom response from SQLite when endpoint and parameters match.
-3. Acquire the host-wide single-connection lock and reserve the next endpoint-specific request slot.
+3. Acquire the shared single-connection lock, wait for endpoint and global deadlines, then record the admitted request start.
 4. Call the native arXiv Atom API without reimplementing its search semantics.
 5. Validate and parse the Atom page, then cache the original XML for identical requests.
 

@@ -1157,6 +1157,7 @@ export const enMessages = {
 	"settings.source.name.tavily": "Tavily",
 	"settings.source.name.exa": "Exa",
 	"settings.source.name.arxiv": "arXiv",
+	"settings.source.name.openalex": "OpenAlex",
 	"settings.source.name.user_documents": "User documents",
 	"settings.source.state.ok": "Working",
 	"settings.source.state.needs_login": "Needs login",

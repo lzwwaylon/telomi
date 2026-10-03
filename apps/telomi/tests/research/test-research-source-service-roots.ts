@@ -96,7 +96,7 @@ const calls = join(startupRoot, "uv-calls.jsonl");
 const fakePython = `#!${process.execPath}
 const http = require("node:http");
 const fs = require("node:fs");
-fs.writeFileSync(process.env.STARTUP_ENV, JSON.stringify({roots:process.env.SOURCE_SERVICE_WORKSPACE_ROOTS,cache:process.env.SOURCE_SERVICE_MATERIAL_CACHE_ROOT}));
+fs.writeFileSync(process.env.STARTUP_ENV, JSON.stringify({roots:process.env.SOURCE_SERVICE_WORKSPACE_ROOTS,cache:process.env.SOURCE_SERVICE_MATERIAL_CACHE_ROOT,scheduler:process.env.SOURCE_SERVICE_ARXIV_SCHEDULER_SQLITE_PATH}));
 http.createServer((req,res) => {res.end("{}");}).listen(Number(process.env.SOURCE_SERVICE_PORT), "127.0.0.1");
 `;
 writeFileSync(join(bin, "uv"), `#!${process.execPath}
@@ -130,6 +130,7 @@ const startupEnv: NodeJS.ProcessEnv = {
 	TELOMI_CACHE_DIR: join(startupRoot, "isolated-cache"),
 	SOURCE_SERVICE_WORKSPACE_ROOTS: "",
 	SOURCE_SERVICE_MATERIAL_CACHE_ROOT: "",
+	SOURCE_SERVICE_ARXIV_SCHEDULER_SQLITE_PATH: join(startupRoot, "shared-arxiv-upstream.sqlite3"),
 	UV_CALLS: calls,
 	STARTUP_ENV: join(startupRoot, "service-env.json"),
 };
@@ -141,6 +142,8 @@ try {
 	assert.deepEqual(JSON.parse(readFileSync(calls, "utf8").trim()), ["sync", "--project", localService, "--frozen", "--extra", "dev", "--python", "3.11"]);
 	const observed = JSON.parse(readFileSync(startupEnv.STARTUP_ENV!, "utf8"));
 	assert.equal(observed.cache, join(startupEnv.TELOMI_CACHE_DIR!, "material-cache"));
+	assert.equal(observed.scheduler, startupEnv.SOURCE_SERVICE_ARXIV_SCHEDULER_SQLITE_PATH,
+		"Source Service startup preserves the explicitly shared scheduler independently of its private cache");
 	assert.ok(observed.roots.split(delimiter).includes(startupEnv.TELOMI_DATA_DIR));
 	const external = new ResearchSourceServiceManager({...startupEnv, TELOMI_RESEARCH_SOURCE_BASE_URL: ready.baseUrl});
 	await external.ensureReady();

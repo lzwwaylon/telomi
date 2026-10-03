@@ -6,8 +6,47 @@ import {
 	providerExecutionWorkspace,
 } from "../../../../extensions/telomi-srt/prime-workspace.js";
 import type { LogicalWorkspaceSnapshot } from "../../agent-runtime/logical-workspace-snapshot.js";
+import type { CreateAgentSessionOptions, SubagentRuntimeHost } from "prime-agent";
 
 export { providerExecutionChildId, providerExecutionWorkspace };
+
+/** Override only native child cwd; Prime retains its own parent/child lifecycle and messaging. */
+export function createProviderChildRuntimeHost(
+	prime: Pick<typeof import("prime-agent"), "SessionManager" | "createAgentSession">,
+	root: string,
+	options: CreateAgentSessionOptions,
+): SubagentRuntimeHost {
+	const host: SubagentRuntimeHost = {
+		async createRlmSubagentRuntime(input) {
+			const cwd = providerExecutionWorkspace(root, input.id).absolutePath;
+			const sessionManager = prime.SessionManager.create(cwd, input.sessionDir);
+			if (input.parentSession.sessionFile) sessionManager.newSession({ parentSession: input.parentSession.sessionFile, rlmDepth: input.rlmDepth });
+			const { session } = await prime.createAgentSession({
+				...options, cwd, sessionManager, resourceLoader: input.parentSession.resourceLoader,
+				model: input.model, thinkingLevel: input.thinkingLevel, serviceTier: input.serviceTier,
+				scopedModels: input.scopedModels, customTools: input.customTools,
+				initialActiveToolNames: input.activeToolNames, allowedToolNames: input.allowedToolNames,
+				includeGoals: input.includeGoals, includeCompactSkill: input.includeCompactSkill,
+				rlmDepth: input.rlmDepth, rlmMaxDepth: input.rlmMaxDepth, rlmSessionDir: input.sessionDir,
+				rlmParentNodeId: input.rlmParentNodeId,
+				rlmParentAgent: input.parentSession.sessionName ?? input.parentSession.sessionId,
+				subagentRuntimeHost: host, sessionStartEvent: { type: "session_start", reason: "startup" },
+			});
+			try {
+				// Match native inline child inheritance, including instrumented/custom model transport.
+				for (const key of ["convertToLlm", "transformContext", "streamFn", "getApiKey", "onPayload", "onResponse", "toolExecution"] as const) {
+					Object.assign(session.agent, { [key]: input.parentSession.agent[key] });
+				}
+				session.setSessionName(input.sessionName);
+				input.onSessionPublished?.(session);
+				return { session };
+			} catch (error) { await session.disposeAsync(); throw error; }
+		},
+		async deleteRlmSubagentRuntime(_id, session) { await session?.disposeAsync(); },
+		async releaseRlmSubagentRuntime(runtime) { await runtime.session.disposeAsync(); },
+	};
+	return host;
+}
 
 /** SDK file reads resolve against the worker cwd; Child kernels have the same relative Skill entry point. */
 export function workspaceRelativeSkill<T extends { filePath: string; baseDir: string }>(root: string, skill: T): T {

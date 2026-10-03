@@ -40,7 +40,10 @@ async def test_real_http_disconnect_cancels_upstream_and_releases_lock(tmp_path,
             server = uvicorn.Server(uvicorn.Config(app, log_level="critical", lifespan="on"))
             serving = asyncio.create_task(server.serve(sockets=[sock]))
             writer = None
-            store = ArxivRuntimeStore(settings.arxiv_sqlite_path)
+            store = ArxivRuntimeStore(
+                settings.arxiv_sqlite_path,
+                scheduler_database=settings.arxiv_scheduler_sqlite_path,
+            )
             try:
                 async def wait_started():
                     while not server.started:

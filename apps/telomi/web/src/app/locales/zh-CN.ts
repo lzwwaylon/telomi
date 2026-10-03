@@ -1155,6 +1155,7 @@ export const zhCNMessages = {
 	"settings.source.name.tavily": "Tavily",
 	"settings.source.name.exa": "Exa",
 	"settings.source.name.arxiv": "arXiv",
+	"settings.source.name.openalex": "OpenAlex",
 	"settings.source.name.user_documents": "用户文档",
 	"settings.source.state.ok": "正常",
 	"settings.source.state.needs_login": "需要登录",

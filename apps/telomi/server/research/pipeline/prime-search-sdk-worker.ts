@@ -9,7 +9,7 @@ import {
 	projectPrimeChildLifecycleEvent,
 } from "../../agent-runtime/prime-agent-paths.js";
 import { createPrimeOrganizerContractTools, createPrimeSearchContractTools } from "./prime-search-contract.js";
-import { providerChildLogicalWorkspace, workspaceRelativeSkill } from "./provider-execution-workspace.js";
+import { createProviderChildRuntimeHost, providerChildLogicalWorkspace, providerExecutionWorkspace, workspaceRelativeSkill } from "./provider-execution-workspace.js";
 
 interface Input {
 	cwd: string;
@@ -69,10 +69,11 @@ const scopedModels = [
 ];
 const rlmSessionDir = join(dirname(input.sessionDir), "session-artifacts");
 const eventLog = join(dirname(input.sessionDir), "sdk-events.jsonl");
-const sessionManager = prime.SessionManager.create(input.cwd, input.sessionDir);
+const sessionCwd = input.childReplayId ? providerExecutionWorkspace(input.cwd, input.childReplayId).absolutePath : input.cwd;
+const sessionManager = prime.SessionManager.create(sessionCwd, input.sessionDir);
 if (input.childReplayId) sessionManager.newSession({ rlmDepth: 1 });
-const { session } = await prime.createAgentSession({
-	cwd: input.cwd,
+const sessionOptions = {
+	cwd: sessionCwd,
 	agentDir,
 	authStorage,
 	modelRegistry,
@@ -91,6 +92,9 @@ const { session } = await prime.createAgentSession({
 	executionMode: "print",
 	telemetryDisabled: true,
 	autonomous: { enabled: false },
+};
+const { session } = await prime.createAgentSession({ ...sessionOptions,
+	...(input.contractTools && !input.childReplayId ? { subagentRuntimeHost: createProviderChildRuntimeHost(prime, input.cwd, sessionOptions as import("prime-agent").CreateAgentSessionOptions) } : {}),
 });
 
 const shouldRecordTraceEvent = createPrimeTraceEventFilter();
@@ -135,10 +139,10 @@ try {
 	// work dir so the Case snapshot carries it. The Agent is done, so this dotfile never enters its reasoning.
 	try {
 		const systemPrompt = (session as { systemPrompt?: string }).systemPrompt;
-		if (typeof systemPrompt === "string" && systemPrompt) writeFileSync(join(input.cwd, ".system-prompt.md"), systemPrompt, "utf-8");
+		if (typeof systemPrompt === "string" && systemPrompt) writeFileSync(join(sessionCwd, ".system-prompt.md"), systemPrompt, "utf-8");
 	} catch { /* the snapshot simply lacks the system prompt */ }
 	await session.abort().catch(() => undefined);
-	session.dispose();
+	await session.disposeAsync();
 }
 
 function findModel(provider: string, model: string): unknown {

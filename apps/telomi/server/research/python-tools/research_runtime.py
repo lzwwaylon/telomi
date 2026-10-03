@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import re
 import time
@@ -217,7 +217,8 @@ def write_answer(evidence_refs: list[str], requirements: list[str]) -> dict[str,
         (requirements, "requirements", 50, False),
     ]:
         if not isinstance(values, list):
-            raise ValueError(f"{name} must be list[str], e.g. ['Explain the requested part'] for requirements")
+            # Preserve the SDK's established validation exception for malformed arguments.
+            raise ValueError(f"{name} must be list[str], e.g. ['Explain the requested part'] for requirements")  # noqa: TRY004
         if (len(values) > maximum
                 or (not allow_empty and not values)
                 or any(not isinstance(value, str) or not value.strip() or len(value) > 20_000 for value in values)
@@ -277,18 +278,48 @@ def github_read(question: str, repository: str, ref: str, paths: list[str]) -> d
     })
 
 
-def report_provider_fallback(from_source: str, to_source: str) -> None:
-    """Persist the Search Root's selected fallback before dispatching its replacement child."""
+def report_provider_fallback(
+    from_source: str,
+    to_source: str,
+    *,
+    evidence_need_id: str,
+    scope: str,
+    required_evidence_types: list[str],
+    from_execution_id: str,
+) -> None:
+    """Record a bounded handoff of one unmet Evidence Need before creating its replacement child.
+
+    Runtime checks the failed execution, immutable need scope, native evidence compatibility,
+    visited Providers and remaining route budget. A rejected route must be reported as a gap.
+    """
     if execution_id() != "root":
         raise ValueError("report_provider_fallback is available only to the Search Root")
     if not isinstance(from_source, str) or not from_source.strip():
         raise ValueError("from_source is required")
     if not isinstance(to_source, str) or not to_source.strip() or to_source == from_source:
         raise ValueError("to_source must name a different Provider")
+    for name, value, limit in [
+        ("evidence_need_id", evidence_need_id, 64),
+        ("scope", scope, 4_000),
+        ("from_execution_id", from_execution_id, 200),
+    ]:
+        if not isinstance(value, str) or not value.strip() or len(value) > limit:
+            raise ValueError(f"{name} must be non-empty text up to {limit} characters")
+    if (
+        not isinstance(required_evidence_types, list)
+        or not required_evidence_types
+        or len(required_evidence_types) > 16
+        or any(not isinstance(value, str) or not value.strip() or len(value) > 100 for value in required_evidence_types)
+    ):
+        raise ValueError("required_evidence_types must contain 1 to 16 non-empty evidence types")
     _post("/v1/provider-fallback", {
         "agent_session_id": "root",
         "from_source_id": from_source.strip(),
         "to_source_id": to_source.strip(),
+        "evidence_need_id": evidence_need_id.strip(),
+        "scope": scope.strip(),
+        "required_evidence_types": list(dict.fromkeys(value.strip() for value in required_evidence_types)),
+        "from_execution_id": from_execution_id.strip(),
     })
 
 

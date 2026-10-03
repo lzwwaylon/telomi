@@ -15,9 +15,19 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_ROOT = PACKAGE_ROOT / "tools"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-import research_runtime  # noqa: E402
-from research_runtime import _runtime_error, workspace_path  # noqa: E402
-from tools import arxiv, browser, candidate_ledger, github, huggingface, links, twitter, user_documents, youtube  # noqa: E402
+import research_runtime
+from research_runtime import _runtime_error, workspace_path
+from tools import (
+    arxiv,
+    browser,
+    candidate_ledger,
+    github,
+    huggingface,
+    links,
+    twitter,
+    user_documents,
+    youtube,
+)
 
 
 class ResearchRuntimeTests(unittest.TestCase):
@@ -33,9 +43,11 @@ class ResearchRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, r"must be list\[str\]"):
                     research_runtime.write_answer(refs, parts)
             self.assertEqual(post.call_count, 1, "invalid Python types never start a Writer")
-        with patch.object(research_runtime, "execution_id", return_value="sub-reader"):
-            with self.assertRaisesRegex(ValueError, "only to the Search Root"):
-                research_runtime.write_answer(["N1"], ["Explain the loss"])
+        with (
+            patch.object(research_runtime, "execution_id", return_value="sub-reader"),
+            self.assertRaisesRegex(ValueError, "only to the Search Root"),
+        ):
+            research_runtime.write_answer(["N1"], ["Explain the loss"])
 
     def test_workspace_path_uses_the_current_agent_workspace(self) -> None:
         with patch.dict("os.environ", {"PRIME_AGENT_ARTIFACT_WORKSPACE": "/tmp/prime-search"}):
@@ -54,7 +66,7 @@ class PrimeBridgeClientTests(unittest.TestCase):
         tests = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:  # noqa: N802
+            def do_POST(self) -> None:
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 tests.requests.append((self.path, body))
                 if self.headers.get("Authorization") != "Bearer bridge-token":
@@ -143,15 +155,18 @@ class PrimeBridgeClientTests(unittest.TestCase):
             research_runtime.search_general_web("tts blog", max_results=0)
 
     def test_report_provider_fallback_is_root_only(self) -> None:
-        self.assertIsNone(research_runtime.report_provider_fallback("arxiv", "huggingface"))
+        need = {"evidence_need_id": "paper-full-text", "scope": "Current TTS papers",
+                "required_evidence_types": ["primary_document"], "from_execution_id": "sub-arxiv"}
+        research_runtime.report_provider_fallback("arxiv", "huggingface", **need)
         self.assertEqual(self.requests[-1], ("/v1/provider-fallback", {
             "agent_session_id": "root",
             "from_source_id": "arxiv",
             "to_source_id": "huggingface",
+            **need,
         }))
         self._become_child()
         with self.assertRaisesRegex(ValueError, "only to the Search Root"):
-            research_runtime.report_provider_fallback("arxiv", "huggingface")
+            research_runtime.report_provider_fallback("arxiv", "huggingface", **need)
 
     def test_read_skill_and_materialize_source_send_the_execution_id(self) -> None:
         self._become_child()
@@ -319,6 +334,20 @@ class CandidateLedgerTests(unittest.TestCase):
                 os.chdir(previous)
             self.assertTrue((Path(workspace) / "work/arxiv_candidates.json").is_file())
             self.assertFalse((Path(unrelated) / "work/arxiv_candidates.json").exists())
+
+    def test_can_atomically_rewrite_a_draft_before_final_submission(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace, patch.dict(
+            "os.environ", {"PRIME_AGENT_ARTIFACT_WORKSPACE": workspace}
+        ):
+            ledger = candidate_ledger.CandidateLedger()
+            target = Path(workspace) / "work/github_candidates.json"
+            ledger.write("work/github_candidates.json")
+            self.assertEqual(json.loads(target.read_text()), {"candidates": []})
+            ledger.add(title="Repo", url="https://github.com/owner/repo", query="repository",
+                       summary="Public source.", metadata={}, materials=[{"id": "repo"}])
+            ledger.write("work/github_candidates.json")
+            self.assertEqual(len(json.loads(target.read_text())["candidates"]), 1)
+            self.assertEqual(list(target.parent.glob("tmp*")), [])
 
 
 class ArxivApiTests(unittest.TestCase):
@@ -973,9 +1002,11 @@ class ArxivApiTests(unittest.TestCase):
             arxiv.native_query()
 
     def test_native_query_rejects_oversized_page_before_runtime_call(self) -> None:
-        with patch.object(arxiv, "search_source") as search:
-            with self.assertRaisesRegex(ValueError, "max_results must be between 1 and 50"):
-                arxiv.native_query(search_query="all:agent", max_results=51)
+        with (
+            patch.object(arxiv, "search_source") as search,
+            self.assertRaisesRegex(ValueError, "max_results must be between 1 and 50"),
+        ):
+            arxiv.native_query(search_query="all:agent", max_results=51)
         search.assert_not_called()
 
     def test_search_automatically_paginates_without_gaps(self) -> None:
@@ -1220,12 +1251,11 @@ class GitHubApiTests(unittest.TestCase):
         with patch.object(github, "search_source", return_value=[
             {"metadata": {"name": "text-to-speech"}},
             {"metadata": {"name": "speech-synthesis"}},
-        ]) as source:
-            with self.assertRaisesRegex(
-                ValueError,
-                "Unknown GitHub topic 'text-to-speach'.*text-to-speech",
-            ):
-                github.discover_repositories("text-to-speach")
+        ]) as source, self.assertRaisesRegex(
+            ValueError,
+            "Unknown GitHub topic 'text-to-speach'.*text-to-speech",
+        ):
+            github.discover_repositories("text-to-speach")
         source.assert_called_once()
 
     def test_discover_repositories_pages_cached_pool(self) -> None:
@@ -1468,14 +1498,16 @@ class HuggingFaceApiTests(unittest.TestCase):
             "created_at": "2026-08-20T00:00:00Z",
             "metadata": {"huggingface_page": {"next_cursor": "next"}},
         }
-        with patch.object(huggingface, "models", return_value=[row]):
-            with self.assertRaisesRegex(RuntimeError, "query is too broad.*model_tags"):
-                huggingface.models_created_between(
-                    "2026-01-01",
-                    "2026-08-20",
-                    max_results=2,
-                    filters=["zh"],
-                )
+        with (
+            patch.object(huggingface, "models", return_value=[row]),
+            self.assertRaisesRegex(RuntimeError, "query is too broad.*model_tags"),
+        ):
+            huggingface.models_created_between(
+                "2026-01-01",
+                "2026-08-20",
+                max_results=2,
+                filters=["zh"],
+            )
 
     def test_discover_models_uses_fixed_native_lanes_and_preserves_provenance(self) -> None:
         def row(repo_id: str, created_at: str, *, next_cursor: str | None = None):
@@ -1864,27 +1896,35 @@ class HuggingFaceApiTests(unittest.TestCase):
             huggingface.paginate_daily_papers(sort="most_recent", total_results=20)  # type: ignore[arg-type]
 
     def test_rejects_oversized_page_before_runtime_call(self) -> None:
-        with patch.object(huggingface, "search_source") as search:
-            with self.assertRaisesRegex(ValueError, r"max_results must be between 1 and 100"):
-                huggingface.datasets(max_results=101)
+        with (
+            patch.object(huggingface, "search_source") as search,
+            self.assertRaisesRegex(ValueError, r"max_results must be between 1 and 100"),
+        ):
+            huggingface.datasets(max_results=101)
         search.assert_not_called()
 
     def test_models_rejects_unknown_base_model_relation_before_runtime_call(self) -> None:
-        with patch.object(huggingface, "search_source") as search:
-            with self.assertRaisesRegex(ValueError, r"base_model_relation must be"):
-                huggingface.models(base_model_relation="unknown")  # type: ignore[arg-type]
+        with (
+            patch.object(huggingface, "search_source") as search,
+            self.assertRaisesRegex(ValueError, r"base_model_relation must be"),
+        ):
+            huggingface.models(base_model_relation="unknown")  # type: ignore[arg-type]
         search.assert_not_called()
 
     def test_spaces_rejects_model_only_download_sort_before_runtime_call(self) -> None:
-        with patch.object(huggingface, "search_source") as search:
-            with self.assertRaisesRegex(ValueError, r"spaces.*downloads.*created_at"):
-                huggingface.spaces(sort="downloads")  # type: ignore[arg-type]
+        with (
+            patch.object(huggingface, "search_source") as search,
+            self.assertRaisesRegex(ValueError, r"spaces.*downloads.*created_at"),
+        ):
+            huggingface.spaces(sort="downloads")  # type: ignore[arg-type]
         search.assert_not_called()
 
     def test_exact_info_rejects_invalid_repository_id_before_runtime_call(self) -> None:
-        with patch.object(huggingface, "search_source") as search:
-            with self.assertRaisesRegex(ValueError, r"repo_ids.*valid Hugging Face repository ID"):
-                huggingface.model_info("../secret")
+        with (
+            patch.object(huggingface, "search_source") as search,
+            self.assertRaisesRegex(ValueError, r"repo_ids.*valid Hugging Face repository ID"),
+        ):
+            huggingface.model_info("../secret")
         search.assert_not_called()
 
 

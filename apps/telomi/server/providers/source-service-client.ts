@@ -587,7 +587,7 @@ async function sourceServiceError(
 	const retryAfterMs = typeof error?.retry_after_ms === "number"
 		&& Number.isFinite(error.retry_after_ms)
 		&& error.retry_after_ms >= 0
-		? Math.min(error.retry_after_ms, 30 * 60_000)
+		? Math.min(error.retry_after_ms, 24 * 60 * 60_000)
 		: undefined;
 	const message = typeof error?.message === "string"
 		? error.message.replace(/\s+/g, " ").trim().slice(0, 1_000)

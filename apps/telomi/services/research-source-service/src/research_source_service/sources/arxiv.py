@@ -475,27 +475,23 @@ class ArxivSource:
         try:
             if self.runtime_store is not None:
                 while lease is None:
-                    lease = await asyncio.to_thread(self.runtime_store.try_acquire_upstream_lock)
+                    # Nonblocking acquisition has no cancellation gap that can strand a thread-owned lease.
+                    lease = self.runtime_store.try_acquire_upstream_lock()
                     if lease is None:
                         await asyncio.sleep(0.05)
                 # arXiv's terms count every host under one client: keep a global
                 # spacing across the api and main scopes, not only within each.
-                delay = max(
-                    await asyncio.to_thread(
-                        self.runtime_store.reserve_upstream_slot,
-                        scope,
-                        min_interval_seconds,
-                    ),
-                    await asyncio.to_thread(
-                        self.runtime_store.reserve_upstream_slot,
-                        "any",
-                        self.global_min_start_interval_seconds,
-                    ),
-                )
-                if delay > 0:
+                waited = 0.0
+                while (delay := self.runtime_store.upstream_delay(scope)) > 0:
                     await asyncio.sleep(delay)
-                record["slot_wait_ms"] = round(delay * 1_000)
+                    waited += delay
+                record["slot_wait_ms"] = round(waited * 1_000)
+                # No await between recording both actual-start deadlines and invoking HTTP.
+                self.runtime_store.record_upstream_start(
+                    scope, min_interval_seconds, self.global_min_start_interval_seconds
+                )
             started = time.monotonic()
+            record["request_started_at"] = datetime.now(UTC).isoformat()
             response = await self.http.request(
                 "arxiv",
                 method,
@@ -985,7 +981,11 @@ def _build(deps: SourceDeps) -> ArxivSource:
     return ArxivSource(
         deps.http,
         settings.arxiv_endpoint,
-        ArxivRuntimeStore(settings.arxiv_sqlite_path, cache_ttl_seconds=settings.arxiv_cache_ttl_seconds),
+        ArxivRuntimeStore(
+            settings.arxiv_sqlite_path,
+            scheduler_database=settings.arxiv_scheduler_sqlite_path,
+            cache_ttl_seconds=settings.arxiv_cache_ttl_seconds,
+        ),
         settings.arxiv_min_start_interval_seconds,
         settings.arxiv_main_site_min_start_interval_seconds,
         settings.arxiv_overload_cooldown_seconds,

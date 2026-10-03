@@ -94,18 +94,18 @@ assert.deepEqual(primeSearchBatchContractIdentity({
 	TELOMI_PRIME_SEARCH_THINKING_LEVEL: "medium",
 }, {}), {
 	id: "prime-search-batch",
-	version: 65,
+	version: 66,
 	rootModel: "openai-codex/gpt-5.6-terra",
 	childModel: "openai-codex/gpt-5.6-luna",
 	thinkingLevel: "medium",
 	autoRefine: false,
 	autonomous: false,
 	executionAdapter: "prime-sdk-rlm-quiescence-v2",
-	candidateLedgerValidation: "sdk-custom-tool-candidate-materials-v6",
+	candidateLedgerValidation: "sdk-custom-tool-candidate-materials-v7-final-receipt",
 	providerWorkerSkills: "catalog-declared-bundled-skill-with-goal-override",
 	organizerWorkspace: "metadata-only-ipython-no-rlm",
 	promptBundle: {
-		acquisition: "root-web-native-provider-children-v51",
+		acquisition: "root-web-native-provider-children-bounded-fallback-v52",
 		organizer: "incremental-source-group-patch-v7",
 	},
 	schema: {
@@ -281,7 +281,8 @@ try {
 	writeFileSync(join(rootLedgerDirectory, ".provider-assignment"), "huggingface\n");
 	writeFileSync(join(rootLedgerDirectory, "huggingface_candidates.json"), `${JSON.stringify(materializedLedger)}\n`);
 	const assignedChildren = primeProviderAssignments(ledgerHookRoot).map((assignment) => assignment.childId);
-	assert.ok(assignedChildren.includes("sub-huggingface"));
+	assert.ok(assignedChildren.includes("sub-tool-provider"));
+	assert.ok(!assignedChildren.includes("sub-huggingface"), "an Agent-written assignment marker cannot authorize final submission");
 	assert.ok(!assignedChildren.includes("sub-stale"), "a failed child Ledger without a Provider assignment marker must be ignored");
 	assert.equal(contractTools.some((tool) => tool.name === "submit_prime_selection"), false);
 } finally {
@@ -528,7 +529,7 @@ const parallelProviderRoot = mkdtempSync(join(tmpdir(), "pi-prime-parallel-provi
 try {
 	mkdirSync(join(parallelProviderRoot, "work"), { recursive: true });
 	// The third execution repeats the first URL: one object, so it merges into the first record instead of failing.
-	const executions = ["sub-browser-1", "sub-browser-2", "sub-browser-3"].map((childId, index) => {
+	const executions = await Promise.all(["sub-browser-1", "sub-browser-2", "sub-browser-3"].map(async (childId, index) => {
 		const workspacePath = `provider-executions/${childId}`;
 		const workspace = join(parallelProviderRoot, workspacePath);
 		const materialPath = `work/materials/browser/page-${index + 1}`;
@@ -544,12 +545,14 @@ try {
 				material_paths: [materialPath],
 			}],
 		}));
+		await createPrimeSearchContractTools(parallelProviderRoot)[0]!.execute("submit", { provider_id: "browser" }, undefined, undefined,
+			{ sessionManager: { getSessionDir: () => join(parallelProviderRoot, "sessions", childId) } } as never);
 		return {
 			execution_id: `provider-execution:1:browser:${childId}`,
 			provider_id: "browser",
 			workspace_path: workspacePath,
 		};
-	});
+	}));
 	const duplicates: string[] = [];
 	const selected = materializePrimeSources(parallelProviderRoot, executions, (duplicate) => duplicates.push(duplicate.candidate_ref));
 	assert.equal(selected.length, 2);
@@ -578,6 +581,8 @@ try {
 		title: "Technical article and supporting product page", url: "https://example.com/article",
 		query: "technical article", summary: "Original materials", metadata: {}, material_paths: [...materialPaths, supportingFile],
 	}] }));
+	await createPrimeSearchContractTools(multiMaterialRoot)[0]!.execute("submit", { provider_id: "browser" }, undefined, undefined,
+		{ sessionManager: { getSessionDir: () => join(multiMaterialRoot, "sessions", "sub-browser-multi") } } as never);
 	const [source] = materializePrimeSources(multiMaterialRoot, [{
 		execution_id: "provider-execution:1:browser:sub-browser-multi", provider_id: "browser",
 		workspace_path: workspacePath,
@@ -886,7 +891,8 @@ assert.match(nativeSelectorPrompt, /relative to the Root's initial working direc
 assert.match(nativeSelectorPrompt, /`session_dir` identifies Prime session storage, not a Provider output directory/iu);
 assert.match(nativeSelectorPrompt, /Root completes successfully only after every assigned responsibility has a submitted result[\s\S]+Root writes nothing itself/iu);
 assert.match(nativeSelectorPrompt,
-	/source_unavailable[\s\S]+current Provider Catalog[\s\S]+structured `capabilities` tag[\s\S]+already serving other responsibilities in this Run still qualifies[\s\S]+at most one replacement[\s\S]+shared `scholarly_papers` capability[\s\S]+report_provider_fallback[\s\S]+only the uncovered Evidence Need[\s\S]+real provenance[\s\S]+instead of cycling/iu);
+	/source_unavailable[\s\S]+current Provider Catalog[\s\S]+report_provider_fallback[\s\S]+evidence_need_id[\s\S]+required_evidence_types[\s\S]+from_execution_id/iu,
+	"Root fallback must carry the original Evidence Need and exact unavailable execution");
 assert.doesNotMatch(nativeSelectorPrompt, /asyncio\.gather|asyncio\.sleep|while True/iu);
 assert.doesNotMatch(nativeSelectorPrompt, /agent_message/iu);
 assert.doesNotMatch(primeSearchBatchSource, /prime-search-coordinator|agent-message/iu);

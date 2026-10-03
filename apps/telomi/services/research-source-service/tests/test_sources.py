@@ -348,7 +348,7 @@ def test_github_repository_non_404_failure_is_unchanged(tmp_path, authorization,
     assert error["code"] == "github_cli_failed"
     assert error["message"] == "GitHub CLI failed: upstream unavailable (HTTP 500)"
     assert error["retryable"] is True
-    assert error["details"] == {}
+    assert error["details"] == {"provider_id": "github", "operation": "get_repository", "next_action": "runtime_retry"}
     assert calls == [["api", "--method", "GET", "/repos/OpenBMB/VoxCPM2"]]
 
 
@@ -954,13 +954,13 @@ def test_arxiv_download_pdf_converts_to_readable_markdown(
     monkeypatch,
 ) -> None:
     upstream_scopes: list[tuple[str, float]] = []
-    original_reserve = ArxivRuntimeStore.reserve_upstream_slot
+    original_start = ArxivRuntimeStore.record_upstream_start
 
-    def reserve(self, scope: str, min_interval_seconds: float) -> float:
+    def record_start(self, scope: str, min_interval_seconds: float, global_min_interval_seconds: float) -> None:
         upstream_scopes.append((scope, min_interval_seconds))
-        return original_reserve(self, scope, min_interval_seconds)
+        original_start(self, scope, min_interval_seconds, global_min_interval_seconds)
 
-    monkeypatch.setattr(ArxivRuntimeStore, "reserve_upstream_slot", reserve)
+    monkeypatch.setattr(ArxivRuntimeStore, "record_upstream_start", record_start)
     atom = """<?xml version="1.0" encoding="UTF-8"?>
     <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
       <opensearch:totalResults>1</opensearch:totalResults>
@@ -2177,6 +2177,8 @@ def test_huggingface_exact_repo_401_is_request_scoped_and_actionable(
     assert error["failure_class"] == "validation"
     assert error["retryable"] is False
     assert error["details"] == {
+        "provider_id": "huggingface",
+        "next_action": "report_gap",
         "circuit_scope": "request",
         "failure_scope": "request",
         "upstream_status": 401,
@@ -2727,6 +2729,7 @@ def test_github_search_validation_preserves_structured_gh_error(
         "details": {
             "circuit_scope": "request",
             "github_status": 422,
+            "provider_id": "github", "operation": "search", "next_action": "correct_request", "upstream_status": 422,
             "message": "Validation Failed",
             "errors": [
                 {
@@ -2775,6 +2778,7 @@ def test_github_authentication_failure_is_provider_scoped(
     assert response.json()["error"]["details"] == {
         "circuit_scope": "provider",
         "github_status": 401,
+        "provider_id": "github", "operation": "search", "next_action": "stop_provider_task", "upstream_status": 401,
         "message": "Bad credentials",
     }
 

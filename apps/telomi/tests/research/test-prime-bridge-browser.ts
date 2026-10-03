@@ -11,6 +11,7 @@ import express from "express";
 import { sha256 } from "../../server/lib/hash.js";
 import { BrowserSessionRegistry } from "../../server/providers/browser/session-registry.js";
 import { createBrowserToolRouter, executeBrowserTool } from "../../server/providers/browser/tool-router.js";
+import { createPrimeSearchContractTools } from "../../server/research/pipeline/prime-search-contract.js";
 import { startPrimeSourceBridge } from "../../server/research/pipeline/prime-search-batch.js";
 import { parseMaterializeSource } from "../../server/research/pipeline/browser-materialize.js";
 import { providerExecutionWorkspace } from "../../server/research/pipeline/provider-execution-workspace.js";
@@ -78,7 +79,7 @@ sourceRegistry.register({
 	catalog: {
 		implementationVersion: "test", capability: "papers", supportedContentTypes: ["application/atom+xml"],
 		fullTextAvailability: "metadata_only", credentialRequirement: "none", reliabilityTier: 1,
-		freshness: "daily", costClass: "free", latencyClass: "low", capabilities: ["scholarly_papers"],
+		freshness: "daily", costClass: "free", latencyClass: "low", capabilities: ["scholarly_papers"], evidenceTypes: ["preprint_metadata"],
 	},
 	runtimePolicy: () => ({ accessScope: "test:arxiv", maxConcurrency: 1, minIntervalMs: 0, maxAttempts: 1, overloadBudgetMs: 10 }),
 	search: async () => { throw new ResearchNodeError("limited", "rate_limit", true, { retryAfterMs: 100 }); },
@@ -88,7 +89,7 @@ sourceRegistry.register({
 	catalog: {
 		implementationVersion: "test", capability: "papers", supportedContentTypes: ["application/json"],
 		fullTextAvailability: "mixed", credentialRequirement: "none", reliabilityTier: 1,
-		freshness: "realtime", costClass: "free", latencyClass: "low", capabilities: ["scholarly_papers"],
+		freshness: "realtime", costClass: "free", latencyClass: "low", capabilities: ["scholarly_papers"], evidenceTypes: ["preprint_metadata"],
 	},
 	search: async () => [],
 });
@@ -107,7 +108,7 @@ const lifecycle = providerToolRuntime([{ ...sourceRegistry.catalog()[0]!, worker
 	TELOMI_BROWSER_TOOL_URL: browserConfig.baseUrl, TELOMI_BROWSER_TOOL_TOKEN: token,
 })!;
 const unregister = lifecycle.registerWorkspace(stageRoot);
-const bridge = await startPrimeSourceBridge(sourceRegistry, new Set(["arxiv", "huggingface", "user_documents"]), {
+const bridge = await startPrimeSourceBridge(sourceRegistry, new Set(["arxiv", "huggingface", "user_documents", "browser"]), {
 	workspaceDirectory: root,
 	temporalContext: { schemaVersion: 1, currentDate: "2026-09-13", timeZone: "Asia/Singapore" },
 	signal: new AbortController().signal,
@@ -171,36 +172,43 @@ try {
 	assert.equal(outside.status, 422);
 	assert.equal(readFileSync(conditionsPath, "utf-8").trim().split("\n").length, 1, "a rejected read leaves no receipt");
 
-	const prematureFallback = await call("/v1/provider-fallback", {
-		agent_session_id: "root", from_source_id: "arxiv", to_source_id: "huggingface",
-	});
-	assert.equal(prematureFallback.status, 422, "Root cannot publish a fallback before its source is unavailable");
+	const failedChild = providerExecutionWorkspace(stageRoot, "sub-arxiv-fallback");
+	const fallbackArguments = { evidence_need_id: "tts-discovery", scope: "speech synthesis preprint discovery",
+		required_evidence_types: ["preprint_metadata"], from_execution_id: failedChild.childId };
+	const code = (result: { body: Record<string, unknown> }) => (result.body.error as Record<string, unknown>).code;
+	const fallbackBody = { agent_session_id: "root", from_source_id: "arxiv", to_source_id: "huggingface", ...fallbackArguments };
+	const prematureFallback = await call("/v1/provider-fallback", fallbackBody);
+	assert.equal(code(prematureFallback), "fallback_source_not_unavailable");
 	const unavailable = await call("/v1/search", {
-		agent_session_id: "sub-1a2b3c4d", source_id: "arxiv", query: "cat:cs.SD", max_results: 1,
-		workspace_dir: child.absolutePath,
+		agent_session_id: failedChild.childId, source_id: "arxiv", query: "cat:cs.SD", max_results: 1,
+		workspace_dir: failedChild.absolutePath,
 	});
-	assert.equal(unavailable.status, 422);
-	assert.equal((unavailable.body.error as Record<string, unknown>).code, "source_unavailable");
-	const incompatibleFallback = await call("/v1/provider-fallback", {
-		agent_session_id: "root", from_source_id: "arxiv", to_source_id: "user_documents",
-	});
-	assert.equal(incompatibleFallback.status, 422, "a matching evidence type cannot replace a missing Provider capability");
-	const fallback = await call("/v1/provider-fallback", {
-		agent_session_id: "root", from_source_id: "arxiv", to_source_id: "huggingface",
-	});
-	assert.deepEqual(fallback, { status: 200, body: { accepted: true } });
-	const childFallback = await call("/v1/provider-fallback", {
-		agent_session_id: "sub-1a2b3c4d", from_source_id: "arxiv", to_source_id: "huggingface",
-	});
-	assert.equal(childFallback.status, 422, "a Provider child cannot claim that Root selected a fallback");
+	assert.equal(code(unavailable), "source_unavailable");
+	const incompatible = await call("/v1/provider-fallback", { ...fallbackBody, to_source_id: "user_documents" });
+	assert.equal(code(incompatible), "fallback_incompatible_provider");
+	assert.equal(code(await call("/v1/provider-fallback", fallbackBody)), "fallback_handoff_missing");
+	writeFileSync(join(failedChild.absolutePath, "work/arxiv_candidates.json"), '{"candidates":[]}');
+	await createPrimeSearchContractTools(stageRoot)[0]!.execute("handoff", { provider_id: "arxiv" }, undefined, undefined,
+		{ sessionManager: { getSessionDir: () => join(stageRoot, "sessions", failedChild.childId) } } as never);
+	const fallback = await call("/v1/provider-fallback", fallbackBody);
+	assert.deepEqual(fallback, { status: 200, body: { accepted: true, evidence_need_id: "tts-discovery", provider_path: ["arxiv", "huggingface"] } });
+	assert.deepEqual(await call("/v1/provider-fallback", fallbackBody), fallback, "same routing decision is idempotent");
+	assert.equal(code(await call("/v1/provider-fallback", { ...fallbackBody, scope: "different scope" })), "fallback_need_changed");
+	assert.equal(code(await call("/v1/search", { agent_session_id: failedChild.childId, source_id: "arxiv", query: "later", max_results: 1, workspace_dir: failedChild.absolutePath })), "provider_task_completed");
+	const childFallback = await call("/v1/provider-fallback", { ...fallbackBody, agent_session_id: failedChild.childId });
+	assert.equal(code(childFallback), "fallback_permission_denied");
 	const runtimeEvents = readFileSync(join(root, "run", "runtime--research.jsonl"), "utf-8")
 		.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
 	assert.deepEqual(runtimeEvents.at(-1), {
-		type: "runtime.provider_fallback_selected",
-		from_provider_id: "arxiv",
-		to_provider_id: "huggingface",
-		created_at: runtimeEvents.at(-1)?.created_at,
+		type: "runtime.provider_fallback_selected", evidence_need_id: "tts-discovery", from_execution_id: failedChild.childId,
+		provider_path: ["arxiv", "huggingface"], required_evidence_types: ["preprint_metadata"], scope: fallbackArguments.scope,
+		from_provider_id: "arxiv", to_provider_id: "huggingface", created_at: runtimeEvents.at(-1)?.created_at,
 	});
+	for (let decision = 1; decision < 32; decision++) {
+		assert.equal((await call("/v1/provider-fallback", { ...fallbackBody, evidence_need_id: `need-${decision}` })).status, 200);
+	}
+	assert.equal(code(await call("/v1/provider-fallback", { ...fallbackBody, evidence_need_id: "one-too-many" })), "fallback_budget_exhausted");
+	assert.deepEqual(await call("/v1/provider-fallback", fallbackBody), fallback, "repeating an accepted decision does not consume budget");
 
 	assert.deepEqual(parseMaterializeSource({ kind: "element", ref: "@e12" }), { kind: "element", ref: "@e12" });
 	assert.throws(() => parseMaterializeSource({ kind: "element", ref: "e12" }), /ref like @e12/u);

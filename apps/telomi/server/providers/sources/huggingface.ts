@@ -64,7 +64,7 @@ export const huggingface: SourceDescriptor = {
 				"base_model_relation", "tag_type",
 				"datasets", "models", "linked", "sort", "cursor", "page", "limit",
 			],
-			evidenceTypes: ["primary_document", "preprint_metadata", "model_card", "dataset_card", "space_card"],
+			evidenceTypes: ["primary_document", "preprint_metadata", "scholarly_metadata", "model_card", "dataset_card", "space_card"],
 			operations: [
 				"papers_list", "papers_search", "papers_info", "papers_preview", "papers_download", "models_info", "models_card", "model_tags", "models_list", "datasets_info",
 				"datasets_leaderboard", "datasets_list", "spaces_list",

@@ -13,6 +13,7 @@
  * from a long-lived service or come back from the environment after a restart.
  */
 import { browserSessionOwns } from "../config/local-credentials.js";
+import { hasConfiguredSourceCredential } from "../../shared/sources.js";
 import type { Express, Request, Response } from "express";
 
 import { redactSecret } from "../agent-runtime/model-connectivity.js";
@@ -125,7 +126,7 @@ function describeField(field: SearchCredentialField, env: NodeJS.ProcessEnv): Fi
 
 export function describeSearchProvider(provider: SearchCredentialProvider, env: NodeJS.ProcessEnv): SearchProviderStatus {
 	const fields = provider.fields.map((field) => describeField(field, env));
-	const configured = fields.some((field) => !field.optional && field.configured);
+	const configured = hasConfiguredSourceCredential(fields);
 	// Every search resolves its credential from this store and states it on its own request, so a
 	// published credential is what the next request uses, on any service host.
 	const pendingReason = unmanagedRemoteReason(provider, env);
@@ -285,8 +286,9 @@ async function applyProvider(
 		if (staged) consumed.set(field.id, staged);
 		resolved[field.id] = typed[field.id] ?? staged ?? before.get(field.id)!.key ?? null;
 	}
-	const required = provider.fields.filter((field) => !field.optional);
-	if (required.every((field) => resolved[field.id] === null)) {
+	if (!hasConfiguredSourceCredential(provider.fields.map((field) => ({
+		optional: field.optional, configured: resolved[field.id] !== null,
+	})))) {
 		res.status(400).json({ error: `a credential value is required for '${provider.id}'` });
 		return;
 	}

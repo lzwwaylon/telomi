@@ -76,7 +76,7 @@ try {
 
 	const registry = createResearchSourceRegistry(process.env);
 	assert.deepEqual(registry.ids().sort(), [
-		"arxiv", "browser", "general_web", "github", "huggingface", "twitter", "user_documents", "youtube",
+		"arxiv", "browser", "general_web", "github", "huggingface", "openalex", "twitter", "user_documents", "youtube",
 	]);
 	// The registry is the descriptor list: every non general-web descriptor registers under its
 	// Provider id, and every Python-backed Provider ships the SDK module it names.
