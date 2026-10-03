@@ -1,6 +1,6 @@
 # Wiki Compilation
 
-New Wiki Updates use `NoteFirstWikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; compilation and publication share one Goal execution turn, and publication remains under the existing Goal Workspace publication lock. Old queued Updates without a compiler identity resume through the legacy compiler. Existing published Editions remain readable.
+New Wiki Updates use `WikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; compilation and publication share one Goal execution turn, and publication remains under the existing Goal Workspace publication lock. Old queued Updates without a compiler identity resume through the legacy compiler. Existing published Editions remain readable.
 
 ## Construction and input views
 

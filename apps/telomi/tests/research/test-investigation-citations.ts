@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { sha256 } from "../../server/lib/hash.js";
 import { enrichInvestigationCues } from "../../server/research/investigate.js";
-import { materializeFindOutSources } from "../../server/research/pipeline/find-out-sources.js";
+import { materializeOrganizedSources } from "../../server/research/pipeline/organized-sources.js";
 
 import { createInvestigationCitationScope } from "../../server/research/investigation-citations.js";
 
@@ -50,7 +50,7 @@ try {
 	const material = join(root, "input");
 	mkdirSync(material, { recursive: true });
 	writeFileSync(join(material, "loss.py"), "ignore_index=-100\n");
-	const { sources } = materializeFindOutSources({
+	const { sources } = materializeOrganizedSources({
 		artifactStore: new RunArtifactStore(join(root, "wiki", "runs", "saved-run")), sequence: 1,
 		workingDirectory: join(root, "build"),
 		members: [{ candidateId: "candidate-code", sourceId: "source-code", providerId: "github",
@@ -59,7 +59,7 @@ try {
 		organization: { groups: [], ungrouped: [{ candidate_id: "candidate-code", reason: "Relevant source" }] },
 	});
 	const source = sources[0]!;
-	const savedCue = { ...cue, question: "How is loss computed?", kind: "deep_search", evidence: [{
+	const savedCue = { ...cue, question: "How is loss computed?", kind: "read_sources", evidence: [{
 		source_run_id: "saved-run", source_id: source.id, source_revision_sha256: source.revisionSha256,
 		source_path: `${source.members[0]!.path}/loss.py`, start_line: 1, end_line: 1,
 		content_sha256: sha256("ignore_index=-100\n"),

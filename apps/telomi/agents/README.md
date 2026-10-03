@@ -32,6 +32,7 @@ Extension-owned Agents remain inside their extension packages so extensions can 
 ```yaml
 schema_version: 2
 id: example-agent
+display_name: Example Agent
 skills: [example-skill]
 prompts:
   system-append:
@@ -89,3 +90,11 @@ Run the Registry checks after editing a bundle:
 ```bash
 npm run test:agent-registry
 ```
+
+## Downstream discovery
+
+`display_name` defines the human-readable Bundle name. Replay registration in `server/agent-runtime/agent-catalog.ts` associates each executable identity with its owning Bundle, output `presentationKind`, supported prompt modes and dependency prefixes. Different variants may share one Bundle and retain separate executable identities.
+
+OPS reads `/operations/v1/agents` for the current catalog and the descriptor captured in each Case/Bundle for historical evidence. It does not infer a renderer or source directory from an Agent ID. When changing a Bundle name or owning folder, update the upstream registration and run `npm run generate:operations-openapi`; the same generator freezes the commit catalog used for change-impact analysis. `npm run test:operations-openapi` checks both generated documents.
+
+Artifact filenames, Cue identities and immutable snapshot ownership remain evidence formats. They are not executable aliases and should not change solely to rename an Agent.

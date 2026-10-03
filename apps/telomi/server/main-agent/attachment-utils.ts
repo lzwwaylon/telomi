@@ -152,7 +152,7 @@ async function resolveDocument(
 }
 
 function documentNotice(outcome: DocumentOutcome): string {
-	return renderAgentPrompt("main", "router", "user", {
+	return renderAgentPrompt("main", "main-agent", "user", {
 		document_name: outcome.attachment.fileName,
 		document_path: guestPath(outcome.relativePath),
 		...outcome.parse,
@@ -162,7 +162,7 @@ function documentNotice(outcome: DocumentOutcome): string {
 function folderNotice(outcomes: DocumentOutcome[]): string {
 	const folderRelative = outcomes[0]!.relativePath.split(sep)[0]!;
 	const folderName = folderRelative.replace(/^[^_]*_/u, "");
-	return renderAgentPrompt("main", "router", "user", {
+	return renderAgentPrompt("main", "main-agent", "user", {
 		folder_name: folderName,
 		folder_path: guestPath(folderRelative),
 		file_count: outcomes.length,

@@ -227,19 +227,19 @@ export async function runResearchWorkspace(
 		dataDir: stateDataDir,
 		harness: researchHarnessSnapshot,
 	}, request.controlDirectory, request);
-	const cornellNoteAgentContract = noteAgentContractIdentity();
+	const noteAgentContract = noteAgentContractIdentity();
 	mkdirSync(request.controlDirectory, { recursive: true });
 	writeFileSync(join(request.controlDirectory, "research-harness-snapshot.json"), `${JSON.stringify({
 		schema_version: researchHarnessSnapshot.schemaVersion,
 		contract_version: researchHarnessSnapshot.contractVersion,
 		snapshot_hash: researchHarnessSnapshot.snapshotHash,
 		source: researchHarnessSnapshot.source,
-		cornell_note: {
-			execution: "single_source_prime_cornell_note_v1",
-			contract_id: cornellNoteAgentContract.id,
-			contract_version: cornellNoteAgentContract.version,
-			contract_hash: cornellNoteAgentContract.sha256,
-			thinking: runSelection.stageThinkingLevels["cornellNote.evidenceNote"],
+		note_agent: {
+			execution: "single_source_note_agent_v1",
+			contract_id: noteAgentContract.id,
+			contract_version: noteAgentContract.version,
+			contract_hash: noteAgentContract.sha256,
+			thinking: runSelection.stageThinkingLevels["noteAgent.evidenceNote"],
 		},
 		run_policy_id: researchHarnessSnapshot.runPolicy.id,
 		run_policy_version: researchHarnessSnapshot.runPolicy.version,
@@ -637,7 +637,7 @@ function artifactPathsForNode(nodeId: string, paths: string[]): string[] {
 	}
 	const hints: Record<string, string[]> = {
 		search_batch: ["source-bundles", "search-executions"],
-		cornell_notes: ["cornell-note"],
+		cornell_notes: ["note-agent"],
 		citation_compiler: ["report/final.md"],
 		complete: ["report/final.md"],
 	};
@@ -677,7 +677,7 @@ function reportsForTraceNode(nodeId: string, reports: RuntimeStageReport[]): Run
 	const [node, rawSequence] = nodeId.split(":");
 	const sequence = rawSequence ? Number.parseInt(rawSequence, 10) : undefined;
 	if (node === "search_batch") return reports.filter((report) => report.stage_id.startsWith("prime-search-batch-"));
-	if (node === "cornell_notes") return reports.filter((report) => report.stage_id.startsWith("cornell-note-"));
+	if (node === "cornell_notes") return reports.filter((report) => report.stage_id.startsWith("note-agent-"));
 	if (node === "report_writer") {
 		if (!sequence) return [];
 		return sequence === 1

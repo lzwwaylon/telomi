@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { sha256 } from "../../lib/hash.js";
-import type { FindOutSourceMember, FindOutSourceOrganization } from "./find-out-sources.js";
+import type { OrganizedSourceMember, OrganizedSourceOrganization } from "./organized-sources.js";
 import { isRecord } from "../../lib/values.js";
 import { writeFileAtomic } from "../../lib/fs.js";
 
@@ -285,10 +285,10 @@ export function validatePrimeSourceOrganizerIndex(
 export function projectPrimeSourceOrganization(
 	index: PrimeSourceOrganizerIndex,
 	items: readonly PrimeSourceOrganizerItem[],
-): FindOutSourceOrganization {
+): OrganizedSourceOrganization {
 	const validated = validatePrimeSourceOrganizerIndex(index);
 	const touchedGroups = new Set<string>();
-	const ungrouped: FindOutSourceOrganization["ungrouped"] = [];
+	const ungrouped: OrganizedSourceOrganization["ungrouped"] = [];
 	const candidateIds = new Set<string>();
 	for (const item of items) {
 		if (candidateIds.has(item.candidateId)) throw new Error(`Organizer projection contains duplicate candidate '${item.candidateId}'`);
@@ -301,7 +301,7 @@ export function projectPrimeSourceOrganization(
 		}
 		touchedGroups.add(source.group_id);
 	}
-	const groups: FindOutSourceOrganization["groups"] = [];
+	const groups: OrganizedSourceOrganization["groups"] = [];
 	for (const groupId of [...touchedGroups].sort()) {
 		const group = validated.groups[groupId]!;
 		groups.push({
@@ -324,7 +324,7 @@ export function projectPrimeSourceOrganizerMembers(
 	organizerRoot: string,
 	newSourceIds: readonly string[],
 	changedSourceIds: readonly string[],
-): Array<FindOutSourceMember & { changeKind: "new" | "changed" | "unchanged" }> {
+): Array<OrganizedSourceMember & { changeKind: "new" | "changed" | "unchanged" }> {
 	const validated = validatePrimeSourceOrganizerIndex(index);
 	const current = new Set(items.map((item) => item.sourceId));
 	const fresh = new Set(newSourceIds);

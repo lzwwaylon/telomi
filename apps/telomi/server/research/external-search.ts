@@ -8,7 +8,7 @@ import { caseCapture } from "../observability/case-capture.js";
 import { getSourceStatusMonitor, type SourceStatusMonitor } from "../providers/source-status.js";
 import { executeNoteReading } from "./note-reading.js";
 import { loadResearchHarnessSnapshot } from "./harness/snapshot.js";
-import { loadFindOutSources } from "./pipeline/find-out-sources.js";
+import { loadOrganizedSources } from "./pipeline/organized-sources.js";
 import { PrimeSearchBatchExecutor, primeProviderCatalog } from "./pipeline/prime-search-batch.js";
 import type { SearchBatchExecutor } from "./pipeline/search-batch.js";
 import { availableResearchProviders, createHarnessResearchSourceRegistry } from "./sources/builtin-registry.js";
@@ -76,12 +76,12 @@ export async function readExternalSources(input: {
 			signal: input.signal, onActivity: input.onActivity,
 		});
 		// Validate the published acquisition contract before exposing this Run to Goal readers.
-		loadFindOutSources(new RunArtifactStore(stagedRoot).describeDirectory("artifacts/find-out-sources/sequence-1"));
+		loadOrganizedSources(new RunArtifactStore(stagedRoot).describeDirectory("artifacts/find-out-sources/sequence-1"));
 		input.signal.throwIfAborted();
 		mkdirSync(dirname(sourceRunRoot), { recursive: true });
 		renameSync(stagedRoot, sourceRunRoot);
 	}
-	const sources = loadFindOutSources(new RunArtifactStore(sourceRunRoot).describeDirectory("artifacts/find-out-sources/sequence-1"));
+	const sources = loadOrganizedSources(new RunArtifactStore(sourceRunRoot).describeDirectory("artifacts/find-out-sources/sequence-1"));
 	const reading = await executeNoteReading({
 		goalDir: input.goalDir, goalId: input.goalId, question,
 		originalQuestion: input.originalQuestion, taskContextFile: input.taskContextFile, knownCues: input.knownCues,

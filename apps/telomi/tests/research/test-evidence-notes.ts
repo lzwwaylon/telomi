@@ -157,7 +157,7 @@ try {
 	const findOutDirectory = join(root, "degraded-run", "find-out");
 	for (const directory of [bundleDirectory, findOutDirectory]) mkdirSync(directory, { recursive: true });
 	writeFileSync(join(bundleDirectory, "manifest.json"), "{}\n");
-	// A valid (empty) Find Out manifest, so a resumed Run can hydrate its Search checkpoint.
+	// A valid (empty) Notes manifest, so a resumed Run can hydrate its Search checkpoint.
 	writeFileSync(join(findOutDirectory, "manifest.json"), `${JSON.stringify({ schema_version: 3, sequence: 1, sources: [] })}\n`);
 	const runSources = [
 		source("source:run-a", "https://example.test/run-a", "1".repeat(64)),
@@ -223,7 +223,7 @@ try {
 					logicalSources: searchRequest.runId === "run:no-results" ? [] : runSources,
 					// The empty Run is resumed below; with no Bundle its Search checkpoint hydrates trivially.
 					sourceBundles: searchRequest.runId === "run:no-results" ? [] : [bundle],
-					findOutSources: searchRequest.artifactStore.publishDirectory(
+					organizedSources: searchRequest.artifactStore.publishDirectory(
 						findOutDirectory, "artifacts/find-out-sources/sequence-1",
 					),
 					executionRecords: [],
@@ -301,7 +301,7 @@ try {
 		controlDirectory: runControl,
 		goalWorkspaceDirectory: join(root, "degraded-run", "goal"),
 		workspaceRootDirectory: root,
-		agentSkillIndexes: { "prime-search": "", "cornell-note": "", "report-writer": "" },
+		agentSkillIndexes: { "prime-search": "", "note-agent": "", "report-writer": "" },
 		providerCatalog: [{ id: "test", capability: "test", sourceClass: "professional" }],
 		temporalContext: { schemaVersion: 1, currentDate: "2026-08-28", timeZone: "UTC" },
 		pipeline: { id: "pipeline", version: "1", sha256: "3".repeat(64) },
@@ -311,14 +311,14 @@ try {
 			schema_bundle: "schema", model_policy: "model", skill_bundle: "skill", tool_schema: "tool",
 		},
 		topicPlan: { schema_version: 1, goal_id: "goal:degraded", revision: "test-v1", status: "active", topics: [{ id: "evidence", title: "Evidence", intent: "Research evidence", questions: [], include: [], exclude: [] }] },
-		env: { [PRIME_MODEL_DEFINITIONS_ENV]: join(root, "parent-model-definitions.json"), TELOMI_RUNTIME_SENTINEL: "retained", TELOMI_PRIME_REPORT_THINKING_LEVEL: "high", TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/note" },
+		env: { [PRIME_MODEL_DEFINITIONS_ENV]: join(root, "parent-model-definitions.json"), TELOMI_RUNTIME_SENTINEL: "retained", TELOMI_PRIME_REPORT_THINKING_LEVEL: "high", TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_NOTE_AGENT_MODEL: "test/note" },
 		signal: new AbortController().signal,
 	};
 	const degradedResult = await degradedRun.run(degradedRequest as never);
-	assert.ok(wikiEnvironment, "Research must use the default Note-first compiler through formal Case Capture");
+	assert.ok(wikiEnvironment, "Research must use the default Wiki compilation compiler through formal Case Capture");
 	assert.equal(wikiEnvironment.TELOMI_PRIME_AGENT_CHILD_MODEL, undefined, "Wiki must resolve current child configuration");
 	assert.equal(wikiEnvironment.TELOMI_PRIME_AGENT_ROOT_MODEL, undefined);
-	assert.equal(wikiEnvironment.TELOMI_RESEARCH_CORNELL_NOTE_MODEL, undefined);
+	assert.equal(wikiEnvironment.TELOMI_NOTE_AGENT_MODEL, undefined);
 	assert.equal(wikiEnvironment.TELOMI_PRIME_REPORT_THINKING_LEVEL, undefined);
 	assert.equal(wikiEnvironment[PRIME_MODEL_DEFINITIONS_ENV], undefined, "Wiki must freeze its own connection definitions");
 	assert.equal(wikiEnvironment.TELOMI_RUNTIME_SENTINEL, "retained");

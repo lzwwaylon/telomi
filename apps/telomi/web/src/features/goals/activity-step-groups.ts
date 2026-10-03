@@ -69,8 +69,8 @@ function workerPool(step: ActivityStep): { id: string; label: ActivityText; work
 	if (step.stepId.startsWith("wiki-batch:") && workers.length > 0) {
 		return { id: "wiki-maintainers", label: chrome("goals.activityStepGroups.wikiWorkers"), workers };
 	}
-	if (workers.length > 0 && workers.every((worker) => worker.agent.agentName === "cornell_note")) {
-		return { id: "cornell-notes", label: chrome("goals.activityStepGroups.cornellNotes"), workers };
+	if (workers.length > 0 && workers.every((worker) => worker.agent.agentName === "note_agent")) {
+		return { id: "cornell-notes", label: chrome("goals.activityStepGroups.noteAgents"), workers };
 	}
 	return null;
 }

@@ -29,11 +29,11 @@ export function decideSectionChildren(input: {
 	if (input.children.length !== input.expected) {
 		return {
 			kind: "failed",
-			message: `Prime Report Writer root spawned ${input.children.length} Section children for ${input.expected} Sections`,
+			message: `Report Writer Root spawned ${input.children.length} Section children for ${input.expected} Sections`,
 		};
 	}
 	if (input.children.every((child) => child.status === "done")) return { kind: "ready" };
-	return { kind: "failed", message: "Prime Report Writer child state was not terminal after RLM quiescence" };
+	return { kind: "failed", message: "Report Writer Root child state was not terminal after RLM quiescence" };
 }
 
 export function describeSectionChild(child: SectionChildSnapshot): string {

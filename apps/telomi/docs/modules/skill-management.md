@@ -19,7 +19,7 @@ An input path may identify one Skill or a directory containing multiple Skills. 
 
 - Each server Agent keeps its `agent.yaml`, `prompts/`, and `skills/` in `agents/<domain>/<agent-id>/`.
 - Plain names in `agent.yaml.skills` resolve within the current Bundle. A few shared Skills explicitly reference the sole copy in another Bundle through `<agent-id>/<skill-name>`.
-- On every Turn, Main Agent merges server-bundled Skills declared by `main/router` with Goal `skills/main-agent`, then materializes them in that Turn's sandbox.
+- On every Turn, Main Agent merges server-bundled Skills declared by `main/main-agent` with Goal `skills/main-agent`, then materializes them in that Turn's sandbox.
 - At Research startup, Skills declared by each Agent Bundle are content-hashed and materialized in the Run Control Directory.
 - Prime Search Providers declare server-bundled Skills through `workerSkills` in the Provider Catalog. The Coordinator body is also declared by `agent.yaml`; Runtime generates only the current Provider Catalog and execution contract in `references/current-run.md`.
 - Server-bundled Skills for Prime Report, Wiki Shard, Wiki Curator, and Podcast are materialized through the same module.

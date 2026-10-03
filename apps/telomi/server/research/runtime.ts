@@ -23,7 +23,7 @@ import {
 import {
 	Run,
 	initializeRunState,
-	buildFindOutReportWriterSystemPrompt,
+	buildNotesReportWriterSystemPrompt,
 	PrimeSearchBatchExecutor,
 	createProductionResearchStageRunner,
 	primeReportWriterContractIdentity,
@@ -76,7 +76,7 @@ export interface ResearchRunRequest {
 	signal?: AbortSignal;
 	onProgress?: (event: ResearchProgressEvent) => void;
 	onAgentOutput?: (activity: AgentStageActivity) => void;
-	/** 没有 wikiCompilation 就是 Find Out 模式：Knowledge 视图当场从冻结的 Cornell Notes 物化。 */
+	/** 没有 wikiCompilation 就是 Notes 模式：Knowledge 视图当场从冻结的 Cornell Notes 物化。 */
 	reportInput?: {
 		sourceRunId: string;
 		cornellNotesArtifact: PublishedArtifactRef;
@@ -122,8 +122,8 @@ export class ResearchRuntime {
 		const env = freezeRunModelSelection(
 			{
 				...request.env,
-				...(request.config?.cornellNoteModel ? { TELOMI_RESEARCH_CORNELL_NOTE_MODEL: request.config.cornellNoteModel } : {}),
-				...(request.config?.cornellNoteThinkingLevel ? { TELOMI_RESEARCH_CORNELL_NOTE_THINKING_LEVEL: request.config.cornellNoteThinkingLevel } : {}),
+				...(request.config?.noteAgentModel ? { TELOMI_NOTE_AGENT_MODEL: request.config.noteAgentModel } : {}),
+				...(request.config?.noteAgentThinkingLevel ? { TELOMI_NOTE_AGENT_THINKING_LEVEL: request.config.noteAgentThinkingLevel } : {}),
 			},
 			request.controlDirectory,
 		);
@@ -269,8 +269,8 @@ function runConfig(
 	return {
 		...envConfig,
 		...requestConfig,
-		cornellNoteModel: envConfig.cornellNoteModel,
-		cornellNoteThinkingLevel: envConfig.cornellNoteThinkingLevel,
+		noteAgentModel: envConfig.noteAgentModel,
+		noteAgentThinkingLevel: envConfig.noteAgentThinkingLevel,
 	};
 }
 
@@ -319,7 +319,7 @@ function buildIdentityPins(
 			find_out: findOutContract,
 			report_flow: {
 				prime_writer: primeReportContract,
-				writer_system: buildFindOutReportWriterSystemPrompt(),
+				writer_system: buildNotesReportWriterSystemPrompt(),
 			},
 		}),
 			schema_bundle: hashRuntimeIdentityJson({
@@ -333,7 +333,7 @@ function buildIdentityPins(
 		model_policy: hashRuntimeIdentityJson({
 			prime_search: { root: primeSearchContract.rootModel, child: primeSearchContract.childModel },
 			prime_report: primeReportContract,
-			cornell_note: config.cornellNoteModel,
+			cornell_note: config.noteAgentModel,
 			// Reasoning depth is configuration too, so it belongs to the Run's identity: a Run that
 			// reasoned less deeply is not the same Run as one that reasoned more.
 			stage_thinking: runModelSelection(env).stageThinkingLevels,

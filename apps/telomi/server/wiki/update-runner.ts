@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { LlmWikiCompiler } from "./compiler.js";
-import { NoteFirstWikiCompiler } from "./note-first-compiler.js";
+import { WikiShardCompiler } from "./wiki-shard-compiler.js";
+import { WikiCompiler } from "./wiki-compiler.js";
 import { caseCapture } from "../observability/case-capture.js";
 import type { GoalTopicPlan, WikiCompilationRequest, WikiCompilationResult, WikiGoalContext } from "./contracts.js";
 import {
@@ -79,7 +79,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 }): Promise<WikiUpdateExecution> {
 	const jobs = new WikiUpdateJobStore(input.controlDirectory);
 	const previousJob = jobs.load();
-	const compilerKind = previousJob ? previousJob.compiler ?? "legacy" : "note-first";
+	const compilerKind = previousJob ? previousJob.compiler ?? "shards" : "wiki-compilation";
 	let publicationStarted = false;
 	let publicationPageCount = 0;
 	let compilation: WikiCompilationResult | undefined;
@@ -107,8 +107,8 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 				throw new Error("wiki_compilation_topic_drift: Goal Topic Plan changed before compilation");
 			}
 			const compile = input.dependencies?.compile ?? ((request: WikiCompilationRequest) => {
-				if (compilerKind === "legacy") return new LlmWikiCompiler().compile(request);
-				const execute = (pinned: WikiCompilationRequest) => new NoteFirstWikiCompiler().compile(pinned);
+				if (compilerKind === "shards") return new WikiShardCompiler().compile(request);
+				const execute = (pinned: WikiCompilationRequest) => new WikiCompiler().compile(pinned);
 				const capture = caseCapture()?.wikiCompilation;
 				return capture ? capture(request, { execute }) : execute(request);
 			});
@@ -301,7 +301,7 @@ export function startWikiUpdateActivity(input: {
 			.flatMap((entry) => {
 				const job = new WikiUpdateJobStore(entry.controlDirectory).load();
 				return job
-					&& job.compiler === "note-first"
+					&& job.compiler === "wiki-compilation"
 					&& job.source_run_id === input.sourceRunId
 					&& job.topic_plan.revision === input.topicPlan.revision
 					&& job.goal_context.title === input.goalContext.title

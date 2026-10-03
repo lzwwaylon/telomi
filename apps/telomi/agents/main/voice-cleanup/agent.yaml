@@ -1,5 +1,6 @@
 schema_version: 2
 id: voice-cleanup
+display_name: Voice Cleanup
 prompts:
   system:
     default: system.md.njk

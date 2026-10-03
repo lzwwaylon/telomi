@@ -117,8 +117,8 @@ export function humanize(value: unknown): string {
 export function stageTitle(stageId: string): ActivityText {
 	const batch = /^(?:prime-)?search-batch-(\d+)$/u.exec(stageId);
 	if (batch) return chrome("activityChrome.stage.primeSearchBatch", { sequence: Number(batch[1]) });
-	const note = /^cornell-note-(\d+)-(.+)$/u.exec(stageId);
-	if (note) return chrome("activityChrome.stage.cornellNote", { sequence: note[1]!, source: note[2]! });
+	const note = /^note-agent-(\d+)-(.+)$/u.exec(stageId);
+	if (note) return chrome("activityChrome.stage.noteAgent", { sequence: note[1]!, source: note[2]! });
 	switch (stageId) {
 		case "input-resolution": return chrome("activityChrome.stage.inputResolution");
 		case "research-pipeline-start": return chrome("activityChrome.stage.pipelineStart");
@@ -131,8 +131,8 @@ export function stageTitle(stageId: string): ActivityText {
 		case "report_writer": return chrome("activityChrome.stage.reportWriter");
 		case "prime-search":
 		case "prime_search": return chrome("activityChrome.stage.primeSearch");
-		case "cornell-note":
-		case "cornell_note": return chrome("activityChrome.stage.cornellNoteGeneric");
+		case "note-agent":
+		case "note_agent": return chrome("activityChrome.stage.noteAgentGeneric");
 		default: return chrome("activityChrome.stage.internal");
 	}
 }

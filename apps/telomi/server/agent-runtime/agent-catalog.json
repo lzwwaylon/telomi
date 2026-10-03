@@ -1,0 +1,305 @@
+{
+	"schemaVersion": 1,
+	"generated": true,
+	"description": "Generated from owning Agent Bundles and agent-catalog.ts; do not edit by hand.",
+	"agents": [
+		{
+			"id": "evolution",
+			"displayName": "Browser Skill Evolution",
+			"sourcePath": "apps/telomi/agents/evolution/browser-skill-evolution",
+			"presentationKind": "evolution",
+			"replayPromptModes": [
+				"candidate"
+			],
+			"promptOverrideFields": [],
+			"impactPaths": [
+				"apps/telomi/agents/evolution/browser-skill-evolution/",
+				"apps/telomi/server/evolution/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "main-agent",
+			"displayName": "Main Agent",
+			"sourcePath": "apps/telomi/agents/main/main-agent",
+			"presentationKind": "chat",
+			"replayPromptModes": [
+				"candidate",
+				"observed",
+				"override"
+			],
+			"promptOverrideFields": [
+				"systemPrompt",
+				"userPrompt"
+			],
+			"impactPaths": [
+				"apps/telomi/agents/main/main-agent/",
+				"apps/telomi/server/main-agent/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "note-agent",
+			"displayName": "Note Agent",
+			"sourcePath": "apps/telomi/agents/research/note-agent",
+			"presentationKind": "note",
+			"replayPromptModes": [
+				"candidate",
+				"observed",
+				"override"
+			],
+			"promptOverrideFields": [
+				"systemPrompt",
+				"userPrompt"
+			],
+			"impactPaths": [
+				"apps/telomi/agents/research/note-agent/",
+				"apps/telomi/server/research/note-",
+				"apps/telomi/server/research/pipeline/note-",
+				"apps/telomi/server/research/pipeline/prime-note-agent",
+				"apps/telomi/server/research/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "podcast-writer",
+			"displayName": "Podcast Writer Root",
+			"sourcePath": "apps/telomi/agents/main/podcast-writer",
+			"presentationKind": "generic",
+			"replayPromptModes": [
+				"candidate"
+			],
+			"promptOverrideFields": [],
+			"impactPaths": [
+				"apps/telomi/agents/main/podcast-writer/",
+				"apps/telomi/server/media/podcast/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "prime-investigation",
+			"displayName": "Investigate Root",
+			"sourcePath": "apps/telomi/agents/research/prime-search",
+			"presentationKind": "investigation",
+			"replayPromptModes": [
+				"candidate",
+				"observed",
+				"override"
+			],
+			"promptOverrideFields": [
+				"userPrompt"
+			],
+			"impactPaths": [
+				"apps/telomi/agents/research/prime-search/",
+				"apps/telomi/server/research/investigate.ts",
+				"apps/telomi/server/research/investigation-",
+				"apps/telomi/server/research/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "prime-search",
+			"displayName": "Search Root",
+			"sourcePath": "apps/telomi/agents/research/prime-search",
+			"presentationKind": "source-search",
+			"replayPromptModes": [
+				"candidate",
+				"override"
+			],
+			"promptOverrideFields": [
+				"userPrompt"
+			],
+			"impactPaths": [
+				"apps/telomi/agents/research/prime-search/",
+				"apps/telomi/server/research/prime/",
+				"apps/telomi/server/research/external-search.ts",
+				"apps/telomi/server/research/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "provider-child",
+			"displayName": "Source Agent",
+			"sourcePath": null,
+			"presentationKind": "provider-child",
+			"replayPromptModes": [
+				"candidate"
+			],
+			"promptOverrideFields": [],
+			"impactPaths": [
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/research/python-tools/",
+				"apps/telomi/server/research/prime/",
+				"apps/telomi/agents/research/prime-search/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "report-writer",
+			"displayName": "Report Writer Root",
+			"sourcePath": "apps/telomi/agents/research/report-writer",
+			"presentationKind": "report",
+			"replayPromptModes": [
+				"candidate",
+				"observed",
+				"override"
+			],
+			"promptOverrideFields": [
+				"systemPrompt",
+				"userPrompt"
+			],
+			"impactPaths": [
+				"apps/telomi/agents/research/report-writer/",
+				"apps/telomi/server/research/pipeline/report-",
+				"apps/telomi/server/research/pipeline/prime-report-writer.ts",
+				"apps/telomi/server/research/investigation-answer.ts",
+				"apps/telomi/server/research/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "schedule-reviewer",
+			"displayName": "Schedule Reviewer",
+			"sourcePath": "apps/telomi/agents/research/schedule-reviewer",
+			"presentationKind": "generic",
+			"replayPromptModes": [
+				"candidate"
+			],
+			"promptOverrideFields": [],
+			"impactPaths": [
+				"apps/telomi/agents/research/schedule-reviewer/",
+				"apps/telomi/server/research/schedules/",
+				"apps/telomi/server/research/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "wiki-compilation",
+			"displayName": "Wiki Compilation",
+			"sourcePath": "apps/telomi/agents/wiki/wiki-compilation",
+			"presentationKind": "wiki",
+			"replayPromptModes": [
+				"candidate"
+			],
+			"promptOverrideFields": [],
+			"impactPaths": [
+				"apps/telomi/agents/wiki/wiki-compilation/",
+				"apps/telomi/server/wiki/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "wiki-curator",
+			"displayName": "Wiki Curator",
+			"sourcePath": "apps/telomi/agents/wiki/wiki-curator",
+			"presentationKind": "wiki",
+			"replayPromptModes": [
+				"candidate"
+			],
+			"promptOverrideFields": [],
+			"impactPaths": [
+				"apps/telomi/agents/wiki/wiki-curator/",
+				"apps/telomi/server/wiki/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		},
+		{
+			"id": "wiki-shard-builder",
+			"displayName": "Wiki Shard Builder",
+			"sourcePath": "apps/telomi/agents/wiki/wiki-shard-builder",
+			"presentationKind": "wiki",
+			"replayPromptModes": [
+				"candidate"
+			],
+			"promptOverrideFields": [],
+			"impactPaths": [
+				"apps/telomi/agents/wiki/wiki-shard-builder/",
+				"apps/telomi/server/wiki/",
+				"apps/telomi/server/agent-runtime/",
+				"apps/telomi/server/evaluation/",
+				"apps/telomi/server/providers/",
+				"apps/telomi/services/research-source-service/",
+				"apps/telomi/server/cornell/",
+				"apps/telomi/server/citations/",
+				"apps/telomi/server/embedding/",
+				"apps/telomi/server/media/product-"
+			]
+		}
+	]
+}

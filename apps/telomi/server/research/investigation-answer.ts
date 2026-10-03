@@ -169,7 +169,7 @@ export async function executeInvestigationAnswer(input: {
 	const answerKey = sha256(input.invocationId).slice(0, 24);
 	const result = await capturedRunner.runStage<InvestigationAnswer>({
 		runId: input.invocationId, stageId: `writer-answer-${answerKey}`, attemptId: "attempt-1", role: "report_writer",
-		promptConfig: { domain: "research", id: "report-writer", sandboxRole: "report.report_writer", userVariant: "answer",
+		promptConfig: { domain: "research", id: "report-writer", sandboxRole: "report.report_writer", systemVariant: "answer", userVariant: "answer",
 			revisions: { system: system.revision, user: user.revision } },
 		session: { key: `answer/${input.invocationId}`, policy: "fresh" },
 		modelPolicy: input.modelPolicy ?? primeReportWriterStageModelPolicy(input.env),

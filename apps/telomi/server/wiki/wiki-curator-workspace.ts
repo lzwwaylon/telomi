@@ -6,7 +6,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { hashJson, sha256 } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { toErrorMessage } from "../lib/values.js";
-import { curatorRelationInput, validateCuratorRelations, validateCuratorWorksetResult } from "./wiki-shard-merge.js";
+import { curatorRelationInput, validateCuratorRelations, validateCuratorWorksetResult } from "./wiki-curator.js";
 
 interface CuratorIndexRow {
 	ref: string;

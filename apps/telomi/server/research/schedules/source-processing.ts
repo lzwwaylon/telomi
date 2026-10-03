@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { RunStateStore } from "../run-state.js";
-import { FIND_OUT_SOURCE_MANIFEST_SCHEMA_VERSION } from "../pipeline/find-out-sources.js";
+import { ORGANIZED_SOURCE_MANIFEST_SCHEMA_VERSION } from "../pipeline/organized-sources.js";
 import type { ResearchScheduleSource } from "./types.js";
 
 interface CornellNoteSnapshot {
@@ -42,11 +42,11 @@ export function readProcessedResearchRun(args: {
 		throw new Error(`Research Run '${args.runId}' has no valid state`);
 	}
 	const wikiRunDir = join(args.goalDir, "wiki", "runs", args.runId);
-	const findOutRefs = state.find_out_sources ?? [];
-	if (findOutRefs.length === 0 && !(state.status === "skipped" && state.skip_reason === "no_source_increment")) {
-		throw new Error(`Research Run '${args.runId}' has no Find Out Source snapshot`);
+	const organizedSourceRefs = state.find_out_sources ?? [];
+	if (organizedSourceRefs.length === 0 && !(state.status === "skipped" && state.skip_reason === "no_source_increment")) {
+		throw new Error(`Research Run '${args.runId}' has no Notes Source snapshot`);
 	}
-	const sources = readFindOutSources(wikiRunDir, findOutRefs);
+	const sources = readOrganizedSources(wikiRunDir, organizedSourceRefs);
 	const discoveredSources = new Set(sources.map((source) => source.sourceIdentity)).size;
 
 	const evidenceRef = state.cornell_note_snapshots.at(-1);
@@ -139,7 +139,7 @@ function readRecordedNoteFailures(
 	return failed;
 }
 
-function readFindOutSources(
+function readOrganizedSources(
 	wikiRunDir: string,
 	refs: readonly { relative_path: string }[],
 ): ProcessedSourceCandidate[] {
@@ -154,8 +154,8 @@ function readFindOutSources(
 				members: Array<{ canonical_locator: string }>;
 			}>;
 		};
-		if (manifest.schema_version !== FIND_OUT_SOURCE_MANIFEST_SCHEMA_VERSION || !Array.isArray(manifest.sources)) {
-			throw new Error(`Find Out Source manifest '${ref.relative_path}' is invalid`);
+		if (manifest.schema_version !== ORGANIZED_SOURCE_MANIFEST_SCHEMA_VERSION || !Array.isArray(manifest.sources)) {
+			throw new Error(`Notes Source manifest '${ref.relative_path}' is invalid`);
 		}
 		return manifest.sources.map((source) => {
 			const locator = source.members?.[0]?.canonical_locator;
@@ -164,7 +164,7 @@ function readFindOutSources(
 				|| typeof locator !== "string"
 				|| !/^[a-f0-9]{64}$/u.test(source.revision_sha256)
 			) {
-				throw new Error(`Find Out Source manifest '${ref.relative_path}' has an invalid Source`);
+				throw new Error(`Notes Source manifest '${ref.relative_path}' has an invalid Source`);
 			}
 			return {
 				sourceId: source.source_id,

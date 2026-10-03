@@ -3,7 +3,7 @@ import path from "node:path";
 export const SANDBOX_TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "find", "grep"] as const;
 export const REPORT_SANDBOX_ROLES = [
 	"report.search_planner",
-	"report.cornell_note",
+	"report.note_agent",
 	"report.report_writer",
 ] as const;
 
@@ -199,7 +199,7 @@ export function parseSandboxExecutionSpec(value: unknown): SandboxExecutionSpec 
 	}
 	if (REPORT_ROLE_NAMES.has(role) || role === "wiki.object_builder") {
 		if (guestCwd !== "/work") throw new Error(`sandbox role ${role} requires guestCwd /work`);
-		if (role === "report.cornell_note" || role === "wiki.object_builder") {
+		if (role === "report.note_agent" || role === "wiki.object_builder") {
 			if (networkRecord.mode !== "deny") throw new Error(`sandbox role ${role} requires denied network`);
 		} else if (networkRecord.mode !== "allow") {
 			throw new Error(`sandbox role ${role} requires open network`);

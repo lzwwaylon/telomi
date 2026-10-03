@@ -99,10 +99,10 @@ export function createGoalCornellSnapshot(input: { goalDir: string; snapshotId: 
 			records.set(`${sourceRunId}\0${record.note.source_id}`, { ...record, source_run_id: sourceRunId });
 		}
 	}
-	const deepRoot = join(input.goalDir, "artifacts", "deep-search");
-	const artifactRefs = (existsSync(deepRoot) ? readdirSync(deepRoot) : [])
+	const readingRoot = join(input.goalDir, "artifacts", "deep-search");
+	const artifactRefs = (existsSync(readingRoot) ? readdirSync(readingRoot) : [])
 		.filter(name => /^[A-Za-z0-9._-]{1,100}\.json$/u.test(name))
-		.map(name => ({ path: `artifacts/deep-search/${name}`, sha256: sha256(readFileSync(join(deepRoot, name))) }));
+		.map(name => ({ path: `artifacts/deep-search/${name}`, sha256: sha256(readFileSync(join(readingRoot, name))) }));
 	const imported = createCueCornellSnapshot({ ...input, artifactRefs });
 	for (const record of imported.notes) {
 		const key = `${record.source_run_id}\0${record.note.source_id}`;

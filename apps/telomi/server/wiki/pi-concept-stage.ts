@@ -1,8 +1,8 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeJsonAtomic } from '../lib/fs.js';
-import type { NoteFirstInput, NoteFirstOutcome, NoteFirstStageRequest } from './note-first-contract.js';
-import { createNoteFirstWorkspace } from './note-first-workspace.js';
+import type { WikiStageInput, WikiStageOutcome, WikiStageRequest } from './wiki-stage-contract.js';
+import { createWikiStageWorkspace } from './wiki-stage-workspace.js';
 import { createConceptReadCoverage, validatePiConceptFiles, type ReadCoverage } from './pi-concept-contract.js';
 import { runPiFileStage } from './pi-file-stage.js';
 
@@ -12,12 +12,12 @@ const variants = {
  'audit-concepts': 'audit-concepts-pi', 'merge-concepts': 'merge-concepts-pi',
 } as const;
 
-function catalog(input: NoteFirstInput): string {
+function catalog(input: WikiStageInput): string {
  return input.pages.map((row, index) => `P${index + 1} | ${row.page.kind} | ${row.previous ? 'existing' : 'supplied'} | ${row.page.title} | ${row.page.description} | input/pages/P${index + 1}.md`).join('\n');
 }
 
 /** Only projected page files and their local aliases are exposed to the Agent. */
-export function piConceptUserContext(input: NoteFirstInput): string {
+export function piConceptUserContext(input: WikiStageInput): string {
  if (!(input.stage in variants)) throw new Error('Unsupported Pi concept stage');
  const alias = (ref: string): string => {
   const index = input.pages.findIndex(row => row.ref === ref);
@@ -39,7 +39,7 @@ export function piConceptUserContext(input: NoteFirstInput): string {
   + '\n\n## Complete page catalog\n' + catalog(input);
 }
 
-export async function runPiConceptStage(request: NoteFirstStageRequest): Promise<NoteFirstOutcome> {
+export async function runPiConceptStage(request: WikiStageRequest): Promise<WikiStageOutcome> {
  const stage = request.input.stage;
  if (!(stage in variants)) throw new Error('Unsupported Pi concept stage');
  let coverage: ReadCoverage;
@@ -47,9 +47,9 @@ export async function runPiConceptStage(request: NoteFirstStageRequest): Promise
   modelId: PI_CONCEPT_MODEL, referenceVariant: 'concept-common', promptVariant: variants[stage as keyof typeof variants],
   user: piConceptUserContext(request.input), executionMode: `pi-concept-${stage}`, role: 'wiki.object_builder',
   grepRoot: stage === 'plan-concepts' || stage === 'audit-concepts' ? '/work/input/pages' : undefined,
-  codeFiles: ['./pi-concept-stage.ts', './pi-concept-contract.ts', './note-first-contract.ts', './object-first-contract.ts'],
+  codeFiles: ['./pi-concept-stage.ts', './pi-concept-contract.ts', './wiki-stage-contract.ts', './wiki-page-contract.ts'],
   prepare(inputRoot) {
-   createNoteFirstWorkspace(request.input, inputRoot);
+   createWikiStageWorkspace(request.input, inputRoot);
    writeFileSync(join(inputRoot, 'catalog.md'), catalog(request.input));
    coverage = createConceptReadCoverage(request.input, inputRoot);
   },

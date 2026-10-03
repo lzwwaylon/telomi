@@ -18,7 +18,7 @@ try {
 	writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: {
 		"openai-codex": { baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", apiKey: "fixture", models: [{ id: "test-model" }] },
 	} }));
-	writeFileSync(join(agentRoot, "inputs", "materials.json"), JSON.stringify({ schema_version: 1, kind: "findout", refs: ["note-1"] }));
+	writeFileSync(join(agentRoot, "inputs", "materials.json"), JSON.stringify({ schema_version: 1, kind: "notes", refs: ["note-1"] }));
 	for (const name of ["system-prompt.md", "initial-prompt.md", "delegation-prompt.md", "final-prompt.md", "final-repair-prompt.md"]) {
 		writeFileSync(join(runtimeRoot, name), `${name}\n`);
 	}
@@ -71,7 +71,7 @@ export async function createAgentSession() {
 				PRIME_AGENT_REPORT_CHILD_PROVIDER: "openai-codex",
 				PRIME_AGENT_REPORT_CHILD_MODEL: "test-model",
 				PRIME_AGENT_REPORT_THINKING_LEVEL: "medium",
-				PRIME_AGENT_REPORT_KNOWLEDGE_MODE: "findout",
+				PRIME_AGENT_REPORT_KNOWLEDGE_MODE: "notes",
 				PRIME_AGENT_MODULE_PATH: fakePrime,
 				PRIME_AGENT_PATHS_MODULE_PATH: resolve("server/agent-runtime/prime-agent-paths.ts"),
 				FAKE_MODEL_ERROR: modelError ?? "",
@@ -103,7 +103,7 @@ export async function createAgentSession() {
 	assert.equal(missingOutline.failureClass, "validation");
 	assert.equal(missingOutline.failureError, "work/report-outline.json is missing");
 	assert.equal(missingOutline.prompts, 2);
-	console.log("Prime Report Writer model failure test passed");
+	console.log("Report Writer Root model failure test passed");
 } finally {
 	rmSync(root, { recursive: true, force: true });
 }

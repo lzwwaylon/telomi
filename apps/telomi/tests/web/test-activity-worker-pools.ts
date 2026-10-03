@@ -33,12 +33,12 @@ function step(id: string, activity: AgentActivity, parallelSteps: ActivityStep[]
 	};
 }
 
-const cornellA = step("note:a", agent("cornell:a", "cornell_note"));
-const cornellB = step("note:b", agent("cornell:b", "cornell_note"));
+const cornellA = step("note:a", agent("cornell:a", "note_agent"));
+const cornellB = step("note:b", agent("cornell:b", "note_agent"));
 const research = groupActivitySteps([
 	step("search", agent("search", "prime_search")),
-	step("group:1", agent("ignored", "cornell_note"), [cornellA, cornellB]),
-	step("group:2", agent("cornell:c", "cornell_note")),
+	step("group:1", agent("ignored", "note_agent"), [cornellA, cornellB]),
+	step("group:2", agent("cornell:c", "note_agent")),
 	step("report", agent("report", "report_writer")),
 ]);
 

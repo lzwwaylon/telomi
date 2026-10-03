@@ -32,8 +32,8 @@ export type ActivityMessageKey =
 	| "activityChrome.stage.workspaceRun"
 	| "activityChrome.stage.primeSearch"
 	| "activityChrome.stage.primeSearchBatch"
-	| "activityChrome.stage.cornellNote"
-	| "activityChrome.stage.cornellNoteGeneric"
+	| "activityChrome.stage.noteAgent"
+	| "activityChrome.stage.noteAgentGeneric"
 	| "activityChrome.stage.reportWriter"
 	| "activityChrome.stage.internal"
 	// Agent Activities.
@@ -167,7 +167,7 @@ export type ActivityMessageKey =
 	// Frontend Activity Step groups.
 	| "goals.activityStepGroups.executionPhase"
 	| "goals.activityStepGroups.shardOrganization"
-	| "goals.activityStepGroups.cornellNotes"
+	| "goals.activityStepGroups.noteAgents"
 	| "goals.activityStepGroups.wikiWorkers"
 	| "goals.activityStepGroups.wikiCurator"
 	| "goals.activityStepGroups.publication"

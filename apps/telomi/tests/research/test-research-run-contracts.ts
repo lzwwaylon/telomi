@@ -7,12 +7,12 @@ import { fileURLToPath } from "node:url";
 
 import {
 	buildKnowledgeCitationRegistry,
-	buildFindOutReportWriterSystemPrompt,
+	buildNotesReportWriterSystemPrompt,
 	compileCanonicalMarkdown,
 	createAgentEvidenceHandles,
-	findOutSelfDirectedDelegationPrompt,
-	findOutSelfDirectedWriterUserPrompt,
-	FULL_REPORT_WRITER_SYSTEM_PROMPT,
+	notesSelfDirectedDelegationPrompt,
+	notesSelfDirectedWriterUserPrompt,
+	WIKI_REPORT_WRITER_SYSTEM_PROMPT,
 	materializePrimeSources,
 	materializeReportPlan,
 	materializeWriterChapter,
@@ -121,7 +121,7 @@ assert.deepEqual(primeSearchBatchContractIdentity({
 const organizerPrompt = primeSourceOrganizerPrompt(1);
 assert.match(organizerPrompt, /Runtime-owned handles/u);
 assert.doesNotMatch(organizerPrompt, /source:example|group_id|schema_version/u);
-assert.match(primeWriterFinalRepairPrompt("findout"), /square-bracket numeric citation[\s\S]+`\[1\]`[\s\S]+<cite>/u);
+assert.match(primeWriterFinalRepairPrompt("notes"), /square-bracket numeric citation[\s\S]+`\[1\]`[\s\S]+<cite>/u);
 
 const providerWorkspaceRoot = mkdtempSync(join(tmpdir(), "pi-provider-workspace-"));
 try {
@@ -969,40 +969,40 @@ for (const source of createResearchSourceRegistry(process.env).catalog().filter(
 	assert.match(renderProviderApiReference(source.workerPython!.module, projectPython), new RegExp(`^# ${source.id} Provider API`, "u"));
 }
 
-assert.match(FULL_REPORT_WRITER_SYSTEM_PROMPT, /frozen Goal Wiki/iu);
-assert.doesNotMatch(FULL_REPORT_WRITER_SYSTEM_PROMPT, /writer-sections\.json|Evidence pool/iu);
+assert.match(WIKI_REPORT_WRITER_SYSTEM_PROMPT, /frozen Goal Wiki/iu);
+assert.doesNotMatch(WIKI_REPORT_WRITER_SYSTEM_PROMPT, /writer-sections\.json|Evidence pool/iu);
 assert.match(wikiSelfDirectedWriterUserPrompt({
 	language: "en", currentDate: "2026-08-09", timeZone: "UTC",
 }), /decide the report's structure[\s\S]+wiki-report Skill[\s\S]+Do not spawn children/iu);
 assert.doesNotMatch(wikiSelfDirectedWriterUserPrompt({
 	language: "en", currentDate: "2026-08-09", timeZone: "UTC",
 }), /report-outline\.json.*inputs|\{\{CHILD_MODEL\}\}/iu);
-assert.match(findOutSelfDirectedWriterUserPrompt({
+assert.match(notesSelfDirectedWriterUserPrompt({
 	language: "zh-CN",
 	currentDate: "2026-08-27",
 	timeZone: "Asia/Singapore",
 }), /decide the report's structure[\s\S]+Page the notes_report roster to the end[\s\S]+Do not spawn children/iu);
-assert.doesNotMatch(findOutSelfDirectedWriterUserPrompt({
+assert.doesNotMatch(notesSelfDirectedWriterUserPrompt({
 	language: "zh-CN", currentDate: "2026-08-27", timeZone: "Asia/Singapore",
 }), /section-001|schema_version/iu);
-assert.match(buildFindOutReportWriterSystemPrompt(), /<cite>N123<\/cite>[\s\S]+Runtime resolves/iu);
-assert.doesNotMatch(buildFindOutReportWriterSystemPrompt(), /<cite>URL<\/cite>/iu);
-assert.match(findOutSelfDirectedDelegationPrompt("test/child"),
-	/Runtime validated[\s\S]+injected every Section ID[\s\S]+exactly one child per Section[\s\S]+test\/child/iu);
-assert.match(findOutSelfDirectedDelegationPrompt("test/child"),
+assert.match(buildNotesReportWriterSystemPrompt(), /<cite>N123<\/cite>[\s\S]+Runtime resolves/iu);
+assert.doesNotMatch(buildNotesReportWriterSystemPrompt(), /<cite>URL<\/cite>/iu);
+assert.match(notesSelfDirectedDelegationPrompt("test/child"),
+	/Runtime validated[\s\S]+injected every Section ID[\s\S]+exactly one Report Writer Section child per Section[\s\S]+test\/child/iu);
+assert.match(notesSelfDirectedDelegationPrompt("test/child"),
 	/exact Skill paths[\s\S]+never search for Skill locations[\s\S]+must not inspect or call RLM emit/iu);
-assert.match(findOutSelfDirectedDelegationPrompt("test/child"),
+assert.match(notesSelfDirectedDelegationPrompt("test/child"),
 	/one bounded page at a time[\s\S]+final expression of its own IPython cell[\s\S]+must not fetch pages silently/iu);
 assert.match(wikiSelfDirectedDelegationPrompt("test/child"),
-	/Runtime validated[\s\S]+injected every Section ID[\s\S]+exactly one child per Section[\s\S]+test\/child/iu);
-assert.match(primeWriterFinalPrompt("findout"), /Do not write[\s\S]+manifest\.json[\s\S]+Runtime creates/iu);
-assert.doesNotMatch(primeWriterFinalPrompt("findout"), /"schema_version": 1|Create writer-output\/\.complete last/iu);
-assert.match(primeWriterFinalPrompt("findout", true),
+	/Runtime validated[\s\S]+injected every Section ID[\s\S]+exactly one Report Writer Section child per Section[\s\S]+test\/child/iu);
+assert.match(primeWriterFinalPrompt("notes"), /Do not write[\s\S]+manifest\.json[\s\S]+Runtime creates/iu);
+assert.doesNotMatch(primeWriterFinalPrompt("notes"), /"schema_version": 1|Create writer-output\/\.complete last/iu);
+assert.match(primeWriterFinalPrompt("notes", true),
 	/load the writing-skill[\s\S]+writing_skill\("work\/final-check\.md"\)/iu);
-assert.match(primeWriterFinalPrompt("findout", true),
+assert.match(primeWriterFinalPrompt("notes", true),
 	/do not inspect[\s\S]+dir\(\)[\s\S]+signatures/iu);
-assert.match(primeWriterFinalPrompt("findout", true), /do not target an exact character count[\s\S]+## <title>/iu);
-assert.match(primeWriterFinalPrompt("findout", false), /not Chinese[\s\S]+skip[\s\S]+lint/iu);
+assert.match(primeWriterFinalPrompt("notes", true), /do not target an exact character count[\s\S]+## <title>/iu);
+assert.match(primeWriterFinalPrompt("notes", false), /not Chinese[\s\S]+skip[\s\S]+lint/iu);
 assert.equal(renderReportProseLintInput([
 	{ title: "First", body: "First body." },
 	{ title: "Second", body: "Second body." },

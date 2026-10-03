@@ -19,10 +19,10 @@ Research Schedule or user-requested recovery
   -> Runtime Source validation and immutable materialization
   -> incremental cross-provider Organizer (Prime Agent when needed)
   -> Runtime logical Source materialization
-  -> one fresh Cornell Note Prime Agent per logical Source
+  -> one fresh Note Agent per logical Source
   -> Cornell Note Snapshot
-       -> Prime Report Writer Root + Section children
-       -> asynchronous Note-first Wiki Maintainer
+       -> Report Writer Root + Report Writer Section children
+       -> asynchronous Wiki compilation
 ```
 
 There is no independent retrieval Worker, Meta Gate, or Source Agent Proposal fallback path.
@@ -39,7 +39,7 @@ Main Agent uses `investigate` for factual Goal questions and report-style answer
 
 ## 2. Full Research Run inputs
 
-Scheduled Research and recovery preserve an incremental search question, a complete report brief, and optional note focus. The search question identifies missing or updated evidence; Report Context contains the user objective, audience, existing understanding, format, depth and language. Note focus reaches only the Cornell Note stage and does not widen search or change the Wiki.
+Scheduled Research and recovery preserve an incremental search question, a complete report brief, and optional note focus. The search question identifies missing or updated evidence; Report Context contains the user objective, audience, existing understanding, format, depth and language. Note focus reaches only the Note Agent stage and does not widen search or change the Wiki.
 
 Runtime pins the Goal, server-bundled Harness Snapshot, Topic Plan, Wiki and Skill content versions, temporal constraints, and Run directory. Recovery restores these persisted task inputs instead of deriving them again from Main's current conversation.
 
@@ -137,7 +137,7 @@ See [Note Agent](note-agent.md) for the complete contract.
 
 ## 6. Report Writer
 
-There is one Prime Full Report Root. Full Research Runs freeze current Cornell Notes into Find Out material. The retained Wiki material Adapter supports report snapshots and historical replay; it is not a separate Main Agent Tool. These Adapters hand material to the same Root, which selects material, determines sections, delegates Section children, and performs final editing. Investigation uses the answer variant without Section children; a requested report publishes that validated answer at delivery, with frozen citation compilation and no second Writer pass.
+There is one Report Writer Root. Full Research Runs freeze current Cornell Notes into Notes material. The retained Wiki material Adapter supports report snapshots and historical replay; it is not a separate Main Agent Tool. These Adapters hand material to the same Root, which selects material, determines sections, delegates Section children, and performs final editing. Investigation uses the answer variant without Section children; a requested report publishes that validated answer at delivery, with frozen citation compilation and no second Writer pass.
 
 Both Adapters generate the same read-only reference inventory at `inputs/materials.json`. Before launching Section children, the Prime Worker validates every Source handle or Wiki path in the Root Outline. Runtime validates the complete Outline and references again at final publication.
 
@@ -151,7 +151,7 @@ await notes_report.search("query", source=["@22"])
 await notes_report.get(["N1", "N2"])
 ```
 
-A Find Out snapshot contains only the index and Cornell Note JSON. A Wiki Report snapshot pins the current Wiki, corresponding Cornell Notes, Sources, and citation mappings, but Prime Report Root accesses the current Wiki only through the read-only `wiki_report` material Adapter.
+A Notes snapshot contains only the index and Cornell Note JSON. A Wiki Report snapshot pins the current Wiki, corresponding Cornell Notes, Sources, and citation mappings, but Report Writer Root accesses the current Wiki only through the read-only `wiki_report` material Adapter.
 
 The Root first reads the complete compact Source roster, chooses sections and an editorial plan, then starts exactly one Prime child per Section. Children deeply read the Notes of assigned Sources and cite them as `<cite>N123</cite>`; Runtime deterministically resolves Note refs to frozen Source URLs.
 
@@ -163,11 +163,11 @@ Runtime does not change report semantics. It validates Sections, citations, and 
 
 Citation compilation preserves the stored Source URLs and performs no network reachability probes. A temporary outage, rate limit, or login requirement must not remove a Source link from the report. Runtime still validates Source provenance fields and URL format during acquisition, and resolves report citations against the frozen reference inventory; reachability cannot establish whether a URL identifies the cited material.
 
-## 7. Wiki Maintainer
+## 7. Wiki Curator
 
-Wiki Maintainer runs asynchronously alongside Report Writer. It consumes only Cornell Notes and existing Concept / Entity pages, never raw Sources.
+Wiki Curator runs asynchronously alongside Report Writer. It consumes only Cornell Notes and existing Concept / Entity pages, never raw Sources.
 
-New Wiki Updates use the Note-first compiler. Runtime processes each complete Cornell Note into object pages, resolves object identity and unplaced Cues against the previous Edition, then derives concepts only from accepted object evidence. Object construction and target writing use Luna; object target planning uses Terra. Existing published Editions remain readable.
+New Wiki Updates use the Wiki compilation compiler. Runtime processes each complete Cornell Note into object pages, resolves object identity and unplaced Cues against the previous Edition, then derives concepts only from accepted object evidence. Object construction and target writing use Luna; object target planning uses Terra. Existing published Editions remain readable.
 
 Concept generation uses four separate Pi Coding Agent stages, all with Terra and medium reasoning:
 
@@ -180,9 +180,9 @@ These concept sessions expose only read-only page material and SRT-bound `read`,
 
 ### Resuming Interrupted Updates
 
-Wiki updates run in the background independently of the Report flow. Backend startup marks an unfinished job as interrupted; the user can resume it through the existing Activity action, with at most three resumes. Accepted stage checkpoints are reused only when their frozen inputs, implementation, output files and reading receipts still match. Failed attempts retain their usage and native sessions. Partial Note-first candidates remain inspectable and cannot replace the published Edition. Publication verifies the frozen base under the Goal publication lock and atomically replaces it.
+Wiki updates run in the background independently of the Report flow. Backend startup marks an unfinished job as interrupted; the user can resume it through the existing Activity action, with at most three resumes. Accepted stage checkpoints are reused only when their frozen inputs, implementation, output files and reading receipts still match. Failed attempts retain their usage and native sessions. Partial Wiki compilation candidates remain inspectable and cannot replace the published Edition. Publication verifies the frozen base under the Goal publication lock and atomically replaces it.
 
-Old queued Updates without the Note-first compiler identity continue through the legacy Shard Builder and Curator. Their replay and recovery boundaries remain separate from new Note-first Updates.
+Old queued Updates without the Wiki compilation compiler identity continue through the legacy Shard Builder and Curator. Their replay and recovery boundaries remain separate from new Wiki compilation Updates.
 
 ## Runtime and Agent Boundary
 
@@ -217,24 +217,24 @@ Runtime does not replace semantic judgment with rules.
 | Prime Search Root | Fresh per batch | 1 |
 | Provider children | Fresh per Provider task actually delegated by the Root | Root-selected count |
 | Organizer | Fresh when new Sources can be grouped | 1 |
-| Cornell Note | Fresh per Source | 4 by default |
-| Report Root | Fresh; same Session continues after children | 1 |
+| Note Agent | Fresh per Source | 4 by default |
+| Report Writer Root | Fresh; same Session continues after children | 1 |
 | Report Section children | Fresh per Section | Section count |
 | Wiki object builders | Fresh per complete Note | At most 4 |
 | Wiki concept planner / audit / conflict merge | Fresh per stage or conflict group | 1 |
 | Wiki concept writers | Fresh per explanatory question | At most 4 |
 | Wiki page Topic classification | One direct completion per final page | At most 4 |
-| Podcast Root | Fresh per Podcast generation | 1 |
+| Podcast Writer Root | Fresh per Podcast generation | 1 |
 | Podcast Segment / Review children | Fresh per Root-defined semantic scope | Bounded by the Root |
 
 Prime Search currently returns all Logical Sources together after Acquisition and the Organizer finish. Cornell Notes do not start before Provider children finish.
 
-Prime Search, Report Writer, Wiki Shard Builder, Wiki Curator, and Podcast Writer all use the Prime SDK's native `waitForRlmQuiescence()` to wait for children and their parent Session's continuation turns. Runtime does not use autonomous gates, file polling, or duplicate Traces as a waiting protocol. Cornell Note delegates no RLM children and therefore does not need this interface.
+Prime Search, Report Writer, Wiki Shard Builder, Wiki Curator, and Podcast Writer all use the Prime SDK's native `waitForRlmQuiescence()` to wait for children and their parent Session's continuation turns. Runtime does not use autonomous gates, file polling, or duplicate Traces as a waiting protocol. Note Agent delegates no RLM children and therefore does not need this interface.
 
 ## Models and Thinking Levels
 
-Environment and Goal settings can override models, so the model selected at runtime is not a documentation contract. Defaults are defined in `TASK_MODEL_ROLE_INFO` in `server/config/settings.ts` for `primeRoot`, `primeChild`, `cornellNote`, and `wikiMaintainer`; Cornell Note re-exports its configuration through `server/research/config.ts`.
+Environment and Goal settings can override models, so the model selected at runtime is not a documentation contract. Defaults are defined in `TASK_MODEL_ROLE_INFO` in `server/config/settings.ts` for `primeRoot`, `primeChild`, `noteAgent`, and `wikiCurator`; Note Agent exposes its configuration through `server/research/config.ts`.
 
-The intent behind thinking levels is not evident from code: Prime Search Root and the Organizer use medium, Report Root and Section children share Prime high, and Wiki Maintainer uses medium. The Note-first Pi concept stages pin Terra and medium independently of the legacy Prime Wiki model defaults. The authoritative values for a particular run are in `research-harness-snapshot.json`, its Node Trace, and evaluation artifacts.
+The intent behind thinking levels is not evident from code: Prime Search Root and the Organizer use medium, Report Writer Root and Report Writer Section children share Prime high, and Wiki Curator uses medium. The Wiki compilation Pi concept stages pin Terra and medium independently of the legacy Prime Wiki model defaults. The authoritative values for a particular run are in `research-harness-snapshot.json`, its Node Trace, and evaluation artifacts.
 
 Run new validation questions through the real product entry point and capture them as Cases, then complete Candidate Replay and independent review under [Attestation](development/attestation.md). The Operations Interface does not accept new questions as direct inputs. See [Node Evaluation](node-agent-backtest.md) for each Recipe's external-data boundary.

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
 import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
-import { noteWikiEntries } from "../wiki/note-wiki-maintainer.js";
+import { noteWikiEntries } from "../wiki/note-entries.js";
 import { resolveNoteReadingCue } from "./note-reading.js";
 
 const REF = /^cornell:([A-Za-z0-9._-]{1,200}):([a-f0-9]{24}):([a-f0-9]{12})$/u;
@@ -27,7 +27,7 @@ interface RegistryEntry {
 
 export interface SavedNoteCue {
 	ref: string;
-	kind: "cornell" | "deep_search";
+	kind: "cornell" | "note_reading";
 	wiki_entry_id?: string;
 	section_title: string;
 	cue: string;
@@ -58,7 +58,7 @@ export function listSavedNoteCues(knowledgeRoot: string): SavedNoteCue[] {
 		}
 		return {
 			ref: entry.originCueRef ?? `cornell:${entry.sourceRunId}:${entry.id.slice(6)}:${entry.revisionSha256.slice(0, 12)}`,
-			kind: entry.originCueRef ? "deep_search" as const : "cornell" as const,
+			kind: entry.originCueRef ? "note_reading" as const : "cornell" as const,
 			...(entry.originCueRef ? { wiki_entry_id: entry.id } : {}),
 			section_title: entry.section,
 			cue: entry.cue,

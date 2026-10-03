@@ -20,9 +20,9 @@ import {
 } from "./node-evaluation.js";
 import { isInsideRoot } from "../lib/paths.js";
 
-export const RECORDED_STAGE_AGENT_IDS = ["cornell-note", "report-writer"] as const;
+export const RECORDED_STAGE_AGENT_IDS = ["note-agent", "report-writer"] as const;
 export const RECORDED_STAGE_RECIPE_VERSIONS = {
-	"cornell-note": 3,
+	"note-agent": 3,
 	"report-writer": 2,
 } as const;
 
@@ -38,8 +38,8 @@ export function createRecordedStageReplayRecipes(noteReadingValidator?: NoteRead
 
 export const recordedStageReplayRecipes = createRecordedStageReplayRecipes();
 
-/** Optional Cornell observer: product execution supplies context, Capture owns the Replay contract. */
-export function withCornellNoteCapture(
+/** Optional Note Agent observer: product execution supplies context, Capture owns the Replay contract. */
+export function withNoteAgentCapture(
 	runner: AgentStageRunner,
 	context: Record<string, unknown>,
 	skills: readonly { hostPath: string; workspaceRelativePath: string }[],
@@ -48,8 +48,8 @@ export function withCornellNoteCapture(
 		runStage: <T>(request: AgentStageRequest<T>) => runner.runStage({
 			...request,
 			evaluation: {
-				agentId: "cornell-note",
-				recipe: { id: "cornell-note", version: RECORDED_STAGE_RECIPE_VERSIONS["cornell-note"] },
+				agentId: "note-agent",
+				recipe: { id: "note-agent", version: RECORDED_STAGE_RECIPE_VERSIONS["note-agent"] },
 				recipeInput: context,
 				inputGuestPath: "/source",
 				harnessMounts: skills.map((skill) => ({
@@ -129,8 +129,8 @@ function createRecordedStageReplayRecipe(
 			const readonlyMounts = resolveNodeEvaluationMounts(
 				casePath, value, sourceRunDirectory, harnessWorkspaceDirectory);
 			const noteReadingContext = value.recipeInput && typeof value.recipeInput === "object"
-				&& (value.recipeInput as { mode?: unknown }).mode === "deep-search"
-				? value.recipeInput as { mode: "deep-search"; question: string; invocationId: string }
+				&& (value.recipeInput as { mode?: unknown }).mode === "question-reading"
+				? value.recipeInput as { mode: "question-reading"; question: string; invocationId: string }
 				: undefined;
 			const answerContext = (value.recipeInput as { mode?: unknown } | undefined)?.mode === "investigation-answer";
 			const answerVariant = value.request.promptConfig?.userVariant === "answer";
@@ -186,7 +186,7 @@ function createRecordedStageReplayRecipe(
 						}
 						if (!noteReadingContext || !noteReadingValidator) return validateRecordedOutput(output.kind, entryPath);
 						const corpus = readonlyMounts.find((mount) => mount.guestPath === "/source");
-						if (!corpus) throw new Error("Deep Search Replay has no captured Source corpus");
+						if (!corpus) throw new Error("Note Reading Replay has no captured Source corpus");
 						const normalized = noteReadingValidator(JSON.parse(readFileSync(entryPath, "utf-8")) as unknown,
 							noteReadingContext.question, noteReadingContext.invocationId, corpus.hostPath);
 						writeFileSync(entryPath, `${JSON.stringify(normalized, null, 2)}\n`);
@@ -242,7 +242,7 @@ function validateRecordedOutput(kind: StageArtifactKind, entryPath: string): unk
 
 function agentIdForRole(role: AgentStageRole): typeof RECORDED_STAGE_AGENT_IDS[number] | undefined {
 	const ids: Record<string, typeof RECORDED_STAGE_AGENT_IDS[number]> = {
-		cornell_note: "cornell-note",
+		note_agent: "note-agent",
 		report_writer: "report-writer",
 	};
 	return ids[role];

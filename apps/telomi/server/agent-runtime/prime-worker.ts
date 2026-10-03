@@ -25,7 +25,7 @@ import { ResearchNodeError } from "./retry-policy.js";
  * usage 读取，以及 abort 时终止子进程。业务 Worker 自身的变量通过 `extraEnv` 传入。
  */
 export interface PrimeWorkerLaunch {
-	/** 用于错误文案，例如 "Prime Cornell Note"。 */
+	/** 用于错误文案，例如 "Note Agent"。 */
 	name: string;
 	/** Worker 脚本绝对路径，通过 tsx loader 执行。 */
 	worker: string;

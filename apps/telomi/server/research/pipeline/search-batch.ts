@@ -39,7 +39,7 @@ export interface SearchBatchRequest {
 export interface SearchBatchResult {
 	logicalSources: LogicalSource[];
 	sourceBundles: PublishedArtifactDirectoryRef[];
-	findOutSources: PublishedArtifactDirectoryRef;
+	organizedSources: PublishedArtifactDirectoryRef;
 	executionRecords: Array<{
 		record: SearchExecutionRecord;
 		artifact: PublishedArtifactRef;

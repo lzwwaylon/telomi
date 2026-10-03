@@ -30,7 +30,7 @@ import { writeFileAtomic } from "../lib/fs.js";
 import { TASK_MODEL_ROLE_INFO, taskModelStages, type PiSettings } from "../config/settings.js";
 
 /** The roles a Research Run freezes. Wiki maintenance is not part of a Run. */
-export const RUN_MODEL_ROLES = ["cornellNote", "primeRoot", "primeChild"] as const;
+export const RUN_MODEL_ROLES = ["noteAgent", "primeRoot", "primeChild"] as const;
 export type RunModelRole = (typeof RUN_MODEL_ROLES)[number];
 
 /**
@@ -77,7 +77,7 @@ export function freezeRunModelSelection(env: NodeJS.ProcessEnv, controlDirectory
 			if (typeof model !== "string" || !/^[^/]+\/.+$/u.test(model)) {
 				throw new Error("Invalid persisted Run model selection");
 			}
-			pinned[TASK_MODEL_ROLE_INFO[role].legacyEnvVar] = model;
+			pinned[TASK_MODEL_ROLE_INFO[role].modelEnvVar] = model;
 		}
 		for (const { key, info } of runStages()) {
 			const level = saved.stageThinkingLevels?.[key];
@@ -117,7 +117,7 @@ function resolveRunModel(
 	settingsOverride?: PiSettings,
 ): string {
 	const resolved = resolveLLMConfig({
-		envVarName: TASK_MODEL_ROLE_INFO[role].legacyEnvVar,
+		envVarName: TASK_MODEL_ROLE_INFO[role].modelEnvVar,
 		taskModelRole: role,
 		envOverride: env,
 		...(settingsOverride ? { settingsOverride } : {}),

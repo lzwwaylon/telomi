@@ -6,12 +6,14 @@ Candidate Replay does not reproduce historical output. It pins the captured busi
 
 Directory Artifacts and Capability Snapshots accept only content Hashes using the current fixed sort order, never historical Chinese-sort digests. Prime Search and Research Schedule Reviewer Cases must include the captured reasoning depth. Missing or invalid fields reject Replay rather than falling back to current configuration. Research Schedule Reviewer Cases must also include the resolved output language; it is not inferred from Report Context.
 
+Capability Snapshots freeze their ordered Skill ownership alongside the files. Integrity checks and restoration use that captured roster rather than the current executable Agent registry. Activating a Snapshot with historical Skill ownership validates its original hash, maps ownership in an isolated copy, and captures a fresh canonical Snapshot; it never rewrites the original evidence. Conflicting custom Skills stop activation with an explicit error.
+
 ## Supported Scope
 
 | Agent | Candidate Replay | Case source |
 |---|---|---|
 | `main-agent` | Yes | Production Main Agent runs |
-| `cornell-note` | Yes; Source reading and question-specific Deep Search | Production Research runs and investigation readings |
+| `note-agent` | Yes; Source reading and question-specific Note Reading | Production Research runs and investigation readings |
 | `report-writer` | Yes; full-report and independently captured investigation-answer variants | Production Research runs and investigation Writer delegations |
 | `provider-child` | Yes; pins one Provider Child's task and pre-execution files and reruns only that child | Derived from a specified execution in a complete Prime Search Case |
 | `prime-search` | Yes; v4 pins the Search question and captured context and reruns Provider operations; the Root may use general search | Production Research runs and investigation external acquisitions |
@@ -117,7 +119,7 @@ curl --fail --silent \
   -H 'content-type: application/json' \
   http://127.0.0.1:8788/operations/v1/goals/GOAL_ID/replays \
   --data-binary '{
-    "agentId": "cornell-note",
+    "agentId": "note-agent",
     "cases": [{
       "sourceRunId": "RUN_ID",
       "caseId": "CASE_ID"
@@ -131,7 +133,7 @@ curl --fail --silent \
   }'
 ```
 
-At task creation, Runtime pins the Candidate Capability Bundle by content Hash. `cornell-note` and `report-writer` require explicit Prompt selection. `promptMode: "candidate"` renders the current Candidate project Prompts using each Case's frozen structured business inputs. Cornell combines the current scope and evidence-reading-quality reference; Deep Search uses the frozen question and Source catalog count. The answer Writer uses its current answer templates with the unchanged frozen evidence mount. Full-report rendering uses the frozen knowledge mode, language, Temporal Context and prior-report index. New full-report captures save Temporal Context in `input/request.json`; older Cases missing structured variables reject Candidate mode and require `observed` or `override`. Runtime never infers business variables from historical rendered Prompt text or mutable Goal data.
+At task creation, Runtime pins the Candidate Capability Bundle by content Hash. `note-agent` and `report-writer` require explicit Prompt selection. `promptMode: "candidate"` renders the current Candidate project Prompts using each Case's frozen structured business inputs. Cornell combines the current scope and evidence-reading-quality reference; Note Reading uses the frozen question and Source catalog count. The answer Writer uses its current answer templates with the unchanged frozen evidence mount. Full-report rendering uses the frozen knowledge mode, language, Temporal Context and prior-report index. New full-report captures save Temporal Context in `input/request.json`; older Cases missing structured variables reject Candidate mode and require `observed` or `override`. Runtime never infers business variables from historical rendered Prompt text or mutable Goal data.
 
 `promptMode: "observed"` copies each Case's original project Prompts into the Bundle; `promptMode: "override"` requires complete `promptOverride.systemPrompt` and `promptOverride.userPrompt`. Omitting the stage selection rejects creation. Candidate and observed modes reject manual overrides.
 
@@ -153,7 +155,7 @@ Formal Regression Campaigns also pass `candidate.expectedRuntimeBuild` and `cand
 
 Source reading and Note Agent question reading combine their respective scope Prompts with the registered evidence-reading-quality reference. Case Capture hashes and saves the complete rendered project system Prompt, including that reference. An explicit Candidate Prompt override must provide the complete intended composition. Ordinary Source reading keeps its one-Source scope and original-language Note contract; the shared reference does not turn it into a Goal-wide coverage stage.
 
-Investigation Deep Search also freezes `source/reader-context.json` within its existing read-only Source mount. It records the original user question, preferred newly acquired Source refs and prior Cue navigation mapped to current original line ranges. Matching identities, revisions and bytes mark an anchor verified; missing or changed anchors require rechecking. Navigation is not citable evidence. Historical Cases without this file retain their original input scope.
+Investigation Note Reading also freezes `source/reader-context.json` within its existing read-only Source mount. It records the original user question, preferred newly acquired Source refs and prior Cue navigation mapped to current original line ranges. Matching identities, revisions and bytes mark an anchor verified; missing or changed anchors require rechecking. Navigation is not citable evidence. Historical Cases without this file retain their original input scope.
 
 The Report Writer's answer variant uses the existing `report-writer@2` Recipe with an explicit investigation-answer mode. Each `write_answer` delegation captures an independent fresh Writer Session, the complete question and requested parts, the assigned Notes and excerpts, and any bounded original Source views supplied to it. The entire `/inputs` mount is frozen, including when the producer placed it within the Goal harness. Replay uses those captured bytes, the historical model policy, and the production citation and coverage validator; missing mode, output contract, evidence mount or validator fails closed. Full-report Cases retain their existing Recipe behavior.
 
@@ -195,9 +197,9 @@ If a Case freezes Topic Plan context but lacks the history required to restore i
 
 ### Wiki Compilation
 
-`wiki-compilation@1` captures the complete Note-first pipeline through the optional Wiki Compilation Hook. Compile Cases freeze the Cornell Notes Snapshot, structured Goal context, confirmed Topic Plan, previous Wiki Edition, rebuild flag and resolved model/thinking settings. Topic-only reindex Cases freeze the same Goal, Topic Plan and base Edition without adding Notes that the reindex operation never consumes. The operation is explicit in the frozen request; a rebuild preserves the previous Edition as the publication base while the compiler starts its candidate content empty.
+`wiki-compilation@1` captures the complete Wiki compilation pipeline through the optional Wiki Compilation Hook. Compile Cases freeze the Cornell Notes Snapshot, structured Goal context, confirmed Topic Plan, previous Wiki Edition, rebuild flag and resolved model/thinking settings. Topic-only reindex Cases freeze the same Goal, Topic Plan and base Edition without adding Notes that the reindex operation never consumes. The operation is explicit in the frozen request; a rebuild preserves the previous Edition as the publication base while the compiler starts its candidate content empty.
 
-Replay invokes the production `NoteFirstWikiCompiler.compile()` or `.reindex()` in an isolated Goal restored exclusively from these frozen business inputs. The Candidate process supplies the bundled Agent Prompts, Skills, Tools and Runtime implementation; the existing Runtime Build and Agent Bundle identity checks apply. The Capability Snapshot identity is recorded, but its current Goal Wiki never replaces the Case's frozen base. This Recipe rejects node Prompt overrides, including historical business Prompts used as a Candidate substitute.
+Replay invokes the production `WikiCompiler.compile()` or `.reindex()` in an isolated Goal restored exclusively from these frozen business inputs. The Candidate process supplies the bundled Agent Prompts, Skills, Tools and Runtime implementation; the existing Runtime Build and Agent Bundle identity checks apply. The Capability Snapshot identity is recorded, but its current Goal Wiki never replaces the Case's frozen base. This Recipe rejects node Prompt overrides, including historical business Prompts used as a Candidate substitute.
 
 Capture remains fail-open for product results. Candidate Evidence is fail-closed. Failed, cancelled and partially failed executions retain a Recovery Case with sanitized stage inputs, outputs, native sessions and terminal error. Credentials and SDK environment directories are excluded. Successful artifacts contain the Knowledge directory, metrics and evaluation rubric. Direct Topic matches and related-page navigation must be assessed separately.
 
@@ -205,7 +207,7 @@ Historical `wiki-shard-builder`, `wiki-curator` and private `wiki-compilation-di
 
 ### Wiki Shard Builder and Wiki Curator
 
-Wiki Shard Cases pin the Goal, Cornell Evidence Snapshot, Topic Plan, Batch, and model. Wiki Curator Cases pin the operation, previous Wiki Edition, input Shards, Topic Plan, and model. Their Replays call production `runPrimeNoteWikiMaintainer()` and `curateWikiEdition()` respectively, without reusing the Prime Search Recipe.
+Wiki Shard Cases pin the Goal, Cornell Evidence Snapshot, Topic Plan, Batch, and model. Wiki Curator Cases pin the operation, previous Wiki Edition, input Shards, Topic Plan, and model. Their Replays call production `runWikiShardBuilder()` and `curateWikiEdition()` respectively, without reusing the Prime Search Recipe.
 
 Candidates load the Goal-scoped Wiki Skill from their own Capability Snapshot while retaining the bundled Wiki Meta Skill. Blind-evaluation Artifacts contain historical Observed Knowledge, Candidate Knowledge, structural metrics, and the Target Rubric for checking content quality, Evidence, citations, Topic membership, internal links, and graph relationships.
 

@@ -28,7 +28,7 @@ const traces = runStore.describeDirectory("evidence"), input = caseStore.describ
 const value: NodeEvaluationCase = { schemaVersion: 1, caseId, runId: sourceRunId, nodeId: "wiki-compilation", attemptId: "1", agentId: "wiki-compilation",
 	role: "wiki", status: "succeeded", capturedAt: "2026-01-01T00:00:00Z", recipe: { id: "wiki-compilation", version: 1 }, recipeInput: {},
 	input: { ...toRef(input), root: "case", fileCount: input.files.length }, request: {
-		promptConfig: { domain: "wiki", id: "note-first", sandboxRole: "wiki" }, systemPrompt: toRef(prompt), composedSystemPrompt: toRef(prompt), userPrompt: toRef(prompt),
+		promptConfig: { domain: "wiki", id: "wiki-compilation", sandboxRole: "wiki" }, systemPrompt: toRef(prompt), composedSystemPrompt: toRef(prompt), userPrompt: toRef(prompt),
 		session: { key: "wiki", policy: "fresh" }, actualModel: "test/model", outputContract: { kind: "stage_report", publishRelativePath: "output" } },
 	mounts: [], liveExternalState: false, observed: { validationErrors: [], trace: { ...toRef(lifecycle), root: "run" },
 		traceDirectories: [{ ...toRef(traces), fileCount: traces.files.length, root: "run" }] } };

@@ -147,7 +147,7 @@ async function verifyWikiMode(): Promise<void> {
 		assert.deepEqual(request.modelPolicy, {
 			preferred: ["openai-codex/gpt-5.6-terra"],
 			reasoning: "high",
-		}, "Reporter Stage must receive the Prime model policy it actually executes");
+		}, "Report Writer Root Stage must receive the Prime model policy it actually executes");
 		if (request.stageId === "writer-report") assert.deepEqual(request.sandbox?.env, {
 			TELOMI_PRIME_AGENT_CHILD_MODEL: "openai-codex/gpt-5.6-luna",
 		}, "Writer Stage must carry its actual child model selection");
@@ -174,7 +174,7 @@ async function verifyWikiMode(): Promise<void> {
 			assert.equal(readable(join(input.hostPath, "routed-evidence", "index.md")), false);
 			assert.equal(readable(join(input.hostPath, "routed-evidence", "section-001.md")), false);
 			assert.equal(readable(join(input.hostPath, "previous-report.md")), false);
-			assert.match(request.userPrompt, /Wiki Prime Report Writer/u);
+			assert.match(request.userPrompt, /Wiki Report Writer Root/u);
 			assert.equal(readable(join(input.hostPath, "report-outline.json")), false);
 		}
 	}

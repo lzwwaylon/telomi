@@ -8,7 +8,7 @@ import { renderNoteAgentSystemPrompt } from "./pipeline/note-agent-prompt.js";
 import type { AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import type { ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { createProductionResearchStageRunner } from "./pipeline/production-stage-runner.js";
-import { loadFindOutSources } from "./pipeline/find-out-sources.js";
+import { loadOrganizedSources } from "./pipeline/organized-sources.js";
 import { materializeAgentSourceView, isReadableTextContent } from "./pipeline/agent-source-view.js";
 import type { SourceFileRecord } from "./pipeline/source-bundle.js";
 import { researchConfigFromEnv } from "./config.js";
@@ -19,6 +19,7 @@ import { assertSafeRelativePath } from "../lib/paths.js";
 import type { InvestigationCitationCue } from "./investigation-citations.js";
 
 const SAFE_ID = /^[A-Za-z0-9._-]{1,100}$/u;
+// These persisted Cue identities and Artifact paths are evidence format v1, independent of the Agent name.
 const CUE_REF = /^deep-search:([A-Za-z0-9._-]{1,100}):cue-([1-9]\d*)$/u;
 
 export interface NoteReadingEvidence {
@@ -88,18 +89,18 @@ export async function executeNoteReading(input: {
 	env?: NodeJS.ProcessEnv;
 	stageRunner?: AgentStageRunner;
 }): Promise<NoteReadingResult> {
-	if (!SAFE_ID.test(input.invocationId)) throw new Error("Deep Search invocationId is invalid");
+	if (!SAFE_ID.test(input.invocationId)) throw new Error("Note Reading invocationId is invalid");
 	const question = input.question.trim();
-	if (!question) throw new Error("Deep Search requires a question");
+	if (!question) throw new Error("Note Reading requires a question");
 	input.signal.throwIfAborted();
 	const artifactPath = `artifacts/deep-search/${input.invocationId}.json`;
 	const artifactStore = new RunArtifactStore(input.goalDir);
 	if (existsSync(join(input.goalDir, artifactPath))) {
 		const saved = readNoteReadingArtifact(input.goalDir, input.invocationId);
-		if (saved.question !== question) throw new Error("Deep Search invocationId belongs to another question");
+		if (saved.question !== question) throw new Error("Note Reading invocationId belongs to another question");
 		return saved;
 	}
-	const controlDir = join(input.goalDir, ".pi", "runtime", "deep-search", input.invocationId);
+	const controlDir = join(input.goalDir, ".pi", "runtime", "note-reading", input.invocationId);
 	const corpusDir = join(controlDir, "source");
 	const inputRoot = join(controlDir, "inputs");
 	copyTaskContext(inputRoot, input.taskContextFile);
@@ -108,21 +109,21 @@ export async function executeNoteReading(input: {
 		input.knownCues ?? [], input.preferredSourceRunId);
 	const env = input.env ?? process.env;
 	const config = input.model && input.thinkingLevel ? undefined : researchConfigFromEnv(env);
-	const system = renderNoteAgentSystemPrompt(undefined, "deep-search");
+	const system = renderNoteAgentSystemPrompt(undefined, "question-reading");
 	const userPrompt = buildNoteReadingTaskPrompt(question, sources.length);
 	const runner = input.stageRunner ?? createProductionResearchStageRunner({ env });
-	const capturedRunner = caseCapture()?.cornellNote?.(runner,
-		{ mode: "deep-search", question, invocationId: input.invocationId }, []) ?? runner;
+	const capturedRunner = caseCapture()?.noteAgent?.(runner,
+		{ mode: "question-reading", question, invocationId: input.invocationId }, []) ?? runner;
 	const result = await capturedRunner.runStage<NoteReadingResult>({
 		runId: input.invocationId,
-		stageId: `deep-search-${input.invocationId}`,
+		stageId: `note-reading-${input.invocationId}`,
 		attemptId: "attempt-1",
-		role: "cornell_note",
-		promptConfig: { domain: "research", id: "cornell-note", sandboxRole: "report.cornell_note",
-			userVariant: "deep-search", revisions: { system: system.revision } },
-		session: { key: `deep-search/${input.invocationId}`, policy: "fresh" },
-		modelPolicy: { preferred: [input.model ?? config!.cornellNoteModel],
-			reasoning: input.thinkingLevel ?? config!.cornellNoteThinkingLevel },
+		role: "note_agent",
+		promptConfig: { domain: "research", id: "note-agent", sandboxRole: "report.note_agent",
+			systemVariant: "question-reading", userVariant: "question-reading", revisions: { system: system.revision } },
+		session: { key: `note-reading/${input.invocationId}`, policy: "fresh" },
+		modelPolicy: { preferred: [input.model ?? config!.noteAgentModel],
+			reasoning: input.thinkingLevel ?? config!.noteAgentThinkingLevel },
 		systemPrompt: system.content,
 		userPrompt,
 		workDirectory: join(controlDir, "stage"),
@@ -211,7 +212,7 @@ export function searchSavedNoteReadingCues(goalDir: string, query: string, limit
 	question: string;
 	summary: string;
 }> {
-	if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) throw new Error("Deep Search limit is invalid");
+	if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) throw new Error("Note Reading limit is invalid");
 	const words = searchWords(query);
 	if (!words.length) return [];
 	const scored: Array<{ score: number; cue: NoteReadingCue; question: string; summary: string }> = [];
@@ -251,21 +252,21 @@ export function resolveNoteReadingCue(goalDir: string, ref: string): (Omit<NoteR
 	return {
 		...cue,
 		evidence: cue.evidence.map((evidence) => {
-			if (!SAFE_ID.test(evidence.source_run_id)) throw new Error("Deep Search Source run ID is invalid");
-			assertSafeRelativePath(evidence.source_path, "Deep Search evidence path");
+			if (!SAFE_ID.test(evidence.source_run_id)) throw new Error("Note Reading Source run ID is invalid");
+			assertSafeRelativePath(evidence.source_path, "Note Reading evidence path");
 			const runRoot = join(goalDir, "wiki", "runs", evidence.source_run_id);
 			const resolved = findLogicalSourceInRun(runRoot, evidence.source_id);
 			if (!resolved || resolved.source.revision_sha256 !== evidence.source_revision_sha256) {
-				throw new Error(`Deep Search Source revision is unavailable: ${evidence.source_id}`);
+				throw new Error(`Note Reading Source revision is unavailable: ${evidence.source_id}`);
 			}
 			const sourceFile = join(resolved.sourceRoot, evidence.source_path);
 			const content = readFileSync(sourceFile);
-			if (!isReadableTextContent(content)) throw new Error("Deep Search cited Source is not readable text");
+			if (!isReadableTextContent(content)) throw new Error("Note Reading cited Source is not readable text");
 			const lines = new TextDecoder("utf-8", { fatal: true }).decode(content).replace(/\r\n?/gu, "\n").split("\n");
 			const excerpt = lines.slice(evidence.start_line - 1, evidence.end_line).join("\n");
 			if (evidence.start_line < 1 || evidence.end_line > lines.length
 				|| sha256(`${excerpt}\n`) !== evidence.content_sha256) {
-				throw new Error(`Deep Search evidence changed: ${evidence.source_id}:${evidence.source_path}`);
+				throw new Error(`Note Reading evidence changed: ${evidence.source_id}:${evidence.source_path}`);
 			}
 			const member = resolved.source.members?.find((item) => typeof item.path === "string"
 				&& evidence.source_path.startsWith(`${item.path}/`));
@@ -284,7 +285,7 @@ function readNoteReadingArtifact(goalDir: string, invocationId: string): NoteRea
 		|| !Array.isArray(value.gaps) || !value.gaps.every((gap) => typeof gap === "string")
 		|| !Array.isArray(value.cues)
 		|| value.cues.some((cue, index) => cue.ref !== `deep-search:${invocationId}:cue-${index + 1}`)) {
-		throw new Error("Deep Search artifact is invalid");
+		throw new Error("Note Reading artifact is invalid");
 	}
 	return value;
 }
@@ -298,7 +299,7 @@ function materializeCorpus(goalDir: string, outputDir: string, preferredSourceRu
 		|| !existsSync(join(runsRoot, preferredSourceRunId, "artifacts", "find-out-sources")))) {
 		throw new Error("Preferred Source Run is unavailable");
 	}
-	const latest = new Map<string, { runId: string; source: ReturnType<typeof loadFindOutSources>[number] }>();
+	const latest = new Map<string, { runId: string; source: ReturnType<typeof loadOrganizedSources>[number] }>();
 	const runIds = directories(runsRoot).sort().filter((runId) => runId !== preferredSourceRunId);
 	if (preferredSourceRunId) runIds.push(preferredSourceRunId);
 	for (const runId of runIds) {
@@ -308,7 +309,7 @@ function materializeCorpus(goalDir: string, outputDir: string, preferredSourceRu
 			.filter((name) => /^sequence-\d+$/u.test(name))
 			.sort((a, b) => Number(a.slice(9)) - Number(b.slice(9)))) {
 			const artifact = store.describeDirectory(`artifacts/find-out-sources/${sequence}`);
-			for (const source of loadFindOutSources(artifact)) latest.set(source.id, { runId, source });
+			for (const source of loadOrganizedSources(artifact)) latest.set(source.id, { runId, source });
 		}
 	}
 	const sources = [...latest.values()].map(({ runId, source }, index) => {
@@ -329,12 +330,12 @@ function materializeCorpus(goalDir: string, outputDir: string, preferredSourceRu
 export function validateNoteReadingDraftFromCorpus(value: unknown, question: string,
 	invocationId: string, corpusDir: string): NoteReadingResult {
 	const catalog = record(JSON.parse(readFileSync(join(corpusDir, "catalog.json"), "utf-8")) as unknown,
-		"Deep Search catalog");
-	if (catalog.schema_version !== 1 || !Array.isArray(catalog.sources)) throw new Error("Deep Search catalog is invalid");
+		"Note Reading catalog");
+	if (catalog.schema_version !== 1 || !Array.isArray(catalog.sources)) throw new Error("Note Reading catalog is invalid");
 	const sources = catalog.sources.map((raw, index): CorpusSource => {
 		const source = record(raw, `catalog.sources[${index}]`);
 		const ref = nonEmpty(source.ref, "Source ref");
-		if (!/^S[1-9]\d*$/u.test(ref)) throw new Error("Deep Search Source ref is invalid");
+		if (!/^S[1-9]\d*$/u.test(ref)) throw new Error("Note Reading Source ref is invalid");
 		return {
 			ref,
 			runId: nonEmpty(source.source_run_id, "Source run ID"),
@@ -350,13 +351,13 @@ export function validateNoteReadingDraftFromCorpus(value: unknown, question: str
 
 function validateNoteReadingDraft(value: unknown, question: string, invocationId: string,
 	sources: readonly CorpusSource[]): NoteReadingResult {
-	const draft = record(value, "Deep Search");
-	keys(draft, ["status", "summary", "gaps", "sections"], "Deep Search");
+	const draft = record(value, "Note Reading");
+	keys(draft, ["status", "summary", "gaps", "sections"], "Note Reading");
 	if (draft.status !== "found" && draft.status !== "partial" && draft.status !== "not_found") {
-		throw new Error("Deep Search status is invalid");
+		throw new Error("Note Reading status is invalid");
 	}
 	const summary = nonEmpty(draft.summary, "summary");
-	if (!Array.isArray(draft.gaps) || !Array.isArray(draft.sections)) throw new Error("Deep Search gaps and sections must be arrays");
+	if (!Array.isArray(draft.gaps) || !Array.isArray(draft.sections)) throw new Error("Note Reading gaps and sections must be arrays");
 	const gaps = draft.gaps.map((gap, index) => nonEmpty(gap, `gaps[${index}]`));
 	const byRef = new Map(sources.map((source) => [source.ref, source]));
 	const cues: NoteReadingCue[] = [];
@@ -364,7 +365,7 @@ function validateNoteReadingDraft(value: unknown, question: string, invocationId
 		const section = record(rawSection, `sections[${sectionIndex}]`);
 		keys(section, ["section_title", "cue_notes"], `sections[${sectionIndex}]`);
 		const sectionTitle = nonEmpty(section.section_title, `sections[${sectionIndex}].section_title`);
-		if (!Array.isArray(section.cue_notes) || section.cue_notes.length === 0) throw new Error("Deep Search section needs Cue Notes");
+		if (!Array.isArray(section.cue_notes) || section.cue_notes.length === 0) throw new Error("Note Reading section needs Cue Notes");
 		for (const [cueIndex, rawCue] of section.cue_notes.entries()) {
 			const label = `sections[${sectionIndex}].cue_notes[${cueIndex}]`;
 			const cue = record(rawCue, label);

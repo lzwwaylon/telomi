@@ -27,7 +27,7 @@ import type { NodeBacktestService } from "../../server/evaluation/node-backtest.
 import { runRecordDir } from "../../server/observability/run-records.js";
 
 const GOAL_ID = "goal_recovery";
-const OWNER = "cornell-note";
+const OWNER = "note-agent";
 const SKILL = "strategy-skill";
 const CANDIDATE_BODY = "Use the one-call strategy.";
 const BASELINE_BODY = "Use the four-call strategy.";
@@ -42,7 +42,7 @@ function writeSkill(directory: string, body: string): void {
 /** A Target whose inner loop confirms one Candidate, optionally after preparing a crash. */
 function confirmingTarget(prepare?: (input: { recordDirectory: string }) => void): EvolutionTarget {
 	return {
-		id: "cornell-note/strategy",
+		id: "note-agent/strategy",
 		ownerAgentId: OWNER,
 		version: 1,
 		baselineSkillRoots: (goalDirectory) => [join(goalDirectory, "skills", OWNER)],
@@ -164,7 +164,7 @@ const BROWSER_REFS = [1, 2, 3].map((index) => ({
 	writeSkill(join(templateWorkspace, GOAL_ID, "skills", OWNER, SKILL), BASELINE_BODY);
 	const templateService = createService(templateWorkspace, [confirmingTarget()]);
 	const beforeSha256 = snapshotSkills([goalSkillPath(join(templateWorkspace, GOAL_ID), OWNER, SKILL)]).skills[0]!.sha256;
-	const templateStarted = start(templateService, "cornell-note/strategy",
+	const templateStarted = start(templateService, "note-agent/strategy",
 		[{ kind: "node_case", runId: "run-1", caseId: "case-1" }]);
 	const applied = await waitForStatus(templateService, templateStarted.id, ["applied", "failed"]);
 	assert.equal(applied.status, "applied", applied.error ?? "");
@@ -286,7 +286,7 @@ const BROWSER_REFS = [1, 2, 3].map((index) => ({
 	try {
 		const goalSkill = goalSkillPath(join(workspaceDir, GOAL_ID), OWNER, SKILL);
 		const beforeSha256 = snapshotSkills([goalSkill]).skills[0]!.sha256;
-		const started = start(service, "cornell-note/strategy", [{ kind: "node_case", runId: "run-1", caseId: "case-1" }]);
+		const started = start(service, "note-agent/strategy", [{ kind: "node_case", runId: "run-1", caseId: "case-1" }]);
 		const run = await waitForStatus(service, started.id, ["applied", "failed", "cancelled"]);
 		assert.equal(run.status, "failed", "a replacement that cannot displace the Goal Skill fails the Run");
 		assert.equal(snapshotSkills([goalSkill]).skills[0]!.sha256, beforeSha256, "the Goal Skill is untouched");

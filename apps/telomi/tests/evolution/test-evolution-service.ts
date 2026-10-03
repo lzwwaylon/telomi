@@ -9,7 +9,7 @@ const root = mkdtempSync(join(tmpdir(), "telomi-evolution-service-"));
 const workspaceDir = join(root, "data");
 const goalId = "goal_evolution";
 const goalDir = join(workspaceDir, goalId);
-const ownerSkillRoot = join(goalDir, "skills", "cornell-note");
+const ownerSkillRoot = join(goalDir, "skills", "note-agent");
 mkdirSync(ownerSkillRoot, { recursive: true });
 const bundledSkillRoot = join(root, "bundled", "default-strategy");
 mkdirSync(bundledSkillRoot, { recursive: true });
@@ -23,9 +23,9 @@ writeFileSync(join(bundledSkillRoot, "SKILL.md"), [
 
 const target: EvolutionTarget = {
 	id: "cornell-note/strategy",
-	ownerAgentId: "cornell-note",
+	ownerAgentId: "note-agent",
 	version: 1,
-	baselineSkillRoots: (goalDirectory) => [bundledSkillRoot, join(goalDirectory, "skills", "cornell-note")],
+	baselineSkillRoots: (goalDirectory) => [bundledSkillRoot, join(goalDirectory, "skills", "note-agent")],
 	async collectEvidence(input) {
 		assert.deepEqual(input.evidenceRefs, [{ kind: "node_case", runId: "run-1", caseId: "case-1" }]);
 		return {

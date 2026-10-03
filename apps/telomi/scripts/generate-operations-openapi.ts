@@ -1,5 +1,5 @@
 /**
- * Generates `server/evaluation/operations-openapi.json` from the TypeBox contract.
+ * Generates the Operations OpenAPI contract and commit-bound product Agent catalog.
  *
  * The document is the only thing the external evaluation environment reads to generate its client types,
  * so it is checked in. `--check` fails when the committed file is stale; that is the
@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { evaluationAgentCatalog, registeredEvaluationAgentIds } from "../server/agent-runtime/agent-catalog.js";
 
 import {
 	OPERATIONS_BASE_PATH,
@@ -21,7 +22,9 @@ import {
 	canonicalJson,
 } from "../server/evaluation/operations-contract.js";
 
-const OUTPUT = join(fileURLToPath(new URL("..", import.meta.url)), "server", "evaluation", "operations-openapi.json");
+const APPLICATION_DIR = fileURLToPath(new URL("..", import.meta.url));
+const OUTPUT = join(APPLICATION_DIR, "server", "evaluation", "operations-openapi.json");
+const CATALOG_OUTPUT = join(APPLICATION_DIR, "server", "agent-runtime", "agent-catalog.json");
 
 function buildDocument(): unknown {
 	const paths: Record<string, Record<string, unknown>> = {};
@@ -77,16 +80,23 @@ function ref(name: string): { $ref: string } {
 	return { $ref: `#/components/schemas/${name}` };
 }
 
-const rendered = `${JSON.stringify(buildDocument(), null, "\t")}\n`;
-
-if (process.argv.includes("--check")) {
-	const current = readFileSync(OUTPUT, "utf-8");
-	if (canonicalJson(JSON.parse(current)) !== canonicalJson(JSON.parse(rendered))) {
-		console.error("operations-openapi.json is stale. Run: npm run generate:operations-openapi");
-		process.exit(1);
+for (const [path, value] of [
+	[OUTPUT, buildDocument()],
+	[CATALOG_OUTPUT, { schemaVersion: 1, generated: true,
+		description: "Generated from owning Agent Bundles and agent-catalog.ts; do not edit by hand.",
+		agents: evaluationAgentCatalog(registeredEvaluationAgentIds(), APPLICATION_DIR) }],
+] as const) {
+	const rendered = `${JSON.stringify(value, null, "\t")}\n`;
+	if (process.argv.includes("--check")) {
+		let current: string | undefined;
+		try { current = readFileSync(path, "utf-8"); } catch { /* Missing generated files are stale. */ }
+		if (!current || canonicalJson(JSON.parse(current)) !== canonicalJson(JSON.parse(rendered))) {
+			console.error(`${path} is stale. Run: npm run generate:operations-openapi`);
+			process.exit(1);
+		}
+		console.log(`${path} is current (schemaHash=${OPERATIONS_SCHEMA_HASH.slice(0, 12)})`);
+	} else {
+		writeFileSync(path, rendered, "utf-8");
+		console.log(`wrote ${path} (schemaHash=${OPERATIONS_SCHEMA_HASH.slice(0, 12)})`);
 	}
-	console.log(`operations-openapi.json is current (schemaHash=${OPERATIONS_SCHEMA_HASH.slice(0, 12)})`);
-} else {
-	writeFileSync(OUTPUT, rendered, "utf-8");
-	console.log(`wrote ${OUTPUT} (schemaHash=${OPERATIONS_SCHEMA_HASH.slice(0, 12)})`);
 }

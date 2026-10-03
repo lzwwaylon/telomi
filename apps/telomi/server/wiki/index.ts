@@ -17,6 +17,8 @@ export type {
 } from "./contracts.js";
 export { validateGoalTopicPlan } from "./contracts.js";
 export {
-	LlmWikiCompiler,
-	llmWikiCompilerContractIdentity,
-} from "./compiler.js";
+	WikiShardCompiler,
+	wikiShardCompilerContractIdentity,
+} from "./wiki-shard-compiler.js";
+
+export { WikiCompiler, type WikiReindexRequest, type WikiReindexResult } from "./wiki-compiler.js";

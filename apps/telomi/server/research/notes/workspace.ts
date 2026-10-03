@@ -264,21 +264,21 @@ export function loadReportNoteWorkspace(root: string): NoteWorkspace {
 			source_urls?: unknown;
 		}>;
 	};
-	if (!Array.isArray(index.notes)) throw new Error("Find Out Note index is invalid");
+	if (!Array.isArray(index.notes)) throw new Error("Notes Note index is invalid");
 	const items: NoteWorkspaceItem[] = [];
 	for (const [sourceIndex, record] of index.notes.entries()) {
 		if (typeof record.handle !== "string" || typeof record.source_id !== "string"
 			|| typeof record.title !== "string" || typeof record.metadata_path !== "string"
 			|| !Array.isArray(record.source_urls)
 			|| record.source_urls.some((url) => typeof url !== "string" || !url.trim())) {
-			throw new Error(`Find Out Note index entry ${sourceIndex} is invalid`);
+			throw new Error(`Notes Note index entry ${sourceIndex} is invalid`);
 		}
 		if (record.metadata_path.startsWith("/") || record.metadata_path.split(/[\\/]/u).includes("..")) {
-			throw new Error(`Find Out Note index entry ${sourceIndex} has an unsafe metadata_path`);
+			throw new Error(`Notes Note index entry ${sourceIndex} has an unsafe metadata_path`);
 		}
 		const note = JSON.parse(readFileSync(join(root, record.metadata_path), "utf-8")) as CornellNote;
 		if (note.schema_version !== 1 || note.source_id !== record.source_id || !Array.isArray(note.sections)) {
-			throw new Error(`Find Out Cornell Note '${record.source_id}' is invalid`);
+			throw new Error(`Notes Cornell Note '${record.source_id}' is invalid`);
 		}
 		for (const section of note.sections) {
 			for (const cue of section.cue_notes) {

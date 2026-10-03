@@ -179,7 +179,7 @@ function noteStep(id: string, lifecycle: ActivityStep["lifecycle"], outcome?: Ac
 		parallelSteps: [],
 		agentActivities: [{
 			agentActivityId: `agent_${id}`,
-			agentName: "cornell_note",
+			agentName: "note_agent",
 			summary: `整理 ${id}`,
 			lifecycle,
 			outcome,

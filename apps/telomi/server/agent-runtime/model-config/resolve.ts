@@ -47,7 +47,7 @@ export function isThinkingLevel(s: unknown): s is ThinkingLevel {
 
 export interface ResolveLLMConfigInput {
 	/**
-	 * 调用方专属 env var 名（如 `TELOMI_RESEARCH_CORNELL_NOTE_MODEL`）。设了就优先。
+	 * 调用方专属 env var 名（如 `TELOMI_NOTE_AGENT_MODEL`）。设了就优先。
 	 * 值的格式：`provider/model` 或纯 `model`（后者会与 settings.defaultProvider
 	 * 拼接补全）。例：`provider/model-id` 或 `model-id`。
 	 */
@@ -83,8 +83,8 @@ export interface ResolvedLLM {
  * 调用方典型用法：
  *
  *   const llm = resolveLLMConfig({
- *     envVarName: "TELOMI_RESEARCH_CORNELL_NOTE_MODEL",
- *     taskModelRole: "cornellNote",
+ *     envVarName: "TELOMI_NOTE_AGENT_MODEL",
+ *     taskModelRole: "noteAgent",
  *   });
  *   // Use llm.model, llm.fallbackChain and llm.thinkingLevel in the Stage model policy.
  */

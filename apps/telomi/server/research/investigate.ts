@@ -114,7 +114,7 @@ export async function executeInvestigation(input: {
 	const wikiSha256 = snapshotInvestigationKnowledge(input.goalDir, input.goalId, knowledgeRoot);
 	const catalog = [...new Map([
 		...listSavedNoteCues(knowledgeRoot),
-		...listSavedNoteReadingCues(input.goalDir).map((cue) => ({ ...cue, kind: "deep_search" as const })),
+		...listSavedNoteReadingCues(input.goalDir).map((cue) => ({ ...cue, kind: "note_reading" as const })),
 	].reverse().map((cue) => [cue.ref, cue])).values()];
 	writeJsonAtomic(join(runDir, "input", "knowledge-cues.json"), catalog);
 	const topicPlanPath = join(knowledgeRoot, ".topic-plan.json");
@@ -211,7 +211,7 @@ export async function executeInvestigation(input: {
 				signal.throwIfAborted();
 				const key = JSON.stringify({ query, limit });
 				if (firstKnowledgeSearch) {
-					if (firstKnowledgeSearch.key !== key) throw new Error("This investigation already searched Goal knowledge; use its result or deep_search for a missing detail");
+					if (firstKnowledgeSearch.key !== key) throw new Error("This investigation already searched Goal knowledge; use its result or read_sources for a missing detail");
 					recordInteraction("knowledge_search", { query, limit }, firstKnowledgeSearch.recorded);
 					return firstKnowledgeSearch.result;
 				}
@@ -242,14 +242,14 @@ export async function executeInvestigation(input: {
 				recordInteraction("knowledge_search", { query, limit }, recorded);
 				return result;
 			},
-			readSources: async (deepQuestion) => {
+			readSources: async (readingQuestion) => {
 				signal.throwIfAborted();
 				const reading = await executeNoteReading({ goalDir: input.goalDir, goalId: input.goalId,
-					question: deepQuestion, originalQuestion: question, taskContextFile, knownCues: [...availableCues.values()],
+					question: readingQuestion, originalQuestion: question, taskContextFile, knownCues: [...availableCues.values()],
 					invocationId: `${id}-${++noteReadingCount}`, signal, env });
 				if (reading.cues.length) input.onCuesPersisted?.({ invocationId: `${id}-${noteReadingCount}`, investigationId: id, threadId: thread.threadId });
 				const note = { ...reading, cues: enrichInvestigationCues(input.goalDir, reading.cues) };
-				recordInteraction("deep_search", { question: deepQuestion }, note);
+				recordInteraction("read_sources", { question: readingQuestion }, note);
 				return { ...note, cues: projectCues(note.cues) };
 			},
 			externalSearch: async (externalQuestion) => {

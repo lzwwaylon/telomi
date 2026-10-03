@@ -35,7 +35,7 @@ export function resolvePrimeModel(
 	settingsOverride?: PiSettings,
 ): PrimeAgentModel {
 	const selector = resolveLLMConfig({
-		envVarName: TASK_MODEL_ROLE_INFO[role].legacyEnvVar,
+		envVarName: TASK_MODEL_ROLE_INFO[role].modelEnvVar,
 		taskModelRole: role,
 		envOverride: env,
 		...(settingsOverride ? { settingsOverride } : {}),
@@ -59,7 +59,7 @@ export function pinTaskModelSelection(
 ): NodeJS.ProcessEnv {
 	const pinned = { ...env };
 	for (const role of roles) {
-		pinned[TASK_MODEL_ROLE_INFO[role].legacyEnvVar] = resolvePrimeModel(role, env, settings).selector;
+		pinned[TASK_MODEL_ROLE_INFO[role].modelEnvVar] = resolvePrimeModel(role, env, settings).selector;
 	}
 	for (const { role, stage, info } of taskModelStages()) {
 		if (roles.includes(role)) pinned[info.envVar] = resolveStageThinkingLevel(role, stage, env, settings).thinkingLevel;

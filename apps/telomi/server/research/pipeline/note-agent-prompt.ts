@@ -10,10 +10,10 @@ export function buildNoteAgentSystemPrompt(
 
 export function renderNoteAgentSystemPrompt(
 	_scheduledResearch?: ScheduledResearchContext,
-	variant: "default" | "deep-search" = "default",
+	variant: "default" | "question-reading" = "default",
 ): RenderedAgentPrompt {
-	const scope = renderAgentPrompt("research", "cornell-note", "system-append", {}, variant);
-	const quality = renderAgentPrompt("research", "cornell-note", "reference", {}, "evidence-reading-quality");
+	const scope = renderAgentPrompt("research", "note-agent", "system-append", {}, variant);
+	const quality = renderAgentPrompt("research", "note-agent", "reference", {}, "evidence-reading-quality");
 	return { ...scope, content: `${scope.content}\n\n${quality.content}` };
 }
 
@@ -28,7 +28,7 @@ export function renderNoteAgentUserPrompt(
 	request: NoteAgentPromptRequest,
 	_scheduledResearch?: ScheduledResearchContext,
 ): RenderedAgentPrompt {
-	return renderAgentPrompt("research", "cornell-note", "user", {
+	return renderAgentPrompt("research", "note-agent", "user", {
 		question: request.question,
 		goal_title: request.goal.title,
 		goal_description: request.goal.description,
@@ -49,8 +49,8 @@ interface NoteAgentPromptRequest {
 	sourceUpdate?: { newMemberPaths: string[]; changedMemberPaths: string[] };
 }
 
-export function renderPrimeNoteAgentUserPrompt(taskPrompt: string, variant: "prime-execution" | "deep-search" = "prime-execution"): string {
-	return renderAgentPrompt("research", "cornell-note", "user", {
+export function renderPrimeNoteAgentUserPrompt(taskPrompt: string, variant: "prime-execution" | "question-reading" = "prime-execution"): string {
+	return renderAgentPrompt("research", "note-agent", "user", {
 		task_prompt: taskPrompt,
 	}, variant).content;
 }

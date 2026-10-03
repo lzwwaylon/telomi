@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadFindOutSources, materializeFindOutSources } from "../../server/research/pipeline/index.js";
+import { loadOrganizedSources, materializeOrganizedSources } from "../../server/research/pipeline/index.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-find-out-"));
@@ -14,7 +14,7 @@ const members = [
 	source("github:repo", "source:repo", "github", "Repository", "https://github.com/example/repo", "new"),
 	source("huggingface:model", "source:model", "huggingface", "Other model", "https://huggingface.co/example/model", "new"),
 ];
-const result = materializeFindOutSources({
+const result = materializeOrganizedSources({
 	artifactStore: store,
 	sequence: 1,
 	workingDirectory: root,
@@ -33,9 +33,9 @@ assert.deepEqual(result.sources[0]?.updateContext, {
 	changedMemberPaths: [],
 });
 assert.equal(result.sources[1]?.updateContext, undefined, "an entirely new Source needs no update hint");
-assert.deepEqual(loadFindOutSources(result.artifact).map((source) => source.id), result.sources.map((source) => source.id));
-assert.equal(loadFindOutSources(result.artifact)[0]?.groupId, "project");
-const repeated = materializeFindOutSources({
+assert.deepEqual(loadOrganizedSources(result.artifact).map((source) => source.id), result.sources.map((source) => source.id));
+assert.equal(loadOrganizedSources(result.artifact)[0]?.groupId, "project");
+const repeated = materializeOrganizedSources({
 	artifactStore: store,
 	sequence: 2,
 	workingDirectory: join(root, "second"),
@@ -50,8 +50,8 @@ const manifestPath = join(result.artifact.absolutePath, "manifest.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
 manifest.sources[0].members = [];
 writeFileSync(manifestPath, JSON.stringify(manifest));
-assert.throws(() => loadFindOutSources(result.artifact), /sources\[0\] is invalid/u);
-console.log("cross-provider Find Out production checks passed");
+assert.throws(() => loadOrganizedSources(result.artifact), /sources\[0\] is invalid/u);
+console.log("cross-provider Notes production checks passed");
 
 function source(
 	candidateId: string,

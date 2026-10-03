@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { isRecord } from '../lib/values.js';
-import type { NoteFirstInput, NoteFirstResult } from './note-first-contract.js';
-import { createNoteFirstWorkspace } from './note-first-workspace.js';
-import { objectFirstEntries } from './object-first-contract.js';
-import { readNoteFirstOutput } from './note-first-stage.js';
+import type { WikiStageInput, WikiStageResult } from './wiki-stage-contract.js';
+import { createWikiStageWorkspace } from './wiki-stage-workspace.js';
+import { wikiPageEntryIds } from './wiki-page-contract.js';
+import { readWikiStageOutput } from './wiki-stage.js';
 
 function shape(value: unknown, keys: string[], field: string): Record<string, unknown> {
  assert(isRecord(value), `${field}: expected object`);
@@ -64,16 +64,16 @@ export class ReadCoverage {
  }
 }
 
-export function createConceptReadCoverage(input: NoteFirstInput, inputRoot: string): ReadCoverage {
+export function createConceptReadCoverage(input: WikiStageInput, inputRoot: string): ReadCoverage {
  return new ReadCoverage(new Map(input.pages.map((_row, index) => {
   const ref = `P${index + 1}`;
   return [`/work/input/pages/${ref}.md`, readFileSync(join(inputRoot, 'pages', `${ref}.md`), 'utf8')];
  })));
 }
 
-export function validatePiConceptFiles(input: NoteFirstInput, inputRoot: string, work: string, reads: ReadCoverage) {
- const output: unknown = JSON.parse(readNoteFirstOutput(join(work, 'result.json')).toString('utf8'));
- const workspace = createNoteFirstWorkspace(input, inputRoot);
+export function validatePiConceptFiles(input: WikiStageInput, inputRoot: string, work: string, reads: ReadCoverage) {
+ const output: unknown = JSON.parse(readWikiStageOutput(join(work, 'result.json')).toString('utf8'));
+ const workspace = createWikiStageWorkspace(input, inputRoot);
  const pages = new Map(input.pages.map((row, index) => [`P${index + 1}`, row]));
  const allPages = new Set(pages.keys());
  const objects = new Set([...pages].flatMap(([ref, row]) => row.page.kind === 'entity' ? [ref] : []));
@@ -84,7 +84,7 @@ export function validatePiConceptFiles(input: NoteFirstInput, inputRoot: string,
   workspace.read(ref);
   for (const section of workspace.overviews[ref]!.sections) workspace.read(section.section_ref);
  }
- let result: NoteFirstResult;
+ let result: WikiStageResult;
  if (input.stage === 'plan-concepts') {
   const value = shape(output, ['concept_jobs', 'object_only'], 'plan');
   const targets = new Set<string>(), questions = new Set<string>(), assigned = new Set<string>();
@@ -167,13 +167,13 @@ export function validatePiConceptFiles(input: NoteFirstInput, inputRoot: string,
     assert(entry, 'Read page contains unknown citation'); delivered.add(entry.id);
    }
   }
-  for (const page of result.value.pages) assert(objectFirstEntries(page.body).every(id => delivered.has(id)), 'Output cites evidence not returned by native read');
+  for (const page of result.value.pages) assert(wikiPageEntryIds(page.body).every(id => delivered.has(id)), 'Output cites evidence not returned by native read');
   if (input.stage === 'concepts') {
    assert(result.value.pages.length <= 1, 'One candidate writer produces zero or one concept');
    if (input.conceptTask?.targetRef) {
     const old = input.pages.find(row => row.ref === input.conceptTask!.targetRef)!.page;
     for (const page of result.value.pages) {
-     assert(objectFirstEntries(old.body).every(id => objectFirstEntries(page.body).includes(id)), 'Existing target citations must survive');
+     assert(wikiPageEntryIds(old.body).every(id => wikiPageEntryIds(page.body).includes(id)), 'Existing target citations must survive');
      page.id = old.id;
     }
    }

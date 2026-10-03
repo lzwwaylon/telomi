@@ -10,7 +10,7 @@ import {
 	scheduledSourceIdentity,
 } from "../../server/research/pipeline/source-version.js";
 import { RUN_WORKFLOW_VERSION } from "../../server/research/run-state.js";
-import { FIND_OUT_SOURCE_MANIFEST_SCHEMA_VERSION } from "../../server/research/pipeline/find-out-sources.js";
+import { ORGANIZED_SOURCE_MANIFEST_SCHEMA_VERSION } from "../../server/research/pipeline/organized-sources.js";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
 import { GoalTopicPlanStore } from "../../server/goals/topic-plan/index.js";
 import { createResearchScheduleFromRun } from "../../server/research/schedules/create-from-run.js";
@@ -297,7 +297,7 @@ try {
 		goalId: string;
 		status: string;
 		sourceBundles?: string[];
-		findOutSources?: string[];
+		organizedSources?: string[];
 		cornellNoteSnapshots?: string[];
 		cornellNoteFailureManifests?: string[];
 		skipReason?: string;
@@ -324,7 +324,7 @@ try {
 			tool_schema: "tool",
 		},
 		source_bundles: (input.sourceBundles ?? []).map(artifactRef),
-		find_out_sources: (input.findOutSources ?? []).map(artifactRef),
+		find_out_sources: (input.organizedSources ?? []).map(artifactRef),
 		search_execution_records: [],
 		cornell_note_snapshots: (input.cornellNoteSnapshots ?? []).map(artifactRef),
 		...(input.cornellNoteFailureManifests
@@ -382,7 +382,7 @@ try {
 	}, null, 2)}\n`, "utf-8");
 	// Pinned, not read from the pipeline: a fixture that shares the constant can never
 	// fail when producer and consumer drift apart, which is what hid this mismatch.
-	assert.equal(FIND_OUT_SOURCE_MANIFEST_SCHEMA_VERSION, 3, "the Find Out Source manifest version changed");
+	assert.equal(ORGANIZED_SOURCE_MANIFEST_SCHEMA_VERSION, 3, "the Notes Source manifest version changed");
 	writeFileSync(join(organizedWikiRunDir, findOutPath, "manifest.json"), `${JSON.stringify({
 		schema_version: 3,
 		sequence: 1,
@@ -413,7 +413,7 @@ try {
 		goalId: organizedGoalId,
 		status: "published",
 		sourceBundles: [organizedBundlePath],
-		findOutSources: [findOutPath],
+		organizedSources: [findOutPath],
 		cornellNoteSnapshots: [organizedEvidencePath],
 	}), null, 2)}\n`, "utf-8");
 	const organizedBaseline = readProcessedResearchRun({
@@ -424,7 +424,7 @@ try {
 	assert.deepEqual(organizedBaseline.sources, [{
 		sourceIdentity: logicalSourceId,
 		contentSha256: logicalRevision,
-	}], "a Schedule baseline must use the logical Find Out Sources with Cornell Notes");
+	}], "a Schedule baseline must use the logical Notes Sources with Cornell Notes");
 
 	const activateTopicPlan = (goal: string) => {
 		const topicPlan = new GoalTopicPlanStore(goal, workspaceDir);
@@ -503,7 +503,7 @@ try {
 		mkdirSync(join(wikiRunDir, "artifacts", "cornell-notes"), { recursive: true });
 		mkdirSync(controlRunDir, { recursive: true });
 		writeFileSync(join(wikiRunDir, findOutPath, "manifest.json"), `${JSON.stringify({
-			schema_version: FIND_OUT_SOURCE_MANIFEST_SCHEMA_VERSION,
+			schema_version: ORGANIZED_SOURCE_MANIFEST_SCHEMA_VERSION,
 			sequence: 1,
 			sources: input.sources.map((sourceId) => ({
 				source_id: sourceId,
@@ -535,7 +535,7 @@ try {
 			runId: input.runId,
 			goalId: input.goalId,
 			status: input.status ?? "published",
-			findOutSources: [findOutPath],
+			organizedSources: [findOutPath],
 			cornellNoteSnapshots: [evidencePath],
 			...(failurePaths.length ? { cornellNoteFailureManifests: failurePaths } : {}),
 		}), null, 2)}\n`, "utf-8");

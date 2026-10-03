@@ -1,7 +1,7 @@
 export const PRIME_SEARCH_AGENT_ID = "prime-search";
 export const RESEARCH_AGENT_IDS = [
 	PRIME_SEARCH_AGENT_ID,
-	"cornell-note",
+	"note-agent",
 	"report-writer",
 ] as const;
 export type ResearchWorkspaceAgentId = (typeof RESEARCH_AGENT_IDS)[number];

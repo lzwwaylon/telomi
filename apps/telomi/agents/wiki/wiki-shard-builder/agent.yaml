@@ -1,5 +1,6 @@
 schema_version: 2
 id: wiki-shard-builder
+display_name: Wiki Shard Builder
 prompts:
   system-append:
     default: system.md.njk

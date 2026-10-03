@@ -6,11 +6,11 @@ import { fileURLToPath } from "node:url";
 import { RunArtifactStore, type PublishedArtifactDirectoryRef } from "../agent-runtime/artifact-store.js";
 import type { AgentStageRequest, ValidatedStageArtifact } from "../agent-runtime/agent-stage-runtime.js";
 import { beginNodeEvaluationCase, finishNodeEvaluationCase, type NodeReplayRecipe } from "../agent-runtime/node-evaluation.js";
-import { pinWikiModelSelection } from "../wiki/compiler.js";
+import { pinWikiModelSelection } from "../wiki/wiki-shard-compiler.js";
 import { isThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
 import { requireWikiGoalContext, validateGoalTopicPlan, type GoalTopicPlan, type WikiCompilationRequest, type WikiCompilationResult, type WikiGoalContext } from "../wiki/contracts.js";
-import { NoteFirstWikiCompiler, type NoteFirstReindexRequest, type NoteFirstReindexResult } from "../wiki/note-first-compiler.js";
+import { WikiCompiler, type WikiReindexRequest, type WikiReindexResult } from "../wiki/wiki-compiler.js";
 import { hashWikiDirectory } from "../wiki/files.js";
 import { PAGE_TOPIC_MODEL, PAGE_TOPIC_THINKING } from "../wiki/page-topic-stage.js";
 import { hashJson } from "../lib/hash.js";
@@ -78,11 +78,11 @@ export async function runWikiCompilationNodeEvaluation(request: WikiCompilationR
 			sessionPaths: result.sessionPaths, failureCount: result.failedBatches.length }), traceRoot: request.controlDirectory });
 }
 
-export async function runWikiReindexNodeEvaluation(request: NoteFirstReindexRequest, options: {
+export async function runWikiReindexNodeEvaluation(request: WikiReindexRequest, options: {
 	recordDirectory: string;
 	runId: string;
-	execute: (request: NoteFirstReindexRequest) => Promise<NoteFirstReindexResult>;
-}): Promise<NoteFirstReindexResult> {
+	execute: (request: WikiReindexRequest) => Promise<WikiReindexResult>;
+}): Promise<WikiReindexResult> {
 	const env = pinWikiModelSelection(request.workRoot, request.env ?? process.env);
 	return captureProduction({ recordDirectory: options.recordDirectory, runId: options.runId, signal: request.signal,
 		freeze: destination => freezeInput(destination, { operation: "reindex", goalContext: request.goalContext, models: wikiModels(env),
@@ -155,7 +155,7 @@ function prepareCapture(input: { recordDirectory: string; directory: string; run
 		readonlyMounts: [], controlDirectory: input.directory, artifactStore: store,
 		output: { kind: "stage_report", publishRelativePath: "output", validate: () => ({}) }, signal: input.signal };
 	const draft = beginNodeEvaluationCase({ request: stage, recordDirectory: input.recordDirectory,
-		promptConfig: { domain: "wiki", id: "note-first", sandboxRole: "wiki.note-first" },
+		promptConfig: { domain: "wiki", id: "wiki-compilation", sandboxRole: "wiki.wiki-compilation" },
 		sessionContextFile: join(input.directory, ".no-prior-session"), composedSystemPrompt: "", actualModel: model,
 		...(input.capabilitySnapshotId ? { capabilitySnapshotId: input.capabilitySnapshotId } : {}) });
 	if (!draft) throw new Error("Wiki compilation Case capture did not start");
@@ -178,7 +178,7 @@ function finishCapture(prepared: ReturnType<typeof prepareCapture>, input: { res
 		const output = join(prepared.directory, "output");
 		const store = new RunArtifactStore(output);
 		store.publishDirectory(input.result.knowledgeRoot, "knowledge");
-		store.publishFile(fileURLToPath(new URL("../../agents/wiki/note-first/references/evaluation-rubric.md", import.meta.url)), "rubric.md");
+		store.publishFile(fileURLToPath(new URL("../../agents/wiki/wiki-compilation/references/evaluation-rubric.md", import.meta.url)), "rubric.md");
 		writeJsonAtomic(join(output, "evaluation.json"), { schema_version: 1, usage: input.result.usage, toolCalls: tools.count, toolMetricsComplete: tools.complete });
 		const artifact = prepared.store.describeDirectory(relative(prepared.recordDirectory, output));
 		result = { value: {}, artifact, submissionCount: 1, validationErrors: [], session: { id: prepared.runId, mode: "fresh" },
@@ -191,7 +191,7 @@ function finishCapture(prepared: ReturnType<typeof prepareCapture>, input: { res
 	return { captured, result, error, inputDrift };
 }
 
-export function createWikiCompilationReplayRecipe(compiler: Pick<NoteFirstWikiCompiler, "compile" | "reindex"> = new NoteFirstWikiCompiler()): NodeReplayRecipe {
+export function createWikiCompilationReplayRecipe(compiler: Pick<WikiCompiler, "compile" | "reindex"> = new WikiCompiler()): NodeReplayRecipe {
 	return { identity: RECIPE, async replay(input) {
 		if (input.value.agentId !== RECIPE.id || input.value.recipe.id !== RECIPE.id || input.value.recipe.version !== RECIPE.version) throw new Error("Expected a formal Wiki compilation Case");
 		if (input.promptOverride) throw new Error("Wiki compilation uses the Candidate Agent Bundle, not a historical node Prompt override");

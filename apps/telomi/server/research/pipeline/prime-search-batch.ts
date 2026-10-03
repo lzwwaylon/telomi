@@ -82,10 +82,10 @@ import type {
 } from "./search-batch.js";
 import type { AgentStageActivity } from "../../agent-runtime/agent-stage-runtime.js";
 import {
-	materializeFindOutSources,
-	type FindOutSourceMember,
-	type FindOutSourceOrganization,
-} from "./find-out-sources.js";
+	materializeOrganizedSources,
+	type OrganizedSourceMember,
+	type OrganizedSourceOrganization,
+} from "./organized-sources.js";
 import {
 	ORGANIZER_COMPLETE_MARKER,
 	ORGANIZER_RUNTIME_INDEX,
@@ -905,7 +905,7 @@ function materializeOrganizerProjection(
 	root: string,
 	index: ReturnType<typeof loadPrimeSourceOrganizerIndex>,
 	organizerItems: readonly PrimeSourceOrganizerItem[],
-): FindOutSourceOrganization {
+): OrganizedSourceOrganization {
 	const organization = projectPrimeSourceOrganization(index, organizerItems);
 	const organizerRoot = join(root, "organizer");
 	mkdirSync(organizerRoot, { recursive: true });
@@ -1092,8 +1092,8 @@ function materializeResult(
 	bundlesRoot: string,
 	items: readonly PrimeSourceItem[],
 	providerLog: readonly PrimeProviderLogEntry[],
-	organization: FindOutSourceOrganization,
-	members: readonly (FindOutSourceMember & { changeKind: "new" | "changed" | "unchanged" })[],
+	organization: OrganizedSourceOrganization,
+	members: readonly (OrganizedSourceMember & { changeKind: "new" | "changed" | "unchanged" })[],
 	providerExecutions: readonly ProviderExecution[],
 	usage: ResearchModelUsage,
 	toolCalls: number,
@@ -1151,7 +1151,7 @@ function materializeResult(
 		);
 		executionRecords.push({ record, artifact });
 	}
-	const findOut = materializeFindOutSources({
+	const organized = materializeOrganizedSources({
 		artifactStore: request.artifactStore,
 		sequence: request.sequence,
 		workingDirectory: root,
@@ -1159,9 +1159,9 @@ function materializeResult(
 		members,
 	});
 	return {
-		logicalSources: findOut.sources.sort((left, right) => left.id.localeCompare(right.id)),
+		logicalSources: organized.sources.sort((left, right) => left.id.localeCompare(right.id)),
 		sourceBundles: sourceBundles.sort((left, right) => left.relativePath.localeCompare(right.relativePath)),
-		findOutSources: findOut.artifact,
+		organizedSources: organized.artifact,
 		executionRecords: executionRecords.sort((left, right) => left.record.attempt_id.localeCompare(right.record.attempt_id)),
 		usage,
 		agentStages,
@@ -1514,7 +1514,7 @@ const BRIDGE_ROUTES = new Set([
 	"/v1/skill-read",
 	"/v1/provider-fallback",
 	"/v1/knowledge-search",
-	"/v1/deep-search",
+	"/v1/read-sources",
 	"/v1/write-answer",
 	"/v1/external-search",
 	"/v1/github-read",
@@ -1637,8 +1637,8 @@ export async function startPrimeSourceBridge(
 					));
 					return;
 				}
-				if (route === "/v1/deep-search") {
-					handoff("deep_search", await options.investigation.readSources(requiredString(body.question, "Deep Search question")));
+				if (route === "/v1/read-sources") {
+					handoff("read_sources", await options.investigation.readSources(requiredString(body.question, "Note Reading question")));
 					return;
 				}
 				if (route === "/v1/write-answer" && options.investigation.writeAnswer) {
@@ -1670,7 +1670,7 @@ export async function startPrimeSourceBridge(
 				}
 				throw new Error("This investigation cannot access external Providers");
 			}
-			if (route === "/v1/knowledge-search" || route === "/v1/deep-search" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
+			if (route === "/v1/knowledge-search" || route === "/v1/read-sources" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
 			if (route === "/v1/root-search") {
 				// Discovery belongs to the Root; children get the specialized Providers below.
 				if (bridgeExecutionId(body.agent_session_id) !== "root") throw new Error("General Web search is available only to the Search Root");

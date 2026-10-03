@@ -1,3 +1,4 @@
+import { describeEvaluationAgent } from "../../server/agent-runtime/agent-catalog.js";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -140,6 +141,7 @@ try {
 		nodeId: "prime-search-batch-1",
 		attemptId: "1",
 		agentId: "prime-search",
+		agent: { ...describeEvaluationAgent("prime-search"), displayName: "Recorded Search Root" },
 		workspace: { input_tree_sha: "1".repeat(64), output_tree_sha: "2".repeat(64), exclude: [] },
 		observed: { providerCalls: { ref: "provider-calls.jsonl", sha256: sha256(providerCalls), byteLength: Buffer.byteLength(providerCalls) } },
 	} as unknown as NodeEvaluationCase;
@@ -177,6 +179,7 @@ try {
 		},
 	});
 	assert.equal(exported.manifest.warnings, undefined);
+	assert.deepEqual(exported.manifest.agent, exportedValue.agent, "Bundle preserves the captured Agent descriptor rather than looking up a current display name");
 	const importedExport = importCaseBundle({
 		path: exported.path,
 		dataDir: join(root, "imported-export"),

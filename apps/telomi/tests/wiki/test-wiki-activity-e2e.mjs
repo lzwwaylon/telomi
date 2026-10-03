@@ -51,13 +51,13 @@ const browserCheck = String.raw`
       steps: [{
         stepId: 'wiki-batch:2',
         title: 'Wiki 批次 2',
-        summary: 'Wiki Maintainer 正在整理知识页',
+        summary: 'Wiki Curator 正在整理知识页',
         lifecycle: 'running',
         timing: { createdAt: now, startedAt: now, updatedAt: now },
         dependsOnStepIds: ['wiki-batch:1'],
         parallelSteps: [],
         agentActivities: [{
-          agentActivityId: 'wiki-maintainer:wiki-1:1',
+          agentActivityId: 'wiki-shard-builder:wiki-1:1',
           agentName: 'wiki_maintainer',
           summary: '正在创建和更新 Wiki 页面',
           lifecycle: 'running',
@@ -115,7 +115,7 @@ const browserCheck = String.raw`
   try {
     root.render(React.createElement(GoalActivityPanel, { goalId: 'wiki-e2e' }));
     await waitFor(() => host.innerText.includes('正在创建 Goal Wiki'), 'Wiki Activity');
-    const replay = host.querySelector('button[aria-label="查看 Wiki 批次 2 · Wiki Maintainer 1 回放"]');
+    const replay = host.querySelector('button[aria-label="查看 Wiki 批次 2 · Wiki Curator 1 回放"]');
     if (!replay) throw new Error('Wiki replay action is missing');
     replay.click();
     await waitFor(() => host.innerText.includes('Wiki Commit'), 'Wiki Agent replay');

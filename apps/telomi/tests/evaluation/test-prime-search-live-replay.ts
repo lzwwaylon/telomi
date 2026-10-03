@@ -104,14 +104,14 @@ const captureExecutor: SearchBatchExecutor = {
 		mkdirSync(join(sourceConfig, ".."), { recursive: true });
 		writeFileSync(sourceConfig, '{"upstream":true}\n');
 		chmodSync(sourceConfig, 0o444);
-		const findOutSources = store.publishDirectory(findOutSource, `artifacts/find-out-sources/sequence-${request.sequence}`);
+		const organizedSources = store.publishDirectory(findOutSource, `artifacts/find-out-sources/sequence-${request.sequence}`);
 		const record = store.publishText("{}\n", `artifacts/search-executions/github-${request.sequence}.json`);
 		return {
 			logicalSources: [{ id: "source-1", title: "Runtime Eval", url: "https://github.com/example/runtime-eval",
 				providerId: "github", sourceIdentity: "source-1", revisionSha256: "a".repeat(64),
 				directoryPath: "/private/candidate-private-path/source", organizationKind: "ungrouped", members: [] }],
 			sourceBundles: [sourceBundle],
-			findOutSources,
+			organizedSources,
 			executionRecords: [{ record: { provider_id: "github", terminal_status: "valid_bundle" }, artifact: record }],
 			usage: { inputTokens: 10, outputTokens: 2, costUsd: 0.01, calls: 2 },
 			agentStages: 1,
