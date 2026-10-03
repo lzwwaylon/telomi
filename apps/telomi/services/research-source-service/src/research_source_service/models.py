@@ -105,16 +105,6 @@ class CredentialCheckResponse(StrictModel):
     source_id: str
 
 
-class CitationUrlValidationRequest(StrictModel):
-    schema_version: Literal[1] = 1
-    markdown: str = Field(min_length=1, max_length=10_000_000)
-
-
-class CitationUrlValidationResponse(StrictModel):
-    schema_version: Literal[1] = 1
-    unavailable_urls: list[str]
-
-
 class DocumentParseRequest(StrictModel):
     schema_version: Literal[1] = 1
     input_path: str = Field(min_length=1, max_length=8_192)

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mock } from "node:test";
 
 import { finalizeStageOutput, type AgentStageRequest, type AgentStageRunner } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { Run } from "../../server/research/pipeline/index.js";
@@ -14,6 +15,7 @@ try {
 	await verifyWikiMode();
 	console.log("report flow tests passed");
 } finally {
+	mock.restoreAll();
 	rmSync(root, { recursive: true, force: true });
 }
 
@@ -88,7 +90,9 @@ async function verifyWikiMode(): Promise<void> {
 		stageRunner: runner,
 		searchBatchExecutor: { execute: async () => { throw new Error("search must not run"); } },
 		evidenceMaterializer: { materialize: async () => { throw new Error("screening must not run"); } },
-		validateCitationUrls: async () => new Set(),
+	});
+	const fetchMock = mock.method(globalThis, "fetch", async () => {
+		throw new Error("Report publication must not make network requests");
 	});
 	const execution = runtime.run({
 		runId: `run-${inputMode}`,
@@ -128,6 +132,10 @@ async function verifyWikiMode(): Promise<void> {
 		},
 	});
 	const result = await execution;
+	assert.equal(fetchMock.mock.callCount(), 0, "citation compilation must use stored Source URLs without probing them");
+	const published = JSON.parse(readFileSync(join(runRoot, "report/final.json"), "utf-8"));
+	assert.equal(published.citations[0]?.url, "https://example.test/source");
+	assert.match(published.markdown, /\[\[1\]\]\(https:\/\/example\.test\/source\)/u);
 	assert.equal(result.state.status, "published");
 	assert.equal(result.state.usage.input_tokens, 10);
 	assert.equal(result.state.usage.output_tokens, 5);

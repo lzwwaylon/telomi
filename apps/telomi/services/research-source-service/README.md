@@ -7,7 +7,6 @@ The service has a deliberately narrow responsibility:
 - It executes one validated Provider operation for each Source call; exact response or material cache hits may avoid upstream work.
 - It normalizes provider responses into stable search results.
 - It parses a trusted local document and returns one versioned CanonicalDocument JSON plus a manifest.
-- It validates final report URLs with one lychee pass over the complete Markdown.
 - It enforces authentication, request limits, concurrency ceilings, and workspace path boundaries.
 
 The TypeScript Runtime remains the control plane. It owns fallback order, retries, rate policy, timeouts, cancellation, budgets, ledgers, remote document download, and artifact persistence. The Agent writes Python that calls the Runtime gateway. It does not call this process directly and does not execute provider CLI commands.
@@ -39,14 +38,6 @@ uv is required. `npm run research:install` synchronizes the checked-in
 `uv.lock` into this directory's `.venv` with uv's managed Python 3.11, so the
 service does not depend on Homebrew or whichever `python3` is first on the
 Mac's `PATH`.
-
-Install lychee 0.24.2 from the [official releases](https://github.com/lycheeverse/lychee/releases/tag/lychee-v0.24.2) or with Homebrew:
-
-```bash
-brew install lychee
-```
-
-Set `SOURCE_SERVICE_LYCHEE_PATH` when the binary is not on `PATH`.
 
 ```bash
 cd apps/telomi
@@ -154,8 +145,6 @@ X-Source-Service-Token: <SOURCE_SERVICE_API_TOKEN>
 ## API
 
 `GET /v1/health` returns service health.
-
-`POST /v1/citations/validate-urls` accepts `{ "schema_version": 1, "markdown": "..." }` and returns the URLs that lychee rejected, timed out, or excluded. The Runtime calls it once during final citation compilation.
 
 `POST /v1/search` performs exactly one Source operation:
 
