@@ -388,8 +388,12 @@ or retry a Provider request after `ResearchRuntimeError`, even when
 
 `code == "source_unavailable"` means the Provider is temporarily unavailable to
 this Provider Child: Runtime has spent the Child's overload budget and fails
-every further request to that Provider without calling it. Keep the results
-already acquired and report the uncovered scope as a gap instead of retrying.
+every further request to the affected access domain without calling it. arXiv
+errors include `details["arxiv_access_scope"]`: `api` covers discovery and metadata,
+while `main` covers category, front-matter, and PDF acquisition. A healthy main
+domain can still download known paper IDs after API discovery stops. Other
+Providers, and provider-wide arXiv access denials without a scoped domain, stop
+all further requests. Keep acquired results and report uncovered scope as a gap.
 `details` carries `provider_id`, `failure_class`, `elapsed_ms`, `attempts`, and
 `retry_after_ms`.
 

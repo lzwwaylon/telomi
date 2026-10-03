@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,8 +19,18 @@ RETRYABLE_STATUSES = {408, 425, 429, 500, 502, 503, 504}
 
 
 class HttpGateway:
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self, client: httpx.AsyncClient, *,
+        egress_clients: Mapping[str, httpx.AsyncClient] | None = None,
+        private_transport: bool = False,
+    ) -> None:
         self.client = client
+        self.egress_routes = {
+            name: HttpGateway(route_client, private_transport=True)
+            for name, route_client in (egress_clients or {}).items()
+        }
+        self.private_transport = private_transport
+        self.arxiv_egress: ArxivEgressRoutes | None = None
 
     async def request_json(
         self,
@@ -91,16 +103,118 @@ class HttpGateway:
                 data=form,
                 follow_redirects=follow_redirects,
             )
-        except (httpx.TimeoutException, httpx.NetworkError) as error:
+        except httpx.RequestError as error:
             raise ServiceError(
                 "provider_timeout" if isinstance(error, httpx.TimeoutException) else "provider_network_error",
-                f"{provider} request failed: {bounded_message(error)}",
+                f"{provider} request failed: "
+                + (type(error).__name__ if self.private_transport else bounded_message(error)),
                 retryable=True,
                 provider=provider,
             ) from error
         if response.is_success:
             return response
+        if self.private_transport:
+            # Proxy HTTP errors can echo credentials in any body or header. Keep only
+            # the status and parsed retry deadline before constructing errors or evidence.
+            retry_ms = provider_retry_after_ms(response.headers)
+            response = httpx.Response(
+                response.status_code,
+                content=b"Configured egress route returned an HTTP error",
+                headers={"retry-after": f"{retry_ms / 1_000:g}"} if retry_ms is not None else {},
+            )
         raise provider_http_error(provider, response)
+
+
+@dataclass(repr=False)
+class ManagedEgressRoute:
+    proxy: str | None
+    gateway: HttpGateway
+    users: int = 0
+    drained: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def __post_init__(self) -> None:
+        self.drained.set()
+
+
+class ArxivEgressRoutes:
+    """Publish routes at admission; retired tunnels stay usable until their last HTTP completes."""
+
+    def __init__(self, static_routes: Mapping[str, HttpGateway]) -> None:
+        self.static_routes = dict(static_routes)
+        self._routes = dict(static_routes)
+        self.managed: dict[str, ManagedEgressRoute] = {}
+        self.update_lock = asyncio.Lock()
+        self.updates: set[asyncio.Task[list[str]]] = set()
+
+    @property
+    def routes(self) -> dict[str, HttpGateway]:
+        return self._routes
+
+    def acquire(self, name: str) -> tuple[HttpGateway, ManagedEgressRoute | None]:
+        entry = self.managed.get(name)
+        if entry is None:
+            return self._routes[name], None
+        entry.users += 1
+        entry.drained.clear()
+        return entry.gateway, entry
+
+    @staticmethod
+    def release(entry: ManagedEgressRoute | None) -> None:
+        if entry is not None:
+            entry.users -= 1
+            if entry.users == 0:
+                entry.drained.set()
+
+    async def replace(self, proxies: Mapping[str, str]) -> list[str]:
+        if self.static_routes.keys() & proxies.keys():
+            raise ServiceError("arxiv_egress_conflict", "Managed route conflicts with a static route", status_code=400)
+        # A disconnected control caller must not abandon client retirement or let
+        # another update acknowledge a tunnel that still serves an old request.
+        task = asyncio.create_task(self._replace(dict(proxies)))
+        self.updates.add(task)
+
+        def finished(update: asyncio.Task[list[str]]) -> None:
+            self.updates.discard(update)
+            if not update.cancelled():
+                update.exception()
+
+        task.add_done_callback(finished)
+        return await asyncio.shield(task)
+
+    async def _replace(self, proxies: dict[str, str]) -> list[str]:
+        async with self.update_lock:
+            replacement = {}
+            created = []
+            desired: dict[str, str | None] = dict(proxies)
+            if proxies and not self.static_routes["direct"].private_transport:
+                desired = {"direct": None, **desired}
+            try:
+                for name, proxy in desired.items():
+                    entry = self.managed.get(name)
+                    if entry is None or entry.proxy != proxy:
+                        entry = ManagedEgressRoute(
+                            proxy, HttpGateway(httpx.AsyncClient(proxy=proxy, timeout=None, trust_env=False),
+                                               private_transport=True),
+                        )
+                        created.append(entry)
+                    replacement[name] = entry
+            except Exception:
+                for entry in created:
+                    await entry.gateway.client.aclose()
+                raise ServiceError("arxiv_egress_unavailable", "Managed route could not be configured",
+                                   status_code=503) from None
+            retired = [entry for name, entry in self.managed.items() if replacement.get(name) is not entry]
+            self.managed = replacement
+            self._routes = {**self.static_routes, **{name: entry.gateway for name, entry in replacement.items()}}
+            for entry in retired:
+                await entry.drained.wait()
+                await entry.gateway.client.aclose()
+            return sorted(self._routes)
+
+    async def close(self) -> None:
+        if self.updates:
+            await asyncio.gather(*self.updates, return_exceptions=True)
+        await self.replace({})
 
 
 UPSTREAM_HEADER_KEYS = (

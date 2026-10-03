@@ -11,6 +11,7 @@
 | 了解产品、安装或启动应用 | [项目 README](../../../README.zh-CN.md) |
 | 升级已有安装、备份或恢复数据 | [升级与恢复](upgrading.zh-CN.md) |
 | 配置第三方本地语音服务，或处理本地 STT/TTS 的支持请求 | [Speaches 本地语音参考](local-speech-server.zh-CN.md) |
+| 配置 Tailscale 电脑进行 arXiv 转发 | [Tailscale 转发](network-egress.zh-CN.md) |
 
 ## 开发与维护
 

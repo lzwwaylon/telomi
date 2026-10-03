@@ -28,6 +28,8 @@ class SourceRegistry:
         deps = self._deps(settings)
         self.sources: dict[str, Source] = {spec.id: spec.build(deps) for spec in self.specs.values()}
         self.gates = {spec.id: ProviderGate(spec.max_concurrency(settings)) for spec in self.specs.values()}
+        # A cooled metadata request must not hold the content lane; upstream HTTP still uses one shared lease.
+        self.gates["arxiv:main"] = ProviderGate(settings.arxiv_max_concurrency)
 
     def _deps(self, settings: Settings) -> SourceDeps:
         return SourceDeps(
@@ -118,4 +120,16 @@ class SourceRegistry:
                 f"Research source '{request.source_id}' is not registered",
                 status_code=404,
             )
-        return await self.gates[request.source_id].run(lambda: source.search(request))
+        gate_id = request.source_id
+        if request.source_id == "arxiv" and request.provider_request and request.provider_request.operation in {
+            "download_pdf", "paper_front", "categories",
+        }:
+            gate_id = "arxiv:main"
+        try:
+            return await self.gates[gate_id].run(lambda: source.search(request))
+        except ServiceError as error:
+            if request.source_id == "arxiv":
+                # Parsing/validation failures can occur after HTTP has returned; their public
+                # operation still determines the trusted service scope, while explicit bans keep any.
+                error.details.setdefault("arxiv_access_scope", "main" if gate_id == "arxiv:main" else "api")
+            raise

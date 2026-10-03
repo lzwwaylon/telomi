@@ -28,6 +28,7 @@ The directory structure is the module map. Add code to existing capability direc
 - `evaluation/`: Node Backtest, Case Capture, and the Operations Interface.
 - `evolution/`: triggers, inner loop, and automatic application of Goal-scoped Browser Skill evolution.
 - `config/`: data directories, environment, network policy, and settings resolution.
+- `network/`: installation-scoped Tailscale discovery, explicit peer approval and owned SSH forwarding. The [Network egress contract](network-egress.md) defines its Source Service boundary and lifecycle.
 - `lib/`: pure utilities without domain ownership, the sole source for path guards, atomic writes, JSON/JSONL I/O, hashing, error-to-text conversion, and environment-variable parsing. Pre-commit rejects same-named local declarations in server code based on `SHARED_HELPERS` in `scripts/pre-commit-plan.ts`. The only exception is `research/pipeline/prime-cornell-note-worker.mjs`, which is copied into Run Workspaces and executed by bare Node. It may reference only `node:` built-ins, as asserted by `test-prime-agent-auto-refine`.
 - `media/`, `voice/`, `audio/`, `citations/`, `accounts/`, `ingestion/`, `search/`, `tool-icons/`: the corresponding product capabilities.
 

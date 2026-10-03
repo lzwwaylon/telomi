@@ -108,7 +108,7 @@ try {
 		...request("unused"),
 		providerRequest: providerRequest("query", { search_query: "all:test", max_results: 5 }),
 	});
-	assert.equal(arxivRuntimePolicy.accessScope, "fastapi:arxiv:public");
+	assert.equal(arxivRuntimePolicy.accessScope, "fastapi:arxiv:public:api");
 	assert.equal(arxivRuntimePolicy.cacheScope, "fastapi:arxiv:public");
 	assert.equal(arxivRuntimePolicy.minIntervalMs, 4_000);
 	assert.equal(arxivRuntimePolicy.maxAttempts, 1);
@@ -116,6 +116,15 @@ try {
 	assert.equal(arxivRuntimePolicy.overloadBudgetWindowMs, 15 * 60_000);
 	assert.equal(arxivRuntimePolicy.overloadBudgetMs, 60_000);
 	assert.ok(arxivRuntimePolicy.cacheTtlMs);
+	for (const operation of ["download_pdf", "paper_front", "categories"]) {
+		const policy = builtInFastApiRuntimePolicy({ sourceId: "arxiv", env: {} })({
+			...request("unused"),
+			providerRequest: providerRequest(operation, operation === "categories" ? {} : { arxiv_id: "2601.00001v1" }),
+		});
+		assert.equal(policy.accessScope, "fastapi:arxiv:public:main");
+		if (operation === "categories") assert.equal(policy.cacheScope, "fastapi:arxiv:public", "existing cache identity is preserved");
+	}
+
 
 	const githubToken = "github-secret";
 	const githubPolicy = builtInFastApiRuntimePolicy({
@@ -1059,4 +1068,39 @@ process.send("locked");
 	}
 }
 
+async function testManagedEgressPublication(): Promise<void> {
+	const routeName = `ts_${"a".repeat(20)}`;
+	const routes = { [routeName]: "socks5h://127.0.0.1:45678" };
+	let readyCalls = 0;
+	let posts = 0;
+	const client = new HttpResearchSourceServiceClient({ ensureReady: async () => { readyCalls += 1; return { baseUrl: "http://127.0.0.1:8791", token: "private-auth" }; },
+		fetcher: async (input, init) => {
+			posts += 1;
+			assert.equal(input, "http://127.0.0.1:8791/v1/arxiv/egress");
+			assert.equal(new Headers(init?.headers).get("authorization"), "Bearer private-auth");
+			assert.deepEqual(JSON.parse(String(init?.body)), { schema_version: 1, routes });
+			return Response.json({ schema_version: 1, route_names: ["direct", "static-manual", routeName] });
+		},
+	});
+	await client.setManagedArxivEgressRoutes(routes);
+	assert.equal(readyCalls, 1); assert.equal(posts, 1);
+	for (const payload of [{ schema_version: 1 }, { schema_version: 2, route_names: [routeName] }, { schema_version: 1, route_names: ["direct"] }, { schema_version: 1, route_names: [routeName, 123] }]) {
+		const incompatible = new HttpResearchSourceServiceClient({ baseUrl: "http://127.0.0.1:8791", fetcher: async () => Response.json(payload) });
+		await assert.rejects(incompatible.setManagedArxivEgressRoutes(routes), (error: unknown) => error instanceof ResearchNodeError && error.code === "source_service_unavailable");
+	}
+	const missing = new HttpResearchSourceServiceClient({ baseUrl: "http://127.0.0.1:8791", fetcher: async () => Response.json({ error: { message: "SECRET, /private/key" } }, { status: 404 }) });
+	await assert.rejects(missing.setManagedArxivEgressRoutes(routes), (error: unknown) => error instanceof ResearchNodeError && error.code === "source_service_unavailable" && !error.message.includes("SECRET"));
+	let remoteCalls = 0;
+	const remote = new HttpResearchSourceServiceClient({ baseUrl: "https://source.example.test", fetcher: async (_url, init) => {
+		remoteCalls += 1; assert.deepEqual(JSON.parse(String(init?.body)), { schema_version: 1, routes: {} });
+		return Response.json({ schema_version: 1, route_names: ["direct"] });
+	} });
+	await assert.rejects(remote.setManagedArxivEgressRoutes(routes), /cannot apply managed/u);
+	assert.equal(remoteCalls, 0, "Node-owned loopback listeners cannot be published to a remote Source host");
+	await remote.setManagedArxivEgressRoutes({});
+	assert.equal(remoteCalls, 1, "empty revocation remains available for a separately supervised service");
+	console.log("Managed Source publication validates authenticated acknowledgements and loopback ownership");
+}
+
+await testManagedEgressPublication();
 await testSearchCredentialConsumers();

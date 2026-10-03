@@ -11,6 +11,7 @@ Choose documents by task. When a change spans several capabilities, read each re
 | Understand Telomi, install it, or start the application | [Project README](../../../README.md) |
 | Upgrade an installation, back up data, or recover it | [Upgrading and recovery](upgrading.md) |
 | Configure a third-party local speech service or troubleshoot local STT/TTS | [Speaches local speech guide](local-speech-server.md) |
+| Configure Tailscale computers for arXiv forwarding | [Tailscale forwarding](network-egress.md) |
 
 ## Development and maintenance
 

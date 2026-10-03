@@ -23,7 +23,7 @@ from ..documents import DocumentService
 from ..errors import ServiceError
 from ..http_client import UPSTREAM_HEADER_KEYS, HttpGateway
 from ..material_cache import MaterialCache
-from ..models import DocumentParseRequest, ProviderRequest, SearchRequest, SearchResult
+from ..models import DocumentParseRequest, SearchRequest, SearchResult
 from ..security import safe_output_dir, safe_workspace_dir
 from .base import SourceDeps, SourceSpec, stable_search_id
 
@@ -133,8 +133,10 @@ class ArxivSource:
         documents: DocumentService | None = None,
         material_cache: MaterialCache | None = None,
         global_min_start_interval_seconds: float = 3,
+        egress_routes: dict[str, HttpGateway] | None = None,
     ) -> None:
         self.http = http
+        self._egress_routes = {"direct": http, **(egress_routes or {})}
         self.endpoint = endpoint
         self.runtime_store = runtime_store
         self.min_start_interval_seconds = min_start_interval_seconds
@@ -146,8 +148,8 @@ class ArxivSource:
         # Every upstream request and its outcome, shared by all service processes next to the runtime store.
         database = getattr(runtime_store, "database", None)
         self.upstream_log_path = Path(database).parent / "arxiv-upstream.jsonl" if database else None
-        self._overload_strikes = 0
-        self._last_overload_at = 0.0
+        self._overload_strikes: dict[str, int] = {}
+        self._last_overload_at: dict[str, float] = {}
 
     def close(self) -> None:
         if self.runtime_store is not None:
@@ -158,11 +160,13 @@ class ArxivSource:
         if error.retry_after_ms is not None:
             return error.retry_after_ms / 1_000
         now = time.time()
-        if now - self._last_overload_at > OVERLOAD_STRIKE_RESET_SECONDS:
-            self._overload_strikes = 0
-        step = OVERLOAD_LADDER_SECONDS[min(self._overload_strikes, len(OVERLOAD_LADDER_SECONDS) - 1)]
-        self._overload_strikes += 1
-        self._last_overload_at = now
+        scope = str(error.details.get("arxiv_access_scope") or "api")
+        strikes = self._overload_strikes.get(scope, 0)
+        if now - self._last_overload_at.get(scope, 0) > OVERLOAD_STRIKE_RESET_SECONDS:
+            strikes = 0
+        step = OVERLOAD_LADDER_SECONDS[min(strikes, len(OVERLOAD_LADDER_SECONDS) - 1)]
+        self._overload_strikes[scope] = strikes + 1
+        self._last_overload_at[scope] = now
         return min(step, self.overload_cooldown_seconds)
 
     def _log_upstream(self, record: dict[str, Any]) -> None:
@@ -223,6 +227,7 @@ class ArxivSource:
                 feed_metadata=feed_metadata,
                 storage="sqlite_query_cache",
             )
+            self._cache_papers(results, native, params, feed_metadata)
             return results[:target]
 
         encoded = urlencode(params)
@@ -249,7 +254,50 @@ class ArxivSource:
             request_method=method.upper(),
             feed_metadata=feed_metadata,
         )
+        for result in results:
+            result.metadata["arxiv_egress_route"] = response.extensions["arxiv_egress_route"]
+        self._cache_papers(results, native, params, feed_metadata)
         return results[:target]
+
+    def _cache_papers(
+        self, results: list[SearchResult], native: ArxivParameters, params: dict[str, object],
+        feed_metadata: dict[str, object],
+    ) -> None:
+        if self.runtime_store is None:
+            return
+        papers: dict[str, str] = {}
+        grouped: dict[str, list[tuple[int, SearchResult]]] = {}
+        for result in results:
+            version_id = str(result.metadata.get("arxiv_version_id") or "")
+            if not ARXIV_ID.fullmatch(version_id):
+                continue
+            base_id = re.sub(r"v\d+$", "", version_id)
+            encoded = result.model_dump_json()
+            version = re.search(r"v(\d+)$", version_id)
+            if version:
+                papers[version_id] = encoded
+            grouped.setdefault(base_id, []).append((int(version.group(1)) if version else 0, result))
+        complete = native.start == 0 and feed_metadata.get("total_results") == len(results)
+        for base_id, candidates in grouped.items():
+            _, result = max(candidates, key=lambda candidate: candidate[0])
+            version_id = str(result.metadata["arxiv_version_id"])
+            # A mixed id_list may return both latest and pinned history, in any order. A filtered
+            # or partial feed cannot establish latest, even if it includes an unversioned request.
+            if base_id in native.id_list and not native.search_query and complete:
+                papers[base_id] = result.model_dump_json()
+            if native.search_query or base_id in native.id_list:
+                # Keep bibliography without claiming the observed version is current. This also
+                # supplies honest metadata if a newer latest alias has expired and cannot be replaced.
+                snapshot = result.model_copy(deep=True)
+                snapshot.metadata.pop("arxiv_version_id", None)
+                snapshot.metadata.update(
+                    arxiv_metadata_version_id=version_id, arxiv_metadata_status="discovery_snapshot",
+                    arxiv_metadata_incomplete=True, pdf_url=f"https://arxiv.org/pdf/{base_id}",
+                    source_url=f"https://arxiv.org/src/{base_id}",
+                )
+                snapshot.url = f"https://arxiv.org/abs/{base_id}"
+                papers[f"discovery:{base_id}"] = snapshot.model_dump_json()
+        self.runtime_store.cache_papers(papers, self.endpoint, params)
 
     async def _categories(
         self,
@@ -261,17 +309,23 @@ class ArxivSource:
             self.runtime_store.get_cached_response(ARXIV_TAXONOMY_URL, cache_parameters)
             if self.runtime_store else None
         )
+        route = None
         if taxonomy is None:
-            taxonomy = (await self._request_upstream(
+            response = await self._request_upstream(
                 "main",
                 self.main_site_min_start_interval_seconds,
                 "GET",
                 ARXIV_TAXONOMY_URL,
                 headers={"Accept": "text/html"},
-            )).text
+            )
+            taxonomy = response.text
+            route = response.extensions["arxiv_egress_route"]
             if self.runtime_store is not None:
                 self.runtime_store.put_cached_response(ARXIV_TAXONOMY_URL, cache_parameters, taxonomy)
         categories = parse_category_taxonomy(taxonomy)
+        if route is not None:
+            for category in categories:
+                category.metadata["arxiv_egress_route"] = route
         if parameters.search:
             scored = [
                 (_category_search_score(category, parameters.search), category)
@@ -302,30 +356,32 @@ class ArxivSource:
                 provider="arxiv",
             )
         workspace = safe_workspace_dir(request.workspace_dir, self.documents.allowed_workspace_roots)
-        lookup = request.model_copy(update={
-            "max_results": 1,
-            "provider_request": ProviderRequest(
-                operation="query",
-                parameters={"id_list": [parameters.arxiv_id], "max_results": 1},
-            ),
-        })
-        papers = await self.search(lookup)
-        if len(papers) != 1:
-            raise ServiceError(
-                "arxiv_paper_not_found",
-                f"arXiv paper '{parameters.arxiv_id}' was not found",
-                status_code=404,
-                provider="arxiv",
+        requested_id = parameters.arxiv_id
+        cached_paper = self.runtime_store.get_cached_paper(requested_id) if self.runtime_store else None
+        if cached_paper is None and self.runtime_store and not re.search(r"v\d+$", requested_id):
+            cached_paper = self.runtime_store.get_cached_paper(f"discovery:{requested_id}")
+        try:
+            paper = (
+                SearchResult.model_validate_json(cached_paper) if cached_paper else identity_only_paper(requested_id)
             )
-        paper = papers[0]
-        version_id = str(paper.metadata.get("arxiv_version_id") or "")
-        pdf_url = str(paper.metadata.get("pdf_url") or "")
-        if not ARXIV_ID.fullmatch(version_id) or not pdf_url.startswith("https://"):
-            raise ServiceError(
-                "invalid_provider_response",
-                "arXiv metadata did not contain an exact PDF identity",
-                provider="arxiv",
-            )
+        except ValueError:
+            cached_paper = None
+            paper = identity_only_paper(requested_id)
+        version_id = str(paper.metadata.get("arxiv_version_id") or requested_id)
+        if not ARXIV_ID.fullmatch(version_id) or (
+            version_id != requested_id and re.sub(r"v\d+$", "", version_id) != requested_id
+        ):
+            paper = identity_only_paper(requested_id)
+            version_id = requested_id
+            cached_paper = None
+        exact_version = bool(re.search(r"v\d+$", version_id))
+        if cached_paper:
+            paper.metadata.update(arxiv_request_method="CACHE", arxiv_storage="sqlite_paper_metadata_cache")
+            if paper.metadata.get("arxiv_metadata_status") != "discovery_snapshot":
+                paper.metadata.update(arxiv_metadata_status="verified_query", arxiv_metadata_incomplete=False)
+        pdf_url = f"https://arxiv.org/pdf/{version_id}"
+        paper.metadata["pdf_url"] = pdf_url
+        paper.url = f"https://arxiv.org/abs/{version_id}"
 
         key = stable_search_id("arxiv-paper", version_id)
         output_dir = safe_output_dir(f"artifacts/arxiv/papers/{key}", workspace)
@@ -335,7 +391,13 @@ class ArxivSource:
             and self.material_cache.restore_tree("arxiv-paper-v2", cache_key, output_dir)
         )
         pdf_path = output_dir / "paper.pdf"
-        if pdf_path.is_file() and not pdf_path.is_symlink():
+        ttl = (self.material_cache.ttl_seconds if self.material_cache else
+               self.runtime_store.cache_ttl_seconds if self.runtime_store else 24 * 60 * 60)
+        # Acquisition TTL governs restored material; deduplicated blobs may have older mtimes.
+        local_pdf_fresh = cache_hit or exact_version or (
+            pdf_path.is_file() and time.time() - pdf_path.stat().st_mtime < ttl
+        )
+        if local_pdf_fresh and pdf_path.is_file() and not pdf_path.is_symlink():
             if pdf_path.stat().st_size > self.documents.max_bytes or not has_pdf_signature(pdf_path):
                 raise ServiceError(
                     "invalid_document",
@@ -352,6 +414,7 @@ class ArxivSource:
                 headers={"Accept": "application/pdf"},
             )
             content = response.content
+            paper.metadata["arxiv_egress_route"] = response.extensions["arxiv_egress_route"]
             if len(content) > self.documents.max_bytes:
                 raise ServiceError(
                     "document_too_large",
@@ -365,7 +428,19 @@ class ArxivSource:
                     "arXiv PDF download did not contain a valid PDF signature",
                     provider="arxiv",
                 )
+            resolved_version = pdf_response_version(response, requested_id)
+            if resolved_version:
+                if exact_version and version_id != resolved_version:
+                    raise ServiceError(
+                        "invalid_provider_response", "arXiv PDF version differs from the requested version",
+                        provider="arxiv",
+                    )
+                version_id = resolved_version
+                paper.metadata["arxiv_version_id"] = version_id
+                paper.metadata["pdf_url"] = f"https://arxiv.org/pdf/{version_id}"
+                paper.url = f"https://arxiv.org/abs/{version_id}"
             write_atomic(pdf_path, content)
+            cache_hit = False
 
         markdown_path = output_dir / "paper.md"
         manifest_path = output_dir / "parser-manifest.json"
@@ -387,9 +462,8 @@ class ArxivSource:
             write_atomic(markdown_path, markdown.encode("utf-8"))
             write_atomic(manifest_path, json.dumps(parser_manifest, sort_keys=True).encode("utf-8"))
             if self.material_cache:
-                # The cache key includes the immutable arXiv version, so this tree does not expire with the TTL.
                 self.material_cache.store_tree(
-                    "arxiv-paper-v2", cache_key, output_dir, immutable=True
+                    "arxiv-paper-v2", cache_key, output_dir, immutable=exact_version
                 )
         if not markdown.strip():
             raise ServiceError("empty_document", "Document Convert returned empty Markdown", provider="arxiv")
@@ -404,6 +478,8 @@ class ArxivSource:
             "material_cache_hit": cache_hit,
             "parser_manifest": parser_manifest,
             "provider_implementation": "arxiv_atom_document_runtime_v3",
+            "arxiv_requested_id": requested_id,
+            "arxiv_version_resolved": bool(re.search(r"v\d+$", version_id)),
         })
         return [result]
 
@@ -443,6 +519,7 @@ class ArxivSource:
                         provider="arxiv",
                     )
                 result = parse_paper_front(response.content, version_id, page_url)
+                result.metadata["arxiv_egress_route"] = response.extensions["arxiv_egress_route"]
 
             if self.material_cache:
                 cache_dir.mkdir(parents=True)
@@ -472,27 +549,47 @@ class ArxivSource:
             "query": _query_summary(params or form),
         }
         started = time.monotonic()
+        actual_start_at = None
+        managed_entry = None
+        egress_manager = getattr(self.http, "arxiv_egress", None)
+        route = "direct"
         try:
             if self.runtime_store is not None:
-                while lease is None:
-                    # Nonblocking acquisition has no cancellation gap that can strand a thread-owned lease.
+                waited = 0.0
+                while True:
+                    # Check deadlines under the one shared lease, but release it during waits:
+                    # an API cooldown must not monopolize healthy PDF/HTML admission.
                     lease = self.runtime_store.try_acquire_upstream_lock()
                     if lease is None:
                         await asyncio.sleep(0.05)
-                # arXiv's terms count every host under one client: keep a global
-                # spacing across the api and main scopes, not only within each.
-                waited = 0.0
-                while (delay := self.runtime_store.upstream_delay(scope)) > 0:
+                        continue
+                    recovered_scope = self.runtime_store.recover_upstream_request()
+                    if recovered_scope is not None:
+                        record["recovered_inflight_scope"] = recovered_scope
+                    delay = self.runtime_store.upstream_delay(scope)
+                    if delay <= 0:
+                        break
+                    lease.release()
+                    lease = None
                     await asyncio.sleep(delay)
                     waited += delay
                 record["slot_wait_ms"] = round(waited * 1_000)
-                # No await between recording both actual-start deadlines and invoking HTTP.
-                self.runtime_store.record_upstream_start(
+                if len(self.egress_routes) > 1:
+                    route = self.runtime_store.egress_route(tuple(self.egress_routes), scope=scope)
+                admission_started = time.monotonic()
+                self.runtime_store.begin_upstream_request(
                     scope, min_interval_seconds, self.global_min_start_interval_seconds
                 )
+                record["admission_write_ms"] = round((time.monotonic() - admission_started) * 1_000)
             started = time.monotonic()
-            record["request_started_at"] = datetime.now(UTC).isoformat()
-            response = await self.http.request(
+            if egress_manager is not None:
+                gateway, managed_entry = egress_manager.acquire(route)
+            else:
+                gateway = self.egress_routes[route]
+            actual_start_at = time.time()
+            record["request_started_at"] = datetime.fromtimestamp(actual_start_at, UTC).isoformat()
+            record["egress_route"] = route
+            response = await gateway.request(
                 "arxiv",
                 method,
                 url,
@@ -501,23 +598,65 @@ class ArxivSource:
                 form=form,
             )
             record.update(status=response.status_code, headers=_upstream_headers(response.headers))
+            response.extensions["arxiv_egress_route"] = route
             return response
         except ServiceError as error:
+            error.details["arxiv_egress_route"] = route
+            global_failure = (
+                error.details.get("circuit_scope") == "provider"
+                or error.details.get("provider_global_unavailable") is True
+                or error.details.get("arxiv_access_scope") == "any"
+            )
+            error.details["arxiv_access_scope"] = "any" if global_failure else scope
+            if global_failure:
+                error.details["provider_global_unavailable"] = True
             record.update(
                 status=error.details.get("upstream_status"), error=error.code,
                 headers=error.details.get("upstream_headers"), body=error.details.get("upstream_body"),
             )
-            if self.runtime_store is not None and error.retryable:
-                cooldown = self._overload_delay(error)
+            if self.runtime_store is not None and (error.retryable or global_failure):
+                cooldown = self._overload_delay(error) if error.retryable else self.overload_cooldown_seconds
                 error.retry_after_ms = round(cooldown * 1_000)
                 record["cooldown_seconds"] = cooldown
-                self.runtime_store.cooldown(cooldown)
+                record["cooldown_scope"] = "any" if global_failure else scope
+                self.runtime_store.cooldown(cooldown, scope="any" if global_failure else scope)
+                if len(self.egress_routes) > 1 and not global_failure:
+                    route_scope = scope if error.details.get("upstream_status") is not None else "any"
+                    record["egress_failure_scope"] = route_scope
+                    next_route = self.runtime_store.fail_egress_route(
+                        route, tuple(self.egress_routes), cooldown, scope=route_scope,
+                    )
+                    if next_route is not None:
+                        error.details["arxiv_egress_next_route"] = next_route
+                        record["egress_next_route"] = next_route
             raise
         finally:
-            if lease is not None:
-                lease.release()
-            record["elapsed_ms"] = round((time.monotonic() - started) * 1_000)
-            self._log_upstream(record)
+            try:
+                if lease is not None and actual_start_at is not None:
+                    self.runtime_store.record_upstream_start(
+                        scope, min_interval_seconds, self.global_min_start_interval_seconds,
+                        started_at=actual_start_at,
+                    )
+            finally:
+                if egress_manager is not None:
+                    egress_manager.release(managed_entry)
+                if lease is not None:
+                    lease.release()
+                record["elapsed_ms"] = round((time.monotonic() - started) * 1_000)
+                self._log_upstream(record)
+
+    @property
+    def egress_routes(self) -> dict[str, HttpGateway]:
+        manager = getattr(self.http, "arxiv_egress", None)
+        return manager.routes if manager is not None else self._egress_routes
+
+    @egress_routes.setter
+    def egress_routes(self, routes: dict[str, HttpGateway]) -> None:
+        self._egress_routes = routes
+        manager = getattr(self.http, "arxiv_egress", None)
+        if manager is not None:
+            manager.static_routes = dict(routes)
+            manager._routes = dict(routes)
 
     @staticmethod
     def _validate_request(request: SearchRequest) -> ArxivParameters:
@@ -931,6 +1070,34 @@ def ensure_expected_page(start: int, results: list[SearchResult], feed_metadata:
         )
 
 
+def pdf_response_version(response: httpx.Response, requested_id: str) -> str | None:
+    base_id = re.sub(r"v\d+$", "", requested_id)
+    candidates = []
+    filename = re.search(r'filename="?([^";]+)', response.headers.get("content-disposition", ""))
+    if filename:
+        candidates.append(filename.group(1).strip().removesuffix(".pdf"))
+    candidates.append(response.url.path.removeprefix("/pdf/").removesuffix(".pdf"))
+    return next((candidate for candidate in candidates if ARXIV_ID.fullmatch(candidate)
+                 and re.search(r"v\d+$", candidate) and re.sub(r"v\d+$", "", candidate) == base_id), None)
+
+
+def identity_only_paper(arxiv_id: str) -> SearchResult:
+    base_id = re.sub(r"v\d+$", "", arxiv_id)
+    return SearchResult(
+        id=stable_search_id("arxiv", f"https://arxiv.org/abs/{base_id}"),
+        title=f"arXiv {arxiv_id}",
+        url=f"https://arxiv.org/abs/{arxiv_id}",
+        snippet="",
+        metadata={
+            "arxiv_id": base_id,
+            **({"arxiv_version_id": arxiv_id} if re.search(r"v\d+$", arxiv_id) else {}),
+            "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}",
+            "arxiv_metadata_status": "identity_only",
+            "arxiv_metadata_incomplete": True,
+        },
+    )
+
+
 def short_arxiv_id(raw_id: str) -> str:
     parsed = urlsplit(raw_id)
     path = parsed.path if parsed.scheme or parsed.netloc else raw_id
@@ -992,6 +1159,7 @@ def _build(deps: SourceDeps) -> ArxivSource:
         deps.documents,
         deps.material_cache,
         settings.arxiv_global_min_start_interval_seconds,
+        egress_routes=deps.http.egress_routes,
     )
 
 
