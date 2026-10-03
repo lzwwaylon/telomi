@@ -956,9 +956,11 @@ def test_arxiv_download_pdf_converts_to_readable_markdown(
     upstream_scopes: list[tuple[str, float]] = []
     original_start = ArxivRuntimeStore.record_upstream_start
 
-    def record_start(self, scope: str, min_interval_seconds: float, global_min_interval_seconds: float) -> None:
+    def record_start(
+        self, scope: str, min_interval_seconds: float, global_min_interval_seconds: float, **kwargs
+    ) -> None:
         upstream_scopes.append((scope, min_interval_seconds))
-        original_start(self, scope, min_interval_seconds, global_min_interval_seconds)
+        original_start(self, scope, min_interval_seconds, global_min_interval_seconds, **kwargs)
 
     monkeypatch.setattr(ArxivRuntimeStore, "record_upstream_start", record_start)
     atom = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1035,7 +1037,7 @@ def test_arxiv_download_pdf_converts_to_readable_markdown(
     assert markdown_path.read_text() == "# Agent Evaluation\n\nConverted paper body.\n"
     assert result["metadata"]["resource_type"] == "paper_document"
     assert result["metadata"]["parser_manifest"]["parser"] == "docling"
-    assert [scope for scope in upstream_scopes if scope[0] != "any"] == [("api", 0), ("main", 0.05)]
+    assert upstream_scopes == [("main", 0.05)], "known PDF identities do not require metadata API admission"
 
 
 def test_arxiv_pdf_cache_reuses_download_and_conversion_across_workspaces(
@@ -1301,15 +1303,20 @@ def test_arxiv_429_without_retry_after_keeps_evidence_without_bypassing_cooldown
     assert rows[0]["query"]["search_query"] == "all:overload"
 
 
-def test_arxiv_overload_ladder_escalates_then_resets() -> None:
+def test_arxiv_overload_ladder_escalates_per_scope_then_resets(monkeypatch) -> None:
     from research_source_service.sources.arxiv import ArxivSource
 
+    clock = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
     source = ArxivSource(http=None, endpoint="https://export.arxiv.org/api/query", overload_cooldown_seconds=900)  # type: ignore[arg-type]
     blind = lambda: github_module.ServiceError("provider_rate_limit", "429", retryable=True)  # noqa: E731
     assert [source._overload_delay(blind()) for _ in range(5)] == [20, 60, 180, 900, 900]
     stated = github_module.ServiceError("provider_rate_limit", "429", retryable=True, retry_after_ms=45_000)
     assert source._overload_delay(stated) == 45
-    source._last_overload_at = 0.0
+    main = github_module.ServiceError("provider_rate_limit", "429", retryable=True,
+                                      details={"arxiv_access_scope": "main"})
+    assert source._overload_delay(main) == 20, "API strikes do not spend the content service's first backoff step"
+    clock[0] += 30 * 60 + 1
     assert source._overload_delay(blind()) == 20
 
 

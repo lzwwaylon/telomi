@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { Type, type Static } from "@sinclair/typebox";
 
 import { ArtifactRefSchema, type RunArtifactRef } from "../agent-runtime/artifact-store.js";
-import { validateJsonSchema, validateSchema } from "../agent-runtime/structured-output.js";
+import { validateJsonSchema } from "../agent-runtime/structured-output.js";
 import { stableJson } from "../lib/hash.js";
 import { writeFileAtomic } from "../lib/fs.js";
 import { isRecord } from "../lib/values.js";
@@ -146,16 +146,6 @@ export type RunStatus = Static<typeof RunStatusSchema>;
 export type RunIdentityPins = Static<typeof IdentityPinsSchema>;
 export type RunStateV2 = Static<typeof RunStateSchema>;
 
-// Admission needs a validated terminal lifecycle, not a resumable business checkpoint.
-// Historical terminal payloads stay readable for liveness without changing their meaning.
-const TerminalRunLifecycleSchema = Type.Object({
-	...Type.Pick(RunStateSchema, [
-		"schema_version", "workflow_id", "workflow_version", "run_id", "goal_id", "status",
-		"state_revision", "started_at", "updated_at", "canonical_report", "skip_reason",
-	]).properties,
-	finished_at: NonEmptyString,
-}, { additionalProperties: true });
-
 const allowedTransitions: Record<RunStatus, readonly RunStatus[]> = {
 	initialized: ["search_batch_running", "evidence_materializing", "plan_authoring", "skipped", "failed", "cancelled", "interrupted"],
 	search_batch_running: ["evidence_materializing", "skipped", "failed", "cancelled", "interrupted"],
@@ -247,6 +237,12 @@ export class RunStateStore {
 	load(expectedPins?: RunIdentityPins): RunStateV2 | undefined {
 		if (!existsSync(this.statePath)) return undefined;
 		const parsed = JSON.parse(readFileSync(this.statePath, "utf-8")) as unknown;
+		// Workflow 26 renamed this persisted mode without changing the checkpoint version.
+		// Normalize only reads; new writes still use the current strict schema.
+		if (isRecord(parsed) && isSupportedRunVersion(parsed) && isRecord(parsed.report_flow)
+			&& isRecord(parsed.report_flow.knowledge_input) && parsed.report_flow.knowledge_input.mode === "findout") {
+			parsed.report_flow.knowledge_input.mode = "notes";
+		}
 		const state = validateRunState(parsed);
 		if (expectedPins && stableJson(state.pins) !== stableJson(expectedPins)) {
 			throw new Error("checkpoint_identity_drift: Run identity pins do not match the current Runtime");
@@ -291,20 +287,11 @@ export class RunStateStore {
 	}
 
 	isActive(): boolean {
-		if (!existsSync(this.statePath)) return false;
-		const parsed: unknown = JSON.parse(readFileSync(this.statePath, "utf-8"));
-		if (isRecord(parsed) && (TERMINAL_RUN_STATUSES as readonly unknown[]).includes(parsed.status)) {
-			const lifecycle = validateSchema(TerminalRunLifecycleSchema, parsed);
-			if (lifecycle.status === "published" && !lifecycle.canonical_report) throw new Error("Published Run requires a canonical report");
-			if (lifecycle.status === "skipped" && !lifecycle.skip_reason) throw new Error("Skipped Run requires skip_reason and finished_at");
-			if (lifecycle.status !== "skipped" && lifecycle.skip_reason) throw new Error("Only a skipped Run may declare skip_reason");
-			return false;
-		}
-		return isActiveRunStatus(validateRunState(parsed).status);
+		const state = this.load();
+		return state !== undefined && isActiveRunStatus(state.status);
 	}
 
 	recoverInterrupted(now = new Date()): boolean {
-		if (!this.isActive()) return false;
 		const state = this.load();
 		if (!state || !isActiveRunStatus(state.status)) return false;
 		const failedStage = state.status;

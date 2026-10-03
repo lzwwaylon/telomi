@@ -80,6 +80,7 @@ import { createTraceRouter } from "./observability/trace-api.js";
 import { createPromptRegistryRouter } from "./agent-runtime/prompt-registry-api.js";
 import { PromptRegistry } from "./agent-runtime/prompt-registry.js";
 import { GoalTopicPlanActivation, GoalTopicPlanStore, createTopicPlanRouter } from "./goals/topic-plan/index.js";
+import { createDiscoveryProjection } from "./goals/topic-plan/discovery-projection.js";
 import { createAvatarRouter } from "./goals/avatar/api.js";
 import { buildTopicPlanConfirmedEvent } from "./main-agent/topic-readiness-guard.js";
 import { listWikiEditions } from "./wiki/editions.js";
@@ -87,6 +88,8 @@ import { resumeWikiUpdate } from "./wiki/update-runner.js";
 import { registerSavedInvestigationCues, startGoalCueWikiUpdates } from "./research/cue-wiki-trigger.js";
 import { createContentSearchRouter } from "./search/content-search.js";
 import { toErrorMessage } from "./lib/values.js";
+import { NetworkEgressManager } from "./network/manager.js";
+import { createNetworkEgressRouter } from "./network/api.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const rootDir = join(__dirname, "..");
@@ -128,6 +131,7 @@ if (discoveredCredentials.length > 0) {
 	console.log(`[telomi] local credentials discovered: ${discoveredCredentials.join(", ")}`);
 }
 // Install lifecycle handling before the first managed service can be spawned.
+const networkEgress = new NetworkEgressManager({ dataDir: workspaceDir, sourceService: getResearchSourceServiceClient() });
 let startupComplete = false;
 let shutdownPromise: Promise<void> | undefined;
 // Stay subscribed: node --watch forwards the process-group signal again, and the
@@ -142,6 +146,7 @@ const browserHost = new BrowserHost({
 });
 try {
 	await getResearchSourceServiceManager().ensureReady();
+	void networkEgress.start().catch(() => console.warn("[network] Managed egress recovery is deferred; retry in Settings"));
 } catch (error) {
 	await getResearchSourceServiceManager().close();
 	throw error;
@@ -379,6 +384,7 @@ console.log(
 const app = express();
 app.use(cors({ origin: (origin, callback) => callback(null, isAllowedBrowserOrigin(origin, port)) }));
 app.use(express.json({ limit: "50mb" }));
+app.use(createNetworkEgressRouter(networkEgress, port));
 app.use(createBrowserToolRouter(browserSessions, browserToolToken));
 app.use(createBrowserObservationRouter(browserSessions, (goalId) => Boolean(goals.getGoal(goalId))));
 const audioLocalRuntime = getAudioLocalRuntimeManager();
@@ -682,9 +688,10 @@ app.get("/api/goals/:goalId/discoveries", (req, res) => {
 		const valid = new Set(["open", "closed"]);
 		if (requested?.some((status) => !valid.has(status))) throw new Error("Invalid Discovery status filter");
 		const store = new GoalTopicPlanStore(goal.id, workspaceDir);
-		res.json(requested
+		const project = createDiscoveryProjection(join(workspaceDir, goal.id));
+		res.json((requested
 			? store.listDiscoveries(requested as Array<"open" | "closed">)
-			: store.readDiscoveryInbox());
+			: store.readDiscoveryInbox()).map(project));
 	} catch (error) {
 		res.status(400).json({ error: toErrorMessage(error) });
 	}
@@ -694,7 +701,8 @@ app.get("/api/goals/:goalId/discoveries/:candidateId", (req, res) => {
 	const goal = goals.getGoal(req.params.goalId);
 	if (!goal) return void res.status(404).json({ error: "Unknown goal" });
 	try {
-		res.json(new GoalTopicPlanStore(goal.id, workspaceDir).readDiscovery(req.params.candidateId));
+		const candidate = new GoalTopicPlanStore(goal.id, workspaceDir).readDiscovery(req.params.candidateId);
+		res.json(createDiscoveryProjection(join(workspaceDir, goal.id))(candidate));
 	} catch (error) {
 		res.status(404).json({ error: toErrorMessage(error) });
 	}
@@ -706,7 +714,7 @@ app.post("/api/goals/:goalId/discoveries/:candidateId/ignore", (req, res) => {
 	try {
 		const candidate = new GoalTopicPlanStore(goal.id, workspaceDir).ignoreDiscovery(req.params.candidateId);
 		publish({ type: "discovery:changed", goalId: goal.id, candidateId: candidate.id, status: candidate.status, ts: new Date().toISOString() });
-		res.json(candidate);
+		res.json(createDiscoveryProjection(join(workspaceDir, goal.id))(candidate));
 	} catch (error) {
 		res.status(409).json({ error: toErrorMessage(error) });
 	}
@@ -718,7 +726,7 @@ app.post("/api/goals/:goalId/discoveries/:candidateId/reopen", (req, res) => {
 	try {
 		const candidate = new GoalTopicPlanStore(goal.id, workspaceDir).reopenDiscovery(req.params.candidateId);
 		publish({ type: "discovery:changed", goalId: goal.id, candidateId: candidate.id, status: candidate.status, ts: new Date().toISOString() });
-		res.json(candidate);
+		res.json(createDiscoveryProjection(join(workspaceDir, goal.id))(candidate));
 	} catch (error) {
 		res.status(409).json({ error: toErrorMessage(error) });
 	}
@@ -960,6 +968,12 @@ function shutdown(signal: NodeJS.Signals): Promise<void> {
 }
 async function performShutdown(signal: NodeJS.Signals): Promise<void> {
 	console.log(`[telomi] received ${signal}, shutting down`);
+	const exitsClosed = await networkEgress.close(async () => {
+		if (process.env.TELOMI_RESEARCH_SOURCE_BASE_URL?.trim()) return false;
+		await getResearchSourceServiceManager().close();
+		return true;
+	});
+	if (!exitsClosed) console.warn("[network] External Source Service did not acknowledge route removal before shutdown");
 	if (!startupComplete) {
 		await getResearchSourceServiceManager().close();
 		await getHindsightRuntimeManager().close();

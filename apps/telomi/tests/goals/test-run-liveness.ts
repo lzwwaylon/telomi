@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GoalSnapshot } from "../../shared/types.js";
-import { canResumeRunState, RUN_WORKFLOW_ID, RUN_WORKFLOW_VERSION, RunStateStore } from "../../server/research/run-state.js";
+import { canResumeRunState, RUN_WORKFLOW_ID, RUN_WORKFLOW_VERSION, RunStateStore, validateRunState } from "../../server/research/run-state.js";
 import type { GoalScheduledResearchRequest, GoalSession } from "../../server/goals/execution.js";
 import { GoalService } from "../../server/goals/service.js";
 import { saveSettings } from "../../server/config/settings.js";
@@ -269,8 +269,41 @@ try {
 	assert.equal(cancelledStore.load()?.status, "cancelled", "Cancellation during setup must not become resumable");
 	assert.equal(service.isGoalActive(goalId), false);
 
-	// Unsupported checkpoints are rejected without rewriting their persisted contents.
+	// Supported historical input names are normalized without rewriting their checkpoints.
 	const current = store.load()!;
+	const artifact = { relative_path: "artifacts/report.md", sha256: "a".repeat(64), byte_length: 1 };
+	const historical = {
+		...current, status: "published", finished_at: current.updated_at, canonical_report: artifact,
+		report_flow: {
+			outline: artifact, execution_plan: artifact,
+			knowledge_input: { mode: "findout", ref: "artifacts/knowledge/findout.json", sha256: artifact.sha256, byte_length: 1 },
+		},
+	};
+	const historicalBytes = JSON.stringify(historical);
+	writeFileSync(store.statePath, historicalBytes);
+	assert.equal(service.isGoalActive(goalId), false, "Published workflow-26 history must not crash the startup liveness check");
+	const loaded = store.load(current.pins)!;
+	assert.deepEqual(loaded, { ...historical, report_flow: {
+		...historical.report_flow, knowledge_input: { ...historical.report_flow.knowledge_input, mode: "notes" },
+	} }, "Only the retired mode is normalized, preserving artifact refs, hashes, identity pins and revision");
+	assert.equal(store.recoverInterrupted(), false, "Published history remains terminal");
+	assert.equal(readFileSync(store.statePath, "utf8"), historicalBytes, "Reading and recovery never rewrite historical checkpoints");
+	assert.equal((await service.startRun(goalId, "question after historical report")).queued, false,
+		"chat admission remains available after a compatible historical report");
+	assert.equal(prompts.at(-1), "question after historical report");
+	snapshot.isStreaming = false;
+	onSnapshot(snapshot);
+	assert.equal(readFileSync(store.statePath, "utf8"), historicalBytes);
+	assert.throws(() => store.load({ ...current.pins, pipeline: "changed" }), /checkpoint_identity_drift/u);
+	assert.throws(() => validateRunState(historical), /knowledge_input\/mode/u, "New checkpoints still reject the retired mode");
+	assert.throws(() => store.save(loaded, JSON.parse(historicalBytes)), /knowledge_input\/mode/u, "Writes remain strict");
+	assert.equal(readFileSync(store.statePath, "utf8"), historicalBytes);
+	writeFileSync(store.statePath, JSON.stringify({ ...historical, report_flow: {
+		...historical.report_flow, knowledge_input: { ...historical.report_flow.knowledge_input, mode: "unknown" },
+	} }));
+	assert.throws(() => store.load(), /knowledge_input\/mode/u, "Unknown modes cannot masquerade as compatible history");
+	writeFileSync(store.statePath, JSON.stringify(current));
+	// Unsupported checkpoints remain errors and retain their persisted contents.
 	for (const version of [
 		{ schema_version: 2, workflow_version: 1 },
 		{ schema_version: 1, workflow_version: RUN_WORKFLOW_VERSION },
@@ -292,51 +325,6 @@ try {
 	}
 	writeFileSync(store.statePath, JSON.stringify(current));
 	assert.equal(service.isGoalActive(goalId), false);
-	const historical = { ...current, status: "published", finished_at: "2026-09-25T05:23:56.174Z",
-		canonical_report: { relative_path: "report/final.md", sha256: "a".repeat(64), byte_length: 12 },
-		report_flow: {
-			outline: { relative_path: "artifacts/report-flow/outline.json", sha256: "a".repeat(64), byte_length: 12 },
-			execution_plan: { relative_path: "artifacts/report-flow/executable-plan.json", sha256: "a".repeat(64), byte_length: 12 },
-			knowledge_input: { mode: "findout", ref: "artifacts/report-flow/findout-snapshot", sha256: "a".repeat(64), byte_length: 12 },
-		},
-	};
-	const historicalBytes = `${JSON.stringify(historical, null, 2)}\n`;
-	writeFileSync(store.statePath, historicalBytes);
-	assert.throws(() => store.load(), /knowledge_input\/mode/u,
-		"liveness compatibility must not reinterpret a historical business checkpoint as current RunStateV2");
-	assert.equal(store.isActive(), false);
-	assert.equal(store.recoverInterrupted(), false, "terminal historical payloads need no startup recovery");
-	const restartedWithHistory = new GoalService(workspaceDir, {
-		...unusedGoalExecution,
-		async createRunner(input) { onSnapshot = input.onSnapshot; return session; },
-	});
-	assert.equal(restartedWithHistory.isGoalActive(goalId), false);
-	assert.equal((await restartedWithHistory.startRun(goalId, "question after historical report")).queued, false,
-		"a real chat admission must ignore a validated terminal lifecycle despite an older report payload");
-	assert.equal(prompts.at(-1), "question after historical report");
-	snapshot.isStreaming = false;
-	onSnapshot(snapshot);
-	assert.equal(readFileSync(store.statePath, "utf-8"), historicalBytes,
-		"startup, admission and recovery preserve historical checkpoint bytes");
-	for (const invalid of [
-		{ ...historical, status: "search_batch_running" },
-		{ ...historical, status: "unknown_status" },
-		{ ...historical, finished_at: undefined },
-		{ ...historical, canonical_report: undefined },
-		{ ...historical, workflow_version: 1 },
-		{ ...historical, run_id: "" },
-	]) {
-		const invalidBytes = JSON.stringify(invalid);
-		writeFileSync(store.statePath, invalidBytes);
-		assert.throws(() => store.isActive(), /schema|checkpoint|canonical report/u,
-			"malformed active or terminal lifecycle data must fail closed");
-		await assert.rejects(restartedWithHistory.startRun(goalId, "blocked malformed checkpoint"),
-			/schema|checkpoint|canonical report/u);
-		assert.equal(readFileSync(store.statePath, "utf-8"), invalidBytes);
-	}
-	writeFileSync(store.statePath, "{");
-	assert.throws(() => store.isActive(), SyntaxError);
-	writeFileSync(store.statePath, JSON.stringify(current));
 	console.log("Persisted Run liveness excludes duplicate starts through initialization, scheduling and resume");
 } finally {
 	rmSync(workspaceDir, { recursive: true, force: true });

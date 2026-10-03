@@ -91,9 +91,15 @@ Query caches can be isolated by checkout or evaluation instance. Upstream connec
 ~/.telomi/runtime/research-sources/arxiv-upstream.sqlite3
 ```
 
-`SOURCE_SERVICE_ARXIV_SCHEDULER_SQLITE_PATH` overrides this coordination path. Instances sharing an upstream allowance must use the same scheduler; changing the query-cache path does not create a separate allowance. The shared scheduler contains only pacing state, never cached queries or Source material. On multiple hosts, use one Source Service for the shared allowance.
+`SOURCE_SERVICE_ARXIV_SCHEDULER_SQLITE_PATH` overrides this coordination path. Instances sharing an upstream allowance must use the same scheduler; changing the query-cache path does not create a separate allowance. The shared scheduler contains admission, service-specific cooldown and route-health state, never cached queries or Source material. On multiple hosts, use one Source Service for the shared allowance.
 
-Legacy API requests default to a four-second interval, main-site taxonomy, HTML and PDF requests to eight seconds, and all arXiv requests to a three-second global interval. After waiting for both endpoint and global deadlines, Runtime records the actual admitted request start while holding the cross-process connection lock. Delayed wakeups therefore cannot consume the next request's interval in advance. `request_started_at` in each instance's `arxiv-upstream.jsonl` records this boundary separately from queue entry time.
+Legacy API requests default to a four-second interval, main-site taxonomy, HTML and PDF requests to eight seconds, and all arXiv requests to a three-second global interval. Runtime checks endpoint and global deadlines under the cross-process connection lock, releases it during waits, then reacquires and rechecks before admitting HTTP. A cooled API request cannot monopolize PDF admission.
+
+Admission persists an in-flight intent before HTTP. After admission storage completes, Runtime captures the actual HTTP start and, while still holding the lease, finalizes both deadlines in `finally` using the maximum of existing cooldown and actual start plus interval. Synchronous commit delays and process scheduling therefore cannot consume the next request's interval before HTTP begins. Cancellation after HTTP entry also finalizes pacing and clears the intent. If a process exits without finalizing, the next lease owner detects the intent, conservatively restores the affected scope/global intervals from recovery time, clears it, then releases the lease while waiting. Recovery does not impose the main-site interval on metadata or hold the global lease for that interval.
+
+`request_started_at` in each instance's `arxiv-upstream.jsonl` records actual HTTP entry separately from queue time; `admission_write_ms` exposes synchronous admission storage delays and `recovered_inflight_scope` records crash recovery. All participants must use the current scheduler protocol for crash recovery; older services do not understand in-flight intents.
+
+Metadata queries use the `api` admission/cooldown scope; taxonomy, HTML and PDF use `main`. `arxiv_max_concurrency` applies per operation lane, while the upstream lease still permits only one HTTP connection across both. Failures carry the trusted `arxiv_access_scope` in their details. A scope-specific 429 does not cool the other service. Explicit provider-wide denial, such as a credentials/access-denied response, carries `arxiv_access_scope=any` and `provider_global_unavailable=true` and retains global cooldown. Shared pacing and the failure cooldown are separate policy decisions; API pacing rules alone do not establish a global 429 scope.
 
 This is Runtime code, not Agent execution. The Agent still produces native arXiv query intent through `tools.arxiv`. The Runtime then applies this order:
 
@@ -106,6 +112,65 @@ This is Runtime code, not Agent execution. The Agent still produces native arXiv
 The cache never answers a different query and never searches cached records locally. Complex native grammar, relevance sorting, versions, dates, and pagination therefore retain official API semantics. PDF bytes and parsing outputs use the material cache, while every uncached PDF request still passes through the same host-wide arXiv connection lock.
 
 The same store caches the official arXiv category taxonomy as one exact resource. Category filtering still happens only against that returned taxonomy and never against locally accumulated paper records.
+
+Validated Atom responses, including exact-query cache hits, seed a separate local paper-metadata cache, capped at 10,000 records and bounded by the originating query's creation and expiration. Query timestamps retain full precision; legacy timestamp ties keep the higher observed numeric version. Re-reading an older query cache cannot overwrite newer metadata or extend its TTL. Known PDF identifiers never require a live metadata lookup. Downloads use verified cached metadata when available and otherwise derive only the canonical abstract/PDF locators from the validated identifier. The identity-only result uses an identifier display label, no invented authors or dates, and `arxiv_metadata_status=identity_only` with `arxiv_metadata_incomplete=true`.
+
+Exact discovered versions retain their full bibliography. A complete, unfiltered explicit unversioned `id_list` query establishes the preferred latest alias, selecting the highest returned version per paper when the request also includes pinned history. Feed order does not determine latest. A pinned historical query never overwrites it; filtered or partial feeds cannot establish a latest alias. Discovery and ambiguous lookups also retain a separate unversioned bibliography snapshot, marked `arxiv_metadata_status=discovery_snapshot`, `arxiv_metadata_incomplete=true`, and `arxiv_metadata_version_id` for the observed version. This preserves known title/authors/dates without claiming they were verified against a later unversioned PDF. That snapshot fetches the canonical unversioned URL rather than silently pinning an older observed version.
+
+Version-pinned PDF material is immutable. An unresolved unversioned PDF uses mutable TTL caching, including local-file reuse, and does not claim an exact latest version. When the official PDF response identifies a matching exact version through its locator or filename, the result records that identity; the unversioned cache key remains mutable. Workspace validation and PDF signature/size checks apply before conversion regardless of metadata availability. Cached verified metadata and previously downloaded material take priority over upstream work.
+
+### Optional arXiv egress routes
+
+`SOURCE_SERVICE_ARXIV_EGRESS_PROXIES` is an opt-in JSON mapping of route names to
+HTTP(S) or SOCKS5 proxy URLs, for example
+`{"backup":"socks5h://127.0.0.1:1080"}`. Names use letters, digits, underscores
+and dashes; `direct` is reserved for the implicit direct route. Proxy URLs require
+an explicit port. Keep addresses and any proxy credentials in local configuration.
+SSH SOCKS tunnels over Tailscale work without changing the machine's exit node.
+The Source Service consumes proxy listeners; the host Runtime owns managed SSH tunnels.
+
+The authenticated `POST /v1/arxiv/egress` control endpoint replaces only the managed
+mapping: `{"schema_version":1,"routes":{"ts_example":"socks5h://127.0.0.1:1080"}}`.
+Managed names require the `ts_` prefix. URLs must use SOCKS5 or SOCKS5H, a numeric
+loopback address and an explicit port, without credentials, path, query or fragment.
+Static environment routes remain available; a managed/static name collision is rejected.
+The response is `{"schema_version":1,"route_names":["direct","ts_example"]}`,
+listing all effective route names without addresses. An empty mapping removes managed routes.
+
+Subsequent admission reads the new mapping. An already admitted request retains its
+client until completion; the control response waits for every retired client to drain
+and close before the host can stop the old SSH listeners. Identical mappings reuse
+clients, and a disconnected control caller does not abandon retirement. Shutdown closes
+managed clients. The host periodically resends its mapping because it is not persisted
+across Source Service restarts. Updates preserve shared route health, cooldown and pacing;
+they never add an upstream retry or timeout.
+
+Every admitted call uses one route and makes one upstream request. A transient
+HTTP failure marks its route unhealthy for at least 30 minutes within the affected
+`api` or `main` service and selects an available alternate for that service's subsequent calls.
+Transport failures without an upstream HTTP response mark route health across both services.
+Preference and unhealthy-route state are shared through the scheduler database;
+legacy unscoped route state is conservatively migrated as shared state.
+With no available alternate, no additional retry
+is granted. Route names must identify the same exits in every service sharing
+that scheduler; a process only selects routes present in its own configuration.
+
+Route switching retains the shared single-connection lock, endpoint/global spacing,
+and all applicable Retry-After/cooldown deadlines. A 429 cools down every route for
+the affected service before another request in that scope can start. TypeScript Runtime may use the existing single controlled retry
+within the Provider Child's 60-second overload budget; there is no retry per route
+or hidden retry in Python. The default single-attempt policy outside Provider
+Children stays unchanged unless the service explicitly advertises an alternate.
+Multiple exits do not increase arXiv's allowed request rate.
+
+`arxiv-upstream.jsonl` records `egress_route` and `egress_next_route` when applicable.
+Live results carry `arxiv_egress_route`; failures carry that field and, when
+available, `arxiv_egress_next_route` in their details. Proxy addresses and credentials
+are never included in route state or these fields. Proxy transport errors expose
+only the error class. Private-transport HTTP failures keep the status and parsed
+Retry-After deadline, replacing raw response bodies and headers with safe evidence.
+Direct arXiv calls ignore ambient proxy settings when routing
+is enabled; other Providers retain their existing transport configuration.
 
 ### Material and document cache
 

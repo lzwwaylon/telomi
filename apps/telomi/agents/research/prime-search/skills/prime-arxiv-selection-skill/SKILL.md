@@ -97,9 +97,17 @@ submitted result. Ask Root for a new bounded task if new evidence is needed late
 
 ## Provider unavailable
 
-If `discover_papers()` returns `source_unavailable: true`, stop all arXiv operations, retain only completed candidates,
-and report its `uncovered_ranges`; never retry those dates with a different query. If any completed candidate has usable
-material, write and submit that partial Ledger. If none does, write and submit an empty Ledger. If an operation raises
-`ResearchRuntimeError` with `code == "source_unavailable"`, do the same with an empty Ledger and the error details.
-After submission, make the completion reply start with `source_unavailable provider=arxiv` and include the uncovered
-Evidence Need or dates plus any partial coverage. Root, not this child, chooses another Provider.
+If `discover_papers()` returns `source_unavailable: true`, preserve its records and `uncovered_ranges` and stop
+API discovery. Never retry those dates with another query. For a raised `ResearchRuntimeError` with
+`code == "source_unavailable"`, read `details["arxiv_access_scope"]`:
+
+- `api`: stop search, exact metadata lookup, and `paper_profile()` (it requires API metadata even at front depth).
+  Select retained papers from metadata already acquired and call `download_pdf()` directly with their known exact IDs.
+  Keep the original title, dates, authors, metadata, and discovery query when the download record marks
+  `arxiv_metadata_incomplete: true`; that record provides material and identity, not replacement bibliographic facts.
+- `main`: stop front-matter, category, and PDF acquisition. Preserve papers whose complete material was acquired.
+- Missing scope or a provider-wide access denial: stop all arXiv operations.
+
+Write and submit the partial Ledger from usable material, or an empty Ledger when no material was acquired.
+After submission, make the completion reply start with `source_unavailable provider=arxiv` and include the affected
+access domain, uncovered Evidence Need or dates, and partial coverage. Root, not this child, chooses another Provider.

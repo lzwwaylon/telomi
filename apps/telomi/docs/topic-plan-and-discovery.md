@@ -54,6 +54,8 @@ Dismissing a Candidate closes only that Candidate, without creating a semantic e
 
 The Discovery Inbox must not become an indefinitely growing miscellaneous bucket. Every Candidate must retain Evidence, its reason for creation, related Topics, first-discovered time, and current handling state.
 
+Source links in the Inbox are a read-only projection of each Candidate's pinned Run and Logical Source members that its Evidence actually cites. They do not rewrite historical Candidates or imply that every member of a grouped Source supports the finding. Missing historical Source metadata leaves the Candidate available for discussion and dismissal.
+
 ## 5. Three easily broken decisions
 
 - **Agents do not transcribe Topic IDs.** A canonical Topic ID uses the `topic_` prefix followed by 20 hexadecimal characters. One mistyped character produces an unknown Topic and wastes a repair attempt. Agents that write Topic associations (Note Agent and Wiki Topic classification) read and write short Refs such as `T1` and `T2`; Runtime maps them back to canonical IDs when reading results. Agent-visible input files also contain only short Refs. When validation rejects a Topic reference, it must return the valid short-Ref set so the repair turn does not have to guess again.

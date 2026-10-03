@@ -7,7 +7,6 @@ import { JsonDocumentStore } from "../../lib/json-document-store.js";
 import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import type {
 	DiscoveryCandidate,
-	DiscoveryInboxItem,
 	GoalTopic,
 	GoalTopicPatch,
 	GoalTopicPlan,
@@ -332,7 +331,7 @@ export class GoalTopicPlanStore {
 			.sort((left, right) => right.created_at.localeCompare(left.created_at));
 	}
 
-	readDiscoveryInbox(): DiscoveryInboxItem[] {
+	readDiscoveryInbox(): DiscoveryCandidate[] {
 		return this.readActive() ? this.listDiscoveries(["open"]) : [];
 	}
 

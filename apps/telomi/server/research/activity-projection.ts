@@ -433,7 +433,7 @@ function providerAccessSteps(
 	for (const event of events) {
 		if (event.type === "runtime.provider_access" && typeof event.provider_id === "string"
 			&& typeof event.sub_execution_id === "string") {
-			access.set(`${event.sub_execution_id}\0${event.provider_id}`, event);
+			access.set(`${event.sub_execution_id}\0${event.provider_id}\0${arxivEventScope(event) ?? ""}`, event);
 		}
 		if (event.type === "runtime.provider_fallback_selected" && typeof event.from_provider_id === "string"
 			&& typeof event.to_provider_id === "string") fallbacks.push(event);
@@ -446,20 +446,24 @@ function providerAccessSteps(
 	}
 	const steps = [...access.values()].flatMap((event): ActivityStep[] => {
 		const providerId = String(event.provider_id);
+		const scope = arxivEventScope(event);
+		const scopedAccess = scope ? { arxivAccessScope: scope } : {};
+		const label = providerLabel(providerId, scope);
+		const stepId = `provider-access:${String(event.sub_execution_id)}:${providerId}${scope ? `:${scope}` : ""}`;
 		const execution = executionRounds ? { executionRound: executionRounds.get(event) } : {};
 		const createdAt = stringField(event.created_at) ?? new Date().toISOString();
 		const waitStartedAt = stringField(event.wait_started_at) ?? createdAt;
 		if (event.state === "cooling") return [{
 			...execution,
-			stepId: `provider-access:${String(event.sub_execution_id)}:${providerId}`,
-			title: chrome("activityChrome.provider.coolingTitle", { provider: providerLabel(providerId) }),
-			summary: chrome("activityChrome.provider.coolingSummary", { provider: providerLabel(providerId) }),
+			stepId,
+			title: chrome("activityChrome.provider.coolingTitle", { provider: label }),
+			summary: chrome("activityChrome.provider.coolingSummary", { provider: label }),
 			lifecycle: runFinished ? "finished" : "running",
 			...(runFinished ? { outcome: "partial" as const } : {}),
 			timing: activityTiming(waitStartedAt, createdAt, runFinished ? createdAt : undefined),
 			dependsOnStepIds: [], parallelSteps: [], agentActivities: [],
 			providerAccess: {
-				kind: "cooling", providerId,
+				kind: "cooling", providerId, ...scopedAccess,
 				failureClass: stringField(event.failure_class),
 				waitStartedAt,
 				budgetDeadlineAt: stringField(event.budget_deadline_at),
@@ -470,28 +474,28 @@ function providerAccessSteps(
 			const endedAt = stringField(event.ended_at) ?? createdAt;
 			return [{
 				...execution,
-				stepId: `provider-access:${String(event.sub_execution_id)}:${providerId}`,
-				title: chrome("activityChrome.provider.recoveredTitle", { provider: providerLabel(providerId) }),
-				summary: chrome("goalActivity.providerRecovered", { provider: providerLabel(providerId) }),
+				stepId,
+				title: chrome("activityChrome.provider.recoveredTitle", { provider: label }),
+				summary: chrome("goalActivity.providerRecovered", { provider: label }),
 				lifecycle: "finished", outcome: "succeeded",
 				timing: activityTiming(waitStartedAt, endedAt, endedAt),
 				dependsOnStepIds: [], parallelSteps: [], agentActivities: [],
-				providerAccess: { kind: "recovered", providerId, waitStartedAt },
+				providerAccess: { kind: "recovered", providerId, ...scopedAccess, waitStartedAt },
 			}];
 		}
 		if (event.state !== "unavailable") return [];
 		const endedAt = stringField(event.ended_at) ?? createdAt;
 		return [{
 			...execution,
-			stepId: `provider-access:${String(event.sub_execution_id)}:${providerId}`,
-			title: chrome("activityChrome.provider.unavailableTitle", { provider: providerLabel(providerId) }),
+			stepId,
+			title: chrome("activityChrome.provider.unavailableTitle", { provider: label }),
 			// 具体原因由 providerAccess.reason 带到前端，由 UI locale 决定措辞。
-			summary: chrome("activityChrome.provider.unavailableSummary", { provider: providerLabel(providerId) }),
+			summary: chrome("activityChrome.provider.unavailableSummary", { provider: label }),
 			lifecycle: "finished", outcome: "partial",
 			timing: activityTiming(waitStartedAt, endedAt, endedAt),
 			dependsOnStepIds: [], parallelSteps: [], agentActivities: [],
 			providerAccess: {
-				kind: "unavailable", providerId,
+				kind: "unavailable", providerId, ...scopedAccess,
 				failureClass: stringField(event.failure_class),
 				waitStartedAt, reason: stringField(event.reason),
 			},
@@ -548,12 +552,12 @@ function providerFallbackParts(steps: ActivityStep[], status: RunStateV2["status
 	const fallback = steps.find((step) => step.providerAccess?.kind === "fallback")?.providerAccess;
 	if (fallback?.fallbackOutcome === "succeeded") {
 		return chrome("activityChrome.research.providerReplaced", {
-			provider: providerLabel(unavailable.providerId),
+			provider: providerLabel(unavailable.providerId, unavailable.arxivAccessScope),
 			fallback: providerLabel(fallback.providerId),
 		});
 	}
 	return TERMINAL_RUN_SUMMARY_STATUSES.has(status)
-		? chrome("activityChrome.research.providerUncovered", { provider: providerLabel(unavailable.providerId) })
+		? chrome("activityChrome.research.providerUncovered", { provider: providerLabel(unavailable.providerId, unavailable.arxivAccessScope) })
 		: [];
 }
 
@@ -563,8 +567,13 @@ function stringField(value: unknown): string | undefined {
 	return typeof value === "string" && value ? value : undefined;
 }
 
-function providerLabel(providerId: string): string {
-	if (providerId === "arxiv") return "arXiv";
+function arxivEventScope(event: Record<string, unknown>): "api" | "main" | undefined {
+	return event.provider_id === "arxiv" && (event.arxiv_access_scope === "api" || event.arxiv_access_scope === "main")
+		? event.arxiv_access_scope : undefined;
+}
+
+function providerLabel(providerId: string, scope?: "api" | "main"): string {
+	if (providerId === "arxiv") return scope === "api" ? "arXiv API" : scope === "main" ? "arXiv PDF / HTML" : "arXiv";
 	if (providerId === "huggingface") return "Hugging Face Papers";
 	return humanize(providerId);
 }

@@ -50,6 +50,7 @@ test("settings deep links assemble only the requested panel", () => {
       ["?section=tts", "tts"],
       ["?section=stt", "stt"],
       ["?section=sources", "sources"],
+      ["?section=network", "network"],
       ["?section=appearance", "appearance"],
       // Older links: credentials and the overview now live on the capability pages; `audio` and `voice` folded into recognition.
       ["?section=connections", "chat"],

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, get_args
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -15,12 +17,34 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 CREDENTIAL_LOCATION_FIELDS = ("twitter_cookie_file",)
 
 
+def validate_managed_arxiv_egress(value: dict[str, SecretStr]) -> dict[str, SecretStr]:
+    for name, proxy in value.items():
+        if not re.fullmatch(r"ts_[A-Za-z0-9_-]{1,61}", name):
+            raise ValueError("Managed arXiv route names must use the ts_ prefix and 1-61 safe characters")
+        try:
+            url = urlsplit(proxy.get_secret_value())
+            valid = (
+                url.scheme in {"socks5", "socks5h"} and url.hostname is not None
+                and ipaddress.ip_address(url.hostname).is_loopback and url.port is not None
+                and 1 <= url.port <= 65_535 and not url.username and not url.password
+                and "@" not in url.netloc and url.path == "" and not url.query and not url.fragment
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError(
+                "Managed arXiv routes require a loopback SOCKS URL with an explicit port and no credentials"
+            )
+    return value
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SOURCE_SERVICE_",
         case_sensitive=False,
         extra="ignore",
         populate_by_name=True,
+        hide_input_in_errors=True,
     )
 
     api_token: SecretStr = Field(min_length=16)
@@ -38,6 +62,7 @@ class Settings(BaseSettings):
     material_cache_gc_interval_seconds: int = Field(default=60 * 60, gt=0)
 
     arxiv_max_concurrency: int = Field(default=1, ge=1, le=16)
+    arxiv_egress_proxies: dict[str, SecretStr] = Field(default_factory=dict, repr=False)
     arxiv_sqlite_path: Path = Field(
         default_factory=lambda: Path.home() / ".telomi" / "runtime" / "research-sources" / "arxiv-runtime.sqlite3"
     )
@@ -112,6 +137,24 @@ class Settings(BaseSettings):
     def parse_workspace_roots(cls, value: object) -> object:
         if isinstance(value, str):
             return tuple(Path(item) for item in value.split(os.pathsep) if item.strip())
+        return value
+
+    @field_validator("arxiv_egress_proxies")
+    @classmethod
+    def validate_arxiv_egress_proxies(cls, value: dict[str, SecretStr]) -> dict[str, SecretStr]:
+        for name, proxy in value.items():
+            if name == "direct" or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+                raise ValueError(
+                    "arXiv route names must use 1-64 letters, digits, underscores or dashes; direct is reserved"
+                )
+            try:
+                url = urlsplit(proxy.get_secret_value())
+                valid = (url.scheme in {"http", "https", "socks5", "socks5h"}
+                         and url.hostname and url.port and url.path in {"", "/"} and not url.query and not url.fragment)
+            except ValueError:
+                valid = False
+            if not valid:
+                raise ValueError("arXiv proxies must be HTTP(S) or SOCKS5 URLs with a host and explicit port")
         return value
 
     @field_validator("host")
