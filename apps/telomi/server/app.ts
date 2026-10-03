@@ -80,6 +80,7 @@ import { createTraceRouter } from "./observability/trace-api.js";
 import { createPromptRegistryRouter } from "./agent-runtime/prompt-registry-api.js";
 import { PromptRegistry } from "./agent-runtime/prompt-registry.js";
 import { GoalTopicPlanActivation, GoalTopicPlanStore, createTopicPlanRouter } from "./goals/topic-plan/index.js";
+import { createDiscoveryProjection } from "./goals/topic-plan/discovery-projection.js";
 import { createAvatarRouter } from "./goals/avatar/api.js";
 import { buildTopicPlanConfirmedEvent } from "./main-agent/topic-readiness-guard.js";
 import { listWikiEditions } from "./wiki/editions.js";
@@ -687,9 +688,10 @@ app.get("/api/goals/:goalId/discoveries", (req, res) => {
 		const valid = new Set(["open", "closed"]);
 		if (requested?.some((status) => !valid.has(status))) throw new Error("Invalid Discovery status filter");
 		const store = new GoalTopicPlanStore(goal.id, workspaceDir);
-		res.json(requested
+		const project = createDiscoveryProjection(join(workspaceDir, goal.id));
+		res.json((requested
 			? store.listDiscoveries(requested as Array<"open" | "closed">)
-			: store.readDiscoveryInbox());
+			: store.readDiscoveryInbox()).map(project));
 	} catch (error) {
 		res.status(400).json({ error: toErrorMessage(error) });
 	}
@@ -699,7 +701,8 @@ app.get("/api/goals/:goalId/discoveries/:candidateId", (req, res) => {
 	const goal = goals.getGoal(req.params.goalId);
 	if (!goal) return void res.status(404).json({ error: "Unknown goal" });
 	try {
-		res.json(new GoalTopicPlanStore(goal.id, workspaceDir).readDiscovery(req.params.candidateId));
+		const candidate = new GoalTopicPlanStore(goal.id, workspaceDir).readDiscovery(req.params.candidateId);
+		res.json(createDiscoveryProjection(join(workspaceDir, goal.id))(candidate));
 	} catch (error) {
 		res.status(404).json({ error: toErrorMessage(error) });
 	}
@@ -711,7 +714,7 @@ app.post("/api/goals/:goalId/discoveries/:candidateId/ignore", (req, res) => {
 	try {
 		const candidate = new GoalTopicPlanStore(goal.id, workspaceDir).ignoreDiscovery(req.params.candidateId);
 		publish({ type: "discovery:changed", goalId: goal.id, candidateId: candidate.id, status: candidate.status, ts: new Date().toISOString() });
-		res.json(candidate);
+		res.json(createDiscoveryProjection(join(workspaceDir, goal.id))(candidate));
 	} catch (error) {
 		res.status(409).json({ error: toErrorMessage(error) });
 	}
@@ -723,7 +726,7 @@ app.post("/api/goals/:goalId/discoveries/:candidateId/reopen", (req, res) => {
 	try {
 		const candidate = new GoalTopicPlanStore(goal.id, workspaceDir).reopenDiscovery(req.params.candidateId);
 		publish({ type: "discovery:changed", goalId: goal.id, candidateId: candidate.id, status: candidate.status, ts: new Date().toISOString() });
-		res.json(candidate);
+		res.json(createDiscoveryProjection(join(workspaceDir, goal.id))(candidate));
 	} catch (error) {
 		res.status(409).json({ error: toErrorMessage(error) });
 	}

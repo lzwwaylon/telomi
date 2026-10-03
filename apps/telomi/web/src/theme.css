@@ -1842,6 +1842,7 @@ button.goal-activity-replay-section[aria-expanded="true"]::before { content: "â–
 .col-mid .day-tag::after { content: ""; flex: 1; height: 1px; background: var(--line); margin-left: 12px; }
 
 .goal-discovery-inbox {
+  min-width: 0;
   border-top: 1px solid var(--ink);
   color: var(--ink);
 }
@@ -1883,13 +1884,12 @@ button.goal-activity-replay-section[aria-expanded="true"]::before { content: "â–
   list-style: none;
 }
 .goal-discovery-item summary::-webkit-details-marker { display: none; }
-.goal-discovery-item summary::after {
-  content: "âŒ„";
-  color: var(--ink-faint);
-  font: 14px/1 var(--f-sans);
+.goal-discovery-chevron {
+  color: var(--ink-mut);
+  margin-top: 3px;
   transition: transform 160ms cubic-bezier(.22, 1, .36, 1);
 }
-.goal-discovery-item[open] summary::after { transform: rotate(180deg); }
+.goal-discovery-item[open] .goal-discovery-chevron { transform: rotate(180deg); }
 .goal-discovery-item summary:hover .goal-discovery-copy strong { color: var(--warm-deep); }
 .goal-discovery-item summary:focus-visible {
   outline: 2px solid var(--warm);
@@ -1909,12 +1909,78 @@ button.goal-activity-replay-section[aria-expanded="true"]::before { content: "â–
   line-height: 1.5;
   transition: color 140ms;
 }
+.goal-discovery-item:not([open]) .goal-discovery-copy > strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .goal-discovery-copy small {
   display: block;
   margin-top: 5px;
   color: var(--ink-faint);
   font: 9px/1.4 var(--f-mono);
 }
+.goal-discovery-sources {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+}
+.goal-discovery-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ink-mut);
+  font: 11px/1.5 var(--f-sans);
+  text-decoration: none;
+}
+.goal-discovery-source svg { flex: 0 0 auto; }
+.goal-discovery-source-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.goal-discovery-source-host {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-mut);
+  font-size: 10px;
+}
+.goal-discovery-source-unavailable {
+  color: var(--ink-mut);
+  font-size: 11px;
+}
+.goal-discovery-source[href]:hover { color: var(--warm-deep); }
+.goal-discovery-source[href]:hover .goal-discovery-source-title { text-decoration: underline; text-underline-offset: 3px; }
+.goal-discovery-source[href]:focus-visible,
+.goal-discovery-toggle:focus-visible {
+  outline: 2px solid var(--warm);
+  outline-offset: 3px;
+}
+.goal-discovery-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-mut);
+  font-size: 12px;
+  cursor: pointer;
+}
+.goal-discovery-toggle:hover { background: var(--paper-2); color: var(--ink); }
+.goal-discovery-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
 .goal-discovery-detail {
   margin: -2px 25px 0 40px;
   padding: 0 0 15px;
@@ -1963,6 +2029,10 @@ button.goal-activity-replay-section[aria-expanded="true"]::before { content: "â–
   font-size: 11px;
 }
 .goal-discovery-undo {
+  position: sticky;
+  bottom: 16px;
+  z-index: 2;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1976,13 +2046,17 @@ button.goal-activity-replay-section[aria-expanded="true"]::before { content: "â–
   font-size: 11px;
 }
 .goal-discovery-undo span {
+  flex: 1;
   min-width: 0;
+  width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .goal-discovery-undo button {
   flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2358,6 +2432,9 @@ button.goal-activity-replay-section[aria-expanded="true"]::before { content: "â–
     flex-direction: column;
     gap: 16px;
   }
+  .goal-discovery-toggle,
+  .goal-discovery-undo button { min-height: 44px; }
+  .goal-discovery-source { min-height: 32px; }
   .goal-discovery-actions a,
   .goal-discovery-actions button { min-height: 44px; }
   .discovery-chat-context { grid-template-columns: 18px minmax(0, 1fr) 44px; }
