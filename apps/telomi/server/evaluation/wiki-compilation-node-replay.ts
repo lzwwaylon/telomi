@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 import { RunArtifactStore, type PublishedArtifactDirectoryRef } from "../agent-runtime/artifact-store.js";
 import type { AgentStageRequest, ValidatedStageArtifact } from "../agent-runtime/agent-stage-runtime.js";
 import { beginNodeEvaluationCase, finishNodeEvaluationCase, type NodeReplayRecipe } from "../agent-runtime/node-evaluation.js";
-import { pinWikiModelSelection } from "../wiki/wiki-shard-compiler.js";
-import { isThinkingLevel } from "../agent-runtime/model-config/resolve.js";
+import { pinWikiModelSelection } from "../wiki/compilation-runtime.js";
+import { isThinkingLevel, resolveLLMConfig, resolveStageThinkingLevel, type ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
+import { resolvePrimeModel } from "../agent-runtime/model-policy.js";
+import { TASK_MODEL_ROLE_INFO } from "../config/settings.js";
 import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
 import { requireWikiGoalContext, validateGoalTopicPlan, type GoalTopicPlan, type WikiCompilationRequest, type WikiCompilationResult, type WikiGoalContext } from "../wiki/contracts.js";
 import { WikiCompiler, type WikiReindexRequest, type WikiReindexResult } from "../wiki/wiki-compiler.js";
@@ -17,11 +19,24 @@ import { hashJson } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
 import { recordCaseCaptureFailure } from "../observability/case-capture.js";
-import { frozenWikiEnv, wikiModels, type FrozenWikiModels } from "./wiki-replay.js";
 import { WikiCueOriginSchema, type WikiCueOrigin } from "../wiki/wiki-update-job.js";
 import { validateJsonSchema } from "../agent-runtime/structured-output.js";
 
 const RECIPE = { id: "wiki-compilation", version: 1 };
+interface FrozenWikiModels { root: string; child: string; thinking: ThinkingLevel }
+
+function wikiModels(env: NodeJS.ProcessEnv): FrozenWikiModels {
+	const root = resolveLLMConfig({ envVarName: TASK_MODEL_ROLE_INFO.wikiCurator.modelEnvVar,
+		taskModelRole: "wikiCurator", envOverride: env });
+	if (!root.model) throw new Error("Wiki evaluation requires a configured Root model");
+	return { root: root.model, child: resolvePrimeModel("primeChild", env).selector,
+		thinking: resolveStageThinkingLevel("wikiCurator", "maintenance", env).thinkingLevel };
+}
+
+function frozenWikiEnv(models: FrozenWikiModels): NodeJS.ProcessEnv {
+	return { ...process.env, TELOMI_WIKI_CURATOR_MODEL: models.root,
+		TELOMI_PRIME_AGENT_CHILD_MODEL: models.child, TELOMI_WIKI_CURATOR_THINKING_LEVEL: models.thinking };
+}
 interface FrozenRequest {
 	schema_version: 1;
 	operation: "compile" | "reindex";

@@ -88,6 +88,79 @@ try {
 	const restricted = createFrozenInvestigationTools([frozenInteractions[1]!], false, () => {});
 	assert.throws(() => restricted.replayCall("external_search", { question: "Disallowed" }), /disallows external/u);
 	assert.throws(() => restricted.assertMatched(), /disallows external/u);
+	const wikiInteractions: Extract<NodeEvaluationInteraction, { kind: "tool" }>[] = [
+		{ kind: "tool", name: "wiki_list_topics", label: "wiki_list_topics", description: "Frozen investigation Tool result",
+			arguments: {}, result: { topics: [{ topic_ref: "T1", title: "Implementation", page_count: 1 }] } },
+		{ kind: "tool", name: "wiki_search", label: "wiki_search", description: "Frozen investigation Tool result",
+			arguments: { query: "implementation", top_k: 5, topic_ref: "T1" }, result: { results: [{ page_ref: "P1" }] } },
+		{ kind: "tool", name: "wiki_read_page", label: "wiki_read_page", description: "Frozen investigation Tool result",
+			arguments: { path: "P1" }, result: { page_ref: "P1", title: "Implementation", content: "Frozen Page.", evidence: [] } },
+	];
+	const wikiRunDir = prepare("wiki-tools");
+	await withInvestigationNodeCapture({
+		goalDir: root, goalId: "g", runDir: wikiRunDir, question: "What is implemented?", wikiSha256,
+		model: "test/model", thinking: "medium", metrics: { usage, toolCalls: wikiInteractions.length },
+		execute: async () => {
+			writeFileSync(join(wikiRunDir, "interactions.jsonl"), wikiInteractions.map(({ name, arguments: request, result: response }) =>
+				JSON.stringify({ operation: name, request, response })).join("\n") + "\n");
+			return { id: "wiki-tools", question: "What is implemented?", answer: "Frozen Page.",
+				citation_refs: [], gaps: [], wiki_sha256: wikiSha256 };
+		},
+	});
+	const wikiCasePath = findNodeEvaluationCases(wikiRunDir, "prime-investigation")[0]!.path;
+	const wikiCase = readNodeEvaluationCase(wikiCasePath, wikiRunDir);
+	assert.deepEqual(JSON.parse(readNodeEvaluationFile(wikiCasePath, wikiCase.request.interactions!)), wikiInteractions,
+		"Case Capture preserves the discovered catalog, Topic filter and Page read");
+	const wikiFrozen = createFrozenInvestigationTools(wikiInteractions, false, () => {});
+	for (const interaction of wikiInteractions) {
+		assert.deepEqual(wikiFrozen.replayCall(interaction.name as Parameters<typeof wikiFrozen.replayCall>[0],
+			interaction.arguments), interaction.result);
+	}
+	wikiFrozen.assertMatched();
+	const reorderedWikiArgs = createFrozenInvestigationTools([wikiInteractions[1]!], false, () => {});
+	assert.deepEqual(reorderedWikiArgs.replayCall("wiki_search", { topic_ref: "T1", top_k: 5, query: "implementation" }),
+		wikiInteractions[1]!.result, "equivalent JSON object key order does not change the frozen search scope");
+	reorderedWikiArgs.assertMatched();
+	const citedWikiPage = { ...wikiInteractions[2]!, result: {
+		page_ref: "P1", title: "Implementation", content: "Frozen Page.", evidence: [{
+			cite_ref: "C1", section: "Implementation", cue: "Verified behavior", note: "The feature exists.",
+			anchors: [{ path: "implementation.md", startLine: 2, endLine: 3, content: "Original Wiki evidence." }],
+		}],
+	} };
+	const wikiWriter = { kind: "tool" as const, name: "write_answer", label: "write_answer",
+		description: "Frozen investigation Tool result",
+		arguments: { evidence_refs: ["C1"], requirements: ["Explain implementation"] },
+		result: { answer: "The feature exists. <cite>C1</cite>", citation_refs: ["C1"], gaps: [],
+			coverage: [{ requirement_id: "Q1", citation_refs: ["C1"], gap: "" }] },
+	};
+	const citedWikiInteractions = [citedWikiPage, wikiWriter];
+	const wikiPlan = createFrozenInvestigationReplayPlan(citedWikiInteractions);
+	assert.deepEqual(wikiPlan.steps[1]!.arguments, wikiWriter.arguments,
+		"a Wiki Page's top-level citation evidence reaches the frozen Writer assignment as C refs");
+	const wikiAnswerTools = createFrozenInvestigationTools(citedWikiInteractions, false, () => {});
+	for (const step of wikiPlan.steps) {
+		wikiAnswerTools.replayCall(step.operation as Parameters<typeof wikiAnswerTools.replayCall>[0], step.arguments);
+	}
+	assert.equal(wikiAnswerTools.citationsScope.resolve("C1"), "C1");
+	assert.deepEqual(wikiAnswerTools.evidence.get("C1")?.evidence, [{
+		source_path: "implementation.md", start_line: 2, end_line: 3, excerpt: "Original Wiki evidence.",
+	}], "Wiki evidence anchors remain available to Writer replay");
+	wikiAnswerTools.assertMatched();
+	for (const args of [
+		{ query: "implementation", top_k: 5, topic_ref: "T2" },
+		{ query: "another question", top_k: 5, topic_ref: "T1" },
+		{ query: "implementation", top_k: 5 },
+	]) {
+		const differentScope = createFrozenInvestigationTools([wikiInteractions[1]!], false, () => {});
+		assert.throws(() => differentScope.replayCall("wiki_search", args), /Wiki|frozen|argument/iu,
+			"a scoped frozen search cannot answer a different Topic or query");
+		assert.throws(() => differentScope.assertMatched(), /Wiki|frozen|argument/iu);
+	}
+	const wrongPage = createFrozenInvestigationTools([wikiInteractions[2]!], false, () => {});
+	assert.throws(() => wrongPage.replayCall("wiki_read_page", { path: "P2" }), /Wiki|frozen|argument/iu);
+	const oldCase = createFrozenInvestigationTools(frozenInteractions, true, () => {});
+	assert.throws(() => oldCase.replayCall("wiki_list_topics", {}), /No frozen Tool/u,
+		"a historical Case without Topic discovery cannot invent a catalog");
 	const legacy = { kind: "tool" as const, name: "github_read", label: "github_read", description: "Historical acquisition",
 		arguments: { question: "implementation", repository: "Org/Repo", ref: "v1", paths: ["b.ts", "a.ts"] },
 		result: externalResponse };

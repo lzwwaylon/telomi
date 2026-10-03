@@ -164,7 +164,7 @@ export class WikiUpdateJobStore {
 	}
 
 	start(input: {
-		compiler?: "wiki-compilation" | "shards";
+		compiler?: "wiki-compilation";
 		goalId: string;
 		runId: string;
 		goal: string;
@@ -182,9 +182,12 @@ export class WikiUpdateJobStore {
 	}): WikiUpdateJob {
 		const now = (input.now ?? new Date()).toISOString();
 		const previous = this.load();
+		if (previous && previous.compiler !== "wiki-compilation") {
+			throw new Error("Legacy Wiki Shard updates cannot resume. Start a new Wiki Update.");
+		}
 		const job: WikiUpdateJob = {
 			schema_version: 1,
-			...(input.compiler || previous?.compiler ? { compiler: input.compiler ?? previous!.compiler! } : {}),
+			compiler: input.compiler ?? "wiki-compilation",
 			status: "queued",
 			goal_id: input.goalId,
 			run_id: input.runId,
@@ -451,6 +454,6 @@ function stageOrder(kind: "curation" | "publication"): number {
 }
 
 export function canResumeWikiUpdateJob(job: WikiUpdateJob): boolean {
-	return (job.status === "interrupted" || job.compiler === "wiki-compilation" && job.status === "failed")
+	return job.compiler === "wiki-compilation" && (job.status === "interrupted" || job.status === "failed")
 		&& job.attempts < MAX_WIKI_UPDATE_ATTEMPTS;
 }

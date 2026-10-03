@@ -18,8 +18,15 @@ async def memory_reflect(query: str) -> dict[str, Any]:
     return await _async_call("memory_reflect", {"query": query})
 
 
-async def wiki_search(query: str, top_k: int = 10) -> dict[str, Any]:
-    return await _async_call("wiki_search", {"query": query, "top_k": top_k})
+async def wiki_list_topics() -> dict[str, Any]:
+    return await _async_call("wiki_list_topics", {})
+
+
+async def wiki_search(query: str, top_k: int = 10, *, topic_ref: str | None = None) -> dict[str, Any]:
+    arguments: dict[str, Any] = {"query": query, "top_k": top_k}
+    if topic_ref is not None:
+        arguments["topic_ref"] = topic_ref
+    return await _async_call("wiki_search", arguments)
 
 
 async def wiki_read_page(path: str) -> dict[str, Any]:
@@ -27,6 +34,7 @@ async def wiki_read_page(path: str) -> dict[str, Any]:
 
 
 async def wiki_graph_search(query: str, top_k: int = 10) -> dict[str, Any]:
+    """Compatibility for recorded historical executions; current Wiki callers use wiki_search."""
     return await _async_call("wiki_graph_search", {"query": query, "top_k": top_k})
 
 
@@ -69,5 +77,5 @@ __all__ = [
     "memory_reflect",
     "wiki_search",
     "wiki_read_page",
-    "wiki_graph_search",
+    "wiki_list_topics",
 ]

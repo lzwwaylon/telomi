@@ -39,4 +39,6 @@ ledger.add(
     materials=transcript_rows,
 )
 ledger.write("work/youtube_candidates.json")
+import research_runtime
+research_runtime.finish(provider_id="youtube")
 ```

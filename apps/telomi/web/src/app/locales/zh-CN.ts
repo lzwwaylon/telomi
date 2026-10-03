@@ -562,6 +562,7 @@ export const zhCNMessages = {
 	"activityChrome.wiki.publishInterrupted": "发布 Goal Wiki 已中断",
 	"activityChrome.wiki.publishFailed": "发布 Goal Wiki 失败",
 	"activityChrome.wiki.interruptedReason": "Wiki 更新因后端停止而中断",
+	"activityChrome.wiki.retired": "此 Wiki 更新使用的旧流程已停用，请发起新的 Wiki 更新。",
 	"activityChrome.wiki.batchCheckpoint": "Wiki 更新已保存批次检点，可以继续运行。",
 	"activityChrome.wiki.resume": "继续 Wiki 更新",
 	"activityChrome.wiki.resumeLimit": "Wiki 更新已达到 {{count}} 次续跑上限",

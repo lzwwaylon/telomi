@@ -54,8 +54,8 @@ export async function createAgentSession(options) {
  assert.equal(options.rlmMaxDepth,1);
  assert.equal(options.rlmParentNodeId,'sub-replay');
  assert.match(options.rlmSessionDir,/sub-replay$/);
- assert.deepEqual(options.tools,['ipython','submit_candidate_ledger']);
- assert.deepEqual(options.customTools.map(tool=>tool.name),['submit_candidate_ledger']);
+ assert.deepEqual(options.tools,['ipython']);
+ assert.equal(options.customTools,undefined);
  assert.equal(options.thinkingLevel,'medium');
  assert.equal(options.serviceTier,'flex');
 	return {session:{
@@ -83,7 +83,7 @@ export async function createAgentSession(options) {
 	const inputPath = join(root, "sdk-input.json");
 	writeFileSync(inputPath, JSON.stringify({
 		cwd: output, sessionDir: join(root, "sessions", "sub-replay"), provider: "fixture", model: "test",
-		thinking: "medium", prompt: "frozen task", skills: [], tools: ["ipython", "submit_candidate_ledger"],
+		thinking: "medium", prompt: "frozen task", skills: [], tools: ["ipython"],
 		serviceTier: "flex", contractTools: true, scopedModels: [], rlmMaxDepth: 1, childReplayId: "sub-replay",
 	}));
 	execFileSync(process.execPath, ["--import", "tsx", fileURLToPath(new URL("../../server/research/pipeline/prime-search-sdk-worker.ts", import.meta.url))], {

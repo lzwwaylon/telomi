@@ -985,6 +985,11 @@ try {
 	materializeCapabilities(goalDirectory, historicalContent, ["wiki"]);
 	renameSync(join(historicalContent, "skills/note-agent"), join(historicalContent, "skills/cornell-note"));
 	rmSync(join(historicalContent, ".capability-roster.json"));
+	// Build the recorded historical roster, including empty owners, independently of today's registry.
+	for (const owner of readdirSync(join(historicalContent, "skills"))) {
+		if (!frozenRoster.includes(owner)) rmSync(join(historicalContent, "skills", owner), { recursive: true });
+	}
+	for (const owner of frozenRoster) mkdirSync(join(historicalContent, "skills", owner), { recursive: true });
 	const historicalHash = sha256(stableJson({ skills: frozenRoster.map((agentId) => ({ agentId,
 		sha256: snapshotSkills([join(historicalContent, "skills", agentId)]).sha256 })),
 		wiki: hashDirectory(join(historicalContent, "wiki")) }));

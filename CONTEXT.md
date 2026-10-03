@@ -112,13 +112,13 @@ _Avoid_: Wiki Edition, Topic Index, authoritative Topic assignment
 One immutable version of the Goal Wiki curated for one confirmed Goal Topic Plan revision from the Cornell Evidence Corpus and an optional previous Wiki Edition.
 _Avoid_: permanent canonical page tree, Topic Projection, mutable Wiki
 
-**Wiki Curator**:
-The Agent module that creates the next Wiki Edition by deciding Concept and Entity identity, page boundaries, prose, evidence retention, and current Topic membership.
-_Avoid_: Wiki Router Agent, Topic Projection Agent, per-batch publisher
+**Wiki Compilation**:
+The knowledge-construction module that derives object and concept pages from Cornell Notes and a previous Wiki Edition, retaining supporting evidence and classifying pages into the confirmed Goal Topic Plan.
+_Avoid_: Wiki Curator, Source Organizer, Topic Projection Agent
 
-**Wiki Curator Operation**:
-The Runtime-selected scenario for one Wiki Curator execution: initialize without a previous Edition, update under the same Topic Plan revision, or reframe after the Topic Plan changes.
-_Avoid_: Agent role, semantic Runtime rule, independent pipeline
+**Wiki Topic Reindex**:
+Navigation-only classification of an existing Wiki Edition against a confirmed Goal Topic Plan, preserving page content, evidence and knowledge identities.
+_Avoid_: Wiki reconstruction, page rewriting, semantic relationship generation
 
 **Wiki Update**:
 One bounded execution that incorporates a validated Cornell Note Snapshot into a Goal Wiki and publishes its own result. It has an independent lifecycle even when a Research Run, Main Agent, schedule, or ingestion flow triggers it.
@@ -126,15 +126,7 @@ _Avoid_: Research Stage, Wiki Page edit, background side effect
 
 **Wiki Update Request**:
 An immutable request to run one Wiki Update from a specific validated input, with its trigger and optional parent Activity preserved as provenance.
-_Avoid_: raw Markdown mutation, Research Run continuation, Wiki Curator prompt
-
-**Batch Wiki Shard**:
-An immutable, unpublished Wiki draft built from one bounded Source batch and used only as internal input to one Wiki Curator execution.
-_Avoid_: Goal Wiki, Source Bundle, published Wiki revision
-
-**Wiki Curator Workset**:
-An exclusive set of existing and draft Pages that the Wiki Curator must resolve together while creating one Wiki Edition.
-_Avoid_: Source Group, related Pages, broad topic cluster
+_Avoid_: raw Markdown mutation, Research Run continuation, Wiki Compilation prompt
 
 **Goal Topic Plan**:
 The Goal-scoped, revision-tracked statement of the user's long-term areas of attention, including each Goal Topic's intent, questions, and scope. It guides research, Note extraction, navigation, and monitoring without becoming a domain taxonomy or factual authority.
@@ -241,12 +233,8 @@ The normalized readable representation of one document-shaped Source. Arbitrary 
 _Avoid_: Source Snapshot, Logical Source, Wiki Page
 
 **Wiki Page**:
-A published Concept or Entity Markdown page maintained from Cornell Notes and linked to its supporting Note entries.
+A published object or concept Markdown page maintained from Cornell Notes and linked to its supporting Note entries.
 _Avoid_: Cornell Note, raw Source, factual authority without citations
-
-**Wiki Curator**:
-Legacy name for the Wiki Curator or its internal draft children. New interfaces and Activities use Wiki Curator.
-_Avoid_: current domain term, Source Organizer, Report Writer
 
 **Wiki Index**:
 A Runtime-owned, rebuildable search projection derived from one fixed Goal Knowledge release, including its Sources, Entities, Claims, and Wiki Pages.
@@ -326,7 +314,7 @@ _Avoid_: Search Question, Runtime summary, report outline
 
 **Source Organizer**:
 The fresh Prime Agent that incrementally assigns newly observed or previously ungrouped Source Snapshots to evidence-backed Canonical Source Groups while preserving established Group membership.
-_Avoid_: Prime Search Root, Wiki Curator, deterministic Runtime grouping
+_Avoid_: Prime Search Root, Wiki Compilation, deterministic Runtime grouping
 
 **Canonical Source Group**:
 A durable Goal-scoped identity joining Source Snapshots from distinct Providers only when they directly represent the same canonical research object.
@@ -342,7 +330,7 @@ _Avoid_: Source Snapshot summary, reusable final answer, Wiki Page
 
 **Note Agent**:
 The evidence-reading Agent that produces Cornell Notes either from one complete Logical Source or from pinned original Sources for a specific unresolved question. Both reading modes preserve exact original Source line references.
-_Avoid_: separate Deep Search Agent, global answer writer, relevance grader, Wiki Curator
+_Avoid_: separate Deep Search Agent, global answer writer, relevance grader, Wiki Compilation
 
 **Note Retrieval**:
 Deterministic lookup and resolution of saved Cue Notes with their evidence provenance; it locates existing evidence without performing a new Note Reading.

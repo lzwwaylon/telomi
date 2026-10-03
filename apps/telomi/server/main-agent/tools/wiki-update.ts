@@ -16,7 +16,7 @@ import { sha256 } from "../../lib/hash.js";
 const schema = Type.Object({
 	source_run_id: Type.Optional(Type.String({ minLength: 1,
 		description: "Optional historical Research Run id. Omit to refresh saved investigation Cues or rebuild from the Goal's complete Cornell evidence corpus." })),
-	reason: Type.String({ minLength: 1 }),
+	reason: Type.String({ minLength: 1, description: "The explanation for starting this maintenance operation; the action is always a Wiki update." }),
 	rebuild: Type.Boolean({ description: "True only when the user explicitly asks to rebuild or regenerate the Wiki from scratch." }),
 }, { additionalProperties: false });
 
@@ -35,7 +35,7 @@ export function createWikiUpdateTool(options: {
 	return {
 		name: "wiki_update",
 		label: "wiki_update",
-		description: "Refresh saved Goal evidence into Wiki or explicitly retry interrupted Cue maintenance. Set rebuild=true only for a requested rebuild from the complete saved Cornell corpus. source_run_id selects one historical Research Run. Returns immediately with the update state and Activity id when available.",
+		description: "Start Wiki maintenance when the user requests a refresh or retry. For read-only Wiki Topic discovery and searches, use investigate. The reason field records why this update starts; it does not select another action. Set rebuild=true only for a requested rebuild from the complete saved Cornell corpus. source_run_id selects one historical Research Run. Returns immediately with the update state and Activity id when available.",
 		parameters: schema,
 		execute: async (_toolCallId, input) => {
 			const runtimeDir = serverRuntimeDirForGoal(options.goalId, options.workspaceDir);

@@ -143,6 +143,18 @@ def execution_id() -> str:
     return value or "root"
 
 
+def finish(*, provider_id: str) -> dict[str, Any]:
+    """Validate and freeze this Provider child's final work/<provider_id>_candidates.json.
+
+    Repair that same file and retry when validation fails. A successful response ends acquisition.
+    """
+    if execution_id() == "root":
+        raise ValueError("finish is available only to Provider children")
+    if not isinstance(provider_id, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", provider_id):
+        raise ValueError("provider_id must name the assigned Provider")
+    return _post("/v1/finish", {"provider_id": provider_id})
+
+
 def search_general_web(
     query: str,
     *,
@@ -170,6 +182,30 @@ def search_general_web(
             failure_class="validation",
         )
     return rows
+
+
+def wiki_list_topics() -> dict[str, Any]:
+    """List Topics from this investigation's frozen Wiki; load the receipt with read_handoff."""
+    return _wiki_call("wiki_list_topics", {})
+
+
+def wiki_search(query: str, *, top_k: int = 10, topic_ref: str | None = None) -> dict[str, Any]:
+    """Search the frozen Wiki, optionally within a T-number from wiki_list_topics."""
+    arguments: dict[str, Any] = {"query": query, "top_k": top_k}
+    if topic_ref is not None:
+        arguments["topic_ref"] = topic_ref
+    return _wiki_call("wiki_search", arguments)
+
+
+def wiki_read_page(path: str) -> dict[str, Any]:
+    """Read a returned P-number and its available evidence citation refs."""
+    return _wiki_call("wiki_read_page", {"path": path})
+
+
+def _wiki_call(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if execution_id() != "root":
+        raise ValueError("Wiki tools are available only to the Search Root")
+    return _post("/v1/wiki", {"agent_session_id": "root", "operation": operation, **arguments})
 
 
 def knowledge_search(query: str, *, limit: int = 10) -> dict[str, Any]:

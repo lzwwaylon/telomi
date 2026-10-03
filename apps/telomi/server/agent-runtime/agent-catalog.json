@@ -256,50 +256,6 @@
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
 			]
-		},
-		{
-			"id": "wiki-curator",
-			"displayName": "Wiki Curator",
-			"sourcePath": "apps/telomi/agents/wiki/wiki-curator",
-			"presentationKind": "wiki",
-			"replayPromptModes": [
-				"candidate"
-			],
-			"promptOverrideFields": [],
-			"impactPaths": [
-				"apps/telomi/agents/wiki/wiki-curator/",
-				"apps/telomi/server/wiki/",
-				"apps/telomi/server/agent-runtime/",
-				"apps/telomi/server/evaluation/",
-				"apps/telomi/server/providers/",
-				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
-				"apps/telomi/server/citations/",
-				"apps/telomi/server/embedding/",
-				"apps/telomi/server/media/product-"
-			]
-		},
-		{
-			"id": "wiki-shard-builder",
-			"displayName": "Wiki Shard Builder",
-			"sourcePath": "apps/telomi/agents/wiki/wiki-shard-builder",
-			"presentationKind": "wiki",
-			"replayPromptModes": [
-				"candidate"
-			],
-			"promptOverrideFields": [],
-			"impactPaths": [
-				"apps/telomi/agents/wiki/wiki-shard-builder/",
-				"apps/telomi/server/wiki/",
-				"apps/telomi/server/agent-runtime/",
-				"apps/telomi/server/evaluation/",
-				"apps/telomi/server/providers/",
-				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
-				"apps/telomi/server/citations/",
-				"apps/telomi/server/embedding/",
-				"apps/telomi/server/media/product-"
-			]
 		}
 	]
 }

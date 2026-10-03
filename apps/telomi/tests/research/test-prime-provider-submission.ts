@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as contracts from "../../server/research/pipeline/prime-search-contract.js";
 
-// Execute the production submission Tool, without a model or an upstream request.
+// Execute the production Runtime submission, without a model or an upstream request.
 const root = mkdtempSync(join(tmpdir(), "prime-provider-submission-"));
 try {
 	const child = "sub-submission";
 	const work = join(root, "provider-executions", child, "work");
 	mkdirSync(work, { recursive: true });
-	const tool = contracts.createPrimeSearchContractTools(root)[0]!;
-	const context = { sessionManager: { getSessionDir: () => join(root, "sessions", child) } } as never;
-	const submit = () => tool.execute("submit", { provider_id: "github" }, undefined, undefined, context);
+	const submit = () => contracts.submitProviderCandidateLedger(root, child, "github");
+	await assert.rejects(contracts.submitProviderCandidateLedger(root, "root", "github"), /Only a Prime Search Provider child/u);
+	await assert.rejects(contracts.submitProviderCandidateLedger(root, child, "../github"), /Invalid Provider submission identity/u);
 	writeFileSync(join(work, "github-candidates.json"), '{"candidates":[]}\n');
 	await assert.rejects(submit(), (error: unknown) => {
 		const failure = error as { code?: string; details?: { expected_path?: string } };
@@ -31,7 +31,7 @@ try {
 	await submit(); // An unchanged final submission is idempotent.
 	assert.deepEqual(contracts.primeProviderSubmission(root, child), receipt);
 	writeFileSync(join(work, "arxiv_candidates.json"), '{"candidates":[]}\n');
-	await assert.rejects(tool.execute("wrong-provider", { provider_id: "arxiv" }, undefined, undefined, context),
+	await assert.rejects(contracts.submitProviderCandidateLedger(root, child, "arxiv"),
 		(error: unknown) => (error as { code?: string }).code === "provider_scope_mismatch");
 	assert.equal(readFileSync(join(root, ".runtime/provider-bindings", child), "utf8"), "github\n");
 	const frozen = readFileSync(receipt.ledger_path);
@@ -48,10 +48,9 @@ try {
 	const interrupted = join(root, "provider-executions", "sub-write-failure", "work");
 	mkdirSync(join(interrupted, ".provider-assignment"), { recursive: true });
 	writeFileSync(join(interrupted, "github_candidates.json"), '{"candidates":[]}\n');
-	await assert.rejects(tool.execute("write-failure", { provider_id: "github" }, undefined, undefined,
-		{ sessionManager: { getSessionDir: () => join(root, "sessions", "sub-write-failure") } } as never));
+	await assert.rejects(contracts.submitProviderCandidateLedger(root, "sub-write-failure", "github"));
 	assert.equal(contracts.primeProviderSubmission(root, "sub-write-failure"), undefined,
-		"An auxiliary file failure cannot leave a committed submission behind a failed Tool result");
+		"An auxiliary file failure cannot leave a committed submission behind a failed Runtime response");
 	writeFileSync(receipt.ledger_path, "corrupted frozen bytes\n");
 	assert.throws(() => contracts.primeProviderSubmission(root, child), (error: unknown) =>
 		(error as { code?: string }).code === "provider_submission_corrupt");

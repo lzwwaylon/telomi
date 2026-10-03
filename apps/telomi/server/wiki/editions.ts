@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { isInsideRoot } from "../lib/paths.js";
+import { hashWikiDirectory } from "./files.js";
 
 import { GoalTopicPlanStore } from "../goals/topic-plan/index.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
@@ -60,6 +61,19 @@ export function resolveWikiEdition(workspaceDir: string, goalId: string, revisio
 	const edition = revision ? editions.find((candidate) => candidate.revision === revision) : editions[0];
 	if (!edition) throw new Error(revision ? `Wiki Edition not found for Topic revision ${revision}` : "Wiki Edition not found");
 	return edition;
+}
+
+/** Pin one execution's Wiki, including the empty state before its first publication. */
+export function snapshotWikiEdition(goalDir: string, goalId: string, knowledgeRoot: string): string {
+	if (!existsSync(knowledgeRoot)) {
+		const edition = listWikiEditions(dirname(goalDir), goalId)[0];
+		const publishedRoot = join(goalDir, "wiki", "knowledge");
+		const sourceRoot = existsSync(publishedRoot) ? publishedRoot : edition?.root;
+		mkdirSync(dirname(knowledgeRoot), { recursive: true });
+		if (sourceRoot) cpSync(sourceRoot, knowledgeRoot, { recursive: true });
+		else mkdirSync(knowledgeRoot, { recursive: true });
+	}
+	return hashWikiDirectory(knowledgeRoot);
 }
 
 function addEdition(

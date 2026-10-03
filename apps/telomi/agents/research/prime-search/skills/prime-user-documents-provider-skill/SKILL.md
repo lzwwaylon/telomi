@@ -33,4 +33,6 @@ ledger.add(
     materials=[provider_row],
 )
 ledger.write("work/user_documents_candidates.json")
+import research_runtime
+research_runtime.finish(provider_id="user_documents")
 ```

@@ -42,8 +42,8 @@ import { effectiveProviderWorkerSkills, goalPrimeSearchSkills } from "../../serv
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
 import {
-	createPrimeOrganizerContractTools,
-	createPrimeSearchContractTools,
+	validatePrimeOrganizerDecisionFile,
+	submitProviderCandidateLedger,
 	primeProviderAssignments,
 	validatePrimeSearchCandidateLedger,
 } from "../../server/research/pipeline/prime-search-contract.js";
@@ -94,19 +94,19 @@ assert.deepEqual(primeSearchBatchContractIdentity({
 	TELOMI_PRIME_SEARCH_THINKING_LEVEL: "medium",
 }, {}), {
 	id: "prime-search-batch",
-	version: 66,
+	version: 67,
 	rootModel: "openai-codex/gpt-5.6-terra",
 	childModel: "openai-codex/gpt-5.6-luna",
 	thinkingLevel: "medium",
 	autoRefine: false,
 	autonomous: false,
 	executionAdapter: "prime-sdk-rlm-quiescence-v2",
-	candidateLedgerValidation: "sdk-custom-tool-candidate-materials-v7-final-receipt",
+	candidateLedgerValidation: "hmac-python-finish-candidate-materials-v8-final-receipt",
 	providerWorkerSkills: "catalog-declared-bundled-skill-with-goal-override",
 	organizerWorkspace: "metadata-only-ipython-no-rlm",
 	promptBundle: {
-		acquisition: "root-web-native-provider-children-bounded-fallback-v52",
-		organizer: "incremental-source-group-patch-v7",
+		acquisition: "root-web-native-provider-children-python-finish-v53",
+		organizer: "incremental-source-group-patch-runtime-acceptance-v8",
 	},
 	schema: {
 		candidate_ledger: 2,
@@ -243,28 +243,19 @@ try {
 	writeFileSync(arxivLedgerPath, `${JSON.stringify({ candidates: broadArxivCandidates })}\n`);
 	assert.doesNotThrow(() => validatePrimeSearchCandidateLedger(ledgerHookRoot, "arxiv", arxivLedgerPath),
 		"arXiv Candidate Ledgers must not have a fixed semantic shortlist limit");
-	const contractTools = createPrimeSearchContractTools(ledgerHookRoot);
-	const candidateTool = contractTools.find((tool) => tool.name === "submit_candidate_ledger")!;
-	const providerContext = { sessionManager: {
-		getSessionDir: () => join(ledgerHookRoot, "sessions", "sub-tool-provider"),
-	} } as never;
 	const submittedWork = join(ledgerHookRoot, "provider-executions", "sub-tool-provider", "work");
 	mkdirSync(join(submittedWork, "materials", "huggingface"), { recursive: true });
 	writeFileSync(join(submittedWork, "materials", "huggingface", "model.md"), "# Model\n");
 	const submittedLedgerPath = join(submittedWork, "huggingface_candidates.json");
 	writeFileSync(submittedLedgerPath, "{}\n");
-	await assert.rejects(candidateTool.execute(
-		"candidate-invalid", { provider_id: "huggingface" }, undefined, undefined, providerContext,
-	), /Candidate Ledger must contain exactly/iu);
+	await assert.rejects(submitProviderCandidateLedger(ledgerHookRoot, "sub-tool-provider", "huggingface"), /Candidate Ledger must contain exactly/iu);
 	assert.equal(existsSync(join(submittedWork, ".provider-assignment")), false);
 	writeFileSync(submittedLedgerPath, `${JSON.stringify({ candidates: [{
 		...validLedger.candidates[0],
 		url: "https://huggingface.co/example/model",
 		material_paths: ["work/materials/huggingface/model.md"],
 	}] })}\n`);
-	await candidateTool.execute(
-		"candidate-valid", { provider_id: "huggingface" }, undefined, undefined, providerContext,
-	);
+	await submitProviderCandidateLedger(ledgerHookRoot, "sub-tool-provider", "huggingface");
 	assert.equal(readFileSync(join(submittedWork, ".provider-assignment"), "utf-8"), "huggingface\n");
 
 	const staleLedgerDirectory = join(ledgerHookRoot, "provider-executions", "sub-stale", "work");
@@ -284,7 +275,6 @@ try {
 	assert.ok(assignedChildren.includes("sub-tool-provider"));
 	assert.ok(!assignedChildren.includes("sub-huggingface"), "an Agent-written assignment marker cannot authorize final submission");
 	assert.ok(!assignedChildren.includes("sub-stale"), "a failed child Ledger without a Provider assignment marker must be ignored");
-	assert.equal(contractTools.some((tool) => tool.name === "submit_prime_selection"), false);
 } finally {
 	if (previousArtifactWorkspace === undefined) delete process.env.PRIME_AGENT_ARTIFACT_WORKSPACE;
 	else process.env.PRIME_AGENT_ARTIFACT_WORKSPACE = previousArtifactWorkspace;
@@ -355,7 +345,7 @@ assert.throws(() => materializePrimeSourceOrganizerDecision(sameProviderOrganize
 	ungrouped: ["S002"],
 }, sameProviderOrganizer.newSourceIds), /at least two members/u);
 
-// The Organizer submits through a Tool that reports the precise validation error and only then writes .complete.
+// Runtime validates the Organizer file against its private frozen input.
 const organizerToolRoot = mkdtempSync(join(tmpdir(), "pi-organizer-tool-"));
 try {
 	mkdirSync(join(organizerToolRoot, ".runtime"), { recursive: true });
@@ -363,20 +353,16 @@ try {
 		index: sameProviderOrganizer.index,
 		new_source_ids: sameProviderOrganizer.newSourceIds,
 	}));
-	const [organizerTool] = createPrimeOrganizerContractTools(organizerToolRoot);
-	assert.equal(organizerTool!.name, "submit_organizer_decision");
-	await assert.rejects(organizerTool!.execute("no-file", {}, undefined, undefined, {} as never), /decision\.json does not exist/u);
+	assert.throws(() => validatePrimeOrganizerDecisionFile(organizerToolRoot), /decision\.json does not exist/u);
 	writeFileSync(join(organizerToolRoot, "decision.json"), "{\"groups\": [}");
-	await assert.rejects(organizerTool!.execute("bad-json", {}, undefined, undefined, {} as never), /decision\.json must be valid JSON/u);
+	assert.throws(() => validatePrimeOrganizerDecisionFile(organizerToolRoot), /decision\.json must be valid JSON/u);
 	writeFileSync(join(organizerToolRoot, "decision.json"), JSON.stringify({ groups: [], ungrouped: ["S001"] }));
-	await assert.rejects(organizerTool!.execute("incomplete", {}, undefined, undefined, {} as never), /every newly observed Source exactly once/u);
-	assert.equal(existsSync(join(organizerToolRoot, ".decision-submitted")), false);
+	assert.throws(() => validatePrimeOrganizerDecisionFile(organizerToolRoot), /every newly observed Source exactly once/u);
 	writeFileSync(join(organizerToolRoot, "decision.json"), JSON.stringify({
 		groups: [{ title: "Qwen3-TTS", identity: "Size variants of the Qwen3-TTS release line.", members: ["S001", "S002"] }],
 		ungrouped: [],
 	}));
-	await organizerTool!.execute("valid", {}, undefined, undefined, {} as never);
-	assert.equal(existsSync(join(organizerToolRoot, ".decision-submitted")), true);
+	assert.ok(validatePrimeOrganizerDecisionFile(organizerToolRoot));
 } finally {
 	rmSync(organizerToolRoot, { recursive: true, force: true });
 }
@@ -545,8 +531,7 @@ try {
 				material_paths: [materialPath],
 			}],
 		}));
-		await createPrimeSearchContractTools(parallelProviderRoot)[0]!.execute("submit", { provider_id: "browser" }, undefined, undefined,
-			{ sessionManager: { getSessionDir: () => join(parallelProviderRoot, "sessions", childId) } } as never);
+		await submitProviderCandidateLedger(parallelProviderRoot, childId, "browser");
 		return {
 			execution_id: `provider-execution:1:browser:${childId}`,
 			provider_id: "browser",
@@ -581,8 +566,7 @@ try {
 		title: "Technical article and supporting product page", url: "https://example.com/article",
 		query: "technical article", summary: "Original materials", metadata: {}, material_paths: [...materialPaths, supportingFile],
 	}] }));
-	await createPrimeSearchContractTools(multiMaterialRoot)[0]!.execute("submit", { provider_id: "browser" }, undefined, undefined,
-		{ sessionManager: { getSessionDir: () => join(multiMaterialRoot, "sessions", "sub-browser-multi") } } as never);
+	await submitProviderCandidateLedger(multiMaterialRoot, "sub-browser-multi", "browser");
 	const [source] = materializePrimeSources(multiMaterialRoot, [{
 		execution_id: "provider-execution:1:browser:sub-browser-multi", provider_id: "browser",
 		workspace_path: workspacePath,

@@ -8,16 +8,13 @@ import {
 	realpathSync,
 	renameSync,
 	rmSync,
-	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { Type } from "@sinclair/typebox";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { materializePrimeSourceOrganizerDecision, validatePrimeSourceOrganizerIndex } from "./prime-source-organizer-index.js";
-import { providerExecutionWorkspaceForSession } from "./provider-execution-workspace.js";
+import { providerExecutionWorkspace } from "./provider-execution-workspace.js";
 import { listSourceFiles } from "./source-bundle.js";
 import { isInsideRoot } from "../../lib/paths.js";
 import { isRecord, toErrorMessage } from "../../lib/values.js";
@@ -26,67 +23,52 @@ import { sha256 } from "../../lib/hash.js";
 import { ResearchNodeError } from "../../agent-runtime/retry-policy.js";
 
 const MAX_CANDIDATE_SUMMARY_CHARACTERS = 2_000;
-const SubmitCandidateLedgerParams = Type.Object({
-	provider_id: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
-}, { additionalProperties: false });
-const SubmitOrganizerDecisionParams = Type.Object({}, { additionalProperties: false });
 /** Runtime-owned copy of the Organizer input the decision is validated against; the Agent never writes it. */
 export const ORGANIZER_RUNTIME_INDEX = ".runtime/index.json";
-// Distinct from organizer/.complete, which the Runtime writes after projecting the accepted decision.
-export const ORGANIZER_COMPLETE_MARKER = ".decision-submitted";
+export const ORGANIZER_ACCEPTED_INDEX = ".runtime/accepted-index.json";
 /** Directory under the Prime Search agent root holding one execution workspace per Provider child and its Candidate Ledger. */
 export const PROVIDER_EXECUTIONS_DIRECTORY = "provider-executions";
 
-export function createPrimeSearchContractTools(artifactRoot: string): ToolDefinition[] {
+/** Validate and freeze one authenticated Provider child's final Ledger; Runtime supplies the child identity. */
+export async function submitProviderCandidateLedger(artifactRoot: string, childId: string, providerId: string): Promise<{
+	provider_id: string; ledger_path: string; submitted: true;
+}> {
+	if (!/^sub-[A-Za-z0-9-]+$/u.test(childId)) throw new Error("Only a Prime Search Provider child can submit a Candidate Ledger");
+	if (!/^[a-z][a-z0-9_-]{0,63}$/u.test(providerId)) throw new Error("Invalid Provider submission identity");
 	const root = resolve(artifactRoot);
-	return [candidateLedgerTool(root)];
-}
-
-function candidateLedgerTool(root: string): ToolDefinition<typeof SubmitCandidateLedgerParams> {
-	return {
-		name: "submit_candidate_ledger",
-		label: "submit_candidate_ledger",
-		description: "Validate work/<provider_id>_candidates.json and freeze this child's final Candidate Ledger. Repair that exact file if validation fails. Successful submission ends acquisition; further work requires a new task.",
-		parameters: SubmitCandidateLedgerParams,
-		executionMode: "sequential",
-		async execute(_toolCallId, params, _signal, _onUpdate, context) {
-			const execution = providerExecutionWorkspaceForSession(root, context.sessionManager.getSessionDir?.());
-			if (!execution) throw new Error("Only a Prime Search Provider child can submit a Candidate Ledger");
-			const ledgerPath = join(execution.absolutePath, "work", `${params.provider_id}_candidates.json`);
-			const marker = join(execution.absolutePath, "work", ".provider-assignment");
-			const expectedPath = `work/${params.provider_id}_candidates.json`;
-			if (!existsSync(ledgerPath)) throw new ResearchNodeError(`Candidate Ledger file does not exist at '${expectedPath}'. Write or rename it to this exact path before submitting.`, "validation", false, {
-				code: "candidate_ledger_missing", details: { provider_id: params.provider_id, expected_path: expectedPath, next_action: "correct_path" },
-			});
-			const bindings = runtimeDirectory(root, "provider-bindings");
-			const binding = join(bindings, execution.childId);
-			if (existsSync(binding) && (lstatSync(binding).isSymbolicLink() || readFileSync(binding, "utf8").trim() !== params.provider_id)) {
-				throw new ResearchNodeError("Final submission must match this child's bound Provider.", "permanent", false, { code: "provider_scope_mismatch" });
-			}
-			const bytes = validatePrimeSearchCandidateLedger(execution.absolutePath, params.provider_id, ledgerPath, execution.childId);
-			const submissions = runtimeDirectory(root, "provider-submissions");
-			const existing = primeProviderSubmission(root, execution.childId);
-			if (existing && (existing.provider_id !== params.provider_id || existing.ledger_sha256 !== sha256(bytes))) {
-				throw new ResearchNodeError("This child's final Ledger is already frozen. Ask Root to create a new task.", "permanent", false, { code: "provider_task_completed" });
-			}
-			// The receipt directory rename is the sole completion commit. No fallible writes follow it.
-			if (!existsSync(binding)) writeFileAtomic(binding, `${params.provider_id}\n`, { mode: 0o600 });
-			writeFileAtomic(marker, `${params.provider_id}\n`);
-			if (!existing) {
-				const temporary = mkdtempSync(join(submissions, ".pending-"));
-				try {
-					writeFileSync(join(temporary, "ledger.json"), bytes, { mode: 0o600 });
-					writeFileSync(join(temporary, "receipt.json"), JSON.stringify({ schema_version: 1,
-						child_id: execution.childId, provider_id: params.provider_id,
-						ledger_sha256: sha256(bytes), ledger_byte_count: bytes.length,
-					}), { mode: 0o600 });
-					renameSync(temporary, join(submissions, execution.childId));
-				} finally { rmSync(temporary, { recursive: true, force: true }); }
-			}
-			return { content: [{ type: "text", text: "Candidate Ledger validated and submitted; acquisition is complete" }],
-				details: { provider_id: params.provider_id, ledger_path: expectedPath } };
-		},
-	};
+	const execution = providerExecutionWorkspace(root, childId);
+	const ledgerPath = join(execution.absolutePath, "work", `${providerId}_candidates.json`);
+	const marker = join(execution.absolutePath, "work", ".provider-assignment");
+	const expectedPath = `work/${providerId}_candidates.json`;
+	if (!existsSync(ledgerPath)) throw new ResearchNodeError(`Candidate Ledger file does not exist at '${expectedPath}'. Write or rename it to this exact path before submitting.`, "validation", false, {
+		code: "candidate_ledger_missing", details: { provider_id: providerId, expected_path: expectedPath, next_action: "correct_path" },
+	});
+	const bindings = runtimeDirectory(root, "provider-bindings");
+	const binding = join(bindings, execution.childId);
+	if (existsSync(binding) && (lstatSync(binding).isSymbolicLink() || readFileSync(binding, "utf8").trim() !== providerId)) {
+		throw new ResearchNodeError("Final submission must match this child's bound Provider.", "permanent", false, { code: "provider_scope_mismatch" });
+	}
+	const bytes = validatePrimeSearchCandidateLedger(execution.absolutePath, providerId, ledgerPath, execution.childId);
+	const submissions = runtimeDirectory(root, "provider-submissions");
+	const existing = primeProviderSubmission(root, execution.childId);
+	if (existing && (existing.provider_id !== providerId || existing.ledger_sha256 !== sha256(bytes))) {
+		throw new ResearchNodeError("This child's final Ledger is already frozen. Ask Root to create a new task.", "permanent", false, { code: "provider_task_completed" });
+	}
+	// The receipt directory rename is the sole completion commit. No fallible writes follow it.
+	if (!existsSync(binding)) writeFileAtomic(binding, `${providerId}\n`, { mode: 0o600 });
+	writeFileAtomic(marker, `${providerId}\n`);
+	if (!existing) {
+		const temporary = mkdtempSync(join(submissions, ".pending-"));
+		try {
+			writeFileSync(join(temporary, "ledger.json"), bytes, { mode: 0o600 });
+			writeFileSync(join(temporary, "receipt.json"), JSON.stringify({ schema_version: 1,
+				child_id: execution.childId, provider_id: providerId,
+				ledger_sha256: sha256(bytes), ledger_byte_count: bytes.length,
+			}), { mode: 0o600 });
+			renameSync(temporary, join(submissions, execution.childId));
+		} finally { rmSync(temporary, { recursive: true, force: true }); }
+	}
+	return { provider_id: providerId, ledger_path: expectedPath, submitted: true };
 }
 
 function runtimeDirectory(root: string, name: string): string {
@@ -128,28 +110,6 @@ export function primeProviderSubmission(root: string, childId: string, providerI
 	return { child_id: childId, provider_id: receipt.provider_id, ledger_path: ledgerPath, ledger_sha256: receipt.ledger_sha256 as string };
 }
 
-export function createPrimeOrganizerContractTools(organizerRoot: string): ToolDefinition[] {
-	const root = resolve(organizerRoot);
-	return [{
-		name: "submit_organizer_decision",
-		label: "submit_organizer_decision",
-		description: "Validate and submit this Organizer's decision.json. Repair the same file and retry if validation fails.",
-		parameters: SubmitOrganizerDecisionParams,
-		executionMode: "sequential",
-		async execute() {
-			const marker = join(root, ORGANIZER_COMPLETE_MARKER);
-			try {
-				validatePrimeOrganizerDecisionFile(root);
-				writeFileSync(marker, "validated\n", "utf-8");
-				return { content: [{ type: "text", text: "Organizer decision validated and submitted" }], details: {} };
-			} catch (error) {
-				if (existsSync(marker)) unlinkSync(marker);
-				throw error;
-			}
-		},
-	}];
-}
-
 /** Applies the decision to the Runtime index without persisting anything; throws the precise validation error. */
 export function validatePrimeOrganizerDecisionFile(organizerRoot: string): ReturnType<typeof materializePrimeSourceOrganizerDecision> {
 	const decisionPath = join(organizerRoot, "decision.json");
@@ -161,6 +121,11 @@ export function validatePrimeOrganizerDecisionFile(organizerRoot: string): Retur
 		parseJson(readFileSync(decisionPath, "utf-8"), "decision.json"),
 		runtime.new_source_ids.map((id, index) => requiredString(id, `Organizer runtime index new_source_ids[${index}]`)),
 	);
+}
+
+/** The downstream consumer reads only the host-owned result of successful validation. */
+export function readAcceptedPrimeOrganizerIndex(organizerRoot: string): ReturnType<typeof validatePrimeSourceOrganizerIndex> {
+	return validatePrimeSourceOrganizerIndex(parseJson(readFileSync(join(organizerRoot, ORGANIZER_ACCEPTED_INDEX), "utf8"), "Accepted Organizer index"));
 }
 
 export function primeProviderAssignments(root: string): Array<{

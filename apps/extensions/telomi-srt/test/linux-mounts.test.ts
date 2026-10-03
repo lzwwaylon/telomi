@@ -22,7 +22,8 @@ test("restores nested writes after the read-only parent and before mandatory mas
 test("does not resurrect skipped grants, explicit write denies or hidden children", () => {
 	const argv = [...start, ...parent, ...mask, ...command];
 	for (const deny of ["/fixture", work, `${work}/private`]) {
-		assert.deepEqual(linuxSandboxArgv(argv, { ...policy, denyWrite: [deny] }), argv);
+		assert.deepEqual(linuxSandboxArgv(argv, { ...policy, denyWrite: [deny] }),
+			deny === "/fixture" ? [...argv.slice(0, -command.length), "--remount-ro", "/fixture", ...command] : argv);
 	}
 	for (const deny of [work, `${work}/private`]) {
 		assert.deepEqual(linuxSandboxArgv(argv, { ...policy, denyRead: ["/", deny] }), argv);
@@ -42,4 +43,19 @@ test("parses argument boundaries and never interprets the target command", () =>
 	for (const wrapped of [["sh", "-c", "bwrap -- true; touch /tmp/unwanted"], ["sh", "-c", "bwrap -- $COMMAND"], ["sh", "-c", "bwrap -- *.txt"], ["sh", "-c", "echo unsafe"], ["bwrap", "--unknown", "--", "true"], ["bwrap", "constructor", "--", "true"], ["bwrap", "--bind"], ["bwrap", "--"]]) {
 		assert.throws(() => linuxSandboxArgv(wrapped, policy));
 	}
+});
+
+// Linux SRT masks a read/write-denied directory with tmpfs, then skips its denyWrite bind.
+test("private directory masks remain hidden and cannot accept replacement authority files", () => {
+	const runtime = `${work}/.runtime`;
+	const argv = ["bwrap", "--ro-bind", "/", "/", "--bind", work, work, "--tmpfs", runtime, ...command];
+	const filesystem = { ...policy, denyRead: ["/", runtime], denyWrite: [runtime] };
+	assert.deepEqual(linuxSandboxArgv(argv, filesystem),
+		[...argv.slice(0, -command.length), "--remount-ro", runtime, ...command]);
+	assert.deepEqual(linuxSandboxArgv(argv, { ...filesystem, denyWrite: [] }), argv,
+		"ordinary hidden scratch masks keep their original write permission");
+	const repeated = [...argv.slice(0, -command.length), "--tmpfs", runtime, ...command];
+	assert.deepEqual(linuxSandboxArgv(repeated, filesystem),
+		[...repeated.slice(0, -command.length), "--remount-ro", runtime, ...command],
+		"a re-applied private mask is made read-only once after all mount setup");
 });

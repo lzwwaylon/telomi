@@ -12,6 +12,7 @@ const root = mkdtempSync(join(tmpdir(), "wiki-compilation-output-"));
 try {
  const stages: WikiStageKind[] = ['objects', 'merge-objects', 'plan-concepts', 'concepts', 'merge-concepts', 'plan-topics', 'topic'];
  const source = renderAgentPrompt('wiki', 'wiki-compilation', 'system-append', {}).content;
+ assert.doesNotMatch(source, /submit_note_first/u, 'Wiki fallback ends by writing files for Runtime acceptance');
  for (const stage of stages) {
   const prompt = stagePrompt(source, stage);
   assert.deepEqual([...prompt.matchAll(/^(objects|merge-objects|plan-concepts|concepts|audit-concepts|merge-concepts|plan-topics|topic): /gm)].map(match => match[1]), [stage]);

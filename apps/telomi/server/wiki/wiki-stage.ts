@@ -110,6 +110,7 @@ async function runAgentWikiStageKind(request: WikiStageRequest): Promise<WikiSta
  try {
   await spawnPrimeWorker({ name: `Wiki compilation ${request.input.stage}`, worker: fileURLToPath(new URL("./prime-wiki-stage-worker.ts", import.meta.url)),
    agentRoot: work, runtimeRoot: runtime, readonlyRoots: [inputRoot], env: request.env, signal: request.signal,
+   onMessage: () => {},
    extraEnv: { WIKI_STAGE_RUNTIME: runtime, WIKI_STAGE_WORK: work, WIKI_STAGE_INPUT_ROOT: inputRoot,
     WIKI_STAGE_MODEL: request.env.TELOMI_WIKI_CURATOR_MODEL, WIKI_STAGE_THINKING: thinking } });
   request.signal.throwIfAborted();
@@ -140,7 +141,7 @@ export function wikiStageCapabilityIdentity(): string {
  const files = ["wiki-stage.ts", "prime-wiki-stage-worker.ts", "wiki-stage-contract.ts", "wiki-stage-workspace.ts",
   "wiki-stage-search.ts", "wiki-topic-skill.ts", "wiki-stage-prompt.ts", "wiki-page-contract.ts", "wiki-edition.ts",
   "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts",
-  "pi-file-stage.ts", "pi-concept-stage.ts", "pi-concept-contract.ts"];
+  "pi-file-stage.ts", "pi-concept-stage.ts", "pi-concept-contract.ts", "../agent-runtime/accept-agent-output.ts"];
  const semantics = files.map(path => sha256(readFileSync(fileURLToPath(new URL(path, import.meta.url)))));
  const system = renderAgentPrompt("wiki", "wiki-compilation", "system-append", {});
  return hashJson({ semantics, system: system.content, registration: system.configSha256,

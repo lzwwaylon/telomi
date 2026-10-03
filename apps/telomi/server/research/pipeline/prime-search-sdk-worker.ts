@@ -3,12 +3,15 @@ import { dirname, join } from "node:path";
 
 import { createRlmChildLogicalWorkspaceSnapshotter } from "../../agent-runtime/logical-workspace-snapshot.js";
 import {
+	assertPrimeModelAnswered,
 	createPrimeModelRegistry,
 	createPrimeSettingsManager,
 	createPrimeTraceEventFilter,
 	projectPrimeChildLifecycleEvent,
 } from "../../agent-runtime/prime-agent-paths.js";
-import { createPrimeOrganizerContractTools, createPrimeSearchContractTools } from "./prime-search-contract.js";
+import { ORGANIZER_ACCEPTED_INDEX, validatePrimeOrganizerDecisionFile } from "./prime-search-contract.js";
+import { writeJsonAtomic } from "../../lib/fs.js";
+import { acceptAgentOutput, AgentOutputValidationError } from "../../agent-runtime/accept-agent-output.js";
 import { createProviderChildRuntimeHost, providerChildLogicalWorkspace, providerExecutionWorkspace, workspaceRelativeSkill } from "./provider-execution-workspace.js";
 
 interface Input {
@@ -54,11 +57,7 @@ const loader = new prime.DefaultResourceLoader({
 });
 await loader.reload();
 // Browser, general web search and Skill reads reach the Runtime through the Python SDK
-// (`research_runtime`) over the per-run bridge; the only native Tools are the contract submissions.
-const customTools = [
-	...(input.contractTools ? createPrimeSearchContractTools(input.cwd) : []),
-	...(input.organizerTools ? createPrimeOrganizerContractTools(input.cwd) : []),
-];
+// (`research_runtime`) over the per-run bridge. Sessions mount only IPython.
 
 const scopedModels = [
 	{ model: rootModel, thinkingLevel: input.thinking },
@@ -84,7 +83,6 @@ const sessionOptions = {
 	thinkingLevel: input.thinking,
 	scopedModels,
 	...(input.tools ? { tools: input.tools } : {}),
-	...(customTools.length > 0 ? { customTools } : {}),
 	rlmSessionDir: input.childReplayId ? input.sessionDir : rlmSessionDir,
 	...(input.childReplayId ? { rlmDepth: 1, rlmParentNodeId: input.childReplayId, serviceTier: input.serviceTier } : {}),
 	rlmMaxDepth: input.rlmMaxDepth,
@@ -118,7 +116,27 @@ session.subscribe((event: unknown) => {
 });
 
 try {
-	if (input.childReplayId) {
+	if (input.organizerTools) {
+		try {
+			const accepted = await acceptAgentOutput({
+				initialPrompt: input.prompt,
+				promptTurn: async (text, repair) => {
+					await session.prompt(text, repair ? { streamingBehavior: "followUp", expandPromptTemplates: false } : undefined);
+					await session.waitForRlmQuiescence();
+					assertPrimeModelAnswered(session);
+				},
+				validate: () => validatePrimeOrganizerDecisionFile(input.cwd),
+				onRejected: (attempt, error) => appendFileSync(eventLog, `${JSON.stringify({ type: "output_validation_rejected", attempt, error })}\n`),
+			});
+			writeJsonAtomic(join(input.cwd, ORGANIZER_ACCEPTED_INDEX), accepted);
+		} catch (error) {
+			if (!(error instanceof AgentOutputValidationError)) throw error;
+			// Organizer failure is explicit; the acquisition owner can retain Sources ungrouped.
+			const event = { type: "output_validation_exhausted", error: error.message };
+			appendFileSync(eventLog, `${JSON.stringify(event)}\n`);
+			process.stdout.write(`${JSON.stringify(event)}\n`);
+		}
+	} else if (input.childReplayId) {
 		// Match Prime's native first child turn; a parent model/session is deliberately absent.
 		const content = `[task from parent]\n\n${input.prompt}`;
 		await session.promptAndWait(content, {

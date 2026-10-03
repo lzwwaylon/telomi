@@ -23,4 +23,4 @@ sandbox:
   role: report.report_writer
   execution_profile: pi_builtin
   network: allow
-  tools: [read, write, edit, bash, ls, find, grep, wiki_search, wiki_read_page, wiki_graph_search, submit_stage_output]
+  tools: [read, write, edit, bash, ls, find, grep, wiki_list_topics, wiki_search, wiki_read_page, submit_stage_output]

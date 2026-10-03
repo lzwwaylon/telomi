@@ -9,7 +9,7 @@ import { hashJson } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { toErrorMessage } from "../lib/values.js";
 import { mapConcurrentFairly } from "../lib/fair-concurrency.js";
-import { pinWikiModelSelection, projectWikiEvidence, sessionTraceRef } from "./wiki-shard-compiler.js";
+import { pinWikiModelSelection, projectWikiEvidence, sessionTraceRef } from "./compilation-runtime.js";
 import { requireWikiGoalContext, validateGoalTopicPlan, wikiLanguage, type WikiCompilationRequest, type WikiCompilationResult,
  type WikiCompilationBatchFailure, type GoalTopicPlan, type WikiGoalContext } from "./contracts.js";
 import { hashWikiDirectory } from "./files.js";

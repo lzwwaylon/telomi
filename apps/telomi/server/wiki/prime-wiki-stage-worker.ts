@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path';
 import { Type } from "@sinclair/typebox";
 import { assertPrimeModelAnswered, createPrimeModelRegistry, createPrimeSettingsManager } from '../agent-runtime/prime-agent-paths.js';
+import { acceptAgentOutput } from '../agent-runtime/accept-agent-output.js';
 import { isThinkingLevel } from '../agent-runtime/model-config/resolve.js';
 import { writeJsonAtomic } from '../lib/fs.js';
 import { hashJson, sha256 } from '../lib/hash.js';
@@ -55,7 +56,7 @@ async function logged<T>(tool: string, parameters: unknown, operation: () => T |
 }
 const { session } = await prime.createAgentSession({ cwd, agentDir, authStorage, modelRegistry, settingsManager,
  resourceLoader: loader, sessionManager: prime.SessionManager.create(cwd, sessionRoot), model, thinkingLevel,
- scopedModels: [{ model, thinkingLevel }], tools: topic ? ["ipython", "submit_note_first"] : ["ipython", "read_wiki", "search_wiki", "submit_note_first"],
+ scopedModels: [{ model, thinkingLevel }], tools: topic ? ["ipython"] : ["ipython", "read_wiki", "search_wiki"],
  customTools: [
   ...(topic ? [] : [{ name: "read_wiki", label: "Read Wiki evidence", description: "Read a task-local P/S alias, such as P1 or S1; this tool does not read file paths. Use IPython Path.read_text() for indexes/Pn.json or other mapped metadata files. The task catalog supplies each page index path; an index is metadata, not a full read. Standalone N Cue content is available only for the complete Note in objects, or for unplaced Cues in merge-objects. Later stages use page citations without reopening Cue text. Large pages list complete sections to read individually.",
    parameters: Type.Object({ ref: Type.String() }, { additionalProperties: false }), executionMode: "sequential",
@@ -70,29 +71,16 @@ const { session } = await prime.createAgentSession({ cwd, agentDir, authStorage,
     catch (error) { return textResult(toErrorMessage(error), true); }
    } },
   ]),
-  { name: "submit_note_first", label: "Submit Wiki stage", description: "Validate result.json and referenced pages/*.md against frozen input and read receipts. Repair rejected output in this session and submit again. Accepted output must remain unchanged.",
-   parameters: Type.Object({}, { additionalProperties: false }), executionMode: "sequential",
-   async execute() {
-    accepted = undefined;
-    try {
-     if (topic) {
-      for (const message of session.messages) {
-       if (message.role !== "toolResult" || message.toolName !== "ipython" || message.isError) continue;
-       const visible = message.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n");
-       workspace.observe(message.toolCallId, visible);
-      }
-      writeJsonAtomic(join(runtime, "native-read-observations.json"), workspace.observations());
-     }
-     const before = wikiStageOutputHash(cwd);
-     const result = workspace.validate(JSON.parse(readWikiStageOutput(join(cwd, "result.json")).toString("utf8")), cwd);
-     if (before !== wikiStageOutputHash(cwd)) throw new Error("Wiki output changed during validation");
-     accepted = { outputHash: before, result };
-     writeJsonAtomic(join(runtime, "submitted-result.json"), result);
-     writeJsonAtomic(join(runtime, "receipts.json"), workspace.receipts());
-     return textResult("Validated. Finish this stage without further edits.");
-    } catch (error) { return textResult(toErrorMessage(error), true); }
-   } },
  ], rlmMaxDepth: 1, prewarmIpythonKernel: true, executionMode: "print", telemetryDisabled: true, autonomous: { enabled: false } });
+const observePythonMessages = () => {
+ if (!topic) return;
+ for (const message of session.messages) {
+  if (message.role !== "toolResult" || message.toolName !== "ipython" || message.isError) continue;
+  const visible = message.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n");
+  workspace.observe(message.toolCallId, visible);
+ }
+ writeJsonAtomic(join(runtime, "native-read-observations.json"), workspace.observations());
+};
 const unsubscribe = session.subscribe((event: any) => {
  if (topic && event.type === "tool_execution_end" && event.toolName === "ipython" && !event.isError) {
   const visible = event.result.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n");
@@ -103,26 +91,53 @@ writeJsonAtomic(join(runtime, "mounted-skills.json"), loader.getSkills());
 writeJsonAtomic(join(runtime, "tool-definitions.json"), session.getAllTools().filter((tool: any) => session.getActiveToolNames().includes(tool.name)));
 writeJsonAtomic(join(runtime, "model-metadata.json"), {id: model.id, provider: model.provider, cost: model.cost, thinking: session.thinkingLevel});
 writeFileSync(join(runtime, "effective-system-prompt.md"), session.systemPrompt);
+let promptFailure: { error: unknown } | undefined;
 try {
- await session.prompt(user);
- await session.waitForRlmQuiescence();
- assertPrimeModelAnswered(session);
- if (!accepted || accepted.outputHash !== wikiStageOutputHash(cwd)) throw new Error("Wiki stage ended without a current accepted submission");
- const result = workspace.validate(JSON.parse(readWikiStageOutput(join(cwd, "result.json")).toString("utf8")), cwd);
- if (hashJson(result) !== hashJson(accepted.result) || accepted.outputHash !== wikiStageOutputHash(cwd)) throw new Error("Wiki output changed after acceptance");
- writeJsonAtomic(join(runtime, "accepted-result.json"), result);
- writeJsonAtomic(join(runtime, "receipts.json"), workspace.receipts());
- writeJsonAtomic(join(runtime, "accepted.json"), { outputHash: accepted.outputHash,
-  resultHash: sha256(readWikiStageOutput(join(runtime, "accepted-result.json"))),
-  receiptsHash: sha256(readWikiStageOutput(join(runtime, "receipts.json"))) });
-} finally {
- await session.abort().catch(() => undefined);
- await session.waitForRlmQuiescence().catch(() => undefined);
- unsubscribe();
- if (topic) writeJsonAtomic(join(runtime, "native-read-observations.json"), workspace.observations());
- await session.disposeAsync();
- writeJsonAtomic(join(runtime, "receipts.json"), workspace.receipts());
- const usage = wikiStageTraceUsage(runtime);
- writeJsonAtomic(join(runtime, "result.json"), { usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens, cost_usd: usage.costUsd, model_calls: usage.calls },
-  accessMode: topic ? "wiki-python-skill" : "wiki-tools", model: selector, nativeDelegation: false, thinkingLevel, accepted: Boolean(accepted) });
+ try {
+  const candidate = await acceptAgentOutput({
+   initialPrompt: user,
+   promptTurn: async (text, repair) => {
+    try {
+     await session.prompt(text, repair ? { expandPromptTemplates: false, streamingBehavior: "followUp" } : undefined);
+     await session.waitForRlmQuiescence();
+     assertPrimeModelAnswered(session);
+    } catch (error) { promptFailure = { error }; throw error; }
+   },
+   validate: () => {
+    observePythonMessages();
+    const outputHash = wikiStageOutputHash(cwd);
+    const result = workspace.validate(JSON.parse(readWikiStageOutput(join(cwd, "result.json")).toString("utf8")), cwd);
+    if (outputHash !== wikiStageOutputHash(cwd)) throw new Error("Wiki output changed during validation");
+    return { outputHash, result };
+   },
+   onRejected: (attempt, error) => appendFileSync(join(runtime, "output-validation.jsonl"), `${JSON.stringify({ attempt, error })}\n`),
+  });
+  const result = workspace.validate(JSON.parse(readWikiStageOutput(join(cwd, "result.json")).toString("utf8")), cwd);
+  if (hashJson(result) !== hashJson(candidate.result) || candidate.outputHash !== wikiStageOutputHash(cwd)) throw new Error("Wiki output changed after acceptance");
+  accepted = candidate;
+  writeJsonAtomic(join(runtime, "accepted-result.json"), result);
+  writeJsonAtomic(join(runtime, "receipts.json"), workspace.receipts());
+  writeJsonAtomic(join(runtime, "accepted.json"), { outputHash: accepted.outputHash,
+   resultHash: sha256(readWikiStageOutput(join(runtime, "accepted-result.json"))),
+   receiptsHash: sha256(readWikiStageOutput(join(runtime, "receipts.json"))) });
+ } finally {
+  await session.abort().catch(() => undefined);
+  await session.waitForRlmQuiescence().catch(() => undefined);
+  unsubscribe();
+  observePythonMessages();
+  await session.disposeAsync();
+  writeJsonAtomic(join(runtime, "receipts.json"), workspace.receipts());
+  const usage = wikiStageTraceUsage(runtime);
+  writeJsonAtomic(join(runtime, "result.json"), { usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens, cost_usd: usage.costUsd, model_calls: usage.calls },
+   accessMode: topic ? "wiki-python-skill" : "wiki-tools", model: selector, nativeDelegation: false, thinkingLevel, accepted: Boolean(accepted) });
+ }
+} catch (error) {
+ const failure = promptFailure ? promptFailure.error : error;
+ if (failure !== error) console.error("Wiki cleanup failed after model failure:", toErrorMessage(error));
+ if (process.send) await new Promise<void>(resolve => {
+  try { process.send!({ type: "stage_worker_failure", failure_class: promptFailure ? "provider" : "validation",
+   error: toErrorMessage(failure) }, () => resolve()); }
+  catch { resolve(); }
+ });
+ throw failure;
 }

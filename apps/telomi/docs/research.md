@@ -165,9 +165,9 @@ Runtime does not change report semantics. It validates Sections, citations, and 
 
 Citation compilation preserves the stored Source URLs and performs no network reachability probes. A temporary outage, rate limit, or login requirement must not remove a Source link from the report. Runtime still validates Source provenance fields and URL format during acquisition, and resolves report citations against the frozen reference inventory; reachability cannot establish whether a URL identifies the cited material.
 
-## 7. Wiki Curator
+## 7. Wiki Compilation
 
-Wiki Curator runs asynchronously alongside Report Writer. It consumes only Cornell Notes and existing Concept / Entity pages, never raw Sources.
+Wiki Compilation runs asynchronously alongside Report Writer. It consumes frozen Cornell Notes and previous Wiki pages, never raw Sources.
 
 New Wiki Updates use the Wiki compilation compiler. Runtime processes each complete Cornell Note into object pages, resolves object identity and unplaced Cues against the previous Edition, then derives concepts only from accepted object evidence. Object construction and target writing use Luna; object target planning uses Terra. Existing published Editions remain readable.
 
@@ -178,13 +178,13 @@ Concept generation uses four separate Pi Coding Agent stages, all with Terra and
 3. Audit the complete candidate collection and untouched old concepts, identifying unnecessary new candidates and disjoint conflicts.
 4. Merge only the flagged conflicts, preserving member evidence and leaving unrelated page bodies unchanged.
 
-These concept sessions expose only read-only page material and SRT-bound `read`, `write` and `edit`; they receive no Topic Plan or independent Cue-detail input and cannot delegate RLM children. Runtime validates manifests, evidence, identities, actual native reads and accepted files. Validation errors return to the same session for one repair turn. A separate relation Agent reconciles semantic links; page-level Topic classification then builds navigation from final pages. See [Wiki Compilation](modules/wiki-compilation.md) for the ownership, recovery and publication constraints.
+These concept sessions expose only read-only page material and SRT-bound `read`, `write` and `edit`; they receive no Topic Plan or independent Cue-detail input and cannot delegate RLM children. Runtime validates manifests, evidence, identities, actual native reads and accepted files. Validation errors return to the same session for one repair turn. Construction publishes no semantic relationships; page-level Topic classification builds navigation from final pages. See [Wiki Compilation](modules/wiki-compilation.md) for the ownership, recovery and publication constraints.
 
 ### Resuming Interrupted Updates
 
 Wiki updates run in the background independently of the Report flow. Backend startup marks an unfinished job as interrupted; the user can resume it through the existing Activity action, with at most three resumes. Accepted stage checkpoints are reused only when their frozen inputs, implementation, output files and reading receipts still match. Failed attempts retain their usage and native sessions. Partial Wiki compilation candidates remain inspectable and cannot replace the published Edition. Publication verifies the frozen base under the Goal publication lock and atomically replaces it.
 
-Old queued Updates without the Wiki compilation compiler identity continue through the legacy Shard Builder and Curator. Their replay and recovery boundaries remain separate from new Wiki compilation Updates.
+Historical shard/curator Updates cannot resume execution. Their published Editions, captured Cases and Traces remain readable; they cannot be relabeled as Wiki compilation inputs.
 
 ## Runtime and Agent Boundary
 
@@ -231,12 +231,12 @@ Runtime does not replace semantic judgment with rules.
 
 Prime Search currently returns all Logical Sources together after Acquisition and the Organizer finish. Cornell Notes do not start before Provider children finish.
 
-Prime Search, Report Writer, Wiki Shard Builder, Wiki Curator, and Podcast Writer all use the Prime SDK's native `waitForRlmQuiescence()` to wait for children and their parent Session's continuation turns. Runtime does not use autonomous gates, file polling, or duplicate Traces as a waiting protocol. Note Agent delegates no RLM children and therefore does not need this interface.
+Prime Search, Report Writer and Podcast Writer all use the Prime SDK's native `waitForRlmQuiescence()` to wait for children and their parent Session's continuation turns. Runtime does not use autonomous gates, file polling, or duplicate Traces as a waiting protocol. Note Agent delegates no RLM children and therefore does not need this interface.
 
 ## Models and Thinking Levels
 
 Environment and Goal settings can override models, so the model selected at runtime is not a documentation contract. Defaults are defined in `TASK_MODEL_ROLE_INFO` in `server/config/settings.ts` for `primeRoot`, `primeChild`, `noteAgent`, and `wikiCurator`; Note Agent exposes its configuration through `server/research/config.ts`.
 
-The intent behind thinking levels is not evident from code: Prime Search Root and the Organizer use medium, Report Writer Root and Report Writer Section children share Prime high, and Wiki Curator uses medium. The Wiki compilation Pi concept stages pin Terra and medium independently of the legacy Prime Wiki model defaults. The authoritative values for a particular run are in `research-harness-snapshot.json`, its Node Trace, and evaluation artifacts.
+The intent behind thinking levels is not evident from code: Prime Search Root and the Organizer use medium, Report Writer Root and Report Writer Section children share Prime high, and the Prime Wiki compilation fallback uses medium. The Wiki compilation Pi concept stages pin Terra and medium independently of the Prime Wiki fallback model defaults. The authoritative values for a particular run are in `research-harness-snapshot.json`, its Node Trace, and evaluation artifacts.
 
 Run new validation questions through the real product entry point and capture them as Cases, then complete Candidate Replay and independent review under [Attestation](development/attestation.md). The Operations Interface does not accept new questions as direct inputs. See [Node Evaluation](node-agent-backtest.md) for each Recipe's external-data boundary.

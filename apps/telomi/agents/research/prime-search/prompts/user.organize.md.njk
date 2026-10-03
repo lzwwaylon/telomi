@@ -41,5 +41,5 @@ Each final Group must contain at least two Sources. Use one of these exact shape
 
 Use only the compact metadata already present in input.json. Original Provider files and Provider interfaces are not
 mounted in this workspace. This is a single-Agent stage: do not call rlm or spawn children. Do not search or download
-anything. After writing decision.json call `submit_organizer_decision()`; when it reports a validation error, repair the same
-file and call it again. Complete only after that Tool succeeds.
+anything. Write decision.json and finish with one brief confirmation. Runtime validates that file after your turn; if it
+returns specific violations, repair the same file in this session, preserving all valid decisions, then confirm briefly again.

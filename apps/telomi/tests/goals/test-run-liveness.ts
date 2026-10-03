@@ -288,6 +288,12 @@ try {
 	} }, "Only the retired mode is normalized, preserving artifact refs, hashes, identity pins and revision");
 	assert.equal(store.recoverInterrupted(), false, "Published history remains terminal");
 	assert.equal(readFileSync(store.statePath, "utf8"), historicalBytes, "Reading and recovery never rewrite historical checkpoints");
+	assert.equal((await service.startRun(goalId, "question after historical report")).queued, false,
+		"chat admission remains available after a compatible historical report");
+	assert.equal(prompts.at(-1), "question after historical report");
+	snapshot.isStreaming = false;
+	onSnapshot(snapshot);
+	assert.equal(readFileSync(store.statePath, "utf8"), historicalBytes);
 	assert.throws(() => store.load({ ...current.pins, pipeline: "changed" }), /checkpoint_identity_drift/u);
 	assert.throws(() => validateRunState(historical), /knowledge_input\/mode/u, "New checkpoints still reject the retired mode");
 	assert.throws(() => store.save(loaded, JSON.parse(historicalBytes)), /knowledge_input\/mode/u, "Writes remain strict");

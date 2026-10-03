@@ -31,7 +31,7 @@ Runtime owns network access, credentials, free-allowance admission, caching and 
    fields: do not claim it establishes paper-body findings, implementation details or access to the full paper.
    For a successful PDF download use `materials=[downloaded_record]` and label the evidence accordingly. Preserve discovery
    queries separately because download metadata describes acquisition, not discovery. Write the final Ledger to
-   `work/openalex_candidates.json` and use `submit_candidate_ledger(provider_id="openalex")` when the assigned work is complete.
+   `work/openalex_candidates.json` and use `research_runtime.finish(provider_id="openalex")` when the assigned work is complete.
 
 For a successfully acquired PDF:
 

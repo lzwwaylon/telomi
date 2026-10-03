@@ -112,6 +112,7 @@ export type ActivityMessageKey =
 	| "activityChrome.wiki.batchCheckpoint"
 	| "activityChrome.wiki.resume"
 	| "activityChrome.wiki.resumeLimit"
+	| "activityChrome.wiki.retired"
 	| "activityChrome.wiki.batches"
 	| "activityChrome.wiki.open"
 	| "activityChrome.wiki.queued"

@@ -10,8 +10,15 @@ import urllib.request
 from typing import Any
 
 
-async def search(query: str, top_k: int = 10) -> dict[str, Any]:
-    return await _async_call("search", {"query": query, "top_k": top_k})
+async def list_topics() -> dict[str, Any]:
+    return await _async_call("list_topics", {})
+
+
+async def search(query: str, top_k: int = 10, *, topic_ref: str | None = None) -> dict[str, Any]:
+    arguments: dict[str, Any] = {"query": query, "top_k": top_k}
+    if topic_ref is not None:
+        arguments["topic_ref"] = topic_ref
+    return await _async_call("search", arguments)
 
 
 async def read_page(path: str) -> dict[str, Any]:
@@ -19,6 +26,7 @@ async def read_page(path: str) -> dict[str, Any]:
 
 
 async def graph_search(query: str, top_k: int = 10) -> dict[str, Any]:
+    """Compatibility for recorded historical executions; current Wiki callers use search."""
     return await _async_call("graph_search", {"query": query, "top_k": top_k})
 
 
@@ -56,4 +64,4 @@ def _call(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-__all__ = ["search", "read_page", "graph_search"]
+__all__ = ["list_topics", "search", "read_page"]

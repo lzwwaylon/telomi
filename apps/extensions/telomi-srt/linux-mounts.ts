@@ -17,6 +17,7 @@ export function linuxSandboxArgv(wrapped: readonly string[], filesystem: SrtPoli
 	if (basename(argv[0] ?? "") !== "bwrap") throw new Error("Expected a bubblewrap sandbox command");
 	const result = [argv[0]!];
 	const emittedWrites = new Set<string>();
+	const privateMasks = new Set<string>();
 	const restrictions: Array<{ path: string; masksAncestor: boolean }> = [];
 	const arities: Record<string, number> = {
 		"--new-session": 0, "--die-with-parent": 0, "--unshare-net": 0,
@@ -28,7 +29,9 @@ export function linuxSandboxArgv(wrapped: readonly string[], filesystem: SrtPoli
 		const option = argv[index]!;
 		if (option === "--") {
 			if (index + 1 === argv.length) throw new Error("Missing sandbox command");
-			return [...result, ...argv.slice(index)];
+			// SRT hides private directories with writable tmpfs and skips their write deny.
+			// Remount only the mask, after mount-point creation; never expose host contents.
+			return [...result, ...[...privateMasks].flatMap(path => ["--remount-ro", path]), ...argv.slice(index)];
 		}
 		const count = arities[option];
 		if (typeof count !== "number" || index + count >= argv.length) throw new Error(`Unexpected bubblewrap option: ${option}`);
@@ -50,6 +53,7 @@ export function linuxSandboxArgv(wrapped: readonly string[], filesystem: SrtPoli
 			}
 			restrictions.push({ path: destination, masksAncestor: source !== destination });
 		} else if (["--tmpfs", "--dev", "--proc"].includes(option)) {
+			if (option === "--tmpfs" && filesystem.denyWrite.some(deny => inside(deny, source))) privateMasks.add(source);
 			restrictions.push({ path: source, masksAncestor: false });
 		}
 		index += count + 1;

@@ -30,7 +30,7 @@ export function createInvestigateTool(goalDir: string, options: CreateMainAgentT
 	return {
 		name: "investigate",
 		label: "investigate",
-		description: "Start or continue a Goal investigation thread. Prime checks saved knowledge and original materials, then external evidence when allowed. Returns thread_id and a saved result receipt. Read result_ref before deliver_investigation.",
+		description: "Start or continue a Goal investigation thread, including read-only Wiki Topic discovery and Topic-filtered searches. Investigate Root can list the frozen Wiki's Topics, search their pages and read cited evidence. It checks original materials and external evidence only within the user's source restrictions. Returns thread_id and a saved result receipt. Read result_ref before deliver_investigation.",
 		parameters: schema,
 		executionMode: "sequential",
 		async execute(toolCallId, input, signal, onUpdate) {

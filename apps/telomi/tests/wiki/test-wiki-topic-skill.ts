@@ -96,10 +96,7 @@ async function kernel() {
  await loader.reload();
  const {session} = await prime.createAgentSession({cwd: work, agentDir, authStorage, modelRegistry, settingsManager, resourceLoader: loader,
   sessionManager: prime.SessionManager.inMemory(work), model: modelRegistry.getAll()[0], thinkingLevel: 'off',
-  tools: ['ipython', 'submit_note_first'], customTools: [{name: 'submit_note_first', label: 'Validate', description: 'Deterministic output validation',
-   parameters: {type: 'object', properties: {}, additionalProperties: false}, executionMode: 'sequential',
-   async execute() {try {workspace.validate(JSON.parse(readFileSync(join(work, 'result.json'), 'utf8')), work); return {content: [{type: 'text', text: 'validated'}], details: {}};}
-    catch (error) {return {content: [{type: 'text', text: String(error)}], details: {}, isError: true};}}}],
+  tools: ['ipython'], customTools: [],
   rlmMaxDepth: 1, prewarmIpythonKernel: false, executionMode: 'print', telemetryDisabled: true, autonomous: {enabled: false}});
  const cell = async (id: string, code: string) => {
   const tool = session.getToolDefinition('ipython'); assert.ok(tool);
@@ -110,7 +107,7 @@ async function kernel() {
   workspace.observe(id, visible); return visible;
  };
  try {
-  assert.deepEqual([...session.getActiveToolNames()].sort(), ['ipython', 'submit_note_first']);
+  assert.deepEqual([...session.getActiveToolNames()], ['ipython']);
   assert.equal(loader.getSkills().skills.length, 1);
   assert.equal(workspace.receipts().sections.length, 0);
   const pageRef = Object.keys(workspace.overviews).find(ref => workspace.overviews[ref].relations.length)!;
@@ -134,13 +131,12 @@ async function kernel() {
   const chosen = JSON.parse(metadata.trim()).chosen;
   const output = {topic_ref: 'T1', matches: [{section_ref: chosen, reason: 'Section inspected'}], gaps: []};
   writeFileSync(join(work, 'result.json'), JSON.stringify(output));
-  const submit = session.getToolDefinition('submit_note_first'); assert.ok(submit);
-  const rejected = await submit.execute('pre-read', {}, new AbortController().signal, undefined, undefined);
-  assert.equal(rejected.isError, true, 'Unseen section must be rejected');
+  assert.throws(() => workspace.validate(JSON.parse(readFileSync(join(work, 'result.json'), 'utf8')), work),
+   /read section/u, 'Runtime rejects unseen sections without a submission tool');
   await cell('print-body', 'print(body)');
   assert.ok(workspace.receipts().sections.includes(chosen));
-  const accepted = await submit.execute('post-read', {}, new AbortController().signal, undefined, undefined);
-  assert.ok(!accepted.isError, 'The same session can repair missing read receipts');
+  assert.equal(workspace.validate(JSON.parse(readFileSync(join(work, 'result.json'), 'utf8')), work).kind, 'topic',
+   'The same session can repair missing read receipts for Runtime validation');
   await cell('cue-capability', `assert not any(k.startswith('N') for k in wiki._data()['reads'])\ntry:\n wiki.read('N1')\nexcept ValueError:\n pass\nelse:\n raise AssertionError('standalone N read allowed')\nfrom pathlib import Path\nassert not Path(${JSON.stringify(join(inputRoot, 'evidence'))}).exists()\nassert not Path(${JSON.stringify(join(inputRoot, 'evidence.md'))}).exists()`);
   await cell('permissions', `from pathlib import Path\nimport errno\nfor target in [${JSON.stringify(join(inputRoot, 'index.md'))}, wiki.__file__]:\n original = Path(target).read_bytes()\n try:\n  Path(target).write_bytes(b'mutation')\n except OSError as error:\n  assert error.errno in (errno.EPERM, errno.EACCES, errno.EROFS)\n else:\n  raise AssertionError('input or Skill writable')\n assert Path(target).read_bytes() == original\ntry:\n Path(${JSON.stringify(join(runtime, 'sentinel.txt'))}).read_text()\nexcept OSError as error:\n assert error.errno in (errno.EPERM, errno.EACCES, errno.ENOENT)\nelse:\n raise AssertionError('private runtime readable')`);
   assert.equal(session.messages.filter((m: any) => m.role === 'assistant').length, 0);

@@ -51,6 +51,8 @@ const MAX_REPETITIONS = 5;
 const MAX_PROMPT_CHARACTERS = 200_000;
 const INLINE_ARTIFACT_BYTES = 1_000_000;
 const MAX_CACHED_PROJECTION_BYTES = 32 * 1024 * 1024;
+// These identities remain readable evidence, but have no current execution recipe.
+const RETIRED_WIKI_AGENT_IDS = ["wiki-shard-builder", "wiki-curator"];
 
 export type NodeBacktestStatus =
 	| "queued"
@@ -595,6 +597,8 @@ export class NodeBacktestService {
 		value: NodeEvaluationCase;
 	}> {
 		const result: Array<{ ref: NodeBacktestCaseRef; value: NodeEvaluationCase }> = [];
+		const matches = (value: NodeEvaluationCase) => (!agentId || value.agentId === agentId)
+			&& (this.recipeKeys.has(recipeKey(value.recipe)) || RETIRED_WIKI_AGENT_IDS.includes(value.agentId));
 		for (const runsRoot of this.sourceRunsDirectories(goalId)) {
 			if (!existsSync(runsRoot)) continue;
 			for (const run of readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
@@ -615,7 +619,7 @@ export class NodeBacktestService {
 						);
 						continue;
 					}
-					if (this.recipeKeys.has(recipeKey(value.recipe)) && (!agentId || value.agentId === agentId)) {
+					if (matches(value)) {
 						result.push({ ref: { sourceRunId: value.runId, caseId: value.caseId }, value });
 					}
 				}
@@ -624,7 +628,7 @@ export class NodeBacktestService {
 		for (const location of this.candidateReplayCaseLocations(goalId)) {
 			try {
 				const value = readNodeEvaluationCase(location.casePath, location.sourceRunDirectory);
-				if (this.recipeKeys.has(recipeKey(value.recipe)) && (!agentId || value.agentId === agentId)) {
+				if (matches(value)) {
 					result.push({ ref: { sourceRunId: value.runId, caseId: value.caseId }, value });
 				}
 			} catch (error) {
@@ -644,7 +648,7 @@ export class NodeBacktestService {
 					.filter(existsSync)) {
 					try {
 						const value = readNodeEvaluationCase(path, sourceRunDirectory);
-						if (this.recipeKeys.has(recipeKey(value.recipe)) && (!agentId || value.agentId === agentId)) {
+						if (matches(value)) {
 							result.push({ ref: { sourceRunId: value.runId, caseId: value.caseId }, value });
 						}
 					} catch (error) {
@@ -1123,7 +1127,7 @@ export class NodeBacktestService {
 				signal: input.signal,
 			});
 			// Candidate Evidence 是 fail-closed 的。Capture 本身由各 Recipe 在捕获点强制
-			// （见 wiki-replay、podcast-replay、prime-search-replay 和 agent-stage-runtime）；
+			// （见 wiki-compilation-node-replay、podcast-replay、prime-search-replay 和 agent-stage-runtime）；
 			// 这里只拒绝无法归属的多份 Candidate Case。
 			const captured = findNodeEvaluationCases(recordDirectory, input.run.agentId);
 			if (captured.length > 1) {
@@ -1272,6 +1276,10 @@ export class NodeBacktestService {
 		for (const goalId of this.options.listGoalIds()) {
 			for (const run of this.list(goalId, 500)) {
 				if (run.status !== "queued" && run.status !== "running") continue;
+				if (RETIRED_WIKI_AGENT_IDS.includes(run.agentId)) {
+					log.logWarning(`Node Replay Recipe '${run.agentId}' is retired and unsupported; preserving recorded Replay '${run.id}'`);
+					continue;
+				}
 				const resumed: NodeBacktestRun = run.status === "running"
 					? { ...run, status: "queued", executions: [], pairs: [], updatedAt: new Date().toISOString(), error: "requeued after server restart" }
 					: run;
@@ -1593,6 +1601,9 @@ function validateRequest(request: NodeBacktestRequest, registeredAgentIds: Reado
 		throw new Error("baseline is not accepted; Observed Baseline comes from each Node Case");
 	}
 	if (!request.agentId?.trim()) throw new Error("agentId is required");
+	if (RETIRED_WIKI_AGENT_IDS.includes(request.agentId.trim())) {
+		throw new Error(`Node Replay Recipe '${request.agentId.trim()}' is retired and unsupported; historical Cases remain read-only`);
+	}
 	if (!registeredAgentIds.has(request.agentId.trim())) {
 		throw new Error(`Unknown Workspace Agent '${request.agentId.trim()}'`);
 	}

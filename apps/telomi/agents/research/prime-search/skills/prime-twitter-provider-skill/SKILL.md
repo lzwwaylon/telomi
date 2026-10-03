@@ -40,4 +40,6 @@ ledger.add(
     materials=[provider_row],
 )
 ledger.write("work/twitter_candidates.json")
+import research_runtime
+research_runtime.finish(provider_id="twitter")
 ```

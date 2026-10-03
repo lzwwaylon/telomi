@@ -1,3 +1,4 @@
+import { wikiToolArguments } from "../../wiki/tools.js";
 import { copyTaskContext } from "../task-context.js";
 import { primeExecutionToken } from "../../../../extensions/telomi-srt/prime-workspace.js";
 import { effectiveProviderWorkerSkills } from "../../agent-runtime/provider-skills.js";
@@ -87,12 +88,12 @@ import {
 	type OrganizedSourceOrganization,
 } from "./organized-sources.js";
 import {
-	ORGANIZER_COMPLETE_MARKER,
 	ORGANIZER_RUNTIME_INDEX,
 	PROVIDER_EXECUTIONS_DIRECTORY,
 	primeProviderAssignments,
 	primeProviderSubmission,
-	validatePrimeOrganizerDecisionFile,
+	submitProviderCandidateLedger,
+	readAcceptedPrimeOrganizerIndex,
 	validatePrimeSearchCandidateLedger,
 } from "./prime-search-contract.js";
 import { preserveProviderChildTasks, providerExecutionWorkspace } from "./provider-execution-workspace.js";
@@ -181,19 +182,19 @@ export function primeSearchBatchContractIdentity(
 	const models = resolvePrimeAgentModels(env, settingsOverride);
 	return {
 		id: "prime-search-batch",
-		version: 66,
+		version: 67,
 		rootModel: models.root.selector,
 		childModel: models.child.selector,
 		thinkingLevel: primeSearchRootThinking(env, settingsOverride),
 		autoRefine: PRIME_AUTO_REFINE_ENABLED,
 		autonomous: PRIME_AUTONOMOUS_CONFIG.enabled,
 		executionAdapter: "prime-sdk-rlm-quiescence-v2",
-		candidateLedgerValidation: "sdk-custom-tool-candidate-materials-v7-final-receipt",
+		candidateLedgerValidation: "hmac-python-finish-candidate-materials-v8-final-receipt",
 		providerWorkerSkills: "catalog-declared-bundled-skill-with-goal-override",
 		organizerWorkspace: "metadata-only-ipython-no-rlm",
 		promptBundle: {
-		acquisition: "root-web-native-provider-children-bounded-fallback-v52",
-			organizer: "incremental-source-group-patch-v7",
+		acquisition: "root-web-native-provider-children-python-finish-v53",
+			organizer: "incremental-source-group-patch-runtime-acceptance-v8",
 		},
 		schema: {
 			candidate_ledger: 2,
@@ -395,7 +396,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 						...providerSkillRoots,
 						...rootAgentSkillRoots,
 					],
-					tools: ["ipython", "submit_candidate_ledger"],
+					tools: ["ipython"],
 					thinking: primeSearchRootThinking(this.env),
 					scopedModels: [childModel],
 					rlmMaxDepth: 1,
@@ -451,14 +452,14 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 				module: primeModule,
 				cwd: organizerRoot,
 				runtimeRoot,
-				privateRoots: [bundlesRoot, join(root, ".runtime")],
+				privateRoots: [bundlesRoot, join(root, ".runtime"), join(organizerRoot, ".runtime")],
 				kernelLogPath: join(runtimeRoot, "organizer-kernel-launches.jsonl"),
 				sessionDir: join(runtimeRoot, "organizer-session", "session"),
 				provider: rootProvider,
 				model: rootModel,
 				prompt: primeSourceOrganizerPrompt(preparedOrganizer.newSourceIds.length),
 				skills: [],
-				tools: ["ipython", "submit_organizer_decision"],
+				tools: ["ipython"],
 				organizerTools: true,
 				thinking: primeSearchRootThinking(this.env),
 				scopedModels: [],
@@ -474,7 +475,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 				...(request.logicalWorkspaceCaptureRoot ? { logicalWorkspaceCapture: { root: request.logicalWorkspaceCaptureRoot, key: "organizer" } } : {}),
 			});
 			const organizerIndex = preparedOrganizer.newSourceIds.length > 0 && canGroup
-				? acceptOrganizerDecision(request, organizerRoot, preparedOrganizer)
+				? acceptOrganizerDecision(request, organizerRoot, preparedOrganizer, organizer.validationError)
 				: preparedOrganizer.index;
 			writePrimeSourceOrganizerIndex(join(organizerRoot, "index.json"), organizerIndex);
 			writePrimeSourceOrganizerIndex(organizerCache, organizerIndex);
@@ -1007,22 +1008,18 @@ function claim(claimed: Set<string>, target: string): void {
 }
 
 /**
- * The Organizer validates through submit_organizer_decision; if it still ends without a valid decision, the Run keeps
+ * Runtime validates the Organizer after each turn; after exhausted repairs, the Run keeps
  * going with every new Source ungrouped instead of discarding the whole acquisition.
  */
 function acceptOrganizerDecision(
 	request: SearchBatchRequest,
 	organizerRoot: string,
 	prepared: ReturnType<typeof preparePrimeSourceOrganizerIndex>,
+	validationError?: string,
 ): PrimeSourceOrganizerIndex {
 	try {
-		const index = validatePrimeOrganizerDecisionFile(organizerRoot);
-		if (!existsSync(join(organizerRoot, ORGANIZER_COMPLETE_MARKER))) {
-			appendRuntimeContext(request.controlDirectory, "research", {
-				type: "runtime.prime_search_organizer_unsubmitted",
-				sequence: request.sequence,
-			});
-		}
+		if (validationError) throw new Error(validationError);
+		const index = readAcceptedPrimeOrganizerIndex(organizerRoot);
 		return index;
 	} catch (error) {
 		appendRuntimeContext(request.controlDirectory, "research", {
@@ -1204,7 +1201,7 @@ export async function runPrime(args: {
 	serviceTier?: "default" | "priority" | "flex";
 	onChildEvent?: (event: unknown) => void;
 	logicalWorkspaceCapture?: { root: string; key: "root" | "organizer" };
-}): Promise<{ usage: ResearchModelUsage; toolCalls: number; agentStages: number; rootError?: string }> {
+}): Promise<{ usage: ResearchModelUsage; toolCalls: number; agentStages: number; rootError?: string; validationError?: string }> {
 	mkdirSync(args.sessionDir, { recursive: true });
 	appendFileSync(args.conditionsPath, `${JSON.stringify(primeLaunchConditions(args))}\n`, "utf-8");
 	const inputPath = join(dirname(args.sessionDir), "sdk-input.json");
@@ -1233,6 +1230,7 @@ export async function runPrime(args: {
 	}, join(args.logicalWorkspaceCapture.root, args.logicalWorkspaceCapture.key));
 	let liveText = "";
 	let rootError: string | undefined;
+	let validationError: string | undefined;
 	let lastTextEmissionAt = 0;
 	const emit = (
 		status: AgentStageActivity["status"],
@@ -1261,6 +1259,9 @@ export async function runPrime(args: {
 					return;
 				}
 				args.onChildEvent?.(event);
+				if (event.type === "output_validation_exhausted" && args.organizerTools && typeof event.error === "string") {
+					validationError = event.error;
+				}
 				observeChildModelFailure(event);
 				const assistantEvent = event.assistantMessageEvent;
 				if (event.type === "message_end" && event.message && typeof event.message === "object") {
@@ -1298,12 +1299,13 @@ export async function runPrime(args: {
 		emit(args.signal.aborted ? "cancelled" : "failed", "status", { text: liveText });
 		throw error;
 	}
-	emit("succeeded", liveText ? "text" : "status", { text: liveText });
+	emit(validationError ? "failed" : "succeeded", validationError ? "status" : liveText ? "text" : "status", { text: validationError ?? liveText });
 	if (rootError) observeModelFailureText(rootError);
 	return {
 		...readPrimeUsage([args.sessionDir, join(dirname(args.sessionDir), "session-artifacts")]),
 		agentStages: 1,
 		...(rootError ? { rootError } : {}),
+		...(validationError ? { validationError } : {}),
 	};
 }
 
@@ -1337,9 +1339,7 @@ function primeLaunchConditions(args: Parameters<typeof runPrime>[0]): Record<str
 		},
 		skills: skillConditions(skills.skills),
 		custom_tools: [
-			...(args.contractTools ? ["submit_candidate_ledger"] : []),
 			...(args.generalWeb ? ["search_general_web"] : []),
-			...(args.organizerTools ? ["submit_organizer_decision"] : []),
 			...(args.browserTools ? ["browser", "materialize_source", "read_skill"] : []),
 		],
 		tools: args.tools ?? "prime-default",
@@ -1499,6 +1499,7 @@ export interface PrimeBridgeOptions {
 		/** Inline responses exist only to replay historical Cases with their original protocol. */
 		responseMode?: "file" | "inline";
 		knowledgeSearch(query: string, limit: number): Promise<unknown>;
+		wikiTool?(operation: string, args: Record<string, unknown>): Promise<unknown>;
 		readSources(question: string): Promise<unknown>;
 		writeAnswer?(evidenceRefs: string[], requirements: string[]): Promise<unknown>;
 		externalSearch?(question: string): Promise<unknown>;
@@ -1508,6 +1509,7 @@ export interface PrimeBridgeOptions {
 }
 
 const BRIDGE_ROUTES = new Set([
+	"/v1/finish",
 	"/v1/search",
 	"/v1/root-search",
 	"/v1/browser",
@@ -1515,6 +1517,7 @@ const BRIDGE_ROUTES = new Set([
 	"/v1/skill-read",
 	"/v1/provider-fallback",
 	"/v1/knowledge-search",
+	"/v1/wiki",
 	"/v1/read-sources",
 	"/v1/write-answer",
 	"/v1/external-search",
@@ -1633,6 +1636,12 @@ export async function startPrimeSourceBridge(
 				&& primeProviderSubmission(artifactWorkspace, executionId)) throw new ResearchNodeError("This child already submitted its final Ledger. Ask Root to create a new bounded task for further acquisition.", "permanent", false, { code: "provider_task_completed" });
 			if (options.investigation) {
 				if (executionId !== "root") throw new Error("Investigation Tools are available only to the Search Root");
+				if (route === "/v1/wiki" && options.investigation.wikiTool) {
+					const operation = requiredString(body.operation, "Wiki operation");
+					if (!["wiki_list_topics", "wiki_search", "wiki_read_page"].includes(operation)) throw new Error(`Unsupported Wiki operation '${operation}'`);
+					handoff(operation, await options.investigation.wikiTool(operation, wikiToolArguments(operation, body)));
+					return;
+				}
 				if (route === "/v1/knowledge-search") {
 					handoff("knowledge_search", await options.investigation.knowledgeSearch(
 						requiredString(body.query, "Knowledge query"),
@@ -1673,7 +1682,17 @@ export async function startPrimeSourceBridge(
 				}
 				throw new Error("This investigation cannot access external Providers");
 			}
-			if (route === "/v1/knowledge-search" || route === "/v1/read-sources" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
+			if (route === "/v1/wiki" || route === "/v1/knowledge-search" || route === "/v1/read-sources" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
+			if (route === "/v1/finish") {
+				if (Object.keys(body).some((key) => !["agent_session_id", "provider_id"].includes(key))) {
+					throw new Error("Provider finish accepts only provider_id and the authenticated execution identity");
+				}
+				const providerId = requiredString(body.provider_id, "Provider provider_id");
+				if (!/^[a-z][a-z0-9_-]{0,63}$/u.test(providerId)) throw new Error("Invalid Provider submission identity");
+				bindProvider(executionId, providerId);
+				response.end(JSON.stringify(await submitProviderCandidateLedger(artifactWorkspace, executionId, providerId)));
+				return;
+			}
 			if (route === "/v1/root-search") {
 				// Discovery belongs to the Root; children get the specialized Providers below.
 				if (bridgeExecutionId(body.agent_session_id) !== "root") throw new Error("General Web search is available only to the Search Root");
@@ -2005,7 +2024,7 @@ export function reuseInterruptedStage(stageRoot: string, root: string, request: 
 }
 
 /** 复用封存产物时跳过一次 Agent 执行：没有新增用量，也不计入 Agent Stage。 */
-function skippedPrimeRun(): { usage: ResearchModelUsage; toolCalls: number; agentStages: number; rootError?: string } {
+function skippedPrimeRun(): { usage: ResearchModelUsage; toolCalls: number; agentStages: number; rootError?: string; validationError?: string } {
 	return { usage: emptyUsage(), toolCalls: 0, agentStages: 0 };
 }
 

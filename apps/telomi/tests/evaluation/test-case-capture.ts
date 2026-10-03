@@ -27,7 +27,6 @@ import {
 	type AgentStageRunner,
 	type ValidatedStageArtifact,
 } from "../../server/agent-runtime/agent-stage-runtime.js";
-import { runWikiShardNodeEvaluation } from "../../server/evaluation/wiki-replay.js";
 import { runPodcastWriterNodeEvaluation } from "../../server/evaluation/podcast-replay.js";
 import { runScheduleReviewNodeEvaluation } from "../../server/evaluation/schedule-review-replay.js";
 import { parseScheduleReviewOutput } from "../../server/research/schedules/review-contract.js";
@@ -179,25 +178,6 @@ const podcast = await runPodcastWriterNodeEvaluation({
 });
 assert.equal(podcast, podcastResult, "Podcast Writer capture failure must not change the product result");
 assert.ok(caseCaptureHealth().failures >= 1, "the capture failure is recorded for the Operations status");
-
-resetCaseCaptureForTest();
-const shardResult = { knowledgeRoot: join(root, "wiki"), pageCount: 1, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 }, sessionPaths: [] };
-const shard = await runWikiShardNodeEvaluation({
-	goal: "goal",
-	evidence: { entries: [] } as never,
-	topicPlan: {} as never,
-	workRoot: join(root, "wiki-work"),
-	sessionRoot: join(root, "wiki-session"),
-	batch: { id: "b", index: 0, total: 1, sourceIds: [] },
-	signal: new AbortController().signal,
-}, {
-	env: modelEnv,
-	recordDirectory: brokenRecordDirectory,
-	runId: "run-1",
-	execute: async () => shardResult,
-});
-assert.equal(shard, shardResult, "Wiki Shard Builder capture failure must not change the product result");
-assert.ok(caseCaptureHealth().failures >= 1);
 
 resetCaseCaptureForTest();
 const schedule = { question: "What changed?", monitoringScope: "Monitor releases.", reportContext: "Write for the team.", runs: [] };

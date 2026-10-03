@@ -15,7 +15,6 @@ import type { withResearchNodeEvaluationCapture, withNoteAgentCapture } from "..
 import type { withPrimeSearchNodeEvaluationCapture } from "../evaluation/prime-search-replay.js";
 import type { withInvestigationNodeCapture } from "../evaluation/investigation-replay.js";
 import type { runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "../evaluation/wiki-compilation-node-replay.js";
-import type { runWikiCuratorNodeEvaluation, runWikiShardNodeEvaluation } from "../evaluation/wiki-replay.js";
 import type { runPodcastWriterNodeEvaluation } from "../evaluation/podcast-replay.js";
 import type { runScheduleReviewNodeEvaluation } from "../evaluation/schedule-review-replay.js";
 import type { captureMainAgentNodeEvaluation } from "../evaluation/main-agent-evaluation.js";
@@ -26,10 +25,8 @@ export interface CaseCaptureHooks {
 	noteAgent: typeof withNoteAgentCapture;
 	primeSearchBatch: typeof withPrimeSearchNodeEvaluationCapture;
 	investigation: typeof withInvestigationNodeCapture;
-	wikiShard: typeof runWikiShardNodeEvaluation;
 	wikiCompilation: typeof runWikiCompilationNodeEvaluation;
 	wikiReindex: typeof runWikiReindexNodeEvaluation;
-	wikiCurator: typeof runWikiCuratorNodeEvaluation;
 	podcastWriter: typeof runPodcastWriterNodeEvaluation;
 	scheduleReviewer: typeof runScheduleReviewNodeEvaluation;
 	mainAgent: typeof captureMainAgentNodeEvaluation;

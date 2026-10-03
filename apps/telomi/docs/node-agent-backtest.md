@@ -19,8 +19,6 @@ Capability Snapshots freeze their ordered Skill ownership alongside the files. I
 | `prime-search` | Yes; v4 pins the Search question and captured context and reruns Provider operations; the Root may use general search | Production Research runs and investigation external acquisitions |
 | `prime-investigation` | Yes; pins the question, prompt, model policy, Wiki snapshot, and successful knowledge, reading, external-search and Writer responses seen by the Root | Main-triggered local investigations |
 | `wiki-compilation` | Yes; freezes the complete Notes, Goal, Topic Plan and base Wiki, or the base Wiki and Topic Plan for reindex | Production Wiki Updates and Topic reindex runs |
-| `wiki-shard-builder` | Yes; freezes Cornell Evidence and Topic Plan | Production Wiki Update runs |
-| `wiki-curator` | Yes; freezes Wiki Edition, Shards, and Topic Plan | Production Wiki Update runs |
 | `podcast-writer` | Yes; freezes Canonical Report, generation requirements, and models | Production Podcast generation runs |
 | `schedule-reviewer` | No (restricted); Cases can be captured and exported, but Candidate Replay requires exact matching of frozen answers, as described below | Production Research Schedule Reviews |
 | `evolution` | Yes; reruns complete Browser Evolution in an isolated Goal without changing the real Goal | Terminal Browser Evolutions; see [Evolution Module](evolution-module-design.md) |
@@ -96,9 +94,7 @@ The status endpoint returns the currently registered Recipes:
     "podcast-writer@1",
     "report-writer@2",
     "schedule-reviewer@1",
-    "wiki-compilation@1",
-    "wiki-curator@1",
-    "wiki-shard-builder@1"
+    "wiki-compilation@1"
   ]
 }
 ```
@@ -203,13 +199,7 @@ Replay invokes the production `WikiCompiler.compile()` or `.reindex()` in an iso
 
 Capture remains fail-open for product results. Candidate Evidence is fail-closed. Failed, cancelled and partially failed executions retain a Recovery Case with sanitized stage inputs, outputs, native sessions and terminal error. Credentials and SDK environment directories are excluded. Successful artifacts contain the Knowledge directory, metrics and evaluation rubric. Direct Topic matches and related-page navigation must be assessed separately.
 
-Historical `wiki-shard-builder`, `wiki-curator` and private `wiki-compilation-diagnostic` Cases do not have this formal boundary and are rejected by this Recipe. They cannot be relabeled or supplemented from live state. Capture the first semantic Case through a real Wiki Update or Topic reindex, then export and replay it through Operations before claiming Attestation.
-
-### Wiki Shard Builder and Wiki Curator
-
-Wiki Shard Cases pin the Goal, Cornell Evidence Snapshot, Topic Plan, Batch, and model. Wiki Curator Cases pin the operation, previous Wiki Edition, input Shards, Topic Plan, and model. Their Replays call production `runWikiShardBuilder()` and `curateWikiEdition()` respectively, without reusing the Prime Search Recipe.
-
-Candidates load the Goal-scoped Wiki Skill from their own Capability Snapshot while retaining the bundled Wiki Meta Skill. Blind-evaluation Artifacts contain historical Observed Knowledge, Candidate Knowledge, structural metrics, and the Target Rubric for checking content quality, Evidence, citations, Topic membership, internal links, and graph relationships.
+Historical `wiki-shard-builder` and `wiki-curator` Cases remain readable as captured evidence, but their retired Recipes no longer execute. They and private `wiki-compilation-diagnostic` Cases do not have this formal boundary and are rejected by this Recipe. They cannot be relabeled or supplemented from live state. Capture the first semantic Case through a real Wiki Update or Topic reindex, then export and replay it through Operations before claiming Attestation.
 
 ### Podcast Writer
 

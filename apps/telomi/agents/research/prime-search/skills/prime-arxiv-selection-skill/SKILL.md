@@ -91,7 +91,7 @@ ledger.add(
 
 Build the output with `CandidateLedger()` from the returned download records and save with
 `ledger.write("work/arxiv_candidates.json")`. Draft writes are atomic and can be repeated before final
-submission. Use that exact filename, including the underscore. Then call `submit_candidate_ledger(provider_id="arxiv")`.
+submission. Use that exact filename, including the underscore. Then use `import research_runtime` and call `research_runtime.finish(provider_id="arxiv")`.
 Successful submission freezes this task's final Ledger and ends its acquisition; do not query again or rewrite the
 submitted result. Ask Root for a new bounded task if new evidence is needed later.
 

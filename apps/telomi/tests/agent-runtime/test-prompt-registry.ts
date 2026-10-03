@@ -65,19 +65,7 @@ for (const [name, body] of mainSkillBodies) {
 }
 assert.deepEqual(bundledAgentSkillPaths("research", "report-writer").map((path) => path.split("/").at(-1)),
 	["wiki-report", "notes-report", "writing-skill"]);
-assert.deepEqual(loadAgentPromptConfig("wiki", "wiki-curator").skills, ["wiki-curator"]);
-for (const task of ["entity", "concept"] as const) {
-	const prompt = renderAgentPrompt("wiki", "wiki-shard-builder", "user", {
-		goal: "RESEARCH_QUESTION_MUST_NOT_BE_INJECTED", goal_title: "Study battery recycling", goal_description: "Long-term interests",
-		batch_number: 1, batch_total: 2, batch_id: "batch-test", topics: "Recycling methods", reading_material: "Original Notes",
-		source_count: 3, child_model: "provider/child", language: "en",
-	}, task).content;
-	assert.match(prompt, /Study battery recycling/u);
-	assert.match(prompt, /Long-term interests/u);
-	assert.doesNotMatch(prompt, /RESEARCH_QUESTION_MUST_NOT_BE_INJECTED/u);
-	assert.doesNotMatch(prompt, /batch-test|batch 1 of 2|same language as the Goal/u);
-	assert.ok(prompt.includes(`submit_wiki_${task}_result()`));
-}
+assert.deepEqual(loadAgentPromptConfig("wiki", "wiki-compilation").skills, ["wiki"]);
 assert.deepEqual(loadAgentPromptConfig("main", "podcast-writer").skills, ["podcast-writing"]);
 assert.deepEqual(loadAgentPromptConfig("evolution", "browser-skill-evolution").sandbox, {
 	role: "evolution.candidate_author",

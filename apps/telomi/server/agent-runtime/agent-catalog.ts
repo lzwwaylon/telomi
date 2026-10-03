@@ -46,8 +46,6 @@ const AGENTS: Record<string, AgentRegistration> = {
 	"podcast-writer": { domain: "main", bundle: "podcast-writer", presentationKind: "generic", impactPaths: ["apps/telomi/server/media/podcast/"] },
 	"schedule-reviewer": { domain: "research", bundle: "schedule-reviewer", presentationKind: "generic", impactPaths: ["apps/telomi/server/research/schedules/"] },
 	"wiki-compilation": { domain: "wiki", bundle: "wiki-compilation", presentationKind: "wiki", impactPaths: ["apps/telomi/server/wiki/"] },
-	"wiki-shard-builder": { domain: "wiki", bundle: "wiki-shard-builder", presentationKind: "wiki", impactPaths: ["apps/telomi/server/wiki/"] },
-	"wiki-curator": { domain: "wiki", bundle: "wiki-curator", presentationKind: "wiki", impactPaths: ["apps/telomi/server/wiki/"] },
 	"evolution": { domain: "evolution", bundle: "browser-skill-evolution", presentationKind: "evolution", impactPaths: ["apps/telomi/server/evolution/"] },
 };
 
