@@ -10,7 +10,7 @@ import { validateCornellNoteArtifact, validateCornellNotesSnapshot } from "../..
 import { sha256 } from "../../server/lib/hash.js";
 import { createCueCornellSnapshot, createGoalCornellSnapshot } from "../../server/research/cue-cornell-snapshot.js";
 import { listSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
-import { noteWikiEntries } from "../../server/wiki/wiki-shard-builder.js";
+import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { WikiCompiler } from "../../server/wiki/wiki-compiler.js";
 import type { WikiStageInput, WikiStageOutcome, WikiStageResult } from "../../server/wiki/wiki-stage-contract.js";
 import { readWikiPageEvidence } from "../../server/wiki/evidence.js";
@@ -156,15 +156,19 @@ try {
 	cpSync(knowledge, join(goalDir, "wiki", "knowledge"), { recursive: true });
 	const app = express();
 	app.use(createWikiRouter(root, { getGoal: (id: string) => id === "goal" ? { id } : undefined } as unknown as GoalService));
-	const server = app.listen(0);
+	const server = app.listen(0, "127.0.0.1");
 	await new Promise<void>((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
-	const api = (path: string) => fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/goals/goal/wiki/${path}`);
+	const api = async (path: string) => {
+		const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/api/goals/goal/wiki/${path}`);
+		// Complete every response, including status-only checks, before issuing another request.
+		return { status: response.status, body: await response.arrayBuffer() };
+	};
 	try {
 		assert.equal((await api("source?path=source%3Ashared")).status, 409, "ambiguous Source revisions cannot silently pick the first Run");
 		for (const [index, runId] of ["run-a", "run-b"].entries()) {
 			const response = await api(`source?path=source%3Ashared&run=${runId}&document=members%2Farticle%2Fdocument.md`);
 			assert.equal(response.status, 200);
-			const source = await response.json() as { runId: string; content: string };
+			const source = JSON.parse(Buffer.from(response.body).toString("utf8")) as { runId: string; content: string };
 			assert.equal(source.runId, runId);
 			assert.equal(source.content.trim(), anchors[index]!.excerpt);
 		}
@@ -175,7 +179,7 @@ try {
 		assert.equal((await api("source?path=source%3Ashared&run=..%2Frun-b")).status, 400);
 		const asset = await api("source-asset?source=source%3Amember-run-b&path=assets%2Ffigure.png&run=run-b");
 		assert.equal(asset.status, 200, "secondary Source assets resolve through per-anchor original Run membership");
-		assert.deepEqual([...new Uint8Array(await asset.arrayBuffer())], [137, 80, 78, 1]);
+		assert.deepEqual([...new Uint8Array(asset.body)], [137, 80, 78, 1]);
 		assert.equal((await api("source-asset?source=source%3Amember-run-b&path=assets%2Ffigure.png&run=run-a")).status, 400);
 		assert.equal((await api("source-asset?source=source%3Ashared&path=assets%2Ffigure.png")).status, 409,
 			"asset lookup cannot swallow an ambiguous Wiki provenance error and search a different Run");

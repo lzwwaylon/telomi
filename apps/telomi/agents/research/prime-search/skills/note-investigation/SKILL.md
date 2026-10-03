@@ -7,11 +7,18 @@ description: Investigate a Goal question through saved knowledge, Note Agent rea
 
 Read `inputs/request.json` for the complete question, language and source restrictions, and `inputs/context.md` for the current user background, preferences and required evidence detail. Context guides the task; original Source evidence supports factual claims. Paths resolve from this execution's working directory. The staged Skill is `skills/root-agent/note-investigation/SKILL.md`. In IPython, import the following synchronous functions from `research_runtime`; call them without `await`:
 
+- `wiki_list_topics()`
+- `wiki_search(query: str, *, top_k: int = 10, topic_ref: str | None = None)`
+- `wiki_read_page(path: str)`
 - `knowledge_search(query: str, *, limit: int = 10)`
 - `read_sources(question: str)`
 - `external_search(question: str)`
 - `write_answer(evidence_refs: list[str], requirements: list[str])`
 - `read_handoff(receipt: dict)`
+
+For organized Wiki knowledge, load `wiki_list_topics()` with `read_handoff` when Topic scope helps. Select a returned `T` ref by its title, intent and scope, then pass it to `wiki_search`; omit it for a broad search that includes unassigned pages. Topic refs belong to this frozen invocation, not the latest Goal plan or a previous thread turn. Read returned `P` refs through `wiki_read_page`; only its returned `C` refs may be assigned to the Writer. A zero Topic page count or an empty filtered result does not prove the original material is absent. These Wiki operations return the same file receipts as the other operations.
+
+`knowledge_search` remains the broader saved-Cue lookup with Wiki leads and at most one distinct query. Use it when saved Notes outside the Wiki may answer a missing part. Historical Note Topic assignments remain Runtime provenance; filter handles come from this invocation's Wiki catalog.
 
 After selecting `evidence_refs` from this invocation's mapped Cues:
 

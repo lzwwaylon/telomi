@@ -292,6 +292,51 @@ try {
 	}
 	writeFileSync(store.statePath, JSON.stringify(current));
 	assert.equal(service.isGoalActive(goalId), false);
+	const historical = { ...current, status: "published", finished_at: "2026-09-25T05:23:56.174Z",
+		canonical_report: { relative_path: "report/final.md", sha256: "a".repeat(64), byte_length: 12 },
+		report_flow: {
+			outline: { relative_path: "artifacts/report-flow/outline.json", sha256: "a".repeat(64), byte_length: 12 },
+			execution_plan: { relative_path: "artifacts/report-flow/executable-plan.json", sha256: "a".repeat(64), byte_length: 12 },
+			knowledge_input: { mode: "findout", ref: "artifacts/report-flow/findout-snapshot", sha256: "a".repeat(64), byte_length: 12 },
+		},
+	};
+	const historicalBytes = `${JSON.stringify(historical, null, 2)}\n`;
+	writeFileSync(store.statePath, historicalBytes);
+	assert.throws(() => store.load(), /knowledge_input\/mode/u,
+		"liveness compatibility must not reinterpret a historical business checkpoint as current RunStateV2");
+	assert.equal(store.isActive(), false);
+	assert.equal(store.recoverInterrupted(), false, "terminal historical payloads need no startup recovery");
+	const restartedWithHistory = new GoalService(workspaceDir, {
+		...unusedGoalExecution,
+		async createRunner(input) { onSnapshot = input.onSnapshot; return session; },
+	});
+	assert.equal(restartedWithHistory.isGoalActive(goalId), false);
+	assert.equal((await restartedWithHistory.startRun(goalId, "question after historical report")).queued, false,
+		"a real chat admission must ignore a validated terminal lifecycle despite an older report payload");
+	assert.equal(prompts.at(-1), "question after historical report");
+	snapshot.isStreaming = false;
+	onSnapshot(snapshot);
+	assert.equal(readFileSync(store.statePath, "utf-8"), historicalBytes,
+		"startup, admission and recovery preserve historical checkpoint bytes");
+	for (const invalid of [
+		{ ...historical, status: "search_batch_running" },
+		{ ...historical, status: "unknown_status" },
+		{ ...historical, finished_at: undefined },
+		{ ...historical, canonical_report: undefined },
+		{ ...historical, workflow_version: 1 },
+		{ ...historical, run_id: "" },
+	]) {
+		const invalidBytes = JSON.stringify(invalid);
+		writeFileSync(store.statePath, invalidBytes);
+		assert.throws(() => store.isActive(), /schema|checkpoint|canonical report/u,
+			"malformed active or terminal lifecycle data must fail closed");
+		await assert.rejects(restartedWithHistory.startRun(goalId, "blocked malformed checkpoint"),
+			/schema|checkpoint|canonical report/u);
+		assert.equal(readFileSync(store.statePath, "utf-8"), invalidBytes);
+	}
+	writeFileSync(store.statePath, "{");
+	assert.throws(() => store.isActive(), SyntaxError);
+	writeFileSync(store.statePath, JSON.stringify(current));
 	console.log("Persisted Run liveness excludes duplicate starts through initialization, scheduling and resume");
 } finally {
 	rmSync(workspaceDir, { recursive: true, force: true });

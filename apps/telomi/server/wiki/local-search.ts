@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import * as lancedb from "@lancedb/lancedb";
@@ -12,6 +12,7 @@ import { wikiEmbeddingRuntime } from "../embedding/configuration.js";
 import type { WikiEmbeddingRuntime } from "../embedding/wiki-migration.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
 import { createWikiRuntime, type WikiGraph, type WikiNode } from "../wiki/model/index.js";
+import { validateGoalTopicPlan } from "../goals/topic-plan/index.js";
 
 /** How much of the searched Wiki the Goal's embedding index serves right now. */
 export interface WikiIndexCoverage {
@@ -84,6 +85,7 @@ export function wikiIndexPath(goalDir: string): string {
 export class GoalWikiSearch {
 	private readonly runtime;
 	private readonly knowledgeRoot: string;
+	private topics?: ReturnType<GoalWikiSearch["loadTopics"]>;
 
 	constructor(
 		knowledgeRoot: string,
@@ -95,6 +97,21 @@ export class GoalWikiSearch {
 	) {
 		this.knowledgeRoot = resolve(knowledgeRoot);
 		this.runtime = createWikiRuntime(knowledgeRoot, { goalDir: options.goalDir });
+	}
+
+	/** Topic definitions and membership belong to the searched Edition, not the latest Goal plan. */
+	listTopics() {
+		return this.topics ??= this.loadTopics();
+	}
+
+	private async loadTopics() {
+		const path = join(this.knowledgeRoot, ".topic-plan.json");
+		if (!existsSync(path)) return { topics: [] as Array<ReturnType<typeof validateGoalTopicPlan>["topics"][number] & { page_count: number }> };
+		const plan = validateGoalTopicPlan(JSON.parse(readFileSync(path, "utf8")));
+		const graph = await this.runtime.buildGraph();
+		return { topics: plan.topics.map(topic => ({ ...topic,
+			page_count: graph.nodes.filter(node => node.topicRefs.includes(topic.id)).length,
+		})) };
 	}
 
 	async search(query: string, topK = 10, signal?: AbortSignal, topicId?: string) {

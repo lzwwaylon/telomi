@@ -31,14 +31,12 @@ import { investigationReplayRecipe, withInvestigationNodeCapture } from "./inves
 import { podcastWriterReplayRecipe } from "./podcast-replay.js";
 import { scheduleReviewerReplayRecipe, runScheduleReviewNodeEvaluation } from "./schedule-review-replay.js";
 import { wikiCompilationReplayRecipe, runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "./wiki-compilation-node-replay.js";
-import { wikiCuratorReplayRecipe, wikiShardReplayRecipe } from "./wiki-replay.js";
 import {
 	createRecordedStageReplayRecipes,
 	withResearchNodeEvaluationCapture,
 	withNoteAgentCapture,
 } from "../agent-runtime/recorded-stage-replay.js";
 import { withPrimeSearchNodeEvaluationCapture } from "./prime-search-replay.js";
-import { runWikiCuratorNodeEvaluation, runWikiShardNodeEvaluation } from "./wiki-replay.js";
 import { runPodcastWriterNodeEvaluation } from "./podcast-replay.js";
 import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
 import { OPERATIONS_PROTOCOL_VERSION, OPERATIONS_SCHEMA_HASH } from "./operations-contract.js";
@@ -75,10 +73,8 @@ export function createOperationsRuntime(options: {
 		noteAgent: withNoteAgentCapture,
 		primeSearchBatch: withPrimeSearchNodeEvaluationCapture,
 		investigation: withInvestigationNodeCapture,
-		wikiShard: runWikiShardNodeEvaluation,
 		wikiCompilation: runWikiCompilationNodeEvaluation,
 		wikiReindex: runWikiReindexNodeEvaluation,
-		wikiCurator: runWikiCuratorNodeEvaluation,
 		podcastWriter: runPodcastWriterNodeEvaluation,
 		scheduleReviewer: runScheduleReviewNodeEvaluation,
 		mainAgent: captureMainAgentNodeEvaluation,
@@ -94,9 +90,7 @@ export function createOperationsRuntime(options: {
 			liveProviderChildReplayRecipe,
 			podcastWriterReplayRecipe,
 			scheduleReviewerReplayRecipe,
-			wikiShardReplayRecipe,
 			wikiCompilationReplayRecipe,
-			wikiCuratorReplayRecipe,
 			evolutionReplayRecipe,
 			...createRecordedStageReplayRecipes(validateNoteReadingDraftFromCorpus, validateInvestigationAnswerFromInput),
 		],

@@ -1,13 +1,12 @@
 import type { ResolvedOutputLanguage } from "../../../shared/languages.js";
 import { resolveStageThinkingLevel } from "../../agent-runtime/model-config/resolve.js";
 import { mkdirSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { HindsightClient, resolvePiUserMemoryConfig } from "pi-user-memory";
 
 import {
-	bridgePositiveInteger,
 	bridgeString,
 	startAgentToolBridge,
 } from "../../agent-runtime/agent-tool-bridge.js";
@@ -16,7 +15,9 @@ import { spawnPrimeWorker } from "../../agent-runtime/prime-worker.js";
 import { bundledAgentSkillPaths, materializeSkills, snapshotSkills } from "../../agent-runtime/skill-registry.js";
 import { writeJsonAtomic } from "../../lib/fs.js";
 import type { GoalTopicPlan } from "../../goals/topic-plan/index.js";
-import { createGoalLlmWikiTools } from "../../wiki/tools.js";
+import { createGoalLlmWikiTools, wikiToolArguments } from "../../wiki/tools.js";
+import { createWikiReferenceAdapterFromRoot } from "../pipeline/wiki-report-references.js";
+import { snapshotWikiEdition } from "../../wiki/editions.js";
 import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.js";
 import type { ResearchSchedule } from "./types.js";
 
@@ -47,6 +48,8 @@ export interface ScheduleReviewerInput {
 	 * reproduces exactly what the Reviewer saw and needs no live memory or Wiki service.
 	 */
 	answerTool?: ScheduleReviewToolAnswer;
+	/** Frozen historical Cases may expose their recorded retired graph operation. */
+	legacyGraphSearch?: boolean;
 }
 
 /** Answers one bridged read, after Runtime has normalized its arguments. */
@@ -125,6 +128,7 @@ async function executeRunPrimeScheduleReviewer(input: ScheduleReviewerInput): Pr
 		logPath: scheduleReviewToolLog(root),
 		signal: input.signal,
 		...(input.answerTool ? { answerTool: input.answerTool } : {}),
+		...(input.legacyGraphSearch ? { legacyGraphSearch: true } : {}),
 	});
 	let reads = 0;
 	try {
@@ -177,27 +181,34 @@ export async function startScheduleReviewBridge(input: {
 	logPath: string;
 	signal: AbortSignal;
 	answerTool?: ScheduleReviewToolAnswer;
+	legacyGraphSearch?: boolean;
 }) {
-	const wikiNames = new Set(createGoalLlmWikiTools({ goalDir: input.goalDir }).map((tool) => tool.name));
-	const answer = input.answerTool ?? liveScheduleReviewAnswer(input.goalId, input.goalDir, input.signal);
+	const wikiNames = new Set(createGoalLlmWikiTools({ goalDir: input.goalDir, legacyGraphSearch: input.legacyGraphSearch }).map((tool) => tool.name));
+	let answer = input.answerTool;
+	if (!answer) {
+		const knowledgeRoot = join(dirname(input.logPath), "wiki");
+		snapshotWikiEdition(input.goalDir, input.goalId, knowledgeRoot);
+		answer = liveScheduleReviewAnswer(input.goalId, input.goalDir, knowledgeRoot, input.signal);
+	}
+	const execute = answer;
 	return startAgentToolBridge("/v1/schedule-review", input.logPath, async (body) => {
 		input.signal.throwIfAborted();
 		const operation = bridgeString(body.operation, "Research Schedule Review operation");
 		if (operation !== "memory_recall" && operation !== "memory_reflect" && !wikiNames.has(operation)) {
 			throw new Error(`Unsupported Research Schedule Review operation '${operation}'`);
 		}
-		const args = operation === "wiki_read_page"
-			? { path: bridgeString(body.path, "Wiki path") }
-			: operation.startsWith("memory_")
+		const args = operation.startsWith("memory_")
 				? { query: bridgeString(body.query, "query") }
-				: { query: bridgeString(body.query, "Wiki query"), top_k: bridgePositiveInteger(body.top_k, "top_k", 20) };
-		return { operation, args, value: await answer(operation, args) };
+				: wikiToolArguments(operation, body);
+		return { operation, args, value: await execute(operation, args) };
 	}, { recordAnswers: true });
 }
 
 /** The live readers: the User Memory Service and the Goal Wiki, both read-only. */
-function liveScheduleReviewAnswer(goalId: string, goalDir: string, signal: AbortSignal): ScheduleReviewToolAnswer {
-	const wiki = new Map(createGoalLlmWikiTools({ goalDir }).map((tool) => [tool.name, tool]));
+function liveScheduleReviewAnswer(goalId: string, goalDir: string, knowledgeRoot: string, signal: AbortSignal): ScheduleReviewToolAnswer {
+	const tools = createGoalLlmWikiTools({ goalDir, knowledgeRoot });
+	const adapter = createWikiReferenceAdapterFromRoot(knowledgeRoot, tools);
+	const wiki = new Map(adapter.tools.map((tool) => [tool.name, tool]));
 	const memory = resolvePiUserMemoryConfig({ goalId });
 	const client = new HindsightClient(memory.baseUrl, memory.bankId);
 	return async (operation, args) => {

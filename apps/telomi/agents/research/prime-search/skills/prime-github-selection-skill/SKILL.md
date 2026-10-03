@@ -72,6 +72,8 @@ ledger.add(
     materials=clone_result,
 )
 ledger.write("work/github_candidates.json")
+import research_runtime
+research_runtime.finish(provider_id="github")
 ```
 
 Call `clone_repository()` once for each retained repository and pass its returned record directly as `materials`.

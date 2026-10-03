@@ -564,6 +564,7 @@ export const enMessages = {
 	"activityChrome.wiki.publishInterrupted": "Publishing the Goal Wiki was interrupted",
 	"activityChrome.wiki.publishFailed": "Publishing the Goal Wiki failed",
 	"activityChrome.wiki.interruptedReason": "The Wiki update was interrupted because the backend stopped",
+	"activityChrome.wiki.retired": "This Wiki update used a retired workflow. Start a new Wiki update.",
 	"activityChrome.wiki.batchCheckpoint": "The Wiki update saved a batch checkpoint and can continue.",
 	"activityChrome.wiki.resume": "Continue Wiki update",
 	"activityChrome.wiki.resumeLimit": "The Wiki update reached its limit of {{count}} resumes",

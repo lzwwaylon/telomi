@@ -31,7 +31,6 @@ import {
 } from "../../observability/run-records.js";
 import { primeKernelPython } from "../../agent-runtime/prime-agent-paths.js";
 import {
-	bridgePositiveInteger,
 	bridgeString,
 	startAgentToolBridge,
 	type AgentToolBridge,
@@ -67,6 +66,7 @@ import { listFilesRecursive, writeJsonAtomic } from "../../lib/fs.js";
 import { toErrorMessage } from "../../lib/values.js";
 
 import { runPrimeAnswerStage } from "./prime-answer-writer.js";
+import { wikiToolArguments } from "../../wiki/tools.js";
 
 const WORKER = new URL("./prime-report-writer-worker.ts", import.meta.url);
 const PRIME_AGENT_PATHS_MODULE = fileURLToPath(new URL("../../agent-runtime/prime-agent-paths.ts", import.meta.url));
@@ -663,9 +663,9 @@ function preserveWriterTrace(
 
 function reportWikiTools(tools: readonly AgentTool[]): Map<string, AgentTool> {
 	const selected = new Map(tools
-		.filter((tool) => ["wiki_search", "wiki_read_page", "wiki_graph_search"].includes(tool.name))
+		.filter((tool) => ["wiki_list_topics", "wiki_search", "wiki_read_page", "wiki_graph_search"].includes(tool.name))
 		.map((tool) => [tool.name, tool]));
-	for (const name of ["wiki_search", "wiki_read_page", "wiki_graph_search"]) {
+	for (const name of ["wiki_search", "wiki_read_page"]) {
 		if (!selected.has(name)) throw new Error(`Report Writer Root requires ${name}`);
 	}
 	return selected;
@@ -745,14 +745,13 @@ async function startWikiBridge(
 ): Promise<AgentToolBridge> {
 	return startAgentToolBridge("/v1/wiki", logPath, async (body) => {
 		const operation = bridgeString(body.operation, "Wiki operation");
-		const toolName = operation === "search" ? "wiki_search"
+		const toolName = operation === "list_topics" ? "wiki_list_topics"
+			: operation === "search" ? "wiki_search"
 			: operation === "read_page" ? "wiki_read_page"
 				: operation === "graph_search" ? "wiki_graph_search" : "";
 		const tool = tools.get(toolName);
 		if (!tool) throw new Error(`Unsupported Wiki operation '${operation}'`);
-		const args = operation === "read_page"
-			? { path: bridgeString(body.path, "Wiki path") }
-			: { query: bridgeString(body.query, "Wiki query"), top_k: bridgePositiveInteger(body.top_k, "top_k", 20) };
+		const args = wikiToolArguments(toolName, body);
 		const result = await tool.execute(randomUUID(), args, signal);
 		return { operation, args, value: result.details
 			?? JSON.parse(result.content[0]?.type === "text" ? result.content[0].text : "{}") };

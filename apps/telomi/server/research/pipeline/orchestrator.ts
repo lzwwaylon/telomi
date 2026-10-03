@@ -418,7 +418,7 @@ export class Run {
 			knowledgeRoot: join(knowledgeSnapshot.absolutePath, "wiki"),
 		}) : [];
 		const rawReportTools = availableReportTools.filter((tool) =>
-			["wiki_search", "wiki_read_page", "wiki_graph_search"].includes(tool.name));
+			["wiki_list_topics", "wiki_search", "wiki_read_page", "wiki_graph_search"].includes(tool.name));
 		const wikiRefs = knowledgeMode === "wiki"
 			? createWikiReportReferenceAdapter(knowledgeSnapshot, rawReportTools)
 			: undefined;

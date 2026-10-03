@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -49,7 +49,7 @@ export function createWikiReferenceAdapterFromRoot(
 			else if (entry.isFile() && entry.name.endsWith(".md") && !CONTROL_MARKDOWN.has(entry.name)) files.push(path);
 		}
 	};
-	visit(knowledgeRoot);
+	if (existsSync(knowledgeRoot)) visit(knowledgeRoot);
 	return createWikiReferenceAdapter(files.map((absolutePath) => ({
 		absolutePath,
 		path: `wiki/${relative(knowledgeRoot, absolutePath).replaceAll("\\", "/")}`,
@@ -118,6 +118,7 @@ function createWikiReferenceAdapter(
 	};
 	const projectToolResult = (toolName: string, value: unknown, requestedRef?: string): unknown => {
 		const record = requireRecord(value, `${toolName} result`);
+		if (toolName === "wiki_list_topics") return record;
 		if (toolName === "wiki_search") {
 			return { ...record, results: Array.isArray(record.results) ? record.results.map(projectSummary) : [] };
 		}

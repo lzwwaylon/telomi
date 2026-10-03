@@ -42,7 +42,7 @@ Model-based clustering may still discover duplicate candidates or suggest new di
 
 Topics and knowledge objects have a many-to-many relationship: one Cornell Note or Wiki Page can relate to several Goal Topics, different Notes within one Source can belong to different Topics, and one Goal Topic can cover multiple Concepts, Entities, and Pages.
 
-Topic changes do not change Cornell Evidence identity, but Wiki Curator may produce a new Wiki Edition with different page boundaries, Concepts, Entities, and relationships. The same knowledge identity must not be duplicated within one Edition.
+Topic changes do not change Cornell Evidence identity. Wiki Topic reindex publishes new navigation while preserving page bodies, identities and recorded relationships. The same knowledge identity must not be duplicated within one Edition.
 
 ## 4. Discovery assumptions
 
@@ -56,6 +56,6 @@ The Discovery Inbox must not become an indefinitely growing miscellaneous bucket
 
 ## 5. Three easily broken decisions
 
-- **Agents do not transcribe Topic IDs.** A canonical Topic ID is 20 hexadecimal characters. One mistyped character produces an unknown Topic and wastes a repair attempt. Agents that write Topic associations (Note Agent and Wiki Curator) read and write short Refs such as `T1` and `T2`; Runtime maps them back to canonical IDs when reading results. Agent-visible input files also contain only short Refs. When validation rejects a Topic reference, it must return the valid short-Ref set so the repair turn does not have to guess again.
+- **Agents do not transcribe Topic IDs.** A canonical Topic ID uses the `topic_` prefix followed by 20 hexadecimal characters. One mistyped character produces an unknown Topic and wastes a repair attempt. Agents that write Topic associations (Note Agent and Wiki Topic classification) read and write short Refs such as `T1` and `T2`; Runtime maps them back to canonical IDs when reading results. Agent-visible input files also contain only short Refs. When validation rejects a Topic reference, it must return the valid short-Ref set so the repair turn does not have to guess again.
 - **Semantic files do not express revision relationships.** The Topic document maintained by the Agent contains only `topics` and Runtime-confirmed `id` values, with no redirect, parent, priority, status, or version fields. Deleting a Topic means removing it from the array. Revision relationships exist only in the outer metadata of the append-only history; do not add them to the semantic file for traceability.
 - **A confirmed revision is not rolled back when activation succeeds but subsequent processing fails.** The Proposal is recorded as a failed reframe. The user can continue by calling the same confirmation endpoint through the Activity's existing Wiki-retry action. If the process stops midway, startup recovery likewise turns a confirmed Proposal without a reframe record into a retryable failure. Confirmation notifications are deduplicated by the existing event text in the Goal log, so retries complete only unfinished processing.

@@ -11,10 +11,12 @@ interface available to the Research Schedule Reviewer, and it is read-only.
 ```python
 recall = await schedule_review.memory_recall("what this user wants from recurring reports on X")
 reflected = await schedule_review.memory_reflect("has this user's interest in X changed")
-hits = await schedule_review.wiki_search("X", top_k=10)
+topics = await schedule_review.wiki_list_topics()
+hits = await schedule_review.wiki_search("X", top_k=10, topic_ref="T1")
 page = await schedule_review.wiki_read_page(hits["results"][0]["page_ref"])
-related = await schedule_review.wiki_graph_search("X", top_k=10)
 ```
+
+Use `wiki_list_topics` to discover the searched Wiki Edition's Topic refs. Choose a returned `T` ref by its meaning and scope; the confirmed Goal plan file describes user attention but supplies no search handles. References belong to this execution. Omit `topic_ref` to search all pages, including those without Topic membership. Zero assigned pages do not establish absence of original evidence.
 
 Rules:
 

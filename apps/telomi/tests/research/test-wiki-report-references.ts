@@ -26,7 +26,12 @@ try {
 	const Read = Type.Object({ path: Type.String() });
 	const result = (details: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(details) }], details });
 	let rawReadPath = "";
+	const topics = { topics: [{ topic_ref: "T1", title: "Models", intent: "Track models.",
+		questions: [], include: [], exclude: [], page_count: 2 }] };
 	const tools: AgentTool[] = [{
+		name: "wiki_list_topics", label: "wiki_list_topics", description: "list", parameters: Type.Object({}),
+		execute: async () => result(topics),
+	}, {
 		name: "wiki_search", label: "wiki_search", description: "search", parameters: Query,
 		execute: async () => result({ results: [{
 			path: "wiki/entities/beta.md", title: "Beta", type: "entity",
@@ -60,6 +65,10 @@ try {
 	const adapter = createWikiReportReferenceAdapter(knowledge, tools);
 	assert.deepEqual(adapter.pageRefs, ["P1", "P2"]);
 	assert.equal(adapter.resolvePageRef("P1"), "wiki/concepts/alpha.md");
+	const list = adapter.tools.find((tool) => tool.name === "wiki_list_topics")!;
+	assert.deepEqual((await list.execute("list", {})).details, topics,
+		"Topic discovery passes through the Page reference adapter without resolving a Page ref");
+	assert.equal(rawReadPath, "", "listing Topics never reads a Page");
 
 	const search = adapter.tools.find((tool) => tool.name === "wiki_search")!;
 	const searchDetails = (await search.execute("search", { query: "Beta" })).details as {

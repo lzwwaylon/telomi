@@ -112,6 +112,17 @@ try {
 	assert.match(inheritedConditions, /prime-browser-provider-skill/u);
 	assert.ok(!inheritedConditions.includes("SECRET"));
 	writeFileSync(conditionsFile.absolutePath, previousConditions);
+	const currentLaunches = previousConditions.trim().split("\n").map(line => {
+		const launch = JSON.parse(line);
+		if (launch.tools) { launch.tools = ["ipython"]; launch.custom_tools = []; }
+		return launch;
+	});
+	writeFileSync(conditionsFile.absolutePath, currentLaunches.map(r => JSON.stringify(r)).join("\n") + "\n");
+	assert.equal(inspectProviderChildCapture(input).childId, childId, "current IPython-only capture remains derivable");
+	currentLaunches.forEach(launch => { if (launch.tools) launch.tools = ["ipython", "bash"]; });
+	writeFileSync(conditionsFile.absolutePath, currentLaunches.map(r => JSON.stringify(r)).join("\n") + "\n");
+	assert.throws(() => inspectProviderChildCapture(input), /unsupported captured tools/u);
+	writeFileSync(conditionsFile.absolutePath, previousConditions);
 	const failedRecord = join(serverRuntimeDirForGoal(goalId, workspaceDir), "evaluation/provider-child-cases/failed");
 	mkdirSync(failedRecord, { recursive: true });
 	const frozen = join(service.caseRoots(goalId, ref).caseDirectory, "input");

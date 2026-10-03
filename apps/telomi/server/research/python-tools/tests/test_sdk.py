@@ -76,6 +76,8 @@ class PrimeBridgeClientTests(unittest.TestCase):
                              for command in body["program"]]
                     cut = next((index for index, step in enumerate(steps) if step["exitCode"]), len(steps) - 1)
                     payload = {"steps": steps[: cut + 1]}
+                elif self.path == "/v1/finish":
+                    payload = {"provider_id": body["provider_id"], "ledger_path": f'work/{body["provider_id"]}_candidates.json', "submitted": True}
                 elif self.path == "/v1/root-search":
                     if body.get("agent_session_id") != "root":
                         self.send_response(422); self.end_headers()
@@ -116,6 +118,19 @@ class PrimeBridgeClientTests(unittest.TestCase):
         work = Path(self.workspace) / "work"
         work.mkdir(exist_ok=True)
         (work / ".execution-id").write_text(f"{child_id}\n")
+
+    def test_finish_requires_child_and_sends_only_its_provider(self) -> None:
+        with self.assertRaisesRegex(ValueError, "only to Provider children"):
+            research_runtime.finish(provider_id="github")
+        self.assertEqual(self.requests, [])
+        self._become_child()
+        result = research_runtime.finish(provider_id="github")
+        self.assertTrue(result["submitted"])
+        self.assertEqual(self.requests[-1], ("/v1/finish", {"provider_id": "github", "agent_session_id": "sub-1a2b3c4d"}))
+        for provider in ["../github", "GitHub", "", None]:
+            with self.assertRaises(ValueError):
+                research_runtime.finish(provider_id=provider)
+        self.assertEqual(len(self.requests), 1)
 
     def test_execution_id_comes_from_the_workspace_marker(self) -> None:
         self.assertEqual(research_runtime.execution_id(), "root")

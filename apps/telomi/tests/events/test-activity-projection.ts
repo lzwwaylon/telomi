@@ -583,6 +583,20 @@ try {
 		?.dependsOnStepIds, ["wiki-batch:2", "wiki-stage:curation:0"]);
 	assert.deepEqual(publishedWiki?.steps.find((step) => step.stepId === "wiki-stage:publication:0")
 		?.dependsOnStepIds, ["wiki-stage:curation:0", "wiki-stage:curation:1"]);
+	const retiredId = "wiki_retired_checkpoint";
+	const retiredControl = wikiUpdateRecordDir(workspaceDir, goalId, retiredId);
+	mkdirSync(retiredControl, { recursive: true });
+	const retiredPath = join(retiredControl, "wiki-update-job.json");
+	const retiredBytes = JSON.stringify({ ...wikiJobs.load(), compiler: "shards", run_id: retiredId,
+		wiki_update_id: retiredId, status: "interrupted", progress: undefined });
+	writeFileSync(retiredPath, retiredBytes);
+	const retiredWiki = service.getGoal(goalId).liveActivities.find((item) => item.activityId === `wiki-update:${retiredId}`);
+	assert.ok(retiredWiki, "retired Wiki execution remains readable");
+	assert.equal(text(retiredWiki.summary), "此 Wiki 更新使用的旧流程已停用，请发起新的 Wiki 更新。");
+	assert.equal(retiredWiki.waiting?.actions[0]?.enabled, false);
+	assert.equal(text(retiredWiki.waiting?.actions[0]?.disabledReason), "此 Wiki 更新使用的旧流程已停用，请发起新的 Wiki 更新。");
+	assert.equal(retiredWiki.attention, undefined, "retired execution must not prompt an unavailable continuation");
+	assert.equal(readFileSync(retiredPath, "utf8"), retiredBytes, "projection must not migrate historical records");
 	// 首页活动卡片直接渲染 Activity 摘要：Runtime 的 stack trace、宿主机绝对路径和行号不能出现在里面。
 	const failedWikiId = "wiki_activity_failed";
 	const failedWikiControl = wikiUpdateRecordDir(workspaceDir, goalId, failedWikiId);

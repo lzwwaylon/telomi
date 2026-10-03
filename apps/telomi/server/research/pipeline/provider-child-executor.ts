@@ -109,7 +109,7 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 		const result = await runPrime({
 			module: primeAgentModulePath(env), cwd: root, runtimeRoot, sessionDir,
 			provider: request.model.slice(0, slash), model: request.model.slice(slash + 1), thinking: request.thinking, serviceTier: request.serviceTier,
-			prompt: request.task, skills: skillRoots, tools: ["ipython", "submit_candidate_ledger"], contractTools: true,
+			prompt: request.task, skills: skillRoots, tools: ["ipython"], contractTools: true,
 			scopedModels: [], rlmMaxDepth: 1, childReplayId: childId,
 			readonlyRoots: [sdkRoot, skillsDirectory, ...rootPythonPaths],
 			privateRoots: [join(root, ".runtime")],
@@ -130,7 +130,7 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 		});
 		if (result.rootError) throw new Error(`Provider child model failed: ${result.rootError}`);
 		const submission = primeProviderSubmission(root, childId, source.id);
-		if (!submission) throw new ResearchNodeError("Provider child did not submit its assigned Candidate Ledger through the submission Tool.", "permanent", false, { code: "ledger_submission_missing" });
+		if (!submission) throw new ResearchNodeError("Provider child did not finish its assigned Candidate Ledger through research_runtime.finish().", "permanent", false, { code: "ledger_submission_missing" });
 		const ledgerPath = submission.ledger_path;
 		const sessionFiles = readdirSync(sessionDir).filter((name) => name.endsWith(".jsonl"));
 		if (sessionFiles.length !== 1) throw new Error("Provider child must produce exactly one native session trace");

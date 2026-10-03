@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { sha256 } from "../../server/lib/hash.js";
-import { noteWikiEntries } from "../../server/wiki/wiki-shard-builder.js";
+import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { listSavedNoteCues, rankSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
 import { MainWikiCitationSession } from "../../server/main-agent/wiki-citations.js";
 import { resolveMessageCitationSourcePreview } from "../../server/citations/preview.js";

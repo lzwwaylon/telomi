@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createPrimeSearchContractTools } from "../../server/research/pipeline/prime-search-contract.js";
+import { submitProviderCandidateLedger } from "../../server/research/pipeline/prime-search-contract.js";
 
 import { materializePrimeSources, reuseInterruptedStage } from "../../server/research/pipeline/index.js";
 
@@ -24,8 +24,7 @@ async function writeProviderExecution(root: string, providerId: string) {
 		metadata: {},
 		material_paths: [`work/materials/${providerId}/page`],
 	}] }));
-	await createPrimeSearchContractTools(root)[0]!.execute("submit", { provider_id: providerId }, undefined, undefined,
-		{ sessionManager: { getSessionDir: () => join(root, "sessions", childId) } } as never);
+	await submitProviderCandidateLedger(root, childId, providerId);
 	return { execution_id: `provider-execution:1:${providerId}:${childId}`, provider_id: providerId, workspace_path: workspacePath };
 }
 

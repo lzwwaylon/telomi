@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,10 +32,62 @@ try {
 	const goalB = goal(root, "goal-b", "voxtral", "Voxtral");
 	const toolsA = createGoalLlmWikiTools({ goalDir: goalA });
 	const toolsB = createGoalLlmWikiTools({ goalDir: goalB });
+	assert.deepEqual(toolsA.map((tool) => tool.name), ["wiki_list_topics", "wiki_search", "wiki_read_page"]);
+	const listA = toolsA.find((tool) => tool.name === "wiki_list_topics")!;
+	const listB = toolsB.find((tool) => tool.name === "wiki_list_topics")!;
 	const searchA = toolsA.find((tool) => tool.name === "wiki_search")!;
 	const searchB = toolsB.find((tool) => tool.name === "wiki_search")!;
 	const readA = toolsA.find((tool) => tool.name === "wiki_read_page")!;
-	const graphA = toolsA.find((tool) => tool.name === "wiki_graph_search")!;
+	const graphA = createGoalLlmWikiTools({ goalDir: goalA, legacyGraphSearch: true })
+		.find((tool) => tool.name === "wiki_graph_search")!;
+	const listedA = (await listA.execute("topics-a", {})).details;
+	assert.deepEqual(listedA, { topics: [
+		{ topic_ref: "T1", title: "FireRedASR2S speech", intent: "Track speech recognition.",
+			questions: ["Which languages are supported?"], include: ["ASR"], exclude: ["Marketing"], page_count: 2 },
+		{ topic_ref: "T2", title: "Other speech", intent: "Other speech material.",
+			questions: [], include: [], exclude: [], page_count: 1 },
+		{ topic_ref: "T3", title: "Empty topic", intent: "No published pages yet.",
+			questions: [], include: [], exclude: [], page_count: 0 },
+	] }, "Topic refs follow Edition plan order and count matching pages, including empty Topics");
+	assert.doesNotMatch(text(await listB.execute("topics-b", {})), /FireRedASR2S/u);
+	assert.match(text(await listB.execute("topics-b-again", {})), /Voxtral speech/u);
+	assert.deepEqual((await listA.execute("topics-a-again", {})).details, listedA,
+		"repeated discovery retains the same refs");
+	for (const topic_ref of ["T0", "T99", "N1", "topic-asr"]) {
+		await assert.rejects(searchA.execute("bad-topic", { query: "FireRedASR2S", topic_ref }), /topic/iu);
+	}
+	assert.deepEqual(((await searchA.execute("empty-topic", { query: "FireRedASR2S", topic_ref: "T3" })).details as {
+		results: unknown[];
+	}).results, [], "a known Topic without pages does not fall back to global search");
+
+	const scopedGoal = goal(root, "goal-scoped", "scoped-model", "Scoped model");
+	const scopedRoot = join(scopedGoal, "wiki", "knowledge");
+	const scopedPage = join(scopedRoot, "models", "scoped-model.md");
+	writeFileSync(scopedPage, `${readFileSync(scopedPage, "utf-8")}\n## Additional finding\n\nSCOPEDBODY731 is outside a Topic-matched heading.\n`);
+	writeFileSync(join(scopedRoot, "unassigned.md"), "# Unassigned\n\nUNASSIGNEDMARKER912\n");
+	const scopedTools = createGoalLlmWikiTools({ goalDir: scopedGoal });
+	const scopedSearch = scopedTools.find((tool) => tool.name === "wiki_search")!;
+	assert.match(text(await scopedSearch.execute("whole-body", { query: "SCOPEDBODY731", topic_ref: "T1" })),
+		/wiki\/models\/scoped-model\.md/u, "filtering a Topic searches the whole matching Page body");
+	assert.match(text(await scopedSearch.execute("unassigned-global", { query: "UNASSIGNEDMARKER912" })),
+		/wiki\/unassigned\.md/u, "unassigned Pages remain searchable without a Topic filter");
+	assert.deepEqual(((await scopedSearch.execute("unassigned-scoped", {
+		query: "UNASSIGNEDMARKER912", topic_ref: "T1",
+	})).details as { results: unknown[] }).results, [], "a Topic filter excludes unassigned Pages");
+	const frozenRoot = join(root, "frozen-topic-edition");
+	cpSync(scopedRoot, frozenRoot, { recursive: true });
+	const frozenList = createGoalLlmWikiTools({ goalDir: scopedGoal, knowledgeRoot: frozenRoot })
+		.find((tool) => tool.name === "wiki_list_topics")!;
+	const frozenCatalog = (await frozenList.execute("frozen-topics", {})).details;
+	const revisedPlan = JSON.parse(readFileSync(join(scopedRoot, ".topic-plan.json"), "utf-8"));
+	revisedPlan.topics.reverse();
+	writeFileSync(join(scopedRoot, ".topic-plan.json"), JSON.stringify(revisedPlan));
+	assert.deepEqual((await frozenList.execute("frozen-after-publication", {})).details, frozenCatalog,
+		"a frozen Edition keeps its own Topic catalog after the published plan changes");
+	const emptyGoal = join(root, "goal-empty");
+	const emptyTools = createGoalLlmWikiTools({ goalDir: emptyGoal });
+	assert.deepEqual((await emptyTools.find((tool) => tool.name === "wiki_list_topics")!
+		.execute("empty-topics", {})).details, { topics: [] });
 
 	assert.match(text(await searchA.execute("1", { query: "FireRedASR2S" })), /wiki\/models\/fireredasr2s\.md/u);
 	assert.doesNotMatch(text(await searchA.execute("2", { query: "Voxtral" })), /Voxtral/u);
@@ -56,10 +108,10 @@ try {
 	}
 	const aborted = new AbortController();
 	aborted.abort();
-	for (const tool of [searchA, readA, graphA]) {
+	for (const tool of [listA, searchA, readA, graphA]) {
 		await assert.rejects(tool.execute("aborted", tool.name === "wiki_read_page"
 			? { path: "models/fireredasr2s.md" }
-			: { query: "FireRedASR2S" }, aborted.signal), /abort/iu);
+			: tool.name === "wiki_list_topics" ? {} : { query: "FireRedASR2S" }, aborted.signal), /abort/iu);
 	}
 
 	let embeddingCalls = 0;
@@ -187,5 +239,14 @@ function goal(root: string, name: string, slug: string, model: string): string {
 	].join("\n"));
 	writeFileSync(join(directory, "wiki", "knowledge", "topics", "asr.md"), "---\nprimary_topic_ref: topic-asr\ntopic_refs: [topic-asr]\n---\n\n# Automatic Speech Recognition\n");
 	writeFileSync(join(directory, "wiki", "knowledge", "topics", "语音识别.md"), "---\nprimary_topic_ref: topic-other\ntopic_refs: [topic-other]\n---\n\n# 语音识别\n\n语音识别系统将语音转换为文本。\n");
+	writeFileSync(join(directory, "wiki", "knowledge", ".topic-plan.json"), JSON.stringify({
+		schema_version: 1, goal_id: name, revision: "a".repeat(64), status: "active",
+		topics: [
+			{ id: "topic-asr", title: `${model} speech`, intent: "Track speech recognition.",
+				questions: ["Which languages are supported?"], include: ["ASR"], exclude: ["Marketing"] },
+			{ id: "topic-other", title: "Other speech", intent: "Other speech material.", questions: [], include: [], exclude: [] },
+			{ id: "topic-empty", title: "Empty topic", intent: "No published pages yet.", questions: [], include: [], exclude: [] },
+		],
+	}));
 	return directory;
 }

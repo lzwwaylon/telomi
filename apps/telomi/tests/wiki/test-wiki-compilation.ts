@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ensureGoalWorkspace } from "../../server/workspaces/goal-project.js";
 import { readPreviousWikiEdition, writeWikiEdition } from "../../server/wiki/wiki-edition.js";
-import { noteWikiEntries } from "../../server/wiki/wiki-shard-builder.js";
+import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
 import type { GoalTopicPlan, WikiCompilationRequest } from "../../server/wiki/contracts.js";

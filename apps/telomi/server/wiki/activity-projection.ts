@@ -175,7 +175,9 @@ export class WikiActivityProjection {
 			label: chrome("activityChrome.wiki.resume"),
 			enabled: canResumeWikiUpdateJob(job),
 			...(!canResumeWikiUpdateJob(job)
-				? { disabledReason: chrome("activityChrome.wiki.resumeLimit", { count: MAX_WIKI_UPDATE_ATTEMPTS }) }
+				? { disabledReason: job.compiler !== "wiki-compilation"
+					? chrome("activityChrome.wiki.retired")
+					: chrome("activityChrome.wiki.resumeLimit", { count: MAX_WIKI_UPDATE_ATTEMPTS }) }
 				: {}),
 			requiresConfirmation: false,
 			href: `/api/goals/${encodeURIComponent(job.goal_id)}/wiki-updates/${encodeURIComponent(id)}/resume`,
@@ -199,7 +201,7 @@ export class WikiActivityProjection {
 				waiting: {
 					kind: "external" as const,
 					// job.message 在这个状态下是 Runtime 写死的固定文案，不能当内容展示；原文留在 Job 记录与服务端日志里。
-					reason: chrome("activityChrome.wiki.interruptedReason"),
+					reason: chrome(job.compiler !== "wiki-compilation" ? "activityChrome.wiki.retired" : "activityChrome.wiki.interruptedReason"),
 					waitingSince: job.updated_at,
 					actions: [resumeAction],
 				},
@@ -264,7 +266,8 @@ function wikiUpdateSummary(job: NonNullable<ReturnType<WikiUpdateJobStore["load"
 	const costUsd = (progress?.usage.cost_usd ?? 0)
 		+ stages.reduce((total, stage) => total + stage.usage.cost_usd, 0);
 	if (job.status === "queued") return chrome("activityChrome.wiki.queued");
-	if (job.status === "interrupted") return chrome("activityChrome.wiki.interruptedSummary");
+	if (job.status === "interrupted") return chrome(job.compiler !== "wiki-compilation"
+		? "activityChrome.wiki.retired" : "activityChrome.wiki.interruptedSummary");
 	// job.message 是 Runtime 原始错误文本（可能是含宿主机路径的 stack trace）。
 	// 摘要只用已知事实描述失败，原文留在 Activity Step、Node Trace 和服务端日志里。
 	if (job.status === "failed") {

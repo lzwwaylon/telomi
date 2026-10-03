@@ -1,9 +1,0 @@
-schema_version: 2
-id: wiki-shard-builder
-display_name: Wiki Shard Builder
-prompts:
-  system-append:
-    default: system.md.njk
-  user:
-    entity: user.entity.md.njk
-    concept: user.concept.md.njk

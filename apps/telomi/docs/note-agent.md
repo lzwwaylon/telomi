@@ -44,7 +44,7 @@ Runtime does not judge semantic relevance, filter by grades, route Notes to pred
 ## Downstream consumers
 
 - Report Writer progressively reads nonempty Cornell Notes through its dedicated Note Workspace `summary/catalog/search/get` Interface and makes its own semantic material-selection and section-organization decisions. Note files are not mounted in the Writer sandbox.
-- The background Wiki Shard Builder runs alongside Report Writer, consuming frozen Cornell Notes to produce candidate Shards before Wiki Curator forms the final Edition. See [Wiki Shard Builder](modules/wiki-shard-builder.md) for input, execution, and recovery boundaries.
+- Background Wiki Compilation consumes frozen Cornell Notes to construct objects, concepts and Topic navigation before publishing an Edition. See [Wiki Compilation](modules/wiki-compilation.md) for input, execution and recovery boundaries.
 - Scheduled research records only processed Source revisions and Cornell Note counts, not retained/rejected dispositions.
 
 The Note Workspace serves only Report Writer. Runtime provides pagination, limits, short Refs, lexical search, and read auditing for Writer without interpreting query semantics. The Wiki pipeline does not use the Note Workspace or its read tracking.

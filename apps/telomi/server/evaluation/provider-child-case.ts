@@ -148,8 +148,9 @@ export function inspectProviderChildCapture(input: {
 		throw new Error("Provider Child Case has no captured native child launch context");
 	}
 	const launch = conditions.find((r) => r.skills?.items?.length) ?? inheritedLaunch;
-	if (JSON.stringify([...(launch.tools ?? [])].sort()) !== JSON.stringify(["ipython", "submit_candidate_ledger"])
-		|| JSON.stringify([...(launch.custom_tools ?? [])].sort()) !== JSON.stringify(["submit_candidate_ledger"])) {
+	const toolContract = JSON.stringify([[...(launch.tools ?? [])].sort(), [...(launch.custom_tools ?? [])].sort()]);
+	if (toolContract !== JSON.stringify([["ipython"], []])
+		&& toolContract !== JSON.stringify([["ipython", "submit_candidate_ledger"], ["submit_candidate_ledger"]])) {
 		throw new Error("Provider Child Case has unsupported captured tools");
 	}
 	return { execution, childId, trace, facts, initialMarker, initial, temporal, conditions, inheritedLaunch };

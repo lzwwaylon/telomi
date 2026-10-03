@@ -31,7 +31,7 @@ only the stable native identity named by the selected branch.
 
 Build the final output with `CandidateLedger()`. Pass the exact acquired Provider record in `materials`; the Ledger
 derives Runtime-owned paths. Write `work/huggingface_candidates.json` once after every retained candidate has readable
-material, then submit it through the Runtime Tool.
+material, then call `research_runtime.finish(provider_id="huggingface")` inside IPython.
 
 ```python
 ledger.add(
@@ -43,6 +43,8 @@ ledger.add(
     materials=[acquired_record],
 )
 ledger.write("work/huggingface_candidates.json")
+import research_runtime
+research_runtime.finish(provider_id="huggingface")
 ```
 
 Keep inaccessible candidates out of the Ledger without discarding other completed candidates. Report their exact

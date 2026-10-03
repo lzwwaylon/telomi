@@ -26,7 +26,7 @@ Start all independent tasks whose prerequisites are satisfied before waiting. Tr
 
 ## Child execution and completion
 
-Each Provider child uses only its assigned specialized Provider; `search_general_web` and the general_web Provider are reserved for Root. It preserves discovery queries, writes its Candidate Ledger as its final filesystem action, then calls `submit_candidate_ledger(provider_id=<assigned Provider ID>)`. If validation fails, it repairs the same file and retries that Tool. Completion requires successful submission and a compact reply with coverage, useful routing observations and unresolved gaps, including an explicit no-findings or blocked result when applicable.
+Each Provider child uses only its assigned specialized Provider; `search_general_web` and the general_web Provider are reserved for Root. It preserves discovery queries, writes its Candidate Ledger as its final filesystem action, then calls `research_runtime.finish(provider_id=<assigned Provider ID>)` inside IPython. If validation fails, it repairs the same file and retries that Python call. Completion requires successful submission and a compact reply with coverage, useful routing observations and unresolved gaps, including an explicit no-findings or blocked result when applicable.
 
 Include this exact rule in every Provider child prompt: `OUTPUT BUDGET: Keep each IPython cell below 8000 output characters. Store complete results in variables or files. Print at most 10 compact records or a 500-character excerpt, never complete records, metadata, feeds, or material bodies.`
 

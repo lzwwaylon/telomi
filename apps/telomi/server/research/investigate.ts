@@ -1,6 +1,6 @@
 import { validateInvestigationResult, type InvestigationResult } from "../citations/contracts.js";
 import { appendFileSync, cpSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveOutputLanguage, type OutputLanguage } from "../../shared/languages.js";
@@ -17,8 +17,8 @@ import { sha256 } from "../lib/hash.js";
 import { isRecord } from "../lib/values.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
 import { caseCapture } from "../observability/case-capture.js";
-import { listWikiEditions } from "../wiki/editions.js";
-import { hashWikiDirectory } from "../wiki/files.js";
+import { snapshotWikiEdition as snapshotInvestigationKnowledge } from "../wiki/editions.js";
+export { snapshotWikiEdition as snapshotInvestigationKnowledge } from "../wiki/editions.js";
 import { createGoalLlmWikiTools } from "../wiki/tools.js";
 import { createWikiReferenceAdapterFromRoot } from "./pipeline/wiki-report-references.js";
 import { runPrime, startPrimeSourceBridge } from "./pipeline/prime-search-batch.js";
@@ -50,17 +50,6 @@ export function readInvestigationResult(goalDir: string, id: string): Investigat
 	const request = JSON.parse(readFileSync(join(runDir, "request.json"), "utf8")) as { id?: string; question?: string };
 	if (request.id !== id || typeof request.question !== "string") throw new Error("Investigation request is invalid");
 	return validateInvestigationResult(JSON.parse(readFileSync(join(runDir, "result.json"), "utf8")), id, request.question);
-}
-
-/** Pin existing Goal knowledge, including the empty state before its first Wiki publication. */
-export function snapshotInvestigationKnowledge(goalDir: string, goalId: string, knowledgeRoot: string): string {
-	if (!existsSync(knowledgeRoot)) {
-		const edition = listWikiEditions(dirname(goalDir), goalId)[0];
-		mkdirSync(dirname(knowledgeRoot), { recursive: true });
-		if (edition) cpSync(edition.root, knowledgeRoot, { recursive: true });
-		else mkdirSync(knowledgeRoot, { recursive: true });
-	}
-	return hashWikiDirectory(knowledgeRoot);
 }
 
 /** Main's local question returns only after Prime's answer and every new Cue are durable. */
@@ -207,6 +196,18 @@ export async function executeInvestigation(input: {
 		onActivity: input.onActivity,
 	}, root, { runDir, nodeId: "prime-investigation", attemptId: "1" }, {
 		investigation: {
+			wikiTool: async (operation, args) => {
+				signal.throwIfAborted();
+				const tool = wikiAdapter.tools.find(tool => tool.name === operation);
+				if (!tool) throw new Error(`Unsupported Wiki operation '${operation}'`);
+				const response = await tool.execute(`investigation-${operation}`, args, signal);
+				const result = response.details as { evidence?: Array<{ cite_ref?: string }> };
+				if (operation === "wiki_read_page") for (const entry of result.evidence ?? []) {
+					if (entry.cite_ref) citationsScope.allowWikiRef(entry.cite_ref);
+				}
+				recordInteraction(operation, args, result);
+				return result;
+			},
 			knowledgeSearch: async (query, limit) => {
 				signal.throwIfAborted();
 				const key = JSON.stringify({ query, limit });
@@ -233,7 +234,7 @@ export async function executeInvestigation(input: {
 				const topicIds = [...new Set(cues.flatMap((cue) => "topic_refs" in cue ? cue.topic_refs : []))];
 				const topicLeads = topicIds.slice(0, 4).flatMap((id) => {
 				const topic = topicPlan.topics?.find((item) => item.id === id);
-				return topic ? [{ id, title: topic.title, intent: topic.intent ?? "" }] : [];
+				return topic ? [{ topic_ref: `T${topicPlan.topics!.indexOf(topic) + 1}`, title: topic.title, intent: topic.intent ?? "" }] : [];
 				});
 				const result = { wiki: { ...wiki, results: (wiki.results ?? []).slice(0, limit) },
 					pages: projectedPages, cues: projectCues(cues), topic_leads: topicLeads };

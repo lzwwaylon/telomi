@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { WikiShardCompiler } from "./wiki-shard-compiler.js";
 import { WikiCompiler } from "./wiki-compiler.js";
 import { caseCapture } from "../observability/case-capture.js";
 import type { GoalTopicPlan, WikiCompilationRequest, WikiCompilationResult, WikiGoalContext } from "./contracts.js";
@@ -79,12 +78,14 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 }): Promise<WikiUpdateExecution> {
 	const jobs = new WikiUpdateJobStore(input.controlDirectory);
 	const previousJob = jobs.load();
-	const compilerKind = previousJob ? previousJob.compiler ?? "shards" : "wiki-compilation";
+	if (previousJob && previousJob.compiler !== "wiki-compilation") {
+		throw new Error("Legacy Wiki Shard updates cannot resume. Start a new Wiki Update.");
+	}
 	let publicationStarted = false;
 	let publicationPageCount = 0;
 	let compilation: WikiCompilationResult | undefined;
 	jobs.start({
-		compiler: compilerKind,
+		compiler: "wiki-compilation",
 		goalId: input.goalId,
 		runId: input.runId,
 		goal: input.goal,
@@ -107,7 +108,6 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 				throw new Error("wiki_compilation_topic_drift: Goal Topic Plan changed before compilation");
 			}
 			const compile = input.dependencies?.compile ?? ((request: WikiCompilationRequest) => {
-				if (compilerKind === "shards") return new WikiShardCompiler().compile(request);
 				const execute = (pinned: WikiCompilationRequest) => new WikiCompiler().compile(pinned);
 				const capture = caseCapture()?.wikiCompilation;
 				return capture ? capture(request, { execute }) : execute(request);
@@ -417,6 +417,9 @@ export async function resumeWikiUpdate(input: {
 	const controlDirectory = wikiUpdateRecordDir(input.workspaceDir, input.goalId, input.runId);
 	const job = new WikiUpdateJobStore(controlDirectory).load();
 	if (!job) throw new Error("Unknown Wiki update");
+	if (job.compiler !== "wiki-compilation") {
+		throw new Error("Legacy Wiki Shard updates cannot resume. Start a new Wiki Update.");
+	}
 	if (!canResumeWikiUpdateJob(job)) {
 		throw new Error(job.status === "interrupted"
 			? `Wiki update reached the resume attempt limit of ${MAX_WIKI_UPDATE_ATTEMPTS}`

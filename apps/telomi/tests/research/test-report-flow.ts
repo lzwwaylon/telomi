@@ -155,7 +155,7 @@ async function verifyWikiMode(): Promise<void> {
 		assert.equal(guests.includes("/knowledge"), false);
 		assert.equal(guests.includes("/wiki"), false);
 		assert.deepEqual(request.additionalTools?.map((tool) => tool.name),
-			["wiki_search", "wiki_read_page", "wiki_graph_search"]);
+			["wiki_list_topics", "wiki_search", "wiki_read_page"]);
 		assert.deepEqual(request.fileToolPolicy?.deniedReadPrefixes, ["/wiki", "/work/wiki"]);
 		const input = request.readonlyMounts.find((mount) => mount.guestPath === "/inputs")!;
 		assert.equal(readFileSync(join(input.hostPath, "task.md"), "utf-8"), "Write for an expert audience; explain only new findings.\n");

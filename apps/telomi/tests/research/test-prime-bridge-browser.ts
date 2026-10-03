@@ -11,7 +11,6 @@ import express from "express";
 import { sha256 } from "../../server/lib/hash.js";
 import { BrowserSessionRegistry } from "../../server/providers/browser/session-registry.js";
 import { createBrowserToolRouter, executeBrowserTool } from "../../server/providers/browser/tool-router.js";
-import { createPrimeSearchContractTools } from "../../server/research/pipeline/prime-search-contract.js";
 import { startPrimeSourceBridge } from "../../server/research/pipeline/prime-search-batch.js";
 import { parseMaterializeSource } from "../../server/research/pipeline/browser-materialize.js";
 import { providerExecutionWorkspace } from "../../server/research/pipeline/provider-execution-workspace.js";
@@ -188,8 +187,7 @@ try {
 	assert.equal(code(incompatible), "fallback_incompatible_provider");
 	assert.equal(code(await call("/v1/provider-fallback", fallbackBody)), "fallback_handoff_missing");
 	writeFileSync(join(failedChild.absolutePath, "work/arxiv_candidates.json"), '{"candidates":[]}');
-	await createPrimeSearchContractTools(stageRoot)[0]!.execute("handoff", { provider_id: "arxiv" }, undefined, undefined,
-		{ sessionManager: { getSessionDir: () => join(stageRoot, "sessions", failedChild.childId) } } as never);
+	assert.equal((await call("/v1/finish", { agent_session_id: failedChild.childId, provider_id: "arxiv" })).status, 200);
 	const fallback = await call("/v1/provider-fallback", fallbackBody);
 	assert.deepEqual(fallback, { status: 200, body: { accepted: true, evidence_need_id: "tts-discovery", provider_path: ["arxiv", "huggingface"] } });
 	assert.deepEqual(await call("/v1/provider-fallback", fallbackBody), fallback, "same routing decision is idempotent");

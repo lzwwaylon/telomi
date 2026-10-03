@@ -3,6 +3,7 @@ import { validateInvestigationResult, type InvestigationResult } from "../citati
 import { appendFileSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import type { AgentStageRequest, ValidatedStageArtifact } from "../agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
@@ -26,6 +27,8 @@ import { executeInvestigationAnswer, writeInvestigationAnswerInput,
 import { readLatestInvestigationWriter } from "../research/investigation-handoff.js";
 
 export const INVESTIGATION_RECIPE = { id: "prime-investigation", version: 1 } as const;
+const WIKI_OPERATIONS = ["wiki_list_topics", "wiki_search", "wiki_read_page"] as const;
+type InvestigationOperation = "knowledge_search" | "read_sources" | "github_read" | "external_search" | "write_answer" | typeof WIKI_OPERATIONS[number];
 
 interface InvestigationCaptureInput {
 	goalDir: string;
@@ -175,7 +178,7 @@ function readInvestigationInteractions(runDir: string): NodeEvaluationInteractio
 	if (!existsSync(path)) return [];
 	return readFileSync(path, "utf-8").split("\n").filter(Boolean).map((line): NodeEvaluationInteraction => {
 		const row = JSON.parse(line) as { operation: string; request: unknown; response: unknown };
-		if (row.operation !== "knowledge_search" && row.operation !== "read_sources" && row.operation !== "github_read" && row.operation !== "external_search" && row.operation !== "write_answer") {
+		if (row.operation !== "knowledge_search" && row.operation !== "read_sources" && row.operation !== "github_read" && row.operation !== "external_search" && row.operation !== "write_answer" && !(WIKI_OPERATIONS as readonly string[]).includes(row.operation)) {
 			throw new Error("Unknown Prime investigation interaction");
 		}
 		return { kind: "tool", name: row.operation, label: row.operation, description: "Frozen investigation Tool result",
@@ -264,7 +267,11 @@ export function createFrozenInvestigationReplayPlan(
 			const response = interaction.result as {
 				cues?: InvestigationCitationCue[]; reading?: { cues?: InvestigationCitationCue[] };
 				pages?: Array<{ evidence?: Array<{ cite_ref?: string }> }>;
+				evidence?: Array<{ cite_ref?: string }>;
 			};
+			if (interaction.name === "wiki_read_page") for (const entry of response.evidence ?? []) {
+				if (entry.cite_ref) scope.allowWikiRef(entry.cite_ref);
+			}
 			for (const page of response.pages ?? []) for (const evidence of page.evidence ?? []) {
 				if (evidence.cite_ref) scope.allowWikiRef(evidence.cite_ref);
 			}
@@ -309,7 +316,7 @@ export function createFrozenInvestigationTools(
 		}
 	};
 	registerCues(initialCues);
-	const replayCall = (name: "knowledge_search" | "read_sources" | "github_read" | "external_search" | "write_answer", request: unknown): unknown => {
+	const replayCall = (name: InvestigationOperation, request: unknown): unknown => {
 		if ((name === "external_search" || name === "github_read") && !allowExternal) {
 			unmatchedInteraction = new Error("This Case disallows external sources");
 			throw unmatchedInteraction;
@@ -318,6 +325,28 @@ export function createFrozenInvestigationTools(
 		if (!observed || observed.name !== name) {
 			unmatchedInteraction = new Error(`No frozen Tool interaction matches '${name}' at step ${nextInteraction + 1}`);
 			throw unmatchedInteraction;
+		}
+		if ((WIKI_OPERATIONS as readonly string[]).includes(name)) {
+			if (!isDeepStrictEqual(request, observed.arguments)) {
+				unmatchedInteraction = new Error("Frozen Wiki result belongs to different arguments or Topic filter");
+				throw unmatchedInteraction;
+			}
+			nextInteraction++;
+			recordInteraction(name, request, observed.result);
+			if (name === "wiki_read_page") {
+				const page = observed.result as { evidence?: Array<{ cite_ref?: string; section?: string; cue?: string; note?: string;
+					anchors?: Array<{ path: string; startLine: number; endLine: number; content?: string }> }> };
+				for (const entry of page.evidence ?? []) {
+					if (!entry.cite_ref) continue;
+					citationsScope.allowWikiRef(entry.cite_ref);
+					if (entry.cue && entry.note) evidence.set(entry.cite_ref, { ref: entry.cite_ref,
+						section_title: entry.section ?? "Saved Wiki", cue: entry.cue, note: entry.note,
+						evidence: (entry.anchors ?? []).flatMap(anchor => typeof anchor.content === "string" ? [{
+							source_path: anchor.path, start_line: anchor.startLine, end_line: anchor.endLine, excerpt: anchor.content,
+						}] : []) });
+				}
+			}
+			return observed.result;
 		}
 		if (name === "write_answer") {
 			const args = request as { evidence_refs: string[]; requirements: string[] };
@@ -402,7 +431,7 @@ async function executeProductionInvestigationReplay(
 		? JSON.parse(readNodeEvaluationFile(input.casePath, input.value.request.interactions)) as NodeEvaluationInteraction[]
 		: [];
 	const frozen = interactions.filter((item): item is Extract<NodeEvaluationInteraction, { kind: "tool" }> => item.kind === "tool"
-		&& (item.name === "knowledge_search" || item.name === "read_sources" || item.name === "github_read" || item.name === "external_search" || item.name === "write_answer"));
+		&& (item.name === "knowledge_search" || item.name === "read_sources" || item.name === "github_read" || item.name === "external_search" || item.name === "write_answer" || (WIKI_OPERATIONS as readonly string[]).includes(item.name)));
 	const prompt = input.promptOverride?.userPrompt ?? historicalPrompt;
 	const responseMode = captured.handoff_mode === "file" || input.promptMode === "candidate"
 		|| (input.promptMode !== "observed" && input.promptOverride?.userPrompt !== undefined) ? "file" : "inline";
@@ -473,6 +502,7 @@ async function executeProductionInvestigationReplay(
 	}, root, { runDir: input.recordDirectory, nodeId: "prime-investigation", attemptId: "attempt-1" }, {
 		investigation: {
 			responseMode,
+			wikiTool: async (operation, args) => replayCall(operation as typeof WIKI_OPERATIONS[number], args),
 			knowledgeSearch: async (query, limit) => replayCall("knowledge_search", { query, limit }),
 			readSources: async (question) => replayCall("read_sources", { question }),
 			externalSearch: async (question) => replayCall("external_search", { question }),

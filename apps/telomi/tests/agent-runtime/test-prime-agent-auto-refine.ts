@@ -87,8 +87,8 @@ assert.deepEqual(
 	[],
 	"prime-note-agent-worker.mjs must not import server modules",
 );
-// 全部 Prime 入口的枚举。子进程只能由 spawnPrimeWorker 启动；进程内 SDK 会话只有 Wiki Curator，
-// 且必须从同一 staging 函数取 Agent Directory。新增入口没有走启动器时，这里会失败。
+// 全部 Prime 入口的枚举。子进程只能由 spawnPrimeWorker 启动；不得新增进程内 SDK 会话。
+// 新增入口没有走启动器时，这里会失败。
 const primeSpawners = sourceFiles(serverRoot)
 	.filter((path) => {
 		const source = readFileSync(path, "utf-8");
@@ -126,24 +126,19 @@ assert.deepEqual(primeModuleResolvers, [
 	"research/pipeline/prime-search-batch.ts",
 	"research/pipeline/provider-child-executor.ts", // Uses the same runPrime launcher and isolated Agent Directory.
 	"wiki/page-topic-stage.ts", // Uses the native model registry and message log, without an Agent session.
-	"wiki/wiki-shard-builder.ts",
 ], "every Prime entry is enumerated here");
 assert.doesNotMatch(readFileSync(join(serverRoot, "research", "pipeline", "prime-search-batch.ts"), "utf-8"), /await import\(/u,
 	"Search Batch only records the module path in Launch Conditions; it does not load Prime itself");
 const inProcessPrimeSessions = sourceFiles(serverRoot)
 	.filter((path) => readFileSync(path, "utf-8").includes("await import(primeAgentModulePath("))
 	.map((path) => relative(serverRoot, path));
-assert.deepEqual(inProcessPrimeSessions, ["wiki/wiki-shard-builder.ts"]);
-for (const path of inProcessPrimeSessions) {
-	assert.match(readFileSync(join(serverRoot, path), "utf-8"), /stagePrimeAgentDirectory\(/u,
-		`${path} must take its Agent Directory from stagePrimeAgentDirectory`);
-}
+assert.deepEqual(inProcessPrimeSessions, []);
 const stagingCallers = sourceFiles(serverRoot)
 	.filter((path) => path !== join(serverRoot, "agent-runtime", "prime-agent-paths.ts"))
 	.filter((path) => readFileSync(path, "utf-8").includes("stagePrimeAgentDirectory("))
 	.map((path) => relative(serverRoot, path))
 	.sort();
-assert.deepEqual(stagingCallers, ["agent-runtime/prime-worker.ts", "wiki/page-topic-stage.ts", "wiki/pi-file-stage.ts", "wiki/wiki-shard-builder.ts"]);
+assert.deepEqual(stagingCallers, ["agent-runtime/prime-worker.ts", "wiki/page-topic-stage.ts", "wiki/pi-file-stage.ts"]);
 const pageTopicSource = readFileSync(join(serverRoot, "wiki/page-topic-stage.ts"), "utf-8");
 assert.match(pageTopicSource, /createPrimeModelRegistry\(/u);
 assert.match(pageTopicSource, /tools: \[\]/u);

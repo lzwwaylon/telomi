@@ -80,7 +80,7 @@ const hangingTarget: EvolutionTarget = {
 function createWorkspace(options: { goalSkillBody?: string } = {}): string {
 	const root = mkdtempSync(join(tmpdir(), "telomi-evolution-recovery-"));
 	const workspaceDir = join(root, "data");
-	mkdirSync(join(workspaceDir, GOAL_ID, "skills", "wiki-curator"), { recursive: true });
+	mkdirSync(join(workspaceDir, GOAL_ID, "skills", "wiki-compilation"), { recursive: true });
 	if (options.goalSkillBody !== undefined) {
 		writeSkill(join(workspaceDir, GOAL_ID, "skills", OWNER, SKILL), options.goalSkillBody);
 	} else {
@@ -160,7 +160,7 @@ const BROWSER_REFS = [1, 2, 3].map((index) => ({
 {
 	const templateRoot = mkdtempSync(join(tmpdir(), "telomi-evolution-applied-"));
 	const templateWorkspace = join(templateRoot, "data");
-	mkdirSync(join(templateWorkspace, GOAL_ID, "skills", "wiki-curator"), { recursive: true });
+	mkdirSync(join(templateWorkspace, GOAL_ID, "skills", "wiki-compilation"), { recursive: true });
 	writeSkill(join(templateWorkspace, GOAL_ID, "skills", OWNER, SKILL), BASELINE_BODY);
 	const templateService = createService(templateWorkspace, [confirmingTarget()]);
 	const beforeSha256 = snapshotSkills([goalSkillPath(join(templateWorkspace, GOAL_ID), OWNER, SKILL)]).skills[0]!.sha256;
@@ -294,7 +294,7 @@ const BROWSER_REFS = [1, 2, 3].map((index) => ({
 		assert.equal(existsSync(join(run.directory, APPLY_RECEIPT_FILE)), false, "no mutation means no Receipt");
 		assert.deepEqual(readdirSync(join(workspaceDir, GOAL_ID, "skills", OWNER)).sort(), [SKILL],
 			"a failed replacement leaves no staged copy inside the owner Skill root");
-		assert.deepEqual(readdirSync(join(workspaceDir, GOAL_ID, "skills")).sort(), [OWNER, "wiki-curator"],
+		assert.deepEqual(readdirSync(join(workspaceDir, GOAL_ID, "skills")).sort(), [OWNER, "wiki-compilation"],
 			"the staging directory itself is cleaned up too");
 		service.stop();
 		console.log("A failed Goal Skill replacement leaves no mutation, no Receipt and no staging directory");

@@ -5,7 +5,7 @@ export const RESEARCH_AGENT_IDS = [
 	"report-writer",
 ] as const;
 export type ResearchWorkspaceAgentId = (typeof RESEARCH_AGENT_IDS)[number];
-export const WIKI_AGENT_IDS = ["wiki-shard-builder", "wiki-curator"] as const;
+export const WIKI_AGENT_IDS = ["wiki-compilation"] as const;
 export type WikiWorkspaceAgentId = (typeof WIKI_AGENT_IDS)[number];
 export const WORKSPACE_AGENT_IDS = [
 	"main-agent",

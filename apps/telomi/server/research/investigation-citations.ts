@@ -44,7 +44,6 @@ export function createInvestigationCitationScope() {
 					...(cue.summary ? { summary: cue.summary } : {}),
 					...(cue.source_title ? { source_title: cue.source_title } : {}),
 					...(cue.canonical_locator ? { canonical_locator: cue.canonical_locator } : {}),
-					...(cue.topic_refs ? { topic_refs: cue.topic_refs } : {}),
 					evidence: cue.evidence.map((item) => ({
 					source_path: item.source_path, start_line: item.start_line, end_line: item.end_line,
 					...(item.excerpt ? { excerpt: item.excerpt } : {}),
