@@ -42,7 +42,7 @@ import {
 	type PublishedArtifactRef,
 	RunArtifactStore,
 } from "../../agent-runtime/artifact-store.js";
-import { buildKnowledgeCitationRegistry, compileCanonicalMarkdown, normalizeCitationSource, resolveUnavailableCitationUrls, validateChapterCandidate } from "./citation-compiler.js";
+import { buildKnowledgeCitationRegistry, compileCanonicalMarkdown, normalizeCitationSource, validateChapterCandidate } from "./citation-compiler.js";
 import { validateCornellNotesSnapshot, type CornellNotesSnapshot } from "../../cornell/contracts.js";
 import { validateSearchExecutionRecord, type ProviderExecution } from "../../providers/search-contracts.js";
 import type { ExecutableReportPlan } from "./report-plan.js";
@@ -154,7 +154,6 @@ export interface RunDependencies {
 	stageRunner: AgentStageRunner;
 	searchBatchExecutor: SearchBatchExecutor;
 	evidenceMaterializer: CornellNotesMaterializer;
-	validateCitationUrls(markdown: string, signal: AbortSignal): Promise<ReadonlySet<string>>;
 
 	wikiAgent?: { compile(request: WikiCompilationRequest): Promise<WikiCompilationResult> };
 	publishWikiCompilation?: typeof publishCompilation;
@@ -684,21 +683,10 @@ export class Run {
 			sectionId: section.section_id,
 			markdown: materializeWriterChapter(section, finalOutput!),
 		}));
-		let citationValidationFailure: string | undefined;
-		const unavailableUrls = await resolveUnavailableCitationUrls(
-			chapters,
-			request.signal,
-			this.dependencies.validateCitationUrls,
-			citationRegistry,
-			(error) => {
-				citationValidationFailure = toErrorMessage(error);
-			},
-		);
 		const compiled = compileCanonicalMarkdown({
 			plan: reportPlan,
 			cornellNotes: evidence,
 			chapters,
-			unavailableUrls,
 			citationRegistry,
 			outlineEvidenceIds,
 		});
@@ -720,14 +708,7 @@ export class Run {
 		if (readFileSync(structuredReportArtifact.absolutePath, "utf-8") !== structuredReport) {
 			throw new Error("Published structured report does not match report flow compilation");
 		}
-		emit(
-			"citation_compiler",
-			"succeeded",
-			undefined,
-			citationValidationFailure
-				? `${compiled.citationCount} citations; URL validation skipped: ${citationValidationFailure}`
-				: `${compiled.citationCount} citations`,
-		);
+		emit("citation_compiler", "succeeded", undefined, `${compiled.citationCount} citations`);
 
 		if (args.wikiCompilation && !args.skipWikiPublication) {
 			if (!request.goalWorkspaceDirectory || !request.workspaceRootDirectory || !this.dependencies.publishWikiCompilation) {

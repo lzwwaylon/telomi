@@ -57,7 +57,6 @@ class Settings(BaseSettings):
     general_web_max_concurrency: int = Field(default=1, ge=1, le=16)
     user_documents_max_concurrency: int = Field(default=4, ge=1, le=32)
     document_max_concurrency: int = Field(default=2, ge=1, le=16)
-    lychee_path: Path | None = None
 
     github_token: SecretStr | None = Field(
         default=None,

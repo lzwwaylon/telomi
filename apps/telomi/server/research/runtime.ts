@@ -20,7 +20,6 @@ import {
 	cornellNoteAgentContractIdentity,
 	createProductionCornellNotesMaterializer,
 } from "./cornell-note-agent.js";
-import { getResearchSourceServiceClient } from "../providers/source-service-client.js";
 import {
 	Run,
 	initializeRunState,
@@ -197,8 +196,6 @@ export class ResearchRuntime {
 				stageRunner,
 				searchBatchExecutor,
 				evidenceMaterializer,
-				validateCitationUrls: (markdown, signal) =>
-					getResearchSourceServiceClient().validateCitationUrls(markdown, signal),
 				publishWikiCompilation: publishCompilation,
 			});
 			const result = await run.run({

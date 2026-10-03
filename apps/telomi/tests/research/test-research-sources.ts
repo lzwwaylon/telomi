@@ -742,29 +742,6 @@ try {
 	assert.equal(github[0]?.title, "openai/example");
 	assert.equal(github[0]?.publishedAt, "2026-01-02T03:04:05Z");
 
-	const citationClient = new HttpResearchSourceServiceClient({
-		baseUrl: "http://127.0.0.1:8791",
-		token: "runtime-secret",
-		fetcher: async (input, init = {}) => {
-			assert.equal(String(input), "http://127.0.0.1:8791/v1/citations/validate-urls");
-			assert.deepEqual(JSON.parse(String(init.body)), {
-				schema_version: 1,
-				markdown: "See https://example.com/missing.",
-			});
-			return new Response(JSON.stringify({
-				schema_version: 1,
-				unavailable_urls: ["https://example.com/missing"],
-			}), { headers: { "content-type": "application/json" } });
-		},
-	});
-	assert.deepEqual(
-		[...await citationClient.validateCitationUrls(
-			"See https://example.com/missing.",
-			new AbortController().signal,
-		)],
-		["https://example.com/missing"],
-	);
-
 	const invalidClient = new HttpResearchSourceServiceClient({
 		baseUrl: "http://127.0.0.1:8791",
 		fetcher: async () => new Response(JSON.stringify({

@@ -94,7 +94,6 @@ const runtime = new Run({
 			throw new Error("stop_after_usage_assertion");
 		},
 	},
-	validateCitationUrls: async () => new Set<string>(),
 });
 
 const execution = runtime.run({

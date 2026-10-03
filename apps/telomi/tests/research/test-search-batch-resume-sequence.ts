@@ -23,7 +23,6 @@ const run = new Run({
 		},
 	},
 	evidenceMaterializer: { materialize: async () => { throw new Error("materializer must not run"); } },
-	validateCitationUrls: async () => new Set<string>(),
 });
 
 const request = {

@@ -18,15 +18,12 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .citation_urls import CitationUrlValidator
 from .config import Settings, get_settings
 from .documents import DocumentService
 from .errors import ServiceError
 from .http_client import HttpGateway
 from .material_cache import MaterialCache
 from .models import (
-    CitationUrlValidationRequest,
-    CitationUrlValidationResponse,
     CredentialCheckRequest,
     CredentialCheckResponse,
     DocumentParseRequest,
@@ -91,7 +88,6 @@ async def cancel_on_disconnect(request: Request, operation: Coroutine[Any, Any, 
 def create_app(
     settings: Settings | None = None,
     http_client: httpx.AsyncClient | None = None,
-    url_validator: CitationUrlValidator | None = None,
 ) -> FastAPI:
     configured = settings or get_settings()
     owned_client = http_client is None
@@ -130,7 +126,6 @@ def create_app(
             )
         app.state.documents = documents
         app.state.registry = SourceRegistry(configured, gateway, documents)
-        app.state.url_validator = url_validator or CitationUrlValidator(configured.lychee_path)
         stop_gc = asyncio.Event()
 
         async def collect_material_cache() -> None:
@@ -317,18 +312,6 @@ def create_app(
     async def parse_document(request: DocumentParseRequest, raw_request: Request) -> DocumentParseResponse:
         documents: DocumentService = raw_request.app.state.documents
         return await documents.parse(request)
-
-    @app.post(
-        "/v1/citations/validate-urls",
-        response_model=CitationUrlValidationResponse,
-        responses={502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
-    )
-    async def validate_citation_urls(
-        request: CitationUrlValidationRequest,
-        raw_request: Request,
-    ) -> CitationUrlValidationResponse:
-        validator: CitationUrlValidator = raw_request.app.state.url_validator
-        return CitationUrlValidationResponse(unavailable_urls=await validator.validate(request.markdown))
 
     def material_cache(raw_request: Request) -> MaterialCache:
         cache: MaterialCache = raw_request.app.state.registry.material_cache

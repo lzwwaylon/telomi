@@ -12,22 +12,21 @@ const registry = {
 	],
 };
 
-// Unavailable Sources keep the [[n]] form without a link; adjacent repeats collapse like linked ones.
+// Stored Source URLs remain linked; adjacent repeated citations collapse.
 const compiled = compileStandaloneCitationMarkdown({
 	markdown: "Live claim. <cite>C1</cite> Dead claim. <cite>C2</cite><cite>C2</cite> <cite>C2</cite>",
 	citationRegistry: registry,
-	unavailableUrls: new Set(["https://example.test/dead"]),
 });
 assert.equal(compiled.markdown, [
-	"Live claim. [[1]](https://example.test/live) Dead claim. [[2]]",
+	"Live claim. [[1]](https://example.test/live) Dead claim. [[2]](https://example.test/dead)",
 	"",
 	"## References",
 	"",
 	"1. [Live source](https://example.test/live)",
-	"2. Dead source",
+	"2. [Dead source](https://example.test/dead)",
 	"",
 ].join("\n"));
-assert.equal(compiled.citations[1]?.url, undefined);
+assert.equal(compiled.citations[1]?.url, "https://example.test/dead");
 
 // Delimiter rows are rebuilt to the header's cell count; matching tables and code fences stay untouched.
 const broken = [

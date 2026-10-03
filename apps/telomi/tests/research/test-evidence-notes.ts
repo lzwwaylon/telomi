@@ -290,7 +290,6 @@ try {
 				};
 			},
 		},
-		validateCitationUrls: async () => new Set<string>(),
 	});
 	const degradedRequest = {
 		runId: "run:degraded",

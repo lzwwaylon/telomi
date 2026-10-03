@@ -68,34 +68,6 @@ def test_sources_lists_every_registered_source_id(tmp_path, authorization) -> No
     }
 
 
-def test_validate_citation_urls_accepts_markdown_and_returns_unavailable_urls(tmp_path, authorization) -> None:
-    class StubValidator:
-        async def validate(self, markdown: str) -> list[str]:
-            assert markdown == "Alive https://example.com. Dead https://example.com/missing."
-            return ["https://example.com/missing"]
-
-    app = create_app(
-        make_settings(tmp_path),
-        httpx.AsyncClient(transport=httpx.MockTransport(unused_provider)),
-        url_validator=StubValidator(),
-    )
-    with TestClient(app) as client:
-        response = client.post(
-            "/v1/citations/validate-urls",
-            headers=authorization,
-            json={
-                "schema_version": 1,
-                "markdown": "Alive https://example.com. Dead https://example.com/missing.",
-            },
-        )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "schema_version": 1,
-        "unavailable_urls": ["https://example.com/missing"],
-    }
-
-
 def test_extra_request_fields_are_rejected(tmp_path, authorization) -> None:
     with client_for(tmp_path, unused_provider) as client:
         response = client.post(

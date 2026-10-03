@@ -59,30 +59,27 @@ type NumberedSources = Map<string, { number: number; entries: RegistryEntry[] }>
 export function compileStandaloneCitationMarkdown(args: {
 	markdown: string;
 	citationRegistry: KnowledgeCitationRegistry;
-	unavailableUrls?: ReadonlySet<string>;
 }): CompiledCitationReport {
-	const unavailableUrls = args.unavailableUrls ?? new Set<string>();
 	const sources: NumberedSources = new Map();
 	let citationCount = 0;
 	const body = normalizeGfmTables(args.markdown.trim()).replace(INLINE_CITE, (_citation, value: string) => {
 		const source = resolveRegisteredCitation(args.citationRegistry, value);
 		if (!source) throw new Error(`Citation '${value}' is not present in the frozen Knowledge Snapshot`);
 		citationCount += 1;
-		return renderInlineCitation(numberSource(sources, source), source.url, unavailableUrls);
+		return renderInlineCitation(numberSource(sources, source), source.url);
 	});
 	if (ANY_CITE.test(body)) throw new Error("Main Agent answer contains a malformed Wiki citation");
 	const markdown = [
 		collapseAdjacentCitations(body),
-		...referencesSection(sources, unavailableUrls),
+		...referencesSection(sources),
 	].join("\n").trim() + "\n";
-	return { markdown, citationCount, citations: citationRecords(sources, unavailableUrls) };
+	return { markdown, citationCount, citations: citationRecords(sources) };
 }
 
 export function compileCanonicalMarkdown(args: {
 	plan: ExecutableReportPlan;
 	cornellNotes: CornellNotesSnapshot;
 	chapters: readonly ChapterInput[];
-	unavailableUrls?: ReadonlySet<string>;
 	citationRegistry: KnowledgeCitationRegistry;
 	/** Outline 全部 Section 认领的 Evidence，用于把引用限制在大纲认领范围内。 */
 	outlineEvidenceIds?: ReadonlySet<string>;
@@ -101,17 +98,16 @@ export function compileCanonicalMarkdown(args: {
 		sources,
 		citationRegistry: args.citationRegistry,
 		...(args.outlineEvidenceIds ? { outlineEvidenceIds: args.outlineEvidenceIds } : {}),
-		unavailableUrls: args.unavailableUrls ?? new Set(),
 		onCitation: () => { citationCount += 1; },
 	}));
 	const markdown = [
 		`# ${args.plan.title}`,
 		"",
 		...compiled.flatMap((chapter, index) => index === compiled.length - 1 ? [chapter] : [chapter, ""]),
-		...referencesSection(sources, args.unavailableUrls),
+		...referencesSection(sources),
 	].join("\n").trim() + "\n";
 	validateCanonicalMarkdown(markdown);
-	return { markdown, citationCount, citations: citationRecords(sources, args.unavailableUrls) };
+	return { markdown, citationCount, citations: citationRecords(sources) };
 }
 
 export function validateChapterCandidate(
@@ -254,29 +250,6 @@ function collectStructuredUrlMetadata(
 	}
 }
 
-export async function resolveUnavailableCitationUrls(
-	chapters: readonly ChapterInput[],
-	signal: AbortSignal,
-	validateMarkdown: (markdown: string, signal: AbortSignal) => Promise<ReadonlySet<string>>,
-	citationRegistry?: KnowledgeCitationRegistry,
-	onValidationFailure?: (error: unknown) => void,
-): Promise<ReadonlySet<string>> {
-	const markdown = chapters.map((chapter) => chapter.markdown).join("\n\n").replace(
-		INLINE_CITE,
-		(citation, value: string) => {
-			const resolved = citationRegistry ? resolveRegisteredCitation(citationRegistry, value) : undefined;
-			return resolved ? `<cite>${resolved.url}</cite>` : citation;
-		},
-	);
-	try {
-		return await validateMarkdown(markdown, signal);
-	} catch (error) {
-		if (signal.aborted) throw error;
-		onValidationFailure?.(error);
-		return new Set();
-	}
-}
-
 export function extractExternalUrls(markdown: string): string[] {
 	return [...new Set([...markdown.matchAll(URL_PATTERN)].map((match) => trimMarkdownUrl(match[0])))];
 }
@@ -289,7 +262,6 @@ function compileChapter(args: {
 	sources: NumberedSources;
 	citationRegistry: KnowledgeCitationRegistry;
 	outlineEvidenceIds?: ReadonlySet<string>;
-	unavailableUrls: ReadonlySet<string>;
 	onCitation(): void;
 }): string {
 	if (args.chapter.sectionId !== args.section.section_id) {
@@ -301,7 +273,7 @@ function compileChapter(args: {
 		const citation = resolveRegisteredCitation(args.citationRegistry, source);
 		if (!citation) throw new Error(`Citation URL '${source}' is not present in the frozen Knowledge Snapshot`);
 		args.onCitation();
-		return renderInlineCitation(numberSource(args.sources, citation), citation.url, args.unavailableUrls);
+		return renderInlineCitation(numberSource(args.sources, citation), citation.url);
 	});
 	return collapseAdjacentCitations(body);
 }
@@ -339,25 +311,21 @@ function requireEvidence(evidenceById: Map<string, CornellNoteRecord>, evidenceI
 	return evidence;
 }
 
-/** Unavailable Sources keep the `[[n]]` citation form without a link so the UI still renders a chip. */
-function renderInlineCitation(number: number, url: string, unavailableUrls: ReadonlySet<string>): string {
+function renderInlineCitation(number: number, url: string): string {
 	const target = safeMarkdownTarget(url);
-	return target && !unavailableUrls.has(target) ? `[[${number}]](${target})` : `[[${number}]]`;
+	return target ? `[[${number}]](${target})` : `[[${number}]]`;
 }
 
-function referencesSection(sources: NumberedSources, unavailableUrls?: ReadonlySet<string>): string[] {
+function referencesSection(sources: NumberedSources): string[] {
 	const references = [...sources.values()].map(({ number, entries: [source] }) => {
 		const title = escapeMarkdownText(source!.title);
 		const target = safeMarkdownTarget(source!.url);
-		return target && !unavailableUrls?.has(target) ? `${number}. [${title}](${target})` : `${number}. ${title}`;
+		return target ? `${number}. [${title}](${target})` : `${number}. ${title}`;
 	});
 	return references.length > 0 ? ["", "## References", "", ...references] : [];
 }
 
-function citationRecords(
-	sources: NumberedSources,
-	unavailableUrls?: ReadonlySet<string>,
-): CompiledCitationReport["citations"] {
+function citationRecords(sources: NumberedSources): CompiledCitationReport["citations"] {
 	return [...sources.values()].map(({ number, entries }) => {
 		const source = entries[0]!;
 		const url = safeMarkdownTarget(source.url);
@@ -366,7 +334,7 @@ function citationRecords(
 		return {
 			number,
 			title: source.title,
-			...(url && !unavailableUrls?.has(url) ? { url } : {}),
+			...(url ? { url } : {}),
 			provenance: source.provenance,
 			...(source.evidenceId ? { evidenceId: source.evidenceId } : {}),
 			...(refs.length > 0 ? { refs } : {}),

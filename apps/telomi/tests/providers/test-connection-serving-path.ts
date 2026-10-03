@@ -45,7 +45,7 @@ const memory = createServer((request, response) => {
 	request.resume();
 	response.writeHead(200, { "content-type": "application/json" });
 	response.end(JSON.stringify({
-		schema_version: 1, unavailable_urls: [],
+		schema_version: 1,
 		status: request.url?.startsWith("/health") ? "healthy" : "completed",
 		success: true, results: [], items: [], entities: [], data: [],
 		operation_id: "test-operation", document_id: "test-document",

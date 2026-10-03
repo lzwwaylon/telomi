@@ -10,7 +10,6 @@ import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import {
 	buildKnowledgeCitationRegistry,
 	compileCanonicalMarkdown,
-	resolveUnavailableCitationUrls,
 } from "../../server/research/pipeline/citation-compiler.js";
 import { createWikiReportReferenceAdapter } from "../../server/research/pipeline/wiki-report-references.js";
 
@@ -157,28 +156,6 @@ try {
 	assert.match(noteCompiled.markdown, /First claim\. \[\[1\]\].*Second claim\. \[\[1\]\]/su);
 	assert.match(noteCompiled.markdown, /## References\n\n1\. \[Beta source\]\(https:\/\/example\.test\/beta\)\n$/u,
 		"Notes from one Source share one References entry without provenance");
-	let validatedMarkdown = "";
-	await resolveUnavailableCitationUrls(
-		[{ sectionId: "section-001", markdown: "## Finding\n\n<cite>C2</cite>" }],
-		new AbortController().signal,
-		async (markdown) => { validatedMarkdown = markdown; return new Set(); },
-		citationRegistry,
-	);
-	assert.match(validatedMarkdown, /<cite>https:\/\/example\.test\/beta<\/cite>/u);
-	assert.doesNotMatch(validatedMarkdown, /C2/u);
-	let validationFailure = "";
-	assert.deepEqual(
-		await resolveUnavailableCitationUrls(
-			[{ sectionId: "section-001", markdown: "## Finding\n\n<cite>C2</cite>" }],
-			new AbortController().signal,
-			async () => { throw new Error("validator unavailable"); },
-			citationRegistry,
-			(error) => { validationFailure = error instanceof Error ? error.message : String(error); },
-		),
-		new Set(),
-		"a validator infrastructure failure must not strip valid citation links",
-	);
-	assert.equal(validationFailure, "validator unavailable");
 	await assert.rejects(read.execute("unknown", { path: "P99" }), /unknown Wiki Page ref 'P99'/u);
 	console.log("Wiki Report short reference adapter passed");
 } finally {

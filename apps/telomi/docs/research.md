@@ -161,6 +161,8 @@ After all children finish, the same Root Session performs final editing: removin
 
 Runtime does not change report semantics. It validates Sections, citations, and paths, then mechanically compiles titles, References, `report/final.md`, and `report/final.json`.
 
+Citation compilation preserves the stored Source URLs and performs no network reachability probes. A temporary outage, rate limit, or login requirement must not remove a Source link from the report. Runtime still validates Source provenance fields and URL format during acquisition, and resolves report citations against the frozen reference inventory; reachability cannot establish whether a URL identifies the cited material.
+
 ## 7. Wiki Maintainer
 
 Wiki Maintainer runs asynchronously alongside Report Writer. It consumes only Cornell Notes and existing Concept / Entity pages, never raw Sources.

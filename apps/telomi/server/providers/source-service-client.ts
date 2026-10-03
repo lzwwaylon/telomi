@@ -38,11 +38,6 @@ interface SourceServiceSearchResponse {
 	results?: unknown;
 }
 
-interface CitationUrlValidationResponse {
-	schema_version?: unknown;
-	unavailable_urls?: unknown;
-}
-
 export interface ResearchSourceServiceClient {
 	search(
 		sourceId: string,
@@ -247,44 +242,6 @@ export class HttpResearchSourceServiceClient implements ResearchSourceServiceCli
 		return await response.json() as Record<string, unknown>;
 	}
 
-	async validateCitationUrls(markdown: string, signal: AbortSignal): Promise<ReadonlySet<string>> {
-		const service = this.configuredBaseUrl
-			? { baseUrl: this.configuredBaseUrl, token: this.configuredToken ?? "" }
-			: await this.ensureReady(signal);
-		let response: Response;
-		try {
-			response = await this.fetcher(`${service.baseUrl}/v1/citations/validate-urls`, {
-				method: "POST",
-				headers: {
-					accept: "application/json",
-					"content-type": "application/json",
-					...(service.token ? { authorization: `Bearer ${service.token}` } : {}),
-				},
-				body: JSON.stringify({ schema_version: 1, markdown }),
-				signal,
-			});
-		} catch (error) {
-			if (signal.aborted) {
-				throw new ResearchNodeError("citation URL validation cancelled", "cancelled", false, { cause: asError(error) });
-			}
-			throw new ResearchNodeError("Citation URL validation service request failed", "provider", true, { cause: asError(error) });
-		}
-		if (!response.ok) throw await sourceServiceError("citation-url-validator", response);
-		const payload = await response.json() as CitationUrlValidationResponse;
-		if (payload.schema_version !== 1 || !Array.isArray(payload.unavailable_urls)) {
-			throw new ResearchNodeError("Citation URL validation service returned an invalid response", "validation", false);
-		}
-		return new Set(payload.unavailable_urls.map((value, index) => {
-			if (typeof value !== "string") {
-				throw new ResearchNodeError(`Citation URL validation result ${index} is not a URL`, "validation", false);
-			}
-			const url = new URL(value);
-			if (url.protocol !== "http:" && url.protocol !== "https:") {
-				throw new ResearchNodeError(`Citation URL validation result ${index} is not HTTP(S)`, "validation", false);
-			}
-			return url.href;
-		}));
-	}
 }
 
 export class ResearchSourceServiceManager {
@@ -299,8 +256,7 @@ export class ResearchSourceServiceManager {
 	ensureReady(signal?: AbortSignal): Promise<{ baseUrl: string; token: string }> {
 		// 失败不能被缓存成常驻状态。start() 在 spawn 之前就可能抛（缺 venv、无可用端口），
 		// 那条路径没有 child exit 来复位 ready，于是一次早期失败会让整个 Server 进程
-		// 此后永远拿不到 Source Service——Citation URL 校验会因此静默地把每份报告的
-		// 全部链接判成不可达。这里让失败的尝试自己撤回，下一次调用重新启动。
+		// 此后永远拿不到 Source Service。这里让失败的尝试自己撤回，下一次调用重新启动。
 		if (this.stopping) return Promise.reject(new ResearchNodeError("source service is closed", "cancelled", false));
 		const startupSignal = signal ? AbortSignal.any([signal, this.shutdown.signal]) : this.shutdown.signal;
 		this.ready ??= this.start(startupSignal).catch((error: unknown) => {
