@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GoalSnapshot } from "../../shared/types.js";
-import { canResumeRunState, RUN_WORKFLOW_ID, RUN_WORKFLOW_VERSION, RunStateStore } from "../../server/research/run-state.js";
+import { canResumeRunState, RUN_WORKFLOW_ID, RUN_WORKFLOW_VERSION, RunStateStore, validateRunState } from "../../server/research/run-state.js";
 import type { GoalScheduledResearchRequest, GoalSession } from "../../server/goals/execution.js";
 import { GoalService } from "../../server/goals/service.js";
 import { saveSettings } from "../../server/config/settings.js";
@@ -269,8 +269,35 @@ try {
 	assert.equal(cancelledStore.load()?.status, "cancelled", "Cancellation during setup must not become resumable");
 	assert.equal(service.isGoalActive(goalId), false);
 
-	// Unsupported checkpoints are rejected without rewriting their persisted contents.
+	// Supported historical input names are normalized without rewriting their checkpoints.
 	const current = store.load()!;
+	const artifact = { relative_path: "artifacts/report.md", sha256: "a".repeat(64), byte_length: 1 };
+	const historical = {
+		...current, status: "published", finished_at: current.updated_at, canonical_report: artifact,
+		report_flow: {
+			outline: artifact, execution_plan: artifact,
+			knowledge_input: { mode: "findout", ref: "artifacts/knowledge/findout.json", sha256: artifact.sha256, byte_length: 1 },
+		},
+	};
+	const historicalBytes = JSON.stringify(historical);
+	writeFileSync(store.statePath, historicalBytes);
+	assert.equal(service.isGoalActive(goalId), false, "Published workflow-26 history must not crash the startup liveness check");
+	const loaded = store.load(current.pins)!;
+	assert.deepEqual(loaded, { ...historical, report_flow: {
+		...historical.report_flow, knowledge_input: { ...historical.report_flow.knowledge_input, mode: "notes" },
+	} }, "Only the retired mode is normalized, preserving artifact refs, hashes, identity pins and revision");
+	assert.equal(store.recoverInterrupted(), false, "Published history remains terminal");
+	assert.equal(readFileSync(store.statePath, "utf8"), historicalBytes, "Reading and recovery never rewrite historical checkpoints");
+	assert.throws(() => store.load({ ...current.pins, pipeline: "changed" }), /checkpoint_identity_drift/u);
+	assert.throws(() => validateRunState(historical), /knowledge_input\/mode/u, "New checkpoints still reject the retired mode");
+	assert.throws(() => store.save(loaded, JSON.parse(historicalBytes)), /knowledge_input\/mode/u, "Writes remain strict");
+	assert.equal(readFileSync(store.statePath, "utf8"), historicalBytes);
+	writeFileSync(store.statePath, JSON.stringify({ ...historical, report_flow: {
+		...historical.report_flow, knowledge_input: { ...historical.report_flow.knowledge_input, mode: "unknown" },
+	} }));
+	assert.throws(() => store.load(), /knowledge_input\/mode/u, "Unknown modes cannot masquerade as compatible history");
+	writeFileSync(store.statePath, JSON.stringify(current));
+	// Unsupported checkpoints remain errors and retain their persisted contents.
 	for (const version of [
 		{ schema_version: 2, workflow_version: 1 },
 		{ schema_version: 1, workflow_version: RUN_WORKFLOW_VERSION },

@@ -237,6 +237,12 @@ export class RunStateStore {
 	load(expectedPins?: RunIdentityPins): RunStateV2 | undefined {
 		if (!existsSync(this.statePath)) return undefined;
 		const parsed = JSON.parse(readFileSync(this.statePath, "utf-8")) as unknown;
+		// Workflow 26 renamed this persisted mode without changing the checkpoint version.
+		// Normalize only reads; new writes still use the current strict schema.
+		if (isRecord(parsed) && isSupportedRunVersion(parsed) && isRecord(parsed.report_flow)
+			&& isRecord(parsed.report_flow.knowledge_input) && parsed.report_flow.knowledge_input.mode === "findout") {
+			parsed.report_flow.knowledge_input.mode = "notes";
+		}
 		const state = validateRunState(parsed);
 		if (expectedPins && stableJson(state.pins) !== stableJson(expectedPins)) {
 			throw new Error("checkpoint_identity_drift: Run identity pins do not match the current Runtime");
