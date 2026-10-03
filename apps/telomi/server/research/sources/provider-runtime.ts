@@ -411,8 +411,9 @@ export class ProviderRuntime {
 			if (budget && controlled && remainingMs! <= 0) {
 				throw failure(budget.trip(provider.id, "budget_exhausted", gate.cooldownRemainingMs()));
 			}
-			// A controlled retry ends when the budget does; the gate bounds cooldown waits by the same remainder.
-			const signal = budget
+			// Healthy first attempts retain caller cancellation; only a controlled retry gets the overload deadline.
+			// The gate still bounds shared cooldown admission by the remaining budget.
+			const signal = budget && controlled
 				? AbortSignal.any([request.signal, AbortSignal.timeout(Math.max(1, remainingMs!))])
 				: request.signal;
 			let upstreamStartedAt = 0;

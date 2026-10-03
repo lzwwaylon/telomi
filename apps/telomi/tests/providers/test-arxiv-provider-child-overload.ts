@@ -31,7 +31,7 @@ assert.equal(production.maxAttempts, 1, "requests outside a Provider Child keep 
 interface ErrorBody { error: { code: string; message: string; details?: Record<string, unknown> } }
 
 /** One Prime Search bridge whose fake arXiv upstream fails with 429 on the calls `retryAfter` returns a delay for. */
-async function scenario(name: string, minIntervalMs: number, retryAfter: (call: number, operation: string) => number | undefined) {
+async function scenario(name: string, minIntervalMs: number, retryAfter: (call: number, operation: string) => number | undefined, options: { budgetMs?: number; healthyDelayMs?: number } = {}) {
 	const upstream: string[] = [];
 	const upstreamAt: number[] = [];
 	const runtime = new ProviderRuntime({ databasePath: join(root, `${name}.sqlite3`) });
@@ -50,7 +50,7 @@ async function scenario(name: string, minIntervalMs: number, retryAfter: (call: 
 		},
 		runtimePolicy: (request) => ({
 			...builtInFastApiRuntimePolicy({ sourceId: "arxiv", env: {}, minIntervalMs })(request),
-			overloadBudgetMs: BUDGET_MS,
+			overloadBudgetMs: options.budgetMs ?? BUDGET_MS,
 		}),
 		async search(request) {
 			upstream.push(request.providerRequest?.operation ?? "search");
@@ -62,6 +62,8 @@ async function scenario(name: string, minIntervalMs: number, retryAfter: (call: 
 					retryAfterMs: delay,
 				});
 			}
+			if (options.healthyDelayMs) await new Promise((resolve) => setTimeout(resolve, options.healthyDelayMs));
+			request.signal.throwIfAborted();
 			return [{ id: `paper-${upstream.length}`, title: "Paper", url: `https://arxiv.org/abs/2601.0000${upstream.length}`, snippet: "" }];
 		},
 	};
@@ -120,6 +122,36 @@ function assertUnavailable(response: { status: number; body: ErrorBody }, expect
 }
 
 try {
+	// Real Bridge HTTP calls can be slow and queued without any upstream overload.
+	const healthy = await scenario("healthy-slow-pdfs", 0, () => undefined, { budgetMs: 40, healthyDelayMs: 90 });
+	try {
+		const results = await Promise.all([
+			healthy.post("sub-a", "PDF one", "download_pdf", { arxiv_id: "2601.00001v1" }),
+			healthy.post("sub-a", "PDF two", "download_pdf", { arxiv_id: "2601.00002v1" }),
+		]);
+		assert.deepEqual(results.map((response) => response.status), [200, 200], "healthy PDF processing and ordinary queue time must not consume an overload deadline");
+		assert.deepEqual(healthy.calls().map((call) => call.execution?.attempts), [1, 1]);
+		assert.ok(healthy.calls().some((call) => (call.execution?.queue_wait_ms ?? 0) > 40), "a healthy sibling really queued beyond the overload allowance");
+		assert.ok(healthy.calls().every((call) => call.execution?.rate_limit_wait_ms === 0));
+		assert.equal(healthy.events().filter((event) => event.type === "runtime.provider_access").length, 0);
+	} finally { await healthy.close(); }
+
+	const spaced = await scenario("healthy-ordinary-spacing", 90, () => undefined, { budgetMs: 40 });
+	try {
+		assert.equal((await spaced.post("sub-a", "first PDF", "download_pdf", { arxiv_id: "2601.00003v1" })).status, 200);
+		assert.equal((await spaced.post("sub-a", "next PDF", "download_pdf", { arxiv_id: "2601.00004v1" })).status, 200, "ordinary spacing alone must not time out a healthy request");
+		assert.ok(spaced.upstreamAt[1]! - spaced.upstreamAt[0]! >= 85);
+		assert.ok(spaced.calls().every((call) => call.execution?.rate_limit_wait_ms === 0));
+	} finally { await spaced.close(); }
+
+	const siblings = await scenario("queued-api-terminal", 0, () => 5);
+	try {
+		const results = await Promise.all([siblings.month("sub-a", 1), siblings.month("sub-a", 2)]);
+		assert.deepEqual(results.map((response) => response.status), [422, 422]);
+		assert.ok(results.every((response) => response.body.error.code === "source_unavailable"));
+		assert.equal(siblings.upstream.length, 2, "a terminal shared domain stops queued siblings without an extra retry");
+	} finally { await siblings.close(); }
+
 	// API discovery can stop while the same child still acquires already known papers.
 	const isolated = await scenario("api-main-isolated", 0, (_call, operation) => operation === "query" ? 5_000 : undefined);
 	try {
@@ -341,11 +373,14 @@ try {
 		}
 	}
 	const timeoutBudget = new ProviderOverloadBudget();
+	let timeoutAttempts = 0;
 	try {
 		await assert.rejects(timeoutRuntime.search({
 			id: "arxiv",
 			runtimePolicy: () => ({ accessScope: "timeout", maxConcurrency: 1, minIntervalMs: 0, overloadBudgetMs: 20 }),
 			async search(request) {
+				timeoutAttempts += 1;
+				if (timeoutAttempts === 1) throw new ResearchNodeError("HTTP 429", "rate_limit", true, { code: "provider_rate_limit", retryAfterMs: 0 });
 				await new Promise((resolve) => setTimeout(resolve, 30));
 				request.signal.throwIfAborted();
 				return [];
@@ -353,6 +388,7 @@ try {
 		}, policyRequest, { overloadBudget: timeoutBudget }), /did not finish within/u);
 		assert.equal(timeoutBudget.terminal?.failureClass, "timeout", "a request deadline is not mislabeled as a rate limit");
 		assert.equal(timeoutBudget.terminal?.details?.failure_class, "timeout");
+		assert.equal(timeoutAttempts, 2, "a genuine overload earns one bounded controlled retry");
 	} finally {
 		timeoutRuntime.close();
 	}
