@@ -98,4 +98,5 @@ export interface GoalTopicRefResolution {
 }
 
 export interface DiscoveryInboxItem extends DiscoveryCandidate {
+	sources: Array<{ id: string; title: string; url?: string }>;
 }

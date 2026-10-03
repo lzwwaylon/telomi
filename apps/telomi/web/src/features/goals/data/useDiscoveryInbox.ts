@@ -15,6 +15,7 @@ export interface DiscoveryInboxItem {
 	cue: string;
 	note: string;
 	evidence: Array<{ source_path: string; start_line: number; end_line: number; content_sha256: string }>;
+	sources?: Array<{ id: string; title: string; url?: string }>;
 	status: "open" | "closed";
 	created_at: string;
 	updated_at?: string;

@@ -81,7 +81,7 @@ export function readSourceEvidenceAnchors(
 		if (anchor.sha256 && sha256(`${raw}\n`) !== anchor.sha256) {
 			throw new Error(`Evidence Source range changed: ${anchor.path}:${anchor.startLine}-${anchor.endLine}`);
 		}
-		const member = matchingMember(resolved.source, anchor.path);
+		const member = findLogicalSourceMember(resolved.source, anchor.path);
 		return {
 			path: anchor.path,
 			startLine: anchor.startLine,
@@ -93,9 +93,9 @@ export function readSourceEvidenceAnchors(
 	});
 }
 
-function matchingMember(source: LogicalSourceView, anchorPath: string): LogicalSourceMemberView | null {
-	return [...(source.members ?? [])]
-		.filter((member) => typeof member.path === "string"
+export function findLogicalSourceMember(source: LogicalSourceView, anchorPath: string): LogicalSourceMemberView | null {
+	return [...(Array.isArray(source.members) ? source.members : [])]
+		.filter((member) => member && typeof member.path === "string"
 			&& (anchorPath === member.path || anchorPath.startsWith(`${member.path}/`)))
 		.sort((left, right) => String(right.path).length - String(left.path).length)[0] ?? null;
 }
