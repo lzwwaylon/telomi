@@ -111,6 +111,7 @@ export interface ActivityStep {
 	providerAccess?: {
 		kind: "cooling" | "recovered" | "unavailable" | "fallback";
 		providerId: string;
+		arxivAccessScope?: "api" | "main";
 		failureClass?: string;
 		waitStartedAt?: string;
 		budgetDeadlineAt?: string;

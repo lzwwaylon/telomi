@@ -1479,6 +1479,7 @@ export function primeProviderAccess(
 			termination: {
 				code: "source_unavailable",
 				...(terminal.response.termination_reason ? { reason: terminal.response.termination_reason } : {}),
+				...(terminal.response.arxiv_access_scope ? { arxiv_access_scope: terminal.response.arxiv_access_scope } : {}),
 			},
 		} : {}),
 	};
@@ -1544,7 +1545,7 @@ export async function startPrimeSourceBridge(
 	const token = randomBytes(32).toString("base64url");
 	if (options.investigation) mkdirSync(join(artifactWorkspace, "inputs"), { recursive: true });
 	const providerCatalog = new Map(registry.catalog().map((provider) => [provider.id, provider]));
-	// One overload budget per Provider Child and Provider, alive as long as this Search Root.
+	// One budget owner per Provider Child and Provider; arXiv keeps fixed API/main budgets beneath it.
 	const overloadBudgets = new Map<string, ProviderOverloadBudget>();
 	const childProviders = new Map<string, string>();
 	const bindProvider = (childId: string, sourceId: string) => {
@@ -1570,9 +1571,11 @@ export async function startPrimeSourceBridge(
 	let fallbackCount = 0;
 	const fallbackFailure = (code: string, message: string) => new ResearchNodeError(message, "validation", false, { code });
 	const providerAccess = (state: ProviderOverloadState, childId: string) => {
+		const providerLabel = `${state.providerId}${state.arxivAccessScope === "api" ? " 检索" : state.arxivAccessScope === "main" ? " 全文获取" : ""}`;
 		appendRuntimeContext(recorder.runDir, "research", {
 			type: "runtime.provider_access",
 			provider_id: state.providerId,
+			...(state.arxivAccessScope ? { arxiv_access_scope: state.arxivAccessScope } : {}),
 			sub_execution_id: childId,
 			state: state.state,
 			failure_class: state.failureClass,
@@ -1592,10 +1595,10 @@ export async function startPrimeSourceBridge(
 			status: "running",
 			kind: "status",
 			text: state.state === "cooling"
-				? `${state.providerId} 正在等待上游限流窗口`
+				? `${providerLabel} 正在等待上游限流窗口`
 				: state.state === "recovered"
-					? `${state.providerId} 已恢复访问`
-					: `${state.providerId} 本轮已停止重试`,
+					? `${providerLabel} 已恢复访问`
+					: `${providerLabel} 本轮已停止重试`,
 		});
 	};
 	const server = createServer(async (incoming, response) => {
@@ -1772,7 +1775,7 @@ export async function startPrimeSourceBridge(
 					|| !evidenceTypes.every((type) => replacement?.evidenceTypes?.includes(type))) {
 					throw fallbackFailure("fallback_incompatible_provider", `Provider '${toSourceId}' must share a capability with '${fromSourceId}' and supply every required evidence type: ${evidenceTypes.join(", ")}.`);
 				}
-				if (!overloadBudgets.get(`${fromExecutionId}\0${fromSourceId}`)?.terminal) {
+				if (!overloadBudgets.get(`${fromExecutionId}\0${fromSourceId}`)?.hasTerminalFailure()) {
 					throw fallbackFailure("fallback_source_not_unavailable", `Execution '${fromExecutionId}' has no Tool-reported source_unavailable for '${fromSourceId}'. Empty results and not-found errors do not permit this fallback.`);
 				}
 				const submission = primeProviderSubmission(artifactWorkspace, fromExecutionId, fromSourceId);
@@ -1894,7 +1897,7 @@ function bridgeError(error: unknown): unknown {
 }
 
 const AGENT_ERROR_FIELDS = new Set([
-	"provider_id", "child_id", "expected_path", "operation", "failure_class", "elapsed_ms", "attempts", "retry_after_ms", "reason", "next_action",
+	"arxiv_access_scope", "provider_id", "child_id", "expected_path", "operation", "failure_class", "elapsed_ms", "attempts", "retry_after_ms", "reason", "next_action",
 	"cause_code", "upstream_status", "failure_scope", "circuit_scope", "parameter", "provided", "maximum",
 	"parameters", "suggestions", "available_tags", "recovery", "repo_id", "paper_id", "identifier", "document_url",
 	"suggested_provider", "reset_at", "spent_usd", "limit_usd", "budget_scope", "host", "github_status", "errors", "message",

@@ -1,4 +1,4 @@
-export const SETTINGS_SECTIONS = ["chat", "embedding", "tts", "stt", "sources", "appearance"] as const;
+export const SETTINGS_SECTIONS = ["chat", "embedding", "tts", "stt", "sources", "network", "appearance"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /**

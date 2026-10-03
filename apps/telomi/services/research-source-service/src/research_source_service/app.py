@@ -7,21 +7,22 @@ import re
 import time
 import uuid
 from collections.abc import Coroutine
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from importlib.metadata import version
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import Field, SecretStr, field_validator
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .config import Settings, get_settings
+from .config import Settings, get_settings, validate_managed_arxiv_egress
 from .documents import DocumentService
 from .errors import ServiceError
-from .http_client import HttpGateway
+from .http_client import ArxivEgressRoutes, HttpGateway
 from .material_cache import MaterialCache
 from .models import (
     CredentialCheckRequest,
@@ -34,6 +35,7 @@ from .models import (
     SearchRequest,
     SearchResponse,
     SourcesResponse,
+    StrictModel,
     TreeGcRequest,
     TreeGcResponse,
     TreeRestoreRequest,
@@ -48,6 +50,16 @@ from .sources.twitter import parse_cookie_input
 LOGGER = logging.getLogger(__name__)
 VERSION = version("telomi-research-source-service")
 T = TypeVar("T")
+
+
+class ManagedArxivEgressRequest(StrictModel):
+    schema_version: Literal[1]
+    routes: dict[str, SecretStr] = Field(max_length=64)
+
+    @field_validator("routes")
+    @classmethod
+    def validate_routes(cls, value: dict[str, SecretStr]) -> dict[str, SecretStr]:
+        return validate_managed_arxiv_egress(value)
 
 
 class RequestContextMiddleware:
@@ -94,76 +106,88 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Report Provider calls are governed by caller cancellation. Do not add
-        # a wall-clock timeout here because complete pagination can run long.
-        client = http_client or httpx.AsyncClient(
-            timeout=None,
-            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-        )
-        gateway = HttpGateway(client)
-        documents = DocumentService(
-            allowed_workspace_roots=configured.resolved_workspace_roots(),
-            max_bytes=configured.max_document_bytes,
-            max_concurrency=configured.document_max_concurrency,
-            # Parsed documents share the Provider content-addressed store so the
-            # same PDF is not converted twice.
-            material_cache=MaterialCache(
-                configured.material_cache_root,
-                ttl_seconds=configured.material_cache_ttl_seconds,
-                base_root=configured.material_cache_base_root,
-            ),
-        )
-        # Without a cache root, each PDF is sent to Docling again. Log that
-        # explicitly so standalone service launches do not assume caching works.
-        if configured.material_cache_root:
-            LOGGER.info(
-                "Document Convert cache enabled at %s", configured.material_cache_root
+        async with AsyncExitStack() as stack:
+            # Report Provider calls are governed by caller cancellation. Do not add
+            # a wall-clock timeout here because complete pagination can run long.
+            client = http_client or httpx.AsyncClient(
+                timeout=None,
+                limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
             )
-        else:
-            LOGGER.warning(
-                "Document Convert cache disabled: SOURCE_SERVICE_MATERIAL_CACHE_ROOT is unset; "
-                "every parse will re-run the converter"
-            )
-        app.state.documents = documents
-        app.state.registry = SourceRegistry(configured, gateway, documents)
-        stop_gc = asyncio.Event()
-
-        async def collect_material_cache() -> None:
-            while not stop_gc.is_set():
-                try:
-                    report = await asyncio.to_thread(
-                        app.state.registry.material_cache.collect_garbage,
-                        max_idle_seconds=configured.material_cache_retention_seconds,
-                        max_bytes=configured.material_cache_max_bytes,
-                        blocking=False,
-                    )
-                    LOGGER.info("Material cache GC: %s", report)
-                    if report.get("over_limit_bytes", 0):
-                        LOGGER.warning(
-                            "Material cache remains %s bytes above its capacity target; "
-                            "protected workspace snapshots are retained",
-                            report["over_limit_bytes"],
-                        )
-                except Exception:
-                    LOGGER.exception("Material cache GC failed; will retry on the next scheduled pass")
-                try:
-                    await asyncio.wait_for(stop_gc.wait(), configured.material_cache_gc_interval_seconds)
-                except TimeoutError:
-                    pass
-
-        app.state.material_cache_gc_task = (
-            asyncio.create_task(collect_material_cache()) if configured.material_cache_root else None
-        )
-        try:
-            yield
-        finally:
-            stop_gc.set()
-            if app.state.material_cache_gc_task is not None:
-                # Cancelling to_thread would leave deletion running after service shutdown.
-                await app.state.material_cache_gc_task
-            app.state.registry.close()
             if owned_client:
-                await client.aclose()
+                await stack.enter_async_context(client)
+            egress_clients = {}
+            for name, proxy in configured.arxiv_egress_proxies.items():
+                egress_clients[name] = await stack.enter_async_context(
+                    httpx.AsyncClient(proxy=proxy.get_secret_value(), timeout=None, trust_env=False)
+                )
+            if egress_clients:
+                egress_clients["direct"] = await stack.enter_async_context(
+                    httpx.AsyncClient(timeout=None, trust_env=False)
+                )
+            gateway = HttpGateway(client, egress_clients=egress_clients)
+            gateway.arxiv_egress = ArxivEgressRoutes({"direct": gateway, **gateway.egress_routes})
+            stack.push_async_callback(gateway.arxiv_egress.close)
+            documents = DocumentService(
+                allowed_workspace_roots=configured.resolved_workspace_roots(),
+                max_bytes=configured.max_document_bytes,
+                max_concurrency=configured.document_max_concurrency,
+                # Parsed documents share the Provider content-addressed store so the
+                # same PDF is not converted twice.
+                material_cache=MaterialCache(
+                    configured.material_cache_root,
+                    ttl_seconds=configured.material_cache_ttl_seconds,
+                    base_root=configured.material_cache_base_root,
+                ),
+            )
+            # Without a cache root, each PDF is sent to Docling again. Log that
+            # explicitly so standalone service launches do not assume caching works.
+            if configured.material_cache_root:
+                LOGGER.info(
+                    "Document Convert cache enabled at %s", configured.material_cache_root
+                )
+            else:
+                LOGGER.warning(
+                    "Document Convert cache disabled: SOURCE_SERVICE_MATERIAL_CACHE_ROOT is unset; "
+                    "every parse will re-run the converter"
+                )
+            app.state.documents = documents
+            app.state.registry = SourceRegistry(configured, gateway, documents)
+            stop_gc = asyncio.Event()
+
+            async def collect_material_cache() -> None:
+                while not stop_gc.is_set():
+                    try:
+                        report = await asyncio.to_thread(
+                            app.state.registry.material_cache.collect_garbage,
+                            max_idle_seconds=configured.material_cache_retention_seconds,
+                            max_bytes=configured.material_cache_max_bytes,
+                            blocking=False,
+                        )
+                        LOGGER.info("Material cache GC: %s", report)
+                        if report.get("over_limit_bytes", 0):
+                            LOGGER.warning(
+                                "Material cache remains %s bytes above its capacity target; "
+                                "protected workspace snapshots are retained",
+                                report["over_limit_bytes"],
+                            )
+                    except Exception:
+                        LOGGER.exception("Material cache GC failed; will retry on the next scheduled pass")
+                    try:
+                        await asyncio.wait_for(stop_gc.wait(), configured.material_cache_gc_interval_seconds)
+                    except TimeoutError:
+                        pass
+
+            app.state.material_cache_gc_task = (
+                asyncio.create_task(collect_material_cache()) if configured.material_cache_root else None
+            )
+            try:
+                yield
+            finally:
+                stop_gc.set()
+                if app.state.material_cache_gc_task is not None:
+                    # Cancelling to_thread would leave deletion running after service shutdown.
+                    await app.state.material_cache_gc_task
+                app.state.registry.close()
 
     authentication = Depends(require_api_token(configured.api_token.get_secret_value()))
     app = FastAPI(
@@ -267,6 +291,12 @@ def create_app(
     async def sources(raw_request: Request) -> SourcesResponse:
         registry: SourceRegistry = raw_request.app.state.registry
         return SourcesResponse(sources=sorted(registry.sources))
+
+    @app.post("/v1/arxiv/egress")
+    async def set_arxiv_egress(request: ManagedArxivEgressRequest, raw_request: Request) -> dict[str, Any]:
+        manager = raw_request.app.state.registry.http.arxiv_egress
+        names = await manager.replace({name: proxy.get_secret_value() for name, proxy in request.routes.items()})
+        return {"schema_version": 1, "route_names": names}
 
     @app.post(
         "/v1/search",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeftIcon as ArrowLeft } from "@/shared/ui/icons";
 import { cn } from "@/shared/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -7,6 +7,7 @@ import { AppearanceSettings } from "./AppearanceSettings";
 import { ChatModelSettings } from "./ChatModelSettings";
 import { MemoryEmbeddingSettings } from "./MemoryEmbeddingSettings";
 import { SearchProviderSection } from "./SearchProviderSection";
+import { NetworkEgressSettings } from "./NetworkEgressSettings";
 import { SettingsPanel } from "./SettingsPanel";
 import { SttSettings } from "./SttSettings";
 import { TtsSettings } from "./TtsSettings";
@@ -22,7 +23,10 @@ const NAV_GROUPS: { label: MessageId; items: { key: SettingsSection; label: Mess
       { key: "stt", label: "settings.capability.stt" },
     ],
   },
-  { label: "settings.group.sources", items: [{ key: "sources", label: "settings.section.sources" }] },
+  { label: "settings.group.sources", items: [
+    { key: "sources", label: "settings.section.sources" },
+    { key: "network", label: "settings.section.network" },
+  ] },
   {
     label: "settings.group.device",
     items: [
@@ -48,6 +52,11 @@ export function SettingsPage({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation();
   // `?section=` is the whole navigation state: deep links land on the right page, and reloading keeps it.
   const [section, setSection] = useState<SettingsSection>(readSectionFromUrl);
+  const activeNavButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    activeNavButton.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [section]);
 
   // Switching pages in the side nav replaces the history entry, so Back leaves settings.
   const open = useCallback((next: SettingsSection) => {
@@ -99,6 +108,7 @@ export function SettingsPage({ onBack }: { onBack: () => void }) {
                   return (
                     <li key={key}>
                       <button
+                        ref={active ? activeNavButton : undefined}
                         type="button"
                         onClick={() => open(key)}
                         data-testid={`settings-nav-${key}`}
@@ -131,6 +141,7 @@ export function SettingsPage({ onBack }: { onBack: () => void }) {
               </SettingsPanel>
             )}
             {section === "appearance" && <AppearanceSettings />}
+            {section === "network" && <NetworkEgressSettings />}
           </div>
         </section>
       </div>

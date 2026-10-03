@@ -52,9 +52,9 @@ export interface ResearchProviderRuntimePolicy extends ResearchProviderPolicy {
 	overloadCooldownMs?: number;
 	overloadBudgetWindowMs?: number;
 	/**
-	 * Overload budget one Provider Child shares across all its requests to this Provider: the
-	 * Retry-After waits plus overloaded and controlled attempts it may spend. One controlled retry is
-	 * allowed per Child; once the budget or that retry is spent, the Child stops calling the Provider.
+	 * Overload budget one Provider Child shares across requests to each fixed access domain:
+	 * arXiv separates API/main; other Providers keep one budget. Retry-After waits plus overloaded
+	 * and controlled attempts count toward it, with one controlled retry per domain.
 	 */
 	overloadBudgetMs?: number;
 	cacheScope?: string;

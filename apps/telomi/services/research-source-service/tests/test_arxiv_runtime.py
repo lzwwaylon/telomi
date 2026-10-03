@@ -336,7 +336,9 @@ async def test_cancelling_pacing_wait_releases_shared_lock_without_reserving_sta
     task = asyncio.create_task(source._request_upstream("api", 4, "GET", source.endpoint))
     try:
         await asyncio.wait_for(waiting.wait(), 1)
-        assert second.try_acquire_upstream_lock() is None
+        lease = second.try_acquire_upstream_lock()
+        assert lease is not None, "a pacing/cooldown wait must leave admission available to other scopes"
+        lease.release()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task

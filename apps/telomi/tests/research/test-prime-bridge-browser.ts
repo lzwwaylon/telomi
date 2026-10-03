@@ -15,7 +15,7 @@ import { createPrimeSearchContractTools } from "../../server/research/pipeline/p
 import { startPrimeSourceBridge } from "../../server/research/pipeline/prime-search-batch.js";
 import { parseMaterializeSource } from "../../server/research/pipeline/browser-materialize.js";
 import { providerExecutionWorkspace } from "../../server/research/pipeline/provider-execution-workspace.js";
-import { ResearchSourceRegistry, ProviderRuntime } from "../../server/research/index.js";
+import { ResearchSourceRegistry, ProviderRuntime, builtInFastApiRuntimePolicy } from "../../server/research/index.js";
 import { ResearchNodeError } from "../../server/agent-runtime/retry-policy.js";
 
 // The Prime kernel reaches the Browser, general web search and Skill reads through the per-run
@@ -81,8 +81,11 @@ sourceRegistry.register({
 		fullTextAvailability: "metadata_only", credentialRequirement: "none", reliabilityTier: 1,
 		freshness: "daily", costClass: "free", latencyClass: "low", capabilities: ["scholarly_papers"], evidenceTypes: ["preprint_metadata"],
 	},
-	runtimePolicy: () => ({ accessScope: "test:arxiv", maxConcurrency: 1, minIntervalMs: 0, maxAttempts: 1, overloadBudgetMs: 10 }),
-	search: async () => { throw new ResearchNodeError("limited", "rate_limit", true, { retryAfterMs: 100 }); },
+	runtimePolicy: (request) => ({ ...builtInFastApiRuntimePolicy({ sourceId: "arxiv", env: {} })(request), overloadBudgetMs: 10 }),
+	search: async (request) => {
+		if (request.providerRequest?.operation === "download_pdf") return [];
+		throw new ResearchNodeError("limited", "rate_limit", true, { retryAfterMs: 100 });
+	},
 });
 sourceRegistry.register({
 	id: "huggingface",
@@ -182,8 +185,17 @@ try {
 	const unavailable = await call("/v1/search", {
 		agent_session_id: failedChild.childId, source_id: "arxiv", query: "cat:cs.SD", max_results: 1,
 		workspace_dir: failedChild.absolutePath,
+		provider_request: { operation: "query", parameters: { search_query: "cat:cs.SD" } },
 	});
 	assert.equal(code(unavailable), "source_unavailable");
+	assert.equal(((unavailable.body.error as Record<string, unknown>).details as Record<string, unknown>).arxiv_access_scope, "api");
+	const downloaded = await call("/v1/search", {
+		agent_session_id: failedChild.childId, source_id: "arxiv", query: "retained paper", max_results: 1,
+		workspace_dir: failedChild.absolutePath,
+		provider_request: { operation: "download_pdf", parameters: { arxiv_id: "2601.00001v1" } },
+	});
+	assert.equal(downloaded.status, 200, "a healthy main domain can acquire known papers before API-gap fallback");
+
 	const incompatible = await call("/v1/provider-fallback", { ...fallbackBody, to_source_id: "user_documents" });
 	assert.equal(code(incompatible), "fallback_incompatible_provider");
 	assert.equal(code(await call("/v1/provider-fallback", fallbackBody)), "fallback_handoff_missing");

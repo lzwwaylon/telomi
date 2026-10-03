@@ -50,6 +50,7 @@ export interface ProviderCallRecord {
 		error_code?: string;
 		/** Why the Provider Child stopped calling this Provider, when this call ended that way. */
 		termination_reason?: string;
+		arxiv_access_scope?: "api" | "main";
 	};
 }
 
@@ -140,6 +141,8 @@ export function recordProviderCall(recorder: ProviderCallRecorder, input: {
 				material_sha256: [],
 				error: input.error instanceof Error ? input.error.message : String(input.error),
 				...(failure?.code ? { error_code: failure.code } : {}),
+				...(failure?.details?.arxiv_access_scope === "api" || failure?.details?.arxiv_access_scope === "main"
+					? { arxiv_access_scope: failure.details.arxiv_access_scope } : {}),
 				...(failure?.code === "source_unavailable" && typeof failure.details?.reason === "string"
 					? { termination_reason: failure.details.reason } : {}),
 			},
