@@ -199,6 +199,60 @@ try {
 		goalDir: join(root, "goal_linked_thread"), executionId: id(22), threadId, question: "Linked thread",
 	}, async () => answer(id(22), "Linked thread")), /symlink/u,
 		"thread routing cannot follow a linked thread in another Goal");
+
+	const contextGoal = join(root, "goal_context");
+	const initialContext = "Explain formulas and tensor dimensions; assume deep learning experience.";
+	const initialContextInput = { goalDir: contextGoal, executionId: id(30), question: "Read the algorithm", context: initialContext };
+	const contextFirst = await runInInvestigationThread(initialContextInput, async (context) => {
+		assert.equal(context.context, initialContext);
+		return answer(id(30), initialContextInput.question);
+	});
+	const contextThread = contextFirst.thread_id!;
+	const contextExecution = (executionId: string) => JSON.parse(readFileSync(
+		join(contextGoal, "artifacts", "investigation-threads", contextThread, "executions", `${executionId}.json`), "utf8"));
+	assert.equal(contextExecution(id(30)).context, initialContext, "each execution retains its effective context");
+	await runInInvestigationThread({ goalDir: contextGoal, executionId: id(31), threadId: contextThread, question: "Continue with training" }, async (context) => {
+		assert.equal(context.context, initialContext, "omitting context inherits the thread's latest context");
+		assert.equal(context.executions[0]?.context, initialContext);
+		return answer(id(31), "Continue with training");
+	});
+	const replacementContext = "Focus on inference latency; use a concise explanation.";
+	await runInInvestigationThread({ goalDir: contextGoal, executionId: id(32), threadId: contextThread,
+		question: "Check inference", context: replacementContext }, async (context) => {
+		assert.equal(context.context, replacementContext, "explicit context replaces instead of appending prior requirements");
+		return answer(id(32), "Check inference");
+	});
+	assert.equal(contextExecution(id(30)).context, initialContext, "replacement preserves the historical execution's context");
+	assert.equal(contextExecution(id(32)).context, replacementContext);
+	assert.deepEqual(await runInInvestigationThread({ ...initialContextInput, context: undefined }, async () => {
+		throw new Error("Retry must reuse the completed execution, including its original context");
+	}), contextFirst, "an omitted-context retry uses its own saved context, not a newer thread context");
+	await assert.rejects(runInInvestigationThread({ ...initialContextInput, context: replacementContext }, async () => contextFirst),
+		/belongs to another context/u, "the same invocation cannot silently change its context");
+	await runInInvestigationThread({ goalDir: contextGoal, executionId: id(35), question: "Unrelated investigation" }, async (context) => {
+		assert.notEqual(context.threadId, contextThread);
+		assert.equal(context.context, "", "another thread does not inherit this thread's preferences");
+		return answer(id(35), "Unrelated investigation");
+	});
+	await runInInvestigationThread({ goalDir: contextGoal, executionId: id(37), threadId: contextThread,
+		question: "Continue with the new focus" }, async (context) => {
+		assert.equal(context.context, replacementContext, "omission inherits the replacement rather than the first context");
+		return answer(id(37), "Continue with the new focus");
+	});
+	await runInInvestigationThread({ goalDir: contextGoal, executionId: id(33), threadId: contextThread,
+		question: "Clear previous preferences", context: "" }, async (context) => {
+		assert.equal(context.context, "", "an explicit empty context clears prior requirements");
+		return answer(id(33), "Clear previous preferences");
+	});
+	await runInInvestigationThread({ goalDir: contextGoal, executionId: id(34), threadId: contextThread,
+		question: "Continue after clearing" }, async (context) => {
+		assert.equal(context.context, "", "omission after clearing cannot revive an older context");
+		return answer(id(34), "Continue after clearing");
+	});
+	await assert.rejects(runInInvestigationThread({ goalDir: contextGoal, executionId: id(36), threadId: contextThread,
+		question: "Oversized context", context: "x".repeat(40_001) }, async () => {
+		throw new Error("An oversized context must fail before executing the investigation");
+	}), /context exceeds 40000 characters/u);
 	console.log("Investigation thread persistence, routing, locking and recovery tests passed");
 } finally {
 	mock.timers.reset();

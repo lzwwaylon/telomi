@@ -6,8 +6,8 @@ import { renderMainAgentPrompt, type MainAgentPromptContext } from "../main-agen
 import type { NodeEvaluationCase } from "../agent-runtime/node-evaluation.js";
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import { isRecord } from "../lib/values.js";
-import { buildDeepSearchTaskPrompt } from "../research/deep-search.js";
-import { renderCornellNoteAgentSystemPrompt, renderCornellNoteAgentUserPrompt } from "../research/pipeline/cornell-note-agent-prompt.js";
+import { buildNoteReadingTaskPrompt } from "../research/note-reading.js";
+import { renderNoteAgentSystemPrompt, renderNoteAgentUserPrompt } from "../research/pipeline/note-agent-prompt.js";
 import { buildFullReportWriterSystemPrompt, buildFindOutReportWriterSystemPrompt,
 	findOutSelfDirectedWriterUserPrompt, wikiSelfDirectedWriterUserPrompt } from "../research/pipeline/report-prompts.js";
 
@@ -38,16 +38,16 @@ export function renderCapturedCandidatePrompts(value: CandidatePromptInput, sour
 			if (typeof context.question !== "string" || !context.question.trim() || !Array.isArray(catalog.sources)) {
 				throw new Error("Candidate Deep Search Prompt requires its frozen question and Source catalog");
 			}
-			return { systemPrompt: renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content,
-				userPrompt: buildDeepSearchTaskPrompt(context.question, catalog.sources.length) };
+			return { systemPrompt: renderNoteAgentSystemPrompt(undefined, "deep-search").content,
+				userPrompt: buildNoteReadingTaskPrompt(context.question, catalog.sources.length) };
 		}
 		if (typeof context.question !== "string" || !isRecord(context.goal)
 			|| typeof context.goal.title !== "string" || typeof context.goal.description !== "string"
 			|| typeof context.discoveryEnabled !== "boolean") {
 			throw new Error("Candidate Cornell Note Prompt requires its frozen request context; use observed or override for older Cases");
 		}
-		return { systemPrompt: renderCornellNoteAgentSystemPrompt().content,
-			userPrompt: renderCornellNoteAgentUserPrompt(context as unknown as Parameters<typeof renderCornellNoteAgentUserPrompt>[0]).content };
+		return { systemPrompt: renderNoteAgentSystemPrompt().content,
+			userPrompt: renderNoteAgentUserPrompt(context as unknown as Parameters<typeof renderNoteAgentUserPrompt>[0]).content };
 	}
 	if (value.agentId === "report-writer") {
 		if (context.mode === "investigation-answer") {

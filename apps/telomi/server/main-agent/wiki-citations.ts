@@ -4,8 +4,8 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { writeWikiMessageCitations } from "../citations/wiki-message-store.js";
-import { resolveDeepSearchCue } from "../research/deep-search.js";
-import { resolveSavedCornellCue } from "../research/saved-cornell-cues.js";
+import { resolveNoteReadingCue } from "../research/note-reading.js";
+import { resolveSavedNoteCue } from "../research/note-retrieval.js";
 import { resolveWikiEdition } from "../wiki/editions.js";
 import { hashWikiDirectory } from "../wiki/files.js";
 import { createGoalLlmWikiTools } from "../wiki/tools.js";
@@ -80,8 +80,8 @@ export class MainWikiCitationSession {
 					};
 				}
 				const cue = ref.startsWith("cornell:")
-					? resolveSavedCornellCue(this.options.goalDir, ref)
-					: resolveDeepSearchCue(this.options.goalDir, ref);
+					? resolveSavedNoteCue(this.options.goalDir, ref)
+					: resolveNoteReadingCue(this.options.goalDir, ref);
 				if (!cue) throw new Error(`Unknown saved Cue citation '${ref}'`);
 				return {
 					ref,

@@ -344,7 +344,7 @@ try {
 		workspaceDirectory: allFailedWorkspace,
 		controlDirectory: allFailedControl,
 		goalWorkspaceDirectory: join(root, "all-failed-run", "goal"),
-	} as never), /All 2 Cornell Note Agents failed/u);
+	} as never), /All 2 Note Agents failed/u);
 	const allFailedState = new RunStateStore(allFailedControl).load()!;
 	assert.equal(allFailedState.status, "failed");
 	assert.equal(allFailedState.failure?.failed_stage, "evidence_materializing");

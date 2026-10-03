@@ -18,7 +18,7 @@ const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Se
 	investigation: {
 		responseMode: "inline",
 		knowledgeSearch: async (query, limit) => { seen.push(`knowledge:${query}:${limit}`); return { results: [] }; },
-		deepSearch: async (question) => { seen.push(`deep:${question}`); return { status: "not_found", cues: [], gaps: [] }; },
+		readSources: async (question) => { seen.push(`deep:${question}`); return { status: "not_found", cues: [], gaps: [] }; },
 		externalSearch: async (question) => {
 			seen.push(`external:${question}`);
 			return { status: "found", cues: [], sources: [{ title: "Official paper", url: "https://example.org/paper" }] };

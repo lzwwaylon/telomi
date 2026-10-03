@@ -1,3 +1,4 @@
+import { writeTaskContext } from "../research/task-context.js";
 import { validateInvestigationResult, type InvestigationResult } from "../citations/contracts.js";
 import { appendFileSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -413,8 +414,10 @@ async function executeProductionInvestigationReplay(
 	const skillRoot = join(root, "skills", "root-agent");
 	mkdirSync(join(root, "work"), { recursive: true });
 	mkdirSync(join(root, "inputs"), { recursive: true });
+	writeTaskContext(join(root, "inputs"), captured.context ?? "");
 	writeFileSync(join(root, "inputs", "request.json"), `${JSON.stringify({ schema_version: 1,
-		question: captured.question, context: captured.context ?? "",
+		question: captured.question, context_ref: "inputs/context.md",
+		...(input.promptMode === "candidate" ? {} : { context: captured.context ?? "" }),
 		language: captured.language ?? resolveOutputLanguage("auto", captured.question),
 		external_allowed: captured.allow_external !== false,
 		...(captured.thread_id ? { thread_id: captured.thread_id, thread_ref: "inputs/thread.json",
@@ -429,7 +432,7 @@ async function executeProductionInvestigationReplay(
 	writeFileSync(join(input.recordDirectory, "prompt.md"), prompt);
 	cpSync(fileURLToPath(new URL("../research/python-tools/research_runtime.py", import.meta.url)),
 		join(sdkRoot, "research_runtime.py"));
-	const skillSource = fileURLToPath(new URL("../../agents/research/prime-search/skills/deep-search", import.meta.url));
+	const skillSource = fileURLToPath(new URL("../../agents/research/prime-search/skills/note-investigation", import.meta.url));
 	const skills = [...materializeSkills(snapshotSkills([skillSource]), skillRoot).values()];
 	const signal = input.signal;
 	let initialEvidence: { cues: InvestigationCitationCue[]; recovery_gaps: string[] } = { cues: [], recovery_gaps: [] };
@@ -471,7 +474,7 @@ async function executeProductionInvestigationReplay(
 		investigation: {
 			responseMode,
 			knowledgeSearch: async (query, limit) => replayCall("knowledge_search", { query, limit }),
-			deepSearch: async (question) => replayCall("deep_search", { question }),
+			readSources: async (question) => replayCall("deep_search", { question }),
 			externalSearch: async (question) => replayCall("external_search", { question }),
 			githubRead: async (question, repository, ref, paths) => {
 				return replayCall("github_read", { question, repository, ref, paths });

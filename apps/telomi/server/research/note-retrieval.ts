@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
 import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 import { noteWikiEntries } from "../wiki/note-wiki-maintainer.js";
-import { resolveDeepSearchCue } from "./deep-search.js";
+import { resolveNoteReadingCue } from "./note-reading.js";
 
 const REF = /^cornell:([A-Za-z0-9._-]{1,200}):([a-f0-9]{24}):([a-f0-9]{12})$/u;
 
@@ -25,7 +25,7 @@ interface RegistryEntry {
 		sourceRunId?: string; sourceId?: string; sourceRevisionSha256?: string; sourceTitle?: string; canonicalLocator?: string }>;
 }
 
-export interface SavedCornellCue {
+export interface SavedNoteCue {
 	ref: string;
 	kind: "cornell" | "deep_search";
 	wiki_entry_id?: string;
@@ -42,7 +42,7 @@ export interface SavedCornellCue {
 }
 
 /** The frozen Wiki registry retains Cornell Cues even when no Wiki page adopted them. */
-export function listSavedCornellCues(knowledgeRoot: string): SavedCornellCue[] {
+export function listSavedNoteCues(knowledgeRoot: string): SavedNoteCue[] {
 	const path = join(knowledgeRoot, ".note-registry.json");
 	if (!existsSync(path)) return [];
 	const registry = JSON.parse(readFileSync(path, "utf-8")) as { entries?: RegistryEntry[] };
@@ -77,9 +77,9 @@ export function listSavedCornellCues(knowledgeRoot: string): SavedCornellCue[] {
 }
 
 /** Resolve one durable Cue identity through its original Run, verifying Source revision and line bytes. */
-export function resolveSavedCornellCue(goalDir: string, ref: string) {
+export function resolveSavedNoteCue(goalDir: string, ref: string) {
 	if (ref.startsWith("deep-search:")) {
-		const cue = resolveDeepSearchCue(goalDir, ref);
+		const cue = resolveNoteReadingCue(goalDir, ref);
 		if (!cue) return null;
 		const primary = cue.evidence[0]!;
 		return { ...cue, source_id: primary.source_id, source_revision_sha256: primary.source_revision_sha256,
@@ -122,7 +122,7 @@ export function resolveSavedCornellCue(goalDir: string, ref: string) {
 }
 
 /** Rank Cue bodies, not old question text: a query's generic instructions cannot make every new Cue match. */
-export function rankSavedCues<T extends { ref: string; cue: string; note: string; section_title?: string; source_title?: string }>(
+export function rankSavedNoteCues<T extends { ref: string; cue: string; note: string; section_title?: string; source_title?: string }>(
 	cues: readonly T[], query: string, limit: number,
 ): T[] {
 	const words = [...new Set((query.normalize("NFKC").toLocaleLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._-]*/gu) ?? [])

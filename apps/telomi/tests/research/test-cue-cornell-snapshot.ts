@@ -9,7 +9,7 @@ import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { validateCornellNoteArtifact, validateCornellNotesSnapshot } from "../../server/cornell/contracts.js";
 import { sha256 } from "../../server/lib/hash.js";
 import { createCueCornellSnapshot, createGoalCornellSnapshot } from "../../server/research/cue-cornell-snapshot.js";
-import { listSavedCornellCues, resolveSavedCornellCue } from "../../server/research/saved-cornell-cues.js";
+import { listSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
 import { noteWikiEntries } from "../../server/wiki/note-wiki-maintainer.js";
 import { NoteFirstWikiCompiler } from "../../server/wiki/note-first-compiler.js";
 import type { NoteFirstInput, NoteFirstOutcome, NoteFirstResult } from "../../server/wiki/note-first-contract.js";
@@ -115,7 +115,7 @@ try {
 	assert.deepEqual(evidence[0]?.anchors.map(anchor => anchor.content), anchors.map(anchor => anchor.excerpt));
 	assert.deepEqual(evidence[0]?.anchors.map(anchor => anchor.source?.runId), ["run-a", "run-b"]);
 	assert.deepEqual(evidence[0]?.anchors.map(anchor => anchor.source?.revisionSha256), anchors.map(anchor => anchor.source_revision_sha256));
-	const saved = listSavedCornellCues(knowledge);
+	const saved = listSavedNoteCues(knowledge);
 	assert.deepEqual(saved.map(cue => cue.ref), original.cues.map(cue => cue.ref));
 	assert.equal(saved[0]?.wiki_entry_id, entries[0]!.id);
 	const adapter = createWikiReferenceAdapterFromRoot(knowledge, createGoalLlmWikiTools({ goalDir, knowledgeRoot: knowledge }));
@@ -133,7 +133,7 @@ try {
 	assert.deepEqual(preview?.clues[0]?.excerpts.map(excerpt => excerpt.sourceRunId), ["run-a", "run-b"]);
 	assert.deepEqual(preview?.clues[0]?.excerpts.map(excerpt => excerpt.sourceRevisionSha256), anchors.map(anchor => anchor.source_revision_sha256));
 	assert.deepEqual(preview?.clues[0]?.excerpts.map(excerpt => excerpt.contentSha256), anchors.map(anchor => anchor.content_sha256));
-	assert.deepEqual(resolveSavedCornellCue(goalDir, saved[0]!.ref)?.evidence.map(anchor => anchor.source_run_id), ["run-a", "run-b"]);
+	assert.deepEqual(resolveSavedNoteCue(goalDir, saved[0]!.ref)?.evidence.map(anchor => anchor.source_run_id), ["run-a", "run-b"]);
 	assert.equal(readFileSync(join(goalDir, artifactPath), "utf8"), bytes, "Wiki import never rewrites the original Cue artifact");
 	const legacyRecord = structuredClone(snapshot.notes[0]!);
 	delete legacyRecord.source_run_id;

@@ -17,9 +17,9 @@ import {
 	trackRunModelSelection,
 } from "./run-model-selection.js";
 import {
-	cornellNoteAgentContractIdentity,
-	createProductionCornellNotesMaterializer,
-} from "./cornell-note-agent.js";
+	noteAgentContractIdentity,
+	createProductionNoteMaterializer,
+} from "./note-agent.js";
 import {
 	Run,
 	initializeRunState,
@@ -162,7 +162,7 @@ export class ResearchRuntime {
 				: baseStageRunner;
 			const wikiTools = createGoalLlmWikiTools({ goalDir: request.goalWorkspaceDirectory });
 			const evidenceMaterializer = this.options.evidenceMaterializer
-				?? await createProductionCornellNotesMaterializer({
+				?? await createProductionNoteMaterializer({
 					harness: request.researchHarnessSnapshot,
 					config,
 					stageRunner,
@@ -218,7 +218,7 @@ export class ResearchRuntime {
 					providerCatalog,
 					temporalContext,
 					pipeline: {
-						...cornellNoteAgentContractIdentity(),
+						...noteAgentContractIdentity(),
 					},
 				identityPins,
 				...(request.topicPlan ? { topicPlan: request.topicPlan } : {}),
@@ -296,7 +296,7 @@ function buildIdentityPins(
 	config: ResearchRuntimeConfig,
 ): RunIdentityPins {
 	const harness = request.researchHarnessSnapshot!;
-	const findOutContract = cornellNoteAgentContractIdentity();
+	const findOutContract = noteAgentContractIdentity();
 	// The Run's own frozen environment, so the pinned identity names the models it will run on.
 	const primeSearchContract = primeSearchBatchContractIdentity(env);
 	const primeReportContract = primeReportWriterContractIdentity(env);

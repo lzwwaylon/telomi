@@ -18,6 +18,8 @@ export interface SearchBatchRequest {
 	/** Runtime execution identity shared by Case capture and Provider call records. */
 	attemptId?: string;
 	question: string;
+	/** Runtime-owned task brief; never an evidence Source. */
+	taskContextFile?: string;
 	topicPlan?: GoalTopicPlan;
 	scheduledResearch?: ScheduledResearchContext;
 	availableProviderIds: readonly string[];

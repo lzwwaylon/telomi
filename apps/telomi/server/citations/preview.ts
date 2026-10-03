@@ -5,8 +5,8 @@ import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces
 import { loadReportNoteWorkspace, type NoteWorkspaceItem } from "../research/notes/workspace.js";
 import { readWikiMessageCitations } from "./wiki-message-store.js";
 import { readJson } from "../lib/fs.js";
-import { resolveDeepSearchCue } from "../research/deep-search.js";
-import { resolveSavedCornellCue } from "../research/saved-cornell-cues.js";
+import { resolveNoteReadingCue } from "../research/note-reading.js";
+import { resolveSavedNoteCue } from "../research/note-retrieval.js";
 
 interface CitationRecord {
 	number?: unknown;
@@ -209,8 +209,8 @@ export function resolveMessageCitationSourcePreview(
 	const [ref] = citationRefs(citation);
 	if (!ref || citationRefs(citation).length !== 1) return null;
 	const cue = ref.startsWith("cornell:")
-		? resolveSavedCornellCue(goalDir, ref)
-		: resolveDeepSearchCue(goalDir, ref);
+		? resolveSavedNoteCue(goalDir, ref)
+		: resolveNoteReadingCue(goalDir, ref);
 	if (!cue) return null;
 	const sourceUrl = "canonical_locator" in cue ? cue.canonical_locator : cue.evidence[0]?.url ?? "";
 	return {

@@ -37,6 +37,7 @@ export interface InvestigationThreadExecutionRecord {
 	thread_id: string;
 	execution_id: string;
 	question: string;
+	context?: string;
 	allow_external: boolean;
 	status: "running" | "completed" | "failed";
 	owner_pid: number;
@@ -52,6 +53,7 @@ export interface InvestigationThreadContext {
 	number: number;
 	title: string;
 	progress?: InvestigationProgress;
+	context?: string;
 	executions: InvestigationThreadExecutionRecord[];
 }
 
@@ -140,6 +142,7 @@ function readExecution(goalDir: string, threadId: string, id: string): Investiga
 		|| !Number.isSafeInteger(value.result.byte_length) || Number(value.result.byte_length) < 1)) {
 		throw new Error("Invalid investigation thread result reference");
 	}
+	if (value.context !== undefined && (typeof value.context !== "string" || value.context.length > 40_000)) throw new Error("Invalid investigation context");
 	if (value.progress !== undefined) validateInvestigationProgress(value.progress);
 	return value as unknown as InvestigationThreadExecutionRecord;
 }
@@ -206,8 +209,9 @@ export function writeInvestigationThreadInput(goalDir: string, context: Investig
 
 /** One live execution per thread; logs and artifacts outlive every Worker and Kernel. */
 export async function runInInvestigationThread(input: {
-	goalDir: string; executionId: string; question: string; threadId?: string; title?: string; allowExternal?: boolean;
+	goalDir: string; executionId: string; question: string; context?: string; threadId?: string; title?: string; allowExternal?: boolean;
 }, operation: (context: InvestigationThreadContext) => Promise<InvestigationResult>): Promise<InvestigationResult> {
+	if (input.context !== undefined && input.context.length > 40_000) throw new Error("Investigation context exceeds 40000 characters");
 	assertId(input.executionId);
 	if (input.threadId !== undefined) assertId(input.threadId);
 	if (input.title !== undefined && (!input.title.trim() || input.title.trim().length > 120)) throw new Error("Invalid investigation title");
@@ -251,6 +255,9 @@ export async function runInInvestigationThread(input: {
 		const executionPath = join(threadDirectory(input.goalDir, thread.thread_id), "executions", `${input.executionId}.json`);
 		const prior = thread.execution_ids.map((id) => readExecution(input.goalDir, thread.thread_id, id));
 		const existing = prior.find((row) => row.execution_id === input.executionId);
+		const context = input.context?.trim() ?? existing?.context
+			?? [...prior].reverse().find((row) => row.context !== undefined)?.context ?? "";
+		if (existing?.context !== undefined && existing.context !== context) throw new Error("Investigation execution belongs to another context");
 		if (existing && (existing.question !== input.question || existing.allow_external !== (input.allowExternal === true))) {
 			throw new Error("Investigation execution belongs to another request");
 		}
@@ -260,7 +267,7 @@ export async function runInInvestigationThread(input: {
 		}
 		if (input.title) thread.title = input.title.trim();
 		const execution: InvestigationThreadExecutionRecord = { schema_version: 1, thread_id: thread.thread_id,
-			execution_id: input.executionId, question: input.question, allow_external: input.allowExternal === true,
+			execution_id: input.executionId, question: input.question, context, allow_external: input.allowExternal === true,
 			status: "running", owner_pid: process.pid, started_at: new Date().toISOString() };
 		writeJsonAtomic(executionPath, execution);
 		if (!existing) thread.execution_ids.push(input.executionId);
@@ -269,7 +276,7 @@ export async function runInInvestigationThread(input: {
 		publishInvestigationThreadCatalog(input.goalDir);
 		try {
 			const value = await operation({ threadId: thread.thread_id, number: thread.number, title: thread.title,
-				progress: thread.progress, executions: prior.filter((row) => row.execution_id !== input.executionId) });
+				progress: thread.progress, context, executions: prior.filter((row) => row.execution_id !== input.executionId) });
 			if (value.id !== input.executionId || value.question !== input.question
 				|| (value.thread_id && value.thread_id !== thread.thread_id)) throw new Error("Investigation result belongs to another execution or thread");
 			const result = { ...value, thread_id: thread.thread_id };

@@ -296,7 +296,7 @@ assert.doesNotMatch(detail.pane, /data-testid="live-agent-stage"/u);
 assert.match(detail.pane, /aria-haspopup="dialog"[^>]*aria-label="查看 制定检索计划 · Prime Search 的执行记录"/u);
 assert.match(detail.pane, /aria-label="查看 对比方案 · Prime Search 1 的执行记录"[^>]*>Prime Search 1</u);
 assert.match(detail.pane, /aria-label="查看 对比方案 · Prime Search 2 的执行记录"[^>]*>Prime Search 2</u);
-assert.equal((detail.pane.match(/data-testid="activity-worker-row"[^>]*aria-haspopup="dialog"[^>]*aria-label="查看 笔记 \d · Cornell Note 的执行记录"/gu) ?? []).length, 4);
+assert.equal((detail.pane.match(/data-testid="activity-worker-row"[^>]*aria-haspopup="dialog"[^>]*aria-label="查看 笔记 \d · Note Agent 的执行记录"/gu) ?? []).length, 4);
 assert.doesNotMatch(detail.pane, /aria-pressed/u);
 // Quiet rows share a glyph, so the list labels each by its outcome.
 assert.match(detail.list, /aria-label="未产生变更"/u);
@@ -347,7 +347,7 @@ const missing = detailPane(render({ selectedActivityId: "gone" }));
 assert.match(missing.pane, /data-testid="activity-detail-back"/u);
 assert.match(missing.pane, /这条 Activity 已不在当前列表/u);
 
-// The reported case: a Cornell Note pool where one Worker stopped reporting while the others work.
+// The reported case: a Note Agent pool where one Worker stopped reporting while the others work.
 const poolNow = Date.now();
 const poolAt = (startedMinutesAgo: number, updatedMinutesAgo: number) => ({
 	createdAt: new Date(poolNow - startedMinutesAgo * 60_000).toISOString(),

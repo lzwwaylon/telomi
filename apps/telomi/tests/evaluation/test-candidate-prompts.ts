@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 import { renderCapturedCandidatePrompts } from "../../server/evaluation/candidate-prompts.js";
 import { renderMainAgentPrompt } from "../../server/main-agent/system-prompts.js";
-import { buildDeepSearchTaskPrompt } from "../../server/research/deep-search.js";
+import { buildNoteReadingTaskPrompt } from "../../server/research/note-reading.js";
 import { renderAgentPrompt } from "../../server/agent-runtime/prompt-registry.js";
-import { renderCornellNoteAgentSystemPrompt } from "../../server/research/pipeline/cornell-note-agent-prompt.js";
+import { renderNoteAgentSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
 import { wikiSelfDirectedWriterUserPrompt, findOutSelfDirectedWriterUserPrompt } from "../../server/research/pipeline/report-prompts.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-candidate-prompts-"));
@@ -42,15 +42,16 @@ try {
 	const reader = renderCapturedCandidatePrompts(promptCase("cornell-note", {
 		mode: "deep-search", question: "Verify the streaming transport", invocationId: "historical-reader",
 	}, "/source", "deep-search"), root);
-	assert.equal(reader.systemPrompt, renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content);
-	assert.equal(reader.userPrompt, buildDeepSearchTaskPrompt("Verify the streaming transport", 2));
+	assert.equal(reader.systemPrompt, renderNoteAgentSystemPrompt(undefined, "deep-search").content);
+	assert.equal(reader.userPrompt, buildNoteReadingTaskPrompt("Verify the streaming transport", 2));
 	const ordinary = renderCapturedCandidatePrompts(promptCase("cornell-note", {
 		question: "What changed?", goal: { title: "Transport", description: "Original evidence" },
 		discoveryEnabled: false, noteFocus: "Protocol fields",
 	}), root);
 	assert.match(ordinary.userPrompt, /What changed\?/u);
-	assert.match(ordinary.userPrompt, /Protocol fields/u);
-	assert.equal(ordinary.systemPrompt, renderCornellNoteAgentSystemPrompt().content);
+	assert.match(ordinary.userPrompt, /inputs\/context\.md/u);
+	assert.doesNotMatch(ordinary.userPrompt, /Protocol fields/u);
+	assert.equal(ordinary.systemPrompt, renderNoteAgentSystemPrompt().content);
 	assert.throws(() => renderCapturedCandidatePrompts(promptCase("cornell-note", {}), root), /frozen request context/u);
 
 	const answer = renderCapturedCandidatePrompts(promptCase("report-writer", { mode: "investigation-answer" }, "/inputs", "answer"), root);

@@ -1066,7 +1066,7 @@ export class Run {
 				draft.cornell_note_failure_count = failures.length;
 				if (failuresArtifact) (draft.cornell_note_failure_manifests ??= []).push(artifactRef(failuresArtifact));
 			});
-			throw new Error(`All ${failures.length} Cornell Note Agents failed`);
+			throw new Error(`All ${failures.length} Note Agents failed`);
 		}
 		if (args.request.scheduledResearch
 			&& !evidence.notes.some((record) => record.note.sections.length > 0)) {

@@ -7,13 +7,13 @@ import { assertSafeRelativePath } from "../lib/paths.js";
 import { isRecord } from "../lib/values.js";
 import { listPublishedReports, syncPublishedReportView } from "../media/report-view.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
-import type { resolveDeepSearchCue } from "./deep-search.js";
+import type { resolveNoteReadingCue } from "./note-reading.js";
 import { readInvestigationResult } from "./investigate.js";
 import { compileStandaloneCitationMarkdown, type KnowledgeCitationRegistry } from "./pipeline/citation-compiler.js";
 import type { ResolvedWikiReportCitation } from "./pipeline/wiki-report-references.js";
-import type { resolveSavedCornellCue } from "./saved-cornell-cues.js";
+import type { resolveSavedNoteCue } from "./note-retrieval.js";
 
-type FrozenCue = NonNullable<ReturnType<typeof resolveDeepSearchCue> | ReturnType<typeof resolveSavedCornellCue>>;
+type FrozenCue = NonNullable<ReturnType<typeof resolveNoteReadingCue> | ReturnType<typeof resolveSavedNoteCue>>;
 type FrozenCitation = { ref: string; wiki?: ResolvedWikiReportCitation; cue?: FrozenCue };
 
 /** Publish the reviewed Writer answer using its frozen evidence, without another model call. */

@@ -7,10 +7,11 @@ import type { AgentStageRequest, AgentStageRunner, ValidatedStageArtifact } from
 import { withCornellNoteCapture } from "../../server/agent-runtime/recorded-stage-replay.js";
 import { beginNodeEvaluationCase } from "../../server/agent-runtime/node-evaluation.js";
 import { installCaseCapture } from "../../server/observability/case-capture.js";
-import { renderCornellNoteAgentSystemPrompt } from "../../server/research/pipeline/cornell-note-agent-prompt.js";
+import { renderNoteAgentSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
 import { sha256 } from "../../server/lib/hash.js";
-import { executeDeepSearch, resolveDeepSearchCue, searchSavedDeepSearchCues,
-	validateDeepSearchDraftFromCorpus } from "../../server/research/deep-search.js";
+import { writeTaskContext } from "../../server/research/task-context.js";
+import { executeNoteReading, resolveNoteReadingCue, searchSavedNoteReadingCues,
+	validateNoteReadingDraftFromCorpus } from "../../server/research/note-reading.js";
 
 const root = mkdtempSync(join(tmpdir(), "deep-search-contract-"));
 const uninstallCapture = installCaseCapture({ cornellNote: withCornellNoteCapture });
@@ -36,8 +37,10 @@ try {
 		status: string; evidence: Array<{ status: string; source_refs: string[]; recheck_reasons: string[] }>;
 	}> }> = [];
 	const capturedInputs: string[] = [];
+	const taskContext = "Focus on the loss formula and tensor dimensions.\n用户熟悉深度学习。\n";
+	const taskContextFile = writeTaskContext(join(root, "task-inputs"), taskContext);
 	const run = async (candidate: unknown, invocationId: string,
-		options: Pick<Parameters<typeof executeDeepSearch>[0], "knownCues" | "originalQuestion" | "preferredSourceRunId"> = {}) => executeDeepSearch({
+		options: Pick<Parameters<typeof executeNoteReading>[0], "knownCues" | "originalQuestion" | "preferredSourceRunId" | "taskContextFile"> = {}) => executeNoteReading({
 		goalDir, goalId: "goal", question: "How is the loss computed?", invocationId,
 		...options,
 		signal: new AbortController().signal,
@@ -45,11 +48,15 @@ try {
 		stageRunner: {
 			async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
 				calls++;
-				assert.equal(request.systemPrompt, renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content,
+				assert.equal(request.systemPrompt, renderNoteAgentSystemPrompt(undefined, "deep-search").content,
 					"question reading receives the same shared quality rules as Source reading");
 				assert.equal(request.promptConfig?.revisions?.system?.variant, "deep-search");
 				assert.deepEqual(request.readonlyMounts.map((mount) => ({ guestPath: mount.guestPath, access: mount.access })),
-					[{ guestPath: "/source", access: "read-only" }], "incremental navigation adds no permission or Goal mount");
+					[{ guestPath: "/source", access: "read-only" }, { guestPath: "/inputs", access: "read-only" }],
+					"task context receives a separate read-only mount without granting a Goal mount");
+				const taskInputs = request.readonlyMounts.find((mount) => mount.guestPath === "/inputs")!;
+				const expectedTaskContext = options.taskContextFile ? taskContext : "";
+				assert.equal(readFileSync(join(taskInputs.hostPath, "context.md"), "utf8"), expectedTaskContext);
 				assert.match(request.userPrompt, /source\/reader-context\.json/u);
 				const contextText = readFileSync(join(request.readonlyMounts[0]!.hostPath, "reader-context.json"), "utf-8");
 				contexts.push(JSON.parse(contextText));
@@ -61,16 +68,21 @@ try {
 				capturedInputs.push(capturedInput);
 				assert.equal(readFileSync(join(capturedInput, "reader-context.json"), "utf-8"), contextText,
 					"navigation is frozen alongside the original Source bytes");
+				const capturedContext = captured.base.mounts.find((mount) => mount.guestPath === "/inputs")!;
+				assert.equal(capturedContext.kind, "run", "task context is frozen as Case input rather than bundled harness data");
+				if (capturedContext.kind === "run") assert.equal(readFileSync(join(captured.runDirectory,
+					capturedContext.directory.ref, "context.md"), "utf8"), expectedTaskContext);
 				const catalog = JSON.parse(readFileSync(join(request.readonlyMounts[0]!.hostPath, "catalog.json"), "utf-8"));
 				assert.equal(catalog.sources.length, options.preferredSourceRunId ? 3 : 1);
 				assert.equal(catalog.sources[0].source_id, "source:one");
 				assert.equal(catalog.sources[0].source_revision_sha256, sha256(options.preferredSourceRunId ? "new-source" : "pinned-source"));
+				assert.equal(catalog.sources[0].readable_file_count, 1, "task preferences are absent from the original evidence catalog");
 				const path = join(request.workDirectory, "cornell-note.json");
 				mkdirSync(request.workDirectory, { recursive: true });
 				writeFileSync(path, JSON.stringify(candidate));
 				const value = request.output.validate({ entryPath: path, outputRoot: request.workDirectory,
 					workDirectory: request.workDirectory });
-				assert.deepEqual(validateDeepSearchDraftFromCorpus(candidate, "How is the loss computed?",
+				assert.deepEqual(validateNoteReadingDraftFromCorpus(candidate, "How is the loss computed?",
 					invocationId, request.readonlyMounts[0]!.hostPath), value,
 					"captured Source replay applies the same evidence contract");
 				return { value, artifact: request.artifactStore.publishFile(path, request.output.publishRelativePath),
@@ -84,21 +96,21 @@ try {
 		section_title: "Training", cue_notes: [{ cue: "Loss + cross entropy", note: "Training applies cross entropy to logits and labels.",
 			evidence: [{ source_ref: "S1", source_path: `${member}/finetuning/sft.py`, start_line: 1, end_line: 1 }] }],
 	}] };
-	const found = await run(draft, "found-1");
+	const found = await run(draft, "found-1", { taskContextFile });
 	assert.equal(contexts[0]!.original_question, "How is the loss computed?");
 	assert.deepEqual(contexts[0]!.known_cues, []);
-	assert.deepEqual(validateDeepSearchDraftFromCorpus(draft, found.question, "found-1", capturedInputs[0]!), found,
+	assert.deepEqual(validateNoteReadingDraftFromCorpus(draft, found.question, "found-1", capturedInputs[0]!), found,
 		"the original corpus remains replayable after temporary Source cleanup");
 	rmSync(join(capturedInputs[0]!, "reader-context.json"));
-	assert.deepEqual(validateDeepSearchDraftFromCorpus(draft, found.question, "found-1", capturedInputs[0]!), found,
+	assert.deepEqual(validateNoteReadingDraftFromCorpus(draft, found.question, "found-1", capturedInputs[0]!), found,
 		"older frozen Cases without Reader context remain compatible");
 	assert.equal(found.cues[0]!.ref, "deep-search:found-1:cue-1");
 	assert.equal(found.cues[0]!.evidence[0]!.content_sha256,
 		sha256("loss = logits.cross_entropy(labels)\n"));
 	assert.equal(found.cues[0]!.evidence[0]!.excerpt, "loss = logits.cross_entropy(labels)");
-	assert.equal(resolveDeepSearchCue(goalDir, found.cues[0]!.ref)?.evidence[0]?.excerpt,
+	assert.equal(resolveNoteReadingCue(goalDir, found.cues[0]!.ref)?.evidence[0]?.excerpt,
 		"loss = logits.cross_entropy(labels)");
-	assert.equal(searchSavedDeepSearchCues(goalDir, "loss cross entropy")[0]?.ref, found.cues[0]!.ref);
+	assert.equal(searchSavedNoteReadingCues(goalDir, "loss cross entropy")[0]?.ref, found.cues[0]!.ref);
 	await run(draft, "found-1");
 	assert.equal(calls, 1, "same invocation reuses its validated artifact");
 	await run(draft, "incremental-1", { originalQuestion: "Explain the training flow for a constrained deployment.", knownCues: found.cues });
@@ -120,7 +132,7 @@ try {
 	assert.deepEqual(contexts.at(-1)!.known_cues[1]!.evidence[0]!.source_refs, [], "foreign Source identities grant no access");
 	assert.equal(contexts.at(-1)!.known_cues[2]!.status, "recheck_required", "unsafe paths never resolve outside declared Source files");
 	assert.equal(contexts.at(-1)!.known_cues[3]!.status, "verified", "the original line hash verifies an existing formatted Cornell display excerpt");
-	assert.equal(resolveDeepSearchCue(goalDir, "deep-search:unknown:cue-1"), null);
+	assert.equal(resolveNoteReadingCue(goalDir, "deep-search:unknown:cue-1"), null);
 	const absent = await run({ status: "not_found", summary: "No matching implementation was found.",
 		gaps: ["The saved Source has no data loader."], sections: [] }, "absent-1");
 	assert.equal(absent.cues.length, 0);
@@ -130,6 +142,9 @@ try {
 	await assert.rejects(run({ ...draft, sections: [{ section_title: "Training", cue_notes: [{ ...draft.sections[0]!.cue_notes[0],
 		evidence: [{ source_ref: "S1", source_path: "reader-context.json", start_line: 1, end_line: 1 }] }] }] }, "context-citation"),
 		/undeclared Source path/u, "Reader navigation never becomes citable evidence");
+	await assert.rejects(run({ ...draft, sections: [{ section_title: "Training", cue_notes: [{ ...draft.sections[0]!.cue_notes[0],
+		evidence: [{ source_ref: "S1", source_path: "inputs/context.md", start_line: 1, end_line: 1 }] }] }] }, "task-context-citation", { taskContextFile }),
+		/undeclared Source path/u, "user preferences cannot become Source evidence");
 	const newSequence = join(goalDir, "wiki", "runs", "run-2", "artifacts", "find-out-sources", "sequence-1");
 	cpSync(sequence, newSequence, { recursive: true });
 	const fallbackSequence = join(goalDir, "wiki", "runs", "run-1", "artifacts", "find-out-sources", "sequence-2");
@@ -158,7 +173,7 @@ try {
 		["content_hash_changed"], "changed original bytes require rechecking even under the same Source revision");
 	assert.deepEqual(contexts.at(-1)!.known_cues[1]!.evidence[0]!.recheck_reasons, ["excerpt_changed"],
 		"older anchors without hashes still require exact original-line excerpt matching");
-	assert.throws(() => resolveDeepSearchCue(goalDir, found.cues[0]!.ref), /evidence changed/u);
+	assert.throws(() => resolveNoteReadingCue(goalDir, found.cues[0]!.ref), /evidence changed/u);
 } finally {
 	uninstallCapture();
 	rmSync(root, { recursive: true, force: true });

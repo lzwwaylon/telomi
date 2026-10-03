@@ -785,7 +785,7 @@ function liveAgentText(output: ResearchAgentOutput): string {
 function agentLabel(role: string): string {
 	const labels: Record<string, string> = {
 		prime_search: "Prime Search",
-		cornell_note: "Cornell Note",
+		cornell_note: "Note Agent",
 		report_writer: "Report Writer",
 		wiki_maintainer: "Wiki Maintainer",
 		research: "Research",

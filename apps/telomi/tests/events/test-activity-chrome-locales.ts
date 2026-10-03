@@ -36,8 +36,8 @@ assert.equal(render(stageTitle("writer-report")), "Write the report");
 assert.equal(render(stageTitle("report_writer")), "Write the report");
 assert.equal(render(stageTitle("prime-search-batch-2")), "Prime Search batch 2");
 assert.equal(render(stageTitle("search-batch-3")), "Prime Search batch 3");
-assert.equal(render(stageTitle("cornell-note-0046-source_fd0013")), "Cornell Note 0046 · source_fd0013");
-assert.equal(render(stageTitle("cornell-note")), "Cornell Note");
+assert.equal(render(stageTitle("cornell-note-0046-source_fd0013")), "Note Agent 0046 · source_fd0013");
+assert.equal(render(stageTitle("cornell-note")), "Note Agent");
 assert.equal(render(stageTitle("evidence-screening-source-a")), "Internal step");
 await zh();
 assert.equal(render(stageTitle("input-resolution")), "准备研究输入");
@@ -251,11 +251,11 @@ const pools = groups.flatMap((group) => group.entries.flatMap((entry) => entry.k
 assert.equal(pools.length, 2);
 await en();
 assert.deepEqual(groups.map((group) => render(group.label)), ["Execution phase", "SHARD organization"]);
-assert.deepEqual(pools.map((pool) => render(pool.label)), ["Cornell Note", "Wiki workers"]);
-assert.equal(render(pools[0]!.workers[0]!.title), "Cornell Note 1 · source_a");
+assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki workers"]);
+assert.equal(render(pools[0]!.workers[0]!.title), "Note Agent 1 · source_a");
 await zh();
 assert.deepEqual(groups.map((group) => render(group.label)), ["执行阶段", "SHARD 整理"]);
-assert.deepEqual(pools.map((pool) => render(pool.label)), ["Cornell Note", "Wiki Worker"]);
+assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki Worker"]);
 
 // A failed Stage says why on the Stage itself; a Provider's HTTP error reads as its status and its
 // own words in either locale, and Stages the failure was relayed to do not repeat it.

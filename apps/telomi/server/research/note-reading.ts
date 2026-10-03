@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { copyTaskContext } from "./task-context.js";
 import { sha256 } from "../lib/hash.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
-import { renderCornellNoteAgentSystemPrompt } from "./pipeline/cornell-note-agent-prompt.js";
+import { renderNoteAgentSystemPrompt } from "./pipeline/note-agent-prompt.js";
 import type { AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import type { ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { createProductionResearchStageRunner } from "./pipeline/production-stage-runner.js";
@@ -20,7 +21,7 @@ import type { InvestigationCitationCue } from "./investigation-citations.js";
 const SAFE_ID = /^[A-Za-z0-9._-]{1,100}$/u;
 const CUE_REF = /^deep-search:([A-Za-z0-9._-]{1,100}):cue-([1-9]\d*)$/u;
 
-export interface DeepSearchEvidence {
+export interface NoteReadingEvidence {
 	source_run_id: string;
 	source_id: string;
 	source_revision_sha256: string;
@@ -32,21 +33,21 @@ export interface DeepSearchEvidence {
 	excerpt?: string;
 }
 
-export interface DeepSearchCue {
+export interface NoteReadingCue {
 	ref: string;
 	section_title: string;
 	cue: string;
 	note: string;
-	evidence: DeepSearchEvidence[];
+	evidence: NoteReadingEvidence[];
 }
 
-export interface DeepSearchResult {
+export interface NoteReadingResult {
 	schema_version: 1;
 	question: string;
 	status: "found" | "partial" | "not_found";
 	summary: string;
 	gaps: string[];
-	cues: DeepSearchCue[];
+	cues: NoteReadingCue[];
 }
 
 interface CorpusSource {
@@ -60,7 +61,7 @@ interface CorpusSource {
 }
 
 /** The same frozen question and Source count drive live and Candidate task rendering. */
-export function buildDeepSearchTaskPrompt(question: string, sourceCount: number): string {
+export function buildNoteReadingTaskPrompt(question: string, sourceCount: number): string {
 	return [
 		`Question: ${question}`,
 		"Read source/reader-context.json for the original question, verified prior Cue navigation, current anchor mappings and preferred Source refs. It is navigation only; cite exact original Source lines.",
@@ -72,20 +73,21 @@ export function buildDeepSearchTaskPrompt(question: string, sourceCount: number)
 }
 
 /** A single question-scoped Cornell reading over the Goal's pinned original Source views. */
-export async function executeDeepSearch(input: {
+export async function executeNoteReading(input: {
 	goalDir: string;
 	goalId: string;
 	question: string;
 	invocationId: string;
 	preferredSourceRunId?: string;
 	originalQuestion?: string;
+	taskContextFile?: string;
 	knownCues?: readonly InvestigationCitationCue[];
 	signal: AbortSignal;
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 	env?: NodeJS.ProcessEnv;
 	stageRunner?: AgentStageRunner;
-}): Promise<DeepSearchResult> {
+}): Promise<NoteReadingResult> {
 	if (!SAFE_ID.test(input.invocationId)) throw new Error("Deep Search invocationId is invalid");
 	const question = input.question.trim();
 	if (!question) throw new Error("Deep Search requires a question");
@@ -93,23 +95,25 @@ export async function executeDeepSearch(input: {
 	const artifactPath = `artifacts/deep-search/${input.invocationId}.json`;
 	const artifactStore = new RunArtifactStore(input.goalDir);
 	if (existsSync(join(input.goalDir, artifactPath))) {
-		const saved = readDeepSearchArtifact(input.goalDir, input.invocationId);
+		const saved = readNoteReadingArtifact(input.goalDir, input.invocationId);
 		if (saved.question !== question) throw new Error("Deep Search invocationId belongs to another question");
 		return saved;
 	}
 	const controlDir = join(input.goalDir, ".pi", "runtime", "deep-search", input.invocationId);
 	const corpusDir = join(controlDir, "source");
+	const inputRoot = join(controlDir, "inputs");
+	copyTaskContext(inputRoot, input.taskContextFile);
 	const sources = materializeCorpus(input.goalDir, corpusDir, input.preferredSourceRunId);
 	writeReaderContext(corpusDir, sources, input.originalQuestion?.trim() || question,
 		input.knownCues ?? [], input.preferredSourceRunId);
 	const env = input.env ?? process.env;
 	const config = input.model && input.thinkingLevel ? undefined : researchConfigFromEnv(env);
-	const system = renderCornellNoteAgentSystemPrompt(undefined, "deep-search");
-	const userPrompt = buildDeepSearchTaskPrompt(question, sources.length);
+	const system = renderNoteAgentSystemPrompt(undefined, "deep-search");
+	const userPrompt = buildNoteReadingTaskPrompt(question, sources.length);
 	const runner = input.stageRunner ?? createProductionResearchStageRunner({ env });
 	const capturedRunner = caseCapture()?.cornellNote?.(runner,
 		{ mode: "deep-search", question, invocationId: input.invocationId }, []) ?? runner;
-	const result = await capturedRunner.runStage<DeepSearchResult>({
+	const result = await capturedRunner.runStage<NoteReadingResult>({
 		runId: input.invocationId,
 		stageId: `deep-search-${input.invocationId}`,
 		attemptId: "attempt-1",
@@ -122,7 +126,8 @@ export async function executeDeepSearch(input: {
 		systemPrompt: system.content,
 		userPrompt,
 		workDirectory: join(controlDir, "stage"),
-		readonlyMounts: [{ hostPath: corpusDir, guestPath: "/source", access: "read-only" }],
+		readonlyMounts: [{ hostPath: corpusDir, guestPath: "/source", access: "read-only" },
+			{ hostPath: inputRoot, guestPath: "/inputs", access: "read-only" }],
 		controlDirectory: controlDir,
 		recordDirectory: controlDir,
 		artifactStore,
@@ -131,7 +136,7 @@ export async function executeDeepSearch(input: {
 			entryRelativePath: "cornell-note.json",
 			publishRelativePath: artifactPath,
 			validate: ({ entryPath }) => {
-				const validated = validateDeepSearchDraft(
+				const validated = validateNoteReadingDraft(
 					JSON.parse(readFileSync(entryPath, "utf-8")) as unknown, question, input.invocationId, sources);
 				writeFileSync(entryPath, `${JSON.stringify(validated, null, 2)}\n`);
 				return validated;
@@ -147,7 +152,7 @@ export async function executeDeepSearch(input: {
 /** Prior Notes guide incremental reading; only matching original Source bytes permit reuse. */
 function writeReaderContext(corpusDir: string, sources: readonly CorpusSource[], originalQuestion: string,
 	knownCues: readonly InvestigationCitationCue[], preferredSourceRunId?: string): void {
-	type Identity = Partial<Pick<DeepSearchEvidence, "source_id" | "source_run_id" | "source_revision_sha256" | "content_sha256">>;
+	type Identity = Partial<Pick<NoteReadingEvidence, "source_id" | "source_run_id" | "source_revision_sha256" | "content_sha256">>;
 	const cues = knownCues.map((cue) => {
 		const identity = cue as InvestigationCitationCue & Identity;
 		const evidence = cue.evidence.map((raw) => {
@@ -202,15 +207,15 @@ function writeReaderContext(corpusDir: string, sources: readonly CorpusSource[],
 }
 
 /** Previously verified Cue Notes become visible to the next knowledge search before Wiki rebuilds. */
-export function searchSavedDeepSearchCues(goalDir: string, query: string, limit = 8): Array<DeepSearchCue & {
+export function searchSavedNoteReadingCues(goalDir: string, query: string, limit = 8): Array<NoteReadingCue & {
 	question: string;
 	summary: string;
 }> {
 	if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) throw new Error("Deep Search limit is invalid");
 	const words = searchWords(query);
 	if (!words.length) return [];
-	const scored: Array<{ score: number; cue: DeepSearchCue; question: string; summary: string }> = [];
-	for (const cue of listSavedDeepSearchCues(goalDir)) {
+	const scored: Array<{ score: number; cue: NoteReadingCue; question: string; summary: string }> = [];
+	for (const cue of listSavedNoteReadingCues(goalDir)) {
 			const title = `${cue.section_title} ${cue.cue}`.toLocaleLowerCase();
 			const note = cue.note.toLocaleLowerCase();
 			const originalQuestion = cue.question.toLocaleLowerCase();
@@ -225,22 +230,22 @@ export function searchSavedDeepSearchCues(goalDir: string, query: string, limit 
 }
 
 /** Complete durable Cue catalog for unified ranking alongside historical Cornell Cues. */
-export function listSavedDeepSearchCues(goalDir: string): Array<DeepSearchCue & { question: string; summary: string }> {
+export function listSavedNoteReadingCues(goalDir: string): Array<NoteReadingCue & { question: string; summary: string }> {
 	return files(join(goalDir, "artifacts", "deep-search"))
 		.filter((name) => /^[A-Za-z0-9._-]{1,100}\.json$/u.test(name))
 		.flatMap((file) => {
-			const saved = readDeepSearchArtifact(goalDir, file.slice(0, -5));
+			const saved = readNoteReadingArtifact(goalDir, file.slice(0, -5));
 			return saved.cues.map((cue) => ({ ...cue, question: saved.question, summary: saved.summary }));
 		});
 }
 
-export function resolveDeepSearchCue(goalDir: string, ref: string): (Omit<DeepSearchCue, "evidence"> & {
-	evidence: Array<DeepSearchEvidence & { excerpt: string; title: string; url: string }>;
+export function resolveNoteReadingCue(goalDir: string, ref: string): (Omit<NoteReadingCue, "evidence"> & {
+	evidence: Array<NoteReadingEvidence & { excerpt: string; title: string; url: string }>;
 }) | null {
 	const match = CUE_REF.exec(ref);
 	if (!match) return null;
 	if (!existsSync(join(goalDir, "artifacts", "deep-search", `${match[1]}.json`))) return null;
-	const result = readDeepSearchArtifact(goalDir, match[1]!);
+	const result = readNoteReadingArtifact(goalDir, match[1]!);
 	const cue = result.cues[Number(match[2]) - 1];
 	if (!cue || cue.ref !== ref) return null;
 	return {
@@ -271,8 +276,8 @@ export function resolveDeepSearchCue(goalDir: string, ref: string): (Omit<DeepSe
 	};
 }
 
-function readDeepSearchArtifact(goalDir: string, invocationId: string): DeepSearchResult {
-	const value = JSON.parse(readFileSync(join(goalDir, "artifacts", "deep-search", `${invocationId}.json`), "utf-8")) as DeepSearchResult;
+function readNoteReadingArtifact(goalDir: string, invocationId: string): NoteReadingResult {
+	const value = JSON.parse(readFileSync(join(goalDir, "artifacts", "deep-search", `${invocationId}.json`), "utf-8")) as NoteReadingResult;
 	if (value.schema_version !== 1 || typeof value.question !== "string" || !value.question.trim()
 		|| !["found", "partial", "not_found"].includes(value.status)
 		|| typeof value.summary !== "string" || !value.summary.trim()
@@ -321,8 +326,8 @@ function materializeCorpus(goalDir: string, outputDir: string, preferredSourceRu
 }
 
 /** Replay validates against the captured /source corpus, never the live Goal directory. */
-export function validateDeepSearchDraftFromCorpus(value: unknown, question: string,
-	invocationId: string, corpusDir: string): DeepSearchResult {
+export function validateNoteReadingDraftFromCorpus(value: unknown, question: string,
+	invocationId: string, corpusDir: string): NoteReadingResult {
 	const catalog = record(JSON.parse(readFileSync(join(corpusDir, "catalog.json"), "utf-8")) as unknown,
 		"Deep Search catalog");
 	if (catalog.schema_version !== 1 || !Array.isArray(catalog.sources)) throw new Error("Deep Search catalog is invalid");
@@ -340,11 +345,11 @@ export function validateDeepSearchDraftFromCorpus(value: unknown, question: stri
 			files: inspectAgentSourceView(join(corpusDir, ref)).contentFiles,
 		};
 	});
-	return validateDeepSearchDraft(value, question, invocationId, sources);
+	return validateNoteReadingDraft(value, question, invocationId, sources);
 }
 
-function validateDeepSearchDraft(value: unknown, question: string, invocationId: string,
-	sources: readonly CorpusSource[]): DeepSearchResult {
+function validateNoteReadingDraft(value: unknown, question: string, invocationId: string,
+	sources: readonly CorpusSource[]): NoteReadingResult {
 	const draft = record(value, "Deep Search");
 	keys(draft, ["status", "summary", "gaps", "sections"], "Deep Search");
 	if (draft.status !== "found" && draft.status !== "partial" && draft.status !== "not_found") {
@@ -354,7 +359,7 @@ function validateDeepSearchDraft(value: unknown, question: string, invocationId:
 	if (!Array.isArray(draft.gaps) || !Array.isArray(draft.sections)) throw new Error("Deep Search gaps and sections must be arrays");
 	const gaps = draft.gaps.map((gap, index) => nonEmpty(gap, `gaps[${index}]`));
 	const byRef = new Map(sources.map((source) => [source.ref, source]));
-	const cues: DeepSearchCue[] = [];
+	const cues: NoteReadingCue[] = [];
 	for (const [sectionIndex, rawSection] of draft.sections.entries()) {
 		const section = record(rawSection, `sections[${sectionIndex}]`);
 		keys(section, ["section_title", "cue_notes"], `sections[${sectionIndex}]`);
@@ -365,7 +370,7 @@ function validateDeepSearchDraft(value: unknown, question: string, invocationId:
 			const cue = record(rawCue, label);
 			keys(cue, ["cue", "note", "evidence"], label);
 			if (!Array.isArray(cue.evidence) || cue.evidence.length === 0) throw new Error(`${label} requires evidence`);
-			const evidence = cue.evidence.map((rawEvidence, evidenceIndex): DeepSearchEvidence => {
+			const evidence = cue.evidence.map((rawEvidence, evidenceIndex): NoteReadingEvidence => {
 				const where = `${label}.evidence[${evidenceIndex}]`;
 				const candidate = record(rawEvidence, where);
 				keys(candidate, ["source_ref", "source_path", "start_line", "end_line"], where);

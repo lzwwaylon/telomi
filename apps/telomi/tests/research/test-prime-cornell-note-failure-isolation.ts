@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { sha256 } from "../../server/lib/hash.js";
-import { RuntimeCornellNoteAgentProcessor } from "../../server/research/cornell-note-agent.js";
+import { RuntimeNoteAgentProcessor } from "../../server/research/note-agent.js";
 import type { AgentStageRunner } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { PrimeCornellNoteStageRunner } from "../../server/research/pipeline/prime-cornell-note.js";
@@ -35,6 +35,7 @@ export async function createAgentSession(options) {
 		messages,
 		subscribe(listener) { subscriber = listener; },
 		async prompt() {
+			if (readFileSync(join(options.cwd, "inputs", "context.md"), "utf8") !== "Record loss definitions and tensor dimensions.") throw new Error("Note Agent did not receive its reading priorities file");
 			if (readFileSync(join(options.cwd, "source", "paper.md"), "utf-8").includes("overloaded")) {
 				const failed = {
 					role: "assistant", stopReason: "error", errorMessage: ${JSON.stringify(overloaded)},
@@ -94,7 +95,7 @@ export async function createAgentSession(options) {
 		runStage: (request) => primeRunner.runStage({ ...request, recordKind: "evaluation" }),
 	};
 	const runRoot = join(root, "run");
-	const produced = await new RuntimeCornellNoteAgentProcessor({
+	const produced = await new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 2,
 		cornellNoteModel: "openai-codex/test-model",
@@ -103,6 +104,7 @@ export async function createAgentSession(options) {
 		runId: "run:prime-cornell-failure-isolation",
 		sequence: 1,
 		question: "Continue after one Source hits an upstream failure.",
+		noteFocus: "Record loss definitions and tensor dimensions.",
 		goal: { title: "Isolate Cornell Note failures", description: "" },
 		discoveryEnabled: false,
 		sources,

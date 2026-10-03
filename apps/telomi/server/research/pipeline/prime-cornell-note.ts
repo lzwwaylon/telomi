@@ -1,3 +1,5 @@
+import { isRecord } from "../../lib/values.js";
+import { copyTaskContext, writeTaskContext } from "../task-context.js";
 import {
 	copyFileSync,
 	existsSync,
@@ -37,7 +39,7 @@ import {
 import { snapshotSourceDirectory } from "./source-bundle.js";
 import { spawnPrimeWorker } from "../../agent-runtime/prime-worker.js";
 import { ResearchNodeError } from "../../agent-runtime/retry-policy.js";
-import { renderPrimeCornellNoteUserPrompt } from "./cornell-note-agent-prompt.js";
+import { renderPrimeNoteAgentUserPrompt } from "./note-agent-prompt.js";
 import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../../agent-runtime/workspace-snapshot.js";
 import { toErrorMessage } from "../../lib/values.js";
 
@@ -105,8 +107,17 @@ export class PrimeCornellNoteStageRunner implements AgentStageRunner {
 		mkdirSync(runtimeRoot, { recursive: true });
 		mkdirSync(agentRoot, { recursive: true });
 		snapshotSourceDirectory(source.hostPath, join(agentRoot, "source"));
+		const inputs = request.readonlyMounts.find((mount) => mount.guestPath === "/inputs");
+		const inputRoot = join(agentRoot, "inputs");
+		if (inputs) copyTaskContext(inputRoot, join(inputs.hostPath, "context.md"));
+		else {
+			// Historical source-reading Cases kept noteFocus in their frozen business input.
+			const recipeInput = request.evaluation?.recipeInput;
+			const noteFocus = isRecord(recipeInput) ? recipeInput.noteFocus : undefined;
+			writeTaskContext(inputRoot, typeof noteFocus === "string" ? noteFocus : "");
+		}
 		writeFileSync(join(runtimeRoot, "system-prompt.md"), request.systemPrompt);
-		writeFileSync(join(runtimeRoot, "user-prompt.md"), `${renderPrimeCornellNoteUserPrompt(request.userPrompt,
+		writeFileSync(join(runtimeRoot, "user-prompt.md"), `${renderPrimeNoteAgentUserPrompt(request.userPrompt,
 			request.promptConfig?.userVariant === "deep-search" ? "deep-search" : "prime-execution")}\n`);
 		writeFileSync(join(runtimeRoot, "repair-prompt.md"),
 			renderAgentPrompt("research", "cornell-note", "user", {},
@@ -175,7 +186,7 @@ export class PrimeCornellNoteStageRunner implements AgentStageRunner {
 					worker: workerPath,
 					agentRoot,
 					runtimeRoot,
-					readonlyRoots: [...skillMounts.map((mount) => mount.hostPath), ...skillPythonPaths],
+					readonlyRoots: [inputRoot, ...skillMounts.map((mount) => mount.hostPath), ...skillPythonPaths],
 					env,
 					extraEnv: {
 						PRIME_AGENT_EVIDENCE_CWD: agentRoot,

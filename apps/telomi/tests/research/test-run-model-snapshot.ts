@@ -117,7 +117,7 @@ function roleConsumer(config: ConfigResponse, id: string) {
 
 try {
 	// Nothing is configured yet: no role runs on a model nobody chose.
-	assert.throws(() => pinRunModelSelection({}), /Cornell Note requires a configured provider\/model/u);
+	assert.throws(() => pinRunModelSelection({}), /Note Agent requires a configured provider\/model/u);
 	for (const role of ["cornellNote", "primeRoot", "primeChild"]) {
 		assert.equal(roleConsumer(await readConfig(), role).source, "unset");
 	}

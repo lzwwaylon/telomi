@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { writeTaskContext } from "./task-context.js";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -17,11 +18,11 @@ import type { ResearchRuntimeConfig } from "./research-types.js";
 import { AgentStageExecutionError, type AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import {
-	buildCornellNoteAgentSystemPrompt,
-	buildCornellNoteAgentUserPrompt,
-	renderCornellNoteAgentSystemPrompt,
-	renderCornellNoteAgentUserPrompt,
-} from "./pipeline/cornell-note-agent-prompt.js";
+	buildNoteAgentSystemPrompt,
+	buildNoteAgentUserPrompt,
+	renderNoteAgentSystemPrompt,
+	renderNoteAgentUserPrompt,
+} from "./pipeline/note-agent-prompt.js";
 import { mapConcurrentFairly } from "../lib/fair-concurrency.js";
 import { caseCapture } from "../observability/case-capture.js";
 import { cornellNoteArtifactPath, RuntimeCornellNotesMaterializer } from "./pipeline/cornell-notes.js";
@@ -32,7 +33,7 @@ import { goalTopicReferences, type GoalTopicPlan } from "../goals/topic-plan/ind
 import { toErrorMessage } from "../lib/values.js";
 import { safeName } from "../lib/paths.js";
 
-export function cornellNoteAgentToolNames(): string[] {
+export function noteAgentToolNames(): string[] {
 	const config = loadAgentPromptConfig("research", "cornell-note");
 	if (config.sandbox?.role !== "report.cornell_note"
 		|| config.sandbox.executionProfile !== "prime_ipython"
@@ -43,7 +44,7 @@ export function cornellNoteAgentToolNames(): string[] {
 	return [...config.sandbox.tools];
 }
 
-export function cornellNoteAgentContractIdentity(): {
+export function noteAgentContractIdentity(): {
 	id: "research-cornell-note";
 	version: "13";
 	sha256: string;
@@ -56,8 +57,8 @@ export function cornellNoteAgentContractIdentity(): {
 		sha256: sha256(JSON.stringify({
 			id,
 			version,
-			system_prompt: buildCornellNoteAgentSystemPrompt(),
-			user_prompt: buildCornellNoteAgentUserPrompt({
+			system_prompt: buildNoteAgentSystemPrompt(),
+			user_prompt: buildNoteAgentUserPrompt({
 				question: "<question>",
 				goal: { title: "<goal>", description: "<description>" },
 				discoveryEnabled: true,
@@ -65,7 +66,7 @@ export function cornellNoteAgentContractIdentity(): {
 			output: "Cornell Note",
 			execution_profile: "prime_ipython",
 			thinking: "medium",
-			tools: cornellNoteAgentToolNames(),
+			tools: noteAgentToolNames(),
 		})),
 	};
 }
@@ -75,14 +76,14 @@ export function cornellNoteAgentContractIdentity(): {
  * Cornell Note 的生产构造入口。Research Run 与 Cornell Note 的节点 Evaluation 都从这里取
  * Materializer，两边因此拿到同一套 Skill 上下文与同一份 Python Skill 环境。
  */
-export async function createProductionCornellNoteProcessor(input: {
+export async function createProductionNoteAgentProcessor(input: {
 	harness: ResearchHarnessSnapshot;
 	config: ResearchRuntimeConfig;
 	stageRunner: AgentStageRunner;
 	dataDir: string;
 	env: Record<string, string | undefined>;
 	skillWorkspaceDirectory: string;
-}): Promise<RuntimeCornellNoteAgentProcessor> {
+}): Promise<RuntimeNoteAgentProcessor> {
 	const snapshot = input.harness.agentSkills["cornell-note"];
 	const bindings = await Promise.all(snapshot.skills.map(async (asset) => {
 		const hostPath = join(input.skillWorkspaceDirectory, "cornell-note", asset.name);
@@ -93,20 +94,20 @@ export async function createProductionCornellNoteProcessor(input: {
 			pythonPaths: python?.pythonPaths ?? [],
 		};
 	}));
-	return new RuntimeCornellNoteAgentProcessor(
+	return new RuntimeNoteAgentProcessor(
 		input.config,
 		input.stageRunner,
 		bindings,
 	);
 }
 
-export async function createProductionCornellNotesMaterializer(
-	input: Parameters<typeof createProductionCornellNoteProcessor>[0],
+export async function createProductionNoteMaterializer(
+	input: Parameters<typeof createProductionNoteAgentProcessor>[0],
 ): Promise<RuntimeCornellNotesMaterializer> {
-	return new RuntimeCornellNotesMaterializer(await createProductionCornellNoteProcessor(input));
+	return new RuntimeCornellNotesMaterializer(await createProductionNoteAgentProcessor(input));
 }
 
-export class RuntimeCornellNoteAgentProcessor implements CornellNoteProcessor {
+export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
 	constructor(
 		private readonly config: ResearchRuntimeConfig,
 		private readonly stageRunner: AgentStageRunner,
@@ -152,6 +153,8 @@ export class RuntimeCornellNoteAgentProcessor implements CornellNoteProcessor {
 		const sourceView = materializeAgentSourceView(document.directoryPath, join(workRoot, "source"), document);
 		const sourceDirectory = sourceView.directoryPath;
 		const sourceFiles = sourceView.contentFiles;
+		const inputRoot = join(workRoot, "inputs");
+		writeTaskContext(inputRoot, input.noteFocus ?? "");
 		const artifactStore = input.artifactStore ?? new RunArtifactStore(input.workspaceDir);
 		const request = {
 			question: input.question,
@@ -161,8 +164,8 @@ export class RuntimeCornellNoteAgentProcessor implements CornellNoteProcessor {
 			...(input.noteFocus ? { noteFocus: input.noteFocus } : {}),
 			...(document.updateContext ? { sourceUpdate: document.updateContext } : {}),
 		};
-		const systemPrompt = renderCornellNoteAgentSystemPrompt();
-		const userPrompt = renderCornellNoteAgentUserPrompt(request);
+		const systemPrompt = renderNoteAgentSystemPrompt();
+		const userPrompt = renderNoteAgentUserPrompt(request);
 		const runner = caseCapture()?.cornellNote?.(this.stageRunner, {
 			...request, document: { id: document.id, title: document.title, url: document.url, provider: document.providerId },
 		}, this.skills) ?? this.stageRunner;
@@ -191,6 +194,7 @@ export class RuntimeCornellNoteAgentProcessor implements CornellNoteProcessor {
 			workDirectory: workRoot,
 			readonlyMounts: [
 				{ hostPath: sourceDirectory, guestPath: "/source", access: "read-only" },
+				{ hostPath: inputRoot, guestPath: "/inputs", access: "read-only" },
 				...this.skills.map((skill, skillIndex) => ({
 					hostPath: skill.hostPath,
 					guestPath: `/skills/${String(skillIndex + 1).padStart(3, "0")}-${safeName(skill.workspaceRelativePath, { maxLength: 100, fallback: "source" })}`,

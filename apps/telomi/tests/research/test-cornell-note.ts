@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 import { sha256 } from "../../server/lib/hash.js";
 import {
-	RuntimeCornellNoteAgentProcessor,
+	RuntimeNoteAgentProcessor,
 	validateCornellNote,
-} from "../../server/research/cornell-note-agent.js";
+} from "../../server/research/note-agent.js";
 import type {
 	AgentStageRequest,
 	AgentStageRunner,
@@ -232,7 +232,7 @@ try {
 		},
 	};
 	const runRoot = join(root, "run");
-	const processor = new RuntimeCornellNoteAgentProcessor({
+	const processor = new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 1,
 		cornellNoteModel: "openai-codex/test", cornellNoteThinkingLevel: "medium",
@@ -274,7 +274,7 @@ try {
 			return stageRunner.runStage(request);
 		},
 	};
-	const isolated = await new RuntimeCornellNoteAgentProcessor({
+	const isolated = await new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 2,
 		cornellNoteModel: "openai-codex/test", cornellNoteThinkingLevel: "medium",
@@ -303,7 +303,7 @@ try {
 	assert.deepEqual(isolated.notes.map((item) => item.source.id), ["source:one", "source:two"]);
 	assert.deepEqual(isolated.failures.map((item) => [item.source.id, item.message]),
 		[["source:broken", "invalid Cornell section"]]);
-	await assert.rejects(new RuntimeCornellNoteAgentProcessor({
+	await assert.rejects(new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 1,
 		cornellNoteModel: "openai-codex/test", cornellNoteThinkingLevel: "medium",

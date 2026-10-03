@@ -2,13 +2,13 @@ import { renderAgentPrompt, type RenderedAgentPrompt } from "../../agent-runtime
 import type { ScheduledResearchContext } from "../scheduled-research-context.js";
 import { goalTopicReferences, type GoalTopicPlan } from "../../goals/topic-plan/index.js";
 
-export function buildCornellNoteAgentSystemPrompt(
+export function buildNoteAgentSystemPrompt(
 	scheduledResearch?: ScheduledResearchContext,
 ): string {
-	return renderCornellNoteAgentSystemPrompt(scheduledResearch).content;
+	return renderNoteAgentSystemPrompt(scheduledResearch).content;
 }
 
-export function renderCornellNoteAgentSystemPrompt(
+export function renderNoteAgentSystemPrompt(
 	_scheduledResearch?: ScheduledResearchContext,
 	variant: "default" | "deep-search" = "default",
 ): RenderedAgentPrompt {
@@ -17,15 +17,15 @@ export function renderCornellNoteAgentSystemPrompt(
 	return { ...scope, content: `${scope.content}\n\n${quality.content}` };
 }
 
-export function buildCornellNoteAgentUserPrompt(
-	request: CornellPromptRequest,
+export function buildNoteAgentUserPrompt(
+	request: NoteAgentPromptRequest,
 	scheduledResearch?: ScheduledResearchContext,
 ): string {
-	return renderCornellNoteAgentUserPrompt(request, scheduledResearch).content;
+	return renderNoteAgentUserPrompt(request, scheduledResearch).content;
 }
 
-export function renderCornellNoteAgentUserPrompt(
-	request: CornellPromptRequest,
+export function renderNoteAgentUserPrompt(
+	request: NoteAgentPromptRequest,
 	_scheduledResearch?: ScheduledResearchContext,
 ): RenderedAgentPrompt {
 	return renderAgentPrompt("research", "cornell-note", "user", {
@@ -39,7 +39,7 @@ export function renderCornellNoteAgentUserPrompt(
 	});
 }
 
-interface CornellPromptRequest {
+interface NoteAgentPromptRequest {
 	question: string;
 	goal: { title: string; description: string };
 	discoveryEnabled: boolean;
@@ -49,7 +49,7 @@ interface CornellPromptRequest {
 	sourceUpdate?: { newMemberPaths: string[]; changedMemberPaths: string[] };
 }
 
-export function renderPrimeCornellNoteUserPrompt(taskPrompt: string, variant: "prime-execution" | "deep-search" = "prime-execution"): string {
+export function renderPrimeNoteAgentUserPrompt(taskPrompt: string, variant: "prime-execution" | "deep-search" = "prime-execution"): string {
 	return renderAgentPrompt("research", "cornell-note", "user", {
 		task_prompt: taskPrompt,
 	}, variant).content;
@@ -68,7 +68,7 @@ function renderTopicPlan(plan: GoalTopicPlan): string {
 	].join("\n");
 }
 
-function renderSourceUpdate(update: NonNullable<CornellPromptRequest["sourceUpdate"]>): string {
+function renderSourceUpdate(update: NonNullable<NoteAgentPromptRequest["sourceUpdate"]>): string {
 	return [
 		...(update.newMemberPaths.length ? [`New member paths: ${update.newMemberPaths.join(" | ")}`] : []),
 		...(update.changedMemberPaths.length ? [`Changed member paths: ${update.changedMemberPaths.join(" | ")}`] : []),

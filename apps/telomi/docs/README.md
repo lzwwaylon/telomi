@@ -30,7 +30,7 @@ Technical documentation is maintained in English. User guides have English and S
 | Task | Document |
 |---|---|
 | Modify the search, evidence, report, or asynchronous Wiki pipeline | [Research Runtime](research.md) |
-| Modify Source reading or Cornell Note inputs and outputs | [Cornell Note Agent](cornell-note-agent.md) |
+| Modify Source reading or Cornell Note inputs and outputs | [Note Agent](note-agent.md) |
 | Modify Case Capture, Replay Recipes, or Operations contracts | [Node Evaluation](node-agent-backtest.md) |
 | Modify Source document parsing and normalization | [Document Parsing Runtime](document-parsing-runtime.md) |
 | Modify Source registration, connection status, Provider services, caches, or document parsing APIs | [Research Source Service](../services/research-source-service/README.md) |

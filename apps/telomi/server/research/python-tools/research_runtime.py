@@ -187,16 +187,20 @@ def knowledge_search(query: str, *, limit: int = 10) -> dict[str, Any]:
     })
 
 
-def deep_search(question: str) -> dict[str, Any]:
-    """Ask Cornell to read originals and return a receipt for its verified Cue Notes."""
+def read_sources(question: str) -> dict[str, Any]:
+    """Ask the Note Agent to read original Sources and return its verified Cue Notes."""
     if execution_id() != "root":
-        raise ValueError("deep_search is available only to the Search Root")
+        raise ValueError("read_sources is available only to the Search Root")
     if not isinstance(question, str) or not question.strip():
         raise ValueError("question is required")
     return _post("/v1/deep-search", {
         "agent_session_id": "root",
         "question": question.strip(),
     })
+
+
+# Historical Sessions and Cases retain the old callable and transport names.
+deep_search = read_sources
 
 
 def external_search(question: str) -> dict[str, Any]:

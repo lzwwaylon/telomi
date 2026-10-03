@@ -875,7 +875,7 @@ try {
 		time: { started_at: "2026-07-31T09:00:00.000Z", finished_at: "2026-07-31T09:04:00.000Z", duration_ms: 240_000 },
 	});
 	const resumedSteps = service.getGoal(goalId).liveActivities.find((item) => item.activityId === `research:${liveRunId}`)?.steps ?? [];
-	assert.deepEqual(resumedSteps.filter((step) => text(step.title) === "Cornell Note").map((step) => step.executionRound), [1, 2],
+	assert.deepEqual(resumedSteps.filter((step) => text(step.title) === "Note Agent").map((step) => step.executionRound), [1, 2],
 		"same Agent retried after Run resume must not swallow the historical execution");
 
 	assert.equal(resumedSteps.find((step) => text(step.title) === "完成本次研究")?.executionRound, 2,

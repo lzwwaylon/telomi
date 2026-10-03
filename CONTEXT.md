@@ -322,13 +322,17 @@ _Avoid_: topic cluster, model family umbrella, dependency group, Logical Source 
 A question-processing input that immutably snapshots the current revision of one Canonical Source Group or one justified ungrouped Source Snapshot.
 _Avoid_: Provider result, Source Bundle, Cornell Note
 
-**Cornell Reading**:
-One question-scoped interpretation of one Logical Source revision produced by a Cornell Note Agent; a later question may require a new Reading of unchanged Source evidence.
+**Note Reading**:
+One question-scoped interpretation of pinned original Source evidence produced by the Note Agent; a later question may require a new Reading of unchanged evidence.
 _Avoid_: Source Snapshot summary, reusable final answer, Wiki Page
 
-**Cornell Note Agent**:
-The fresh Prime Agent that reads one complete Logical Source and records question-relevant Sections, Cue Notes, and exact Source line references.
-_Avoid_: global answer writer, relevance grader, Wiki Maintainer
+**Note Agent**:
+The evidence-reading Agent that produces Cornell Notes either from one complete Logical Source or from pinned original Sources for a specific unresolved question. Both reading modes preserve exact original Source line references.
+_Avoid_: separate Deep Search Agent, global answer writer, relevance grader, Wiki Maintainer
+
+**Note Retrieval**:
+Deterministic lookup and resolution of saved Cue Notes with their evidence provenance; it locates existing evidence without performing a new Note Reading.
+_Avoid_: Note Agent execution, original Source reading, new evidence acquisition
 
 **Cornell Note Snapshot**:
 The immutable cumulative set of Runtime-validated Cornell Notes for one Run revision.
