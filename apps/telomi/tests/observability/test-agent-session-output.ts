@@ -33,7 +33,7 @@ try {
 		{ path: "report_writer--writer-a-child-01.jsonl", label: "Section child" },
 	] });
 	const archived = projection.readOutput("goal-a", writerRef)!;
-	assert.match(JSON.stringify(archived), /REPORT CHILD/, "Reporter must expose its preserved Section child trace");
+	assert.match(JSON.stringify(archived), /REPORT CHILD/, "Report Writer Root must expose its preserved Section child trace");
 	assert.doesNotMatch(JSON.stringify(archived), /UNRELATED/);
 
 	write(join(control, "prime-search-traces/starting/acquisition-session/session/root.jsonl"), { type: "session", id: "starting" });
@@ -61,7 +61,7 @@ try {
 	assert.deepEqual(wiki.lines.map((line) => line.text), ["输出\nENTITY TRACE", "输出\nCONCEPT TRACE", "输出\nWIKI CHILD TRACE"]);
 	assert.equal(new Set(wiki.lines.map((line) => line.ref)).size, 3);
 
-	// Live Reporter has no archived Root yet; its adjacent sidecar points at native SDK directories.
+	// Live Report Writer Root has no archived Root yet; its adjacent sidecar points at native SDK directories.
 	const liveRef = projection.registerOutput({ kind: "recorded-agent", goalId: "goal-a", runId: "run-a", runDirectory: control,
 		agent: "report_writer", executionId: "live", sessionFile: "report_writer--live.jsonl", lifecycle: "running" });
 	write(join(control, "report_writer--live.jsonl.sessions.json"), { schemaVersion: 1, sessions: [{ path: "work/session-artifacts", label: "Section child" }] });

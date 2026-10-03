@@ -36,8 +36,8 @@ assert.equal(render(stageTitle("writer-report")), "Write the report");
 assert.equal(render(stageTitle("report_writer")), "Write the report");
 assert.equal(render(stageTitle("prime-search-batch-2")), "Prime Search batch 2");
 assert.equal(render(stageTitle("search-batch-3")), "Prime Search batch 3");
-assert.equal(render(stageTitle("cornell-note-0046-source_fd0013")), "Cornell Note 0046 · source_fd0013");
-assert.equal(render(stageTitle("cornell-note")), "Cornell Note");
+assert.equal(render(stageTitle("note-agent-0046-source_fd0013")), "Note Agent 0046 · source_fd0013");
+assert.equal(render(stageTitle("note-agent")), "Note Agent");
 assert.equal(render(stageTitle("evidence-screening-source-a")), "Internal step");
 await zh();
 assert.equal(render(stageTitle("input-resolution")), "准备研究输入");
@@ -129,7 +129,7 @@ const topicPlan = {
 	status: "active" as const,
 	topics: [{ id: "focus", title: "Focus", intent: "Track the Goal focus", questions: [], include: [], exclude: [] }],
 };
-const startJob = (wikiUpdateId: string, attempts = 1, compiler?: "note-first") => {
+const startJob = (wikiUpdateId: string, attempts = 1, compiler?: "wiki-compilation") => {
 	const controlDirectory = wikiUpdateRecordDir(workspaceDir, goalId, wikiUpdateId);
 	mkdirSync(controlDirectory, { recursive: true });
 	const jobs = new WikiUpdateJobStore(controlDirectory);
@@ -148,8 +148,8 @@ const startJob = (wikiUpdateId: string, attempts = 1, compiler?: "note-first") =
 	return { controlDirectory, jobs };
 };
 const interrupted = startJob("wiki_interrupted");
-const failedNoteFirst = startJob("wiki_failed_note_first", 1, "note-first");
-failedNoteFirst.jobs.settle("failed", { message: "A Note failed; successful checkpoints are retained" });
+const failedWikiStage = startJob("wiki_failed_note_first", 1, "wiki-compilation");
+failedWikiStage.jobs.settle("failed", { message: "A Note failed; successful checkpoints are retained" });
 interrupted.jobs.markInterrupted(new Date("2026-09-16T12:10:00.000Z"));
 const partial = startJob("wiki_partial");
 partial.jobs.settle("partial", {
@@ -176,9 +176,9 @@ const wikiItems = new WikiActivityProjection({ workspaceDir }, new Observability
 	.project(goalId)[0]!.items;
 const interruptedItem = wikiItems.find((item) => item.sourceRef === "wiki-update:wiki_interrupted")!;
 const partialItem = wikiItems.find((item) => item.sourceRef === "wiki-update:wiki_partial")!;
-const failedNoteFirstItem = wikiItems.find((item) => item.sourceRef === "wiki-update:wiki_failed_note_first")!;
-assert.equal(failedNoteFirstItem.attention?.actions[0]?.enabled, true, "Failed Note-first Updates expose their supported resume action");
-assert.equal(failedNoteFirstItem.resultLinks?.length, 0, "An unpublished candidate does not claim a new Wiki result");
+const failedWikiStageItem = wikiItems.find((item) => item.sourceRef === "wiki-update:wiki_failed_note_first")!;
+assert.equal(failedWikiStageItem.attention?.actions[0]?.enabled, true, "Failed Wiki compilation Updates expose their supported resume action");
+assert.equal(failedWikiStageItem.resultLinks?.length, 0, "An unpublished candidate does not claim a new Wiki result");
 await en();
 assert.equal(assertRendered(interruptedItem.title, "wiki title"), "Update Goal Wiki");
 assert.equal(
@@ -234,7 +234,7 @@ const agent = (id: string, name: string): AgentActivity => ({
 });
 const step = (id: string, activity: AgentActivity): ActivityStep => ({
 	stepId: id,
-	title: stageTitle("cornell-note-1-source_a"),
+	title: stageTitle("note-agent-1-source_a"),
 	summary: chrome("activityChrome.usage.modelCalls", { count: 2 }),
 	lifecycle: "finished",
 	outcome: "succeeded",
@@ -244,18 +244,18 @@ const step = (id: string, activity: AgentActivity): ActivityStep => ({
 	agentActivities: [activity],
 });
 const groups = groupActivitySteps([
-	step("note:a", agent("cornell:a", "cornell_note")),
+	step("note:a", agent("cornell:a", "note_agent")),
 	step("wiki-batch:1", agent("wiki:1", "wiki_maintainer")),
 ]);
 const pools = groups.flatMap((group) => group.entries.flatMap((entry) => entry.kind === "worker-pool" ? [entry] : []));
 assert.equal(pools.length, 2);
 await en();
 assert.deepEqual(groups.map((group) => render(group.label)), ["Execution phase", "SHARD organization"]);
-assert.deepEqual(pools.map((pool) => render(pool.label)), ["Cornell Note", "Wiki workers"]);
-assert.equal(render(pools[0]!.workers[0]!.title), "Cornell Note 1 · source_a");
+assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki workers"]);
+assert.equal(render(pools[0]!.workers[0]!.title), "Note Agent 1 · source_a");
 await zh();
 assert.deepEqual(groups.map((group) => render(group.label)), ["执行阶段", "SHARD 整理"]);
-assert.deepEqual(pools.map((pool) => render(pool.label)), ["Cornell Note", "Wiki Worker"]);
+assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki Worker"]);
 
 // A failed Stage says why on the Stage itself; a Provider's HTTP error reads as its status and its
 // own words in either locale, and Stages the failure was relayed to do not repeat it.

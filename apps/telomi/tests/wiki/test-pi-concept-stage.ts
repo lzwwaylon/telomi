@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { piConceptUserContext } from '../../server/wiki/pi-concept-stage.js';
 import { acceptPiFiles } from '../../server/wiki/pi-file-stage.js';
-import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
+import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
 
-const input: NoteFirstInput = { stage: 'plan-concepts', key: 'plan', language: 'en',
+const input: WikiStageInput = { stage: 'plan-concepts', key: 'plan', language: 'en',
  goal: { title: 'Mechanisms', description: 'Understand their limits' }, entries: [],
  pages: [
   { ref: 'object:internal', previous: false, role: 'context', page: { id: 'entity:internal', kind: 'entity', title: 'Method', description: 'Mechanism', body: 'Private body' } },
   { ref: 'old:internal', previous: true, role: 'context', page: { id: 'concept:internal', kind: 'concept', title: 'Existing explanation', description: 'Boundary', body: 'Private old body' } },
  ], requiredEntries: [], requiredPages: ['object:internal'], previousRelations: [], instructions: '', topics: [], sections: [] };
-const context = (value: NoteFirstInput) => {
+const context = (value: WikiStageInput) => {
  const text = piConceptUserContext(value);
  const data = JSON.parse(text.split('\n\n## Complete page catalog\n')[0]!);
  assert(!text.includes('internal'), 'Durable identities stay private');

@@ -26,7 +26,7 @@ Utility Agents provide supporting semantic capabilities to the main workflows. T
 - Model Connectivity Test verifies only a minimal call to the target model, not availability of the full Agent toolchain.
 - Voice Cleanup must not change user intent; callers fall back to the original transcript on failure.
 - Podcast Writer does not perform Research or search User Memory. It consumes only the generated report and a Brief resolved by the caller.
-- Podcast Root edits existing text to own the opening, transitions, and single ending; an extra closing segment is not required. Style comes from the Podcast Generation Brief resolved by the caller from User Memory and the current instruction. The listener cold read examines both script and Brief and offers editorial advice; it does not independently decide information density, technical depth, or publication acceptance. Root verifies the advice before revising, preserving factual qualifications and necessary conditions.
+- Podcast Writer Root edits existing text to own the opening, transitions, and single ending; an extra closing segment is not required. Style comes from the Podcast Generation Brief resolved by the caller from User Memory and the current instruction. The listener cold read examines both script and Brief and offers editorial advice; it does not independently decide information density, technical depth, or publication acceptance. Root verifies the advice before revising, preserving factual qualifications and necessary conditions.
 - LiveKit Agent does not duplicate Main Agent reasoning or tools. `PiGoalLiveKitLLM` is only a streaming Goal adapter.
 
 ## Verification

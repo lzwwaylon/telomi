@@ -193,7 +193,7 @@ try {
 			type: "runtime.agent_bound",
 			stage_id: `cornell-note-29-${executionId}`,
 			execution_id: executionId,
-			agent: "cornell_note",
+			agent: "note_agent",
 			session_file: basename(session),
 			created_at: startedAt,
 		});
@@ -202,9 +202,9 @@ try {
 	// A later Worker joining the pool is fresh Run activity that says nothing about the quiet one.
 	appendRuntimeContext(runDir, "research", {
 		type: "runtime.agent_bound",
-		stage_id: "cornell-note-30-note-late",
+		stage_id: "note-agent-30-note-late",
 		execution_id: "note-late",
-		agent: "cornell_note",
+		agent: "note_agent",
 		created_at: busyAt,
 	});
 

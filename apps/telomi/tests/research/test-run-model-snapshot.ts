@@ -117,14 +117,14 @@ function roleConsumer(config: ConfigResponse, id: string) {
 
 try {
 	// Nothing is configured yet: no role runs on a model nobody chose.
-	assert.throws(() => pinRunModelSelection({}), /Cornell Note requires a configured provider\/model/u);
-	for (const role of ["cornellNote", "primeRoot", "primeChild"]) {
+	assert.throws(() => pinRunModelSelection({}), /Note Agent requires a configured provider\/model/u);
+	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
 		assert.equal(roleConsumer(await readConfig(), role).source, "unset");
 	}
 
 	await applyDefault("small-1");
 	const applied = await readConfig();
-	for (const role of ["cornellNote", "primeRoot", "primeChild"]) {
+	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
 		const consumer = roleConsumer(applied, role);
 		assert.equal(consumer.effectiveModel, "telomi-test/small-1", `${role} inherits the applied default`);
 		assert.equal(consumer.source, "settings");
@@ -133,14 +133,14 @@ try {
 	}
 	// With no explicit choice a Run Stage follows the activated capability default, and the page
 	// reports that as its source rather than presenting a value the code fixed.
-	assert.deepEqual(roleConsumer(applied, "cornellNote").stages, [
-		{ key: "cornellNote.evidenceNote", label: "证据笔记", thinkingLevel: "low", source: "settings" },
+	assert.deepEqual(roleConsumer(applied, "noteAgent").stages, [
+		{ key: "noteAgent.evidenceNote", label: "证据笔记", thinkingLevel: "low", source: "settings" },
 	]);
 	assert.deepEqual(roleConsumer(applied, "primeRoot").stages.map((stage) => stage.key),
 		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.scheduleReview", "primeRoot.reportWriter"]);
 
 	assert.deepEqual(roleConsumer(applied, "primeChild").stages.map((stage) => stage.key),
-		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.reportWriter", "wikiMaintainer.maintenance"]);
+		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.reportWriter", "wikiCurator.maintenance"]);
 
 	// A Stage the user chose a depth for keeps it, and restoring inheritance follows the default again.
 	assert.equal((await patchConfig({ stageThinkingLevels: { "primeRoot.reportWriter": "xhigh" } })).status, 200);
@@ -156,9 +156,9 @@ try {
 	const runEnv = freezeRunModelSelection({}, join(root, "pinned-run"));
 	// Independent roles must not expand the persisted ticket03 Research Run snapshot contract.
 	assert.deepEqual(Object.keys(runModelSelection(runEnv).stageThinkingLevels).sort(),
-		["cornellNote.evidenceNote", "primeRoot.reportWriter", "primeRoot.searchAcquisition"]);
+		["noteAgent.evidenceNote", "primeRoot.reportWriter", "primeRoot.searchAcquisition"]);
 	assert.deepEqual(runModelSelection(runEnv).models, {
-		cornellNote: "telomi-test/small-1",
+		noteAgent: "telomi-test/small-1",
 		primeRoot: "telomi-test/small-1",
 		primeChild: "telomi-test/small-1",
 	});
@@ -166,17 +166,17 @@ try {
 	await applyDefault("large-1", "high");
 
 	// Every later Stage and descendant of that Run still resolves the selection it started with.
-	assert.equal(researchConfigFromEnv(runEnv).cornellNoteModel, "telomi-test/small-1");
+	assert.equal(researchConfigFromEnv(runEnv).noteAgentModel, "telomi-test/small-1");
 	assert.equal(resolvePrimeAgentModels(runEnv).root.selector, "telomi-test/small-1");
 	assert.equal(resolvePrimeAgentModels(runEnv).child.selector, "telomi-test/small-1");
 	assert.equal(primeSearchBatchContractIdentity(runEnv).rootModel, "telomi-test/small-1");
 	assert.equal(primeSearchBatchContractIdentity(runEnv).childModel, "telomi-test/small-1");
 	assert.equal(primeReportWriterStageModelPolicy(runEnv).preferred[0], "telomi-test/small-1");
 	// Parameters freeze with the model: the Run keeps the depth it started with as well.
-	assert.equal(researchConfigFromEnv(runEnv).cornellNoteThinkingLevel, "low");
+	assert.equal(researchConfigFromEnv(runEnv).noteAgentThinkingLevel, "low");
 	assert.equal(primeReportWriterStageModelPolicy(runEnv).reasoning, "low");
 	assert.deepEqual(runModelSelection(runEnv).stageThinkingLevels, {
-		"cornellNote.evidenceNote": "low",
+		"noteAgent.evidenceNote": "low",
 		"primeRoot.searchAcquisition": "low",
 		"primeRoot.reportWriter": "low",
 	});
@@ -195,15 +195,15 @@ try {
 
 	// An explicit role override outranks the default and is reported as such, and restoring
 	// inheritance makes the role follow later default changes again.
-	assert.equal((await patchConfig({ taskModels: { cornellNote: "telomi-test/small-1" } })).status, 200);
-	const overridden = roleConsumer(await readConfig(), "cornellNote");
+	assert.equal((await patchConfig({ taskModels: { noteAgent: "telomi-test/small-1" } })).status, 200);
+	const overridden = roleConsumer(await readConfig(), "noteAgent");
 	assert.equal(overridden.effectiveModel, "telomi-test/small-1");
 	assert.equal(overridden.source, "override");
 	assert.deepEqual(overridden.overrides.map((entry) => entry.model), ["telomi-test/small-1"]);
-	assert.equal(runModelSelection(pinRunModelSelection({})).models.cornellNote, "telomi-test/small-1");
+	assert.equal(runModelSelection(pinRunModelSelection({})).models.noteAgent, "telomi-test/small-1");
 	assert.equal((await patchConfig({ taskModels: {} })).status, 200);
-	assert.equal(roleConsumer(await readConfig(), "cornellNote").source, "settings");
-	assert.equal(runModelSelection(pinRunModelSelection({})).models.cornellNote, "telomi-test/large-1");
+	assert.equal(roleConsumer(await readConfig(), "noteAgent").source, "settings");
+	assert.equal(runModelSelection(pinRunModelSelection({})).models.noteAgent, "telomi-test/large-1");
 
 	// An executing Run keeps its selection, and the entry point says so instead of reporting
 	// that every consumer has adopted the change.
@@ -252,7 +252,7 @@ try {
 	await reachedSearch.promise;
 
 	const duringRun = await readConfig();
-	for (const role of ["cornellNote", "primeRoot", "primeChild"]) {
+	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
 		const consumer = roleConsumer(duringRun, role);
 		assert.equal(consumer.effectiveModel, "telomi-test/large-1");
 		assert.equal(consumer.status, "active", `${role} is executing on the configuration in effect`);
@@ -263,12 +263,12 @@ try {
 	const models = JSON.parse(readFileSync(modelsPath, "utf8"));
 	models.providers["telomi-test"].baseUrl = "http://127.0.0.1:8/v1";
 	writeFileSync(modelsPath, JSON.stringify(models));
-	for (const role of ["cornellNote", "primeRoot", "primeChild"]) {
+	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
 		assert.equal(roleConsumer(await readConfig(), role).status, "pending");
 	}
 	await applyDefault("small-1");
 	const afterChange = await readConfig();
-	for (const role of ["cornellNote", "primeRoot", "primeChild"]) {
+	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
 		const consumer = roleConsumer(afterChange, role);
 		assert.equal(consumer.effectiveModel, "telomi-test/small-1", `${role} reports the new default`);
 		assert.equal(consumer.status, "pending", `${role} has a Run still on its own selection`);
@@ -278,7 +278,7 @@ try {
 	releaseSearch.resolve();
 	await Promise.all([executing, other]);
 	const afterRun = await readConfig();
-	for (const role of ["cornellNote", "primeRoot", "primeChild"]) {
+	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
 		assert.equal(roleConsumer(afterRun, role).status, "active", `${role} has no Run left to adopt the change`);
 		assert.equal(roleConsumer(afterRun, role).pendingCount, 0);
 	}

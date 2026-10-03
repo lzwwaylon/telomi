@@ -10,8 +10,8 @@ import { scrubResearchModelError } from '../agent-runtime/models/error-classifie
 import { listJsonl, writeJsonAtomic } from '../lib/fs.js';
 import { hashJson, sha256 } from '../lib/hash.js';
 import { toErrorMessage } from '../lib/values.js';
-import { noteFirstOutputHash, noteFirstTraceUsage, readNoteFirstOutput } from './note-first-stage.js';
-import type { NoteFirstOutcome, NoteFirstResult, NoteFirstStageRequest } from './note-first-contract.js';
+import { wikiStageOutputHash, wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
+import type { WikiStageOutcome, WikiStageResult, WikiStageRequest } from './wiki-stage-contract.js';
 
 const thinking = 'medium';
 const fileTools = ['read', 'write', 'edit'] as const;
@@ -29,7 +29,7 @@ interface PiFileStageOptions {
  prepare(inputRoot: string): void;
  readonlyMounts(inputRoot: string): SrtAgentSandboxOptions['readonlyMounts'];
  observeRead?(inputRoot: string, runtime: string, parameters: PiReadParameters, result: PiReadResult): void;
- validate(inputRoot: string, work: string, runtime: string): NoteFirstResult;
+ validate(inputRoot: string, work: string, runtime: string): WikiStageResult;
  maxAttempts?: number;
 }
 
@@ -42,18 +42,18 @@ function piSessionPaths(root: string): string[] {
 function acceptedArtifactHash(runtime: string): string {
  const sourcePath = join(runtime, 'source-hashes.json');
  if (existsSync(sourcePath)) {
-  const sources = JSON.parse(readNoteFirstOutput(sourcePath).toString('utf8')) as Array<{ path: string; sha256: string }>;
-  for (const source of sources) if (sha256(readNoteFirstOutput(source.path)) !== source.sha256) throw new Error('Accepted Pi source changed');
+  const sources = JSON.parse(readWikiStageOutput(sourcePath).toString('utf8')) as Array<{ path: string; sha256: string }>;
+  for (const source of sources) if (sha256(readWikiStageOutput(source.path)) !== source.sha256) throw new Error('Accepted Pi source changed');
  }
  return hashJson(['input.json', 'receipts.json', 'read-coverage.json', 'complete-page-reads.json', 'source-hashes.json']
   .filter(file => existsSync(join(runtime, file)))
-  .map(file => ({ file, sha256: sha256(readNoteFirstOutput(join(runtime, file))) })));
+  .map(file => ({ file, sha256: sha256(readWikiStageOutput(join(runtime, file))) })));
 }
 
 export async function acceptPiFiles(
- promptTurn: (prompt: string, repair: boolean) => Promise<void>, validate: () => NoteFirstResult,
+ promptTurn: (prompt: string, repair: boolean) => Promise<void>, validate: () => WikiStageResult,
  initialPrompt: string, onRejected: (turn: number, error: string) => void, maxAttempts = 2,
-): Promise<NoteFirstResult> {
+): Promise<WikiStageResult> {
  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 3) throw new Error('Pi file stages allow 1 to 3 validation attempts');
  let lastError = '';
  for (let turn = 0; turn < maxAttempts; turn++) {
@@ -69,33 +69,33 @@ export async function acceptPiFiles(
 }
 
 /** Native SDK execution shared by object and concept file stages. */
-export async function runPiFileStage(request: NoteFirstStageRequest, options: PiFileStageOptions): Promise<NoteFirstOutcome> {
+export async function runPiFileStage(request: WikiStageRequest, options: PiFileStageOptions): Promise<WikiStageOutcome> {
  request.signal.throwIfAborted();
  mkdirSync(request.workRoot, { recursive: true });
  const { modelId, user } = options;
  const tools = options.grepRoot ? [...fileTools, 'grep' as const] : fileTools;
- const prompt = renderAgentPrompt('wiki', 'note-first', 'system', {}, options.promptVariant);
- const prefix = options.referenceVariant ? renderAgentPrompt('wiki', 'note-first', 'reference', {}, options.referenceVariant).content + '\n' : '';
+ const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, options.promptVariant);
+ const prefix = options.referenceVariant ? renderAgentPrompt('wiki', 'wiki-compilation', 'reference', {}, options.referenceVariant).content + '\n' : '';
  const systemPrompt = prefix + prompt.content + (options.grepRoot
   ? `\nNative grep is also available for discovering relevant passages in ${options.grepRoot}. Search exact terms or patterns when catalog summaries leave uncertainty. Search matches do not establish complete reading: use native read on selected pages, and retain all existing full-read requirements. No outside material or other tools are available.\n`
   : '');
  const identity = hashJson({ input: request.input, user, systemPrompt, registration: prompt.configSha256,
   model: modelId, thinking, tools, role: options.role, executionMode: options.executionMode,
   maxAttempts: options.maxAttempts ?? 2, definitions: primeModelDefinitions(request.env),
-  code: [...options.codeFiles, './pi-file-stage.ts', './note-first-stage.ts', './note-first-workspace.ts',
+  code: [...options.codeFiles, './pi-file-stage.ts', './wiki-stage.ts', './wiki-stage-workspace.ts',
    '../agent-runtime/srt-agent-sandbox.ts', '../../../extensions/telomi-srt/sandbox-spec.ts',
    '../../../extensions/telomi-srt/tool-operations.ts'].map(file => sha256(readFileSync(fileURLToPath(new URL(file, import.meta.url))))) });
  const checkpoint = join(request.workRoot, 'checkpoint.json');
  if (existsSync(checkpoint)) {
-  const saved = JSON.parse(readNoteFirstOutput(checkpoint).toString('utf8'));
+  const saved = JSON.parse(readWikiStageOutput(checkpoint).toString('utf8'));
   if (saved.identity !== identity) throw new Error('Pi file stage input or execution contract changed across resume');
   if (saved.status === 'succeeded') {
-   if (saved.outputHash !== noteFirstOutputHash(join(saved.attemptRoot, 'work'))
-    || saved.resultHash !== sha256(readNoteFirstOutput(join(saved.attemptRoot, 'runtime/accepted-result.json')))
+   if (saved.outputHash !== wikiStageOutputHash(join(saved.attemptRoot, 'work'))
+    || saved.resultHash !== sha256(readWikiStageOutput(join(saved.attemptRoot, 'runtime/accepted-result.json')))
    || saved.outcomeHash !== hashJson(saved.outcome)
    || saved.artifactHash !== acceptedArtifactHash(join(saved.attemptRoot, 'runtime'))) throw new Error('Accepted Pi file output changed');
    request.onAttemptStarted?.(saved.attemptRoot);
-   return saved.outcome as NoteFirstOutcome;
+   return saved.outcome as WikiStageOutcome;
   }
  }
  const attemptRoot = realpathSync(mkdtempSync(join(request.workRoot, 'attempt-')));
@@ -108,7 +108,7 @@ export async function runPiFileStage(request: NoteFirstStageRequest, options: Pi
  const sources: Array<{ path: string; sha256: string }> = [];
  const snapshotSource = (path: string): void => {
   if (statSync(path).isDirectory()) for (const file of readdirSync(path).sort()) snapshotSource(join(path, file));
-  else sources.push({ path, sha256: sha256(readNoteFirstOutput(path)) });
+  else sources.push({ path, sha256: sha256(readWikiStageOutput(path)) });
  };
  for (const mount of readonlyMounts) snapshotSource(mount.hostPath);
  writeJsonAtomic(join(runtime, 'source-hashes.json'), sources);
@@ -167,16 +167,16 @@ export async function runPiFileStage(request: NoteFirstStageRequest, options: Pi
    }, user,
     (turn, error) => appendFileSync(join(runtime, 'validation-errors.jsonl'), `${JSON.stringify({ turn, error })}\n`), options.maxAttempts ?? 2);
    writeJsonAtomic(join(runtime, 'accepted-result.json'), result);
-   const outcome: NoteFirstOutcome = { result, usage: noteFirstTraceUsage(request.workRoot),
+   const outcome: WikiStageOutcome = { result, usage: wikiStageTraceUsage(request.workRoot),
     sessionPaths: piSessionPaths(request.workRoot) };
    writeJsonAtomic(checkpoint, { identity, status: 'succeeded', attemptRoot,
-    outputHash: noteFirstOutputHash(work), resultHash: sha256(readNoteFirstOutput(join(runtime, 'accepted-result.json'))),
+    outputHash: wikiStageOutputHash(work), resultHash: sha256(readWikiStageOutput(join(runtime, 'accepted-result.json'))),
     artifactHash: acceptedArtifactHash(runtime), outcomeHash: hashJson(outcome), outcome });
    return outcome;
   } finally { request.signal.removeEventListener('abort', abort); }
  } catch (error) {
   const message = scrubResearchModelError(error);
-  const usage = noteFirstTraceUsage(request.workRoot);
+  const usage = wikiStageTraceUsage(request.workRoot);
   const sessionPaths = piSessionPaths(request.workRoot);
   writeJsonAtomic(checkpoint, { identity, status: request.signal.aborted ? 'cancelled' : 'failed', attemptRoot, error: message, usage, sessionPaths });
   throw Object.assign(new Error(message), { usage, sessionPaths });

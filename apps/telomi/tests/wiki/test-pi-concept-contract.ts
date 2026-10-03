@@ -3,13 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderAgentPrompt } from '../../server/agent-runtime/prompt-registry.js';
-import type { NoteFirstInput, NoteFirstStage } from '../../server/wiki/note-first-contract.js';
-import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
+import type { WikiStageInput, WikiStageKind } from '../../server/wiki/wiki-stage-contract.js';
+import { createWikiStageWorkspace } from '../../server/wiki/wiki-stage-workspace.js';
 import { createConceptReadCoverage, ReadCoverage, validatePiConceptFiles } from '../../server/wiki/pi-concept-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'pi-concept-contract-'));
 const a = `entry:${'a'.repeat(24)}`, b = `entry:${'b'.repeat(24)}`;
-const base: NoteFirstInput = {
+const base: WikiStageInput = {
  stage: 'plan-concepts', key: 'concept-contract', language: 'en', goal: { title: 'Mechanisms', description: '' },
  entries: [a, b].map(id => ({ id, revisionSha256: 'r', sourceRunId: 'run', sourceId: 'source', sourceTitle: 'Source', canonicalLocator: '', members: [], section: 'Mechanism', cue: 'Cue', detail: 'Detail', anchors: [] })),
  pages: [
@@ -19,10 +19,10 @@ const base: NoteFirstInput = {
  ],
  requiredEntries: [], requiredPages: ['object:a', 'object:b'], previousRelations: [], instructions: '', topics: [], sections: [],
 };
-function setup(stage: NoteFirstStage, patch: Partial<NoteFirstInput> = {}) {
+function setup(stage: WikiStageKind, patch: Partial<WikiStageInput> = {}) {
  const input = { ...base, stage, ...patch }, inputRoot = join(root, `${stage}-${Math.random()}`, 'input'), work = join(inputRoot, '..', 'work');
  mkdirSync(join(work, 'pages'), { recursive: true });
- createNoteFirstWorkspace(input, inputRoot);
+ createWikiStageWorkspace(input, inputRoot);
  const coverage = createConceptReadCoverage(input, inputRoot);
  const save = (value: unknown) => writeFileSync(join(work, 'result.json'), JSON.stringify(value));
  const read = (ref: string) => coverage.observe({ path: `input/pages/${ref}.md` }, { content: [{ type: 'text', text: readFileSync(join(inputRoot, 'pages', `${ref}.md`), 'utf8') }] });
@@ -103,8 +103,8 @@ try {
  merge.save({ pages: [], retained_refs: ['P1'], discarded_refs: [{ ref: 'P2', reason: 'Duplicate' }] });
  assert.throws(merge.check, /Conflict merge cannot discard/);
  for (const variant of ['question-plan-pi', 'concepts-pi', 'audit-concepts-pi', 'merge-concepts-pi']) {
-  const prompt = renderAgentPrompt('wiki', 'note-first', 'reference', {}, 'concept-common').content + '\n'
-   + renderAgentPrompt('wiki', 'note-first', 'system', {}, variant).content;
+  const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'reference', {}, 'concept-common').content + '\n'
+   + renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, variant).content;
   assert(prompt.includes('Native read, write and edit are available.'));
   assert(prompt.includes('Write exactly'));
  }

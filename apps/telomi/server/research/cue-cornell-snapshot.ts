@@ -5,7 +5,7 @@ import { validateCornellNotesSnapshot, type CornellNoteRecord, type CornellNotes
 import { hashJson, sha256 } from "../lib/hash.js";
 import { assertInsideRoot } from "../lib/paths.js";
 import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
-import { resolveDeepSearchCue, type DeepSearchResult } from "./deep-search.js";
+import { resolveNoteReadingCue, type NoteReadingResult } from "./note-reading.js";
 
 /** Import validated saved Cues without rerunning a Reader or creating a Research Run. */
 export function createCueCornellSnapshot(input: {
@@ -21,7 +21,7 @@ export function createCueCornellSnapshot(input: {
 		const path = assertInsideRoot(realpathSync(input.goalDir), realpathSync(join(input.goalDir, ref.path)), "Cue Wiki input");
 		const bytes = readFileSync(path);
 		if (sha256(bytes) !== ref.sha256) throw new Error(`Cue Wiki input changed: ${ref.path}`);
-		const result = JSON.parse(bytes.toString("utf8")) as DeepSearchResult;
+		const result = JSON.parse(bytes.toString("utf8")) as NoteReadingResult;
 		if (result.schema_version !== 1 || !["found", "partial", "not_found"].includes(result.status)
 			|| !Array.isArray(result.cues) || !Array.isArray(result.gaps)
 			|| typeof result.summary !== "string" || !result.summary.trim()) throw new Error("Cue Wiki input is invalid");
@@ -36,7 +36,7 @@ export function createCueCornellSnapshot(input: {
 			}
 			origins.set(cue.ref, digest);
 			// Resolve every original Source and line hash, including Cues comparing several Runs.
-			const resolvedCue = resolveDeepSearchCue(input.goalDir, cue.ref);
+			const resolvedCue = resolveNoteReadingCue(input.goalDir, cue.ref);
 			if (!resolvedCue) throw new Error(`Cue Wiki origin is unavailable: ${cue.ref}`);
 			const primary = resolvedCue.evidence[0]!;
 			const key = `${primary.source_run_id}\0${primary.source_id}`;
@@ -99,10 +99,10 @@ export function createGoalCornellSnapshot(input: { goalDir: string; snapshotId: 
 			records.set(`${sourceRunId}\0${record.note.source_id}`, { ...record, source_run_id: sourceRunId });
 		}
 	}
-	const deepRoot = join(input.goalDir, "artifacts", "deep-search");
-	const artifactRefs = (existsSync(deepRoot) ? readdirSync(deepRoot) : [])
+	const readingRoot = join(input.goalDir, "artifacts", "deep-search");
+	const artifactRefs = (existsSync(readingRoot) ? readdirSync(readingRoot) : [])
 		.filter(name => /^[A-Za-z0-9._-]{1,100}\.json$/u.test(name))
-		.map(name => ({ path: `artifacts/deep-search/${name}`, sha256: sha256(readFileSync(join(deepRoot, name))) }));
+		.map(name => ({ path: `artifacts/deep-search/${name}`, sha256: sha256(readFileSync(join(readingRoot, name))) }));
 	const imported = createCueCornellSnapshot({ ...input, artifactRefs });
 	for (const record of imported.notes) {
 		const key = `${record.source_run_id}\0${record.note.source_id}`;

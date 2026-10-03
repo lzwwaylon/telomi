@@ -29,6 +29,7 @@ import type {
 } from "./agent-stage-runtime.js";
 import { isInsideRoot } from "../lib/paths.js";
 import { toErrorMessage } from "../lib/values.js";
+import { assertAgentDescriptor, describeEvaluationAgent, type AgentDescriptor } from "./agent-catalog.js";
 
 const CASE_SCHEMA_VERSION = 1;
 const CASES_DIRECTORY = "node-evaluation/cases";
@@ -60,6 +61,8 @@ export interface NodeEvaluationCase {
 	nodeId: string;
 	attemptId: string;
 	agentId: string;
+	/** Captured product metadata; history does not acquire names from a later Bundle. */
+	agent?: AgentDescriptor;
 	role: string;
 	status: "succeeded" | "failed" | "cancelled";
 	capturedAt: string;
@@ -71,6 +74,7 @@ export interface NodeEvaluationCase {
 			domain: string;
 			id: string;
 			sandboxRole: string;
+			systemVariant?: string;
 			userVariant?: string;
 			revisions?: { system?: PromptRevisionIdentity; user?: PromptRevisionIdentity };
 			requestedSha256?: { system: string; user: string };
@@ -258,6 +262,7 @@ export function beginNodeEvaluationCase(input: {
 		domain: string;
 		id: string;
 		sandboxRole: string;
+		systemVariant?: string;
 		userVariant?: string;
 		revisions?: { system?: PromptRevisionIdentity; user?: PromptRevisionIdentity };
 		requestedSha256?: { system: string; user: string };
@@ -381,6 +386,7 @@ export function beginNodeEvaluationCase(input: {
 			attemptId: input.request.attemptId,
 			agentId: spec.agentId,
 			role: input.request.role,
+			agent: describeEvaluationAgent(spec.agentId),
 			recipe: spec.recipe,
 			recipeInput: spec.recipeInput,
 			input: inputRef,
@@ -571,6 +577,7 @@ export function readNodeEvaluationCase(
 		throw new Error(`Invalid Node Evaluation Case: ${manifestPath}`);
 	}
 	const caseDirectory = dirname(manifestPath);
+	if (value.agent !== undefined) assertAgentDescriptor(value.agent, value.agentId);
 	assertFileRef(caseDirectory, value.request.systemPrompt);
 	assertFileRef(caseDirectory, value.request.composedSystemPrompt);
 	assertFileRef(caseDirectory, value.request.userPrompt);

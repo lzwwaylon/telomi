@@ -36,11 +36,11 @@ The table below records only ownership relationships that are not apparent from 
 | Agent ID | Owner |
 |---|---|
 | `main/global-base`, `main/stage-runtime` | Agent Execution's shared Prompt layer and Stage instructions |
-| `main/router` | Main Agent |
+| `main/main-agent` | Main Agent |
 | `main/model-connectivity-test`, `main/voice-cleanup`, `main/voice-livekit` | Utility Agents |
-| `main/podcast-writer` | Prime Podcast Root |
+| `main/podcast-writer` | Prime Podcast Writer Root |
 | `research/prime-search` | Prime Search and Source Organizer |
-| `research/cornell-note`, `research/report-writer`, `research/find-out-report-writer`, `research/schedule-reviewer` | Research Agents |
+| `research/note-agent`, `research/report-writer`, `research/schedule-reviewer` | Research Agents |
 | `wiki/wiki-shard-builder`, `wiki/wiki-curator` | Respective Wiki Roots |
-| `wiki/note-first` | Wiki Compilation stages and Topic Python Skill |
+| `wiki/wiki-compilation` | Wiki Compilation stages and Topic Python Skill |
 | `evolution/browser-skill-evolution` | [Evolution Module](../evolution-module-design.md) |

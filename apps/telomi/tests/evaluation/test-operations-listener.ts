@@ -120,7 +120,7 @@ async function withRuntime(mode: "capture" | "eval", body: (runtime: OperationsR
 }
 
 const FULL_CAPTURE_NODES = [
-	"cornellNote", "investigation", "mainAgent", "podcastWriter", "primeSearchBatch", "researchStages", "scheduleReviewer", "wikiCompilation", "wikiCurator", "wikiReindex", "wikiShard",
+	"investigation", "mainAgent", "noteAgent", "podcastWriter", "primeSearchBatch", "researchStages", "scheduleReviewer", "wikiCompilation", "wikiCurator", "wikiReindex", "wikiShard",
 ];
 
 try {

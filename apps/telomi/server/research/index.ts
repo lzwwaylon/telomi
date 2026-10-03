@@ -16,7 +16,7 @@ export * from "./documents/fastapi-parser.js";
 export * from "./workspace-adapter.js";
 export * from "./config.js";
 export * from "./cornell-note.js";
-export * from "./cornell-note-agent.js";
+export * from "./note-agent.js";
 export * from "./runtime.js";
 export * from "./temporal-context.js";
 export * from "./research-types.js";

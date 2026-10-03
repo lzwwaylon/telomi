@@ -5,10 +5,10 @@ import { join } from "node:path";
 
 import { renderCapturedCandidatePrompts } from "../../server/evaluation/candidate-prompts.js";
 import { renderMainAgentPrompt } from "../../server/main-agent/system-prompts.js";
-import { buildDeepSearchTaskPrompt } from "../../server/research/deep-search.js";
+import { buildNoteReadingTaskPrompt } from "../../server/research/note-reading.js";
 import { renderAgentPrompt } from "../../server/agent-runtime/prompt-registry.js";
-import { renderCornellNoteAgentSystemPrompt } from "../../server/research/pipeline/cornell-note-agent-prompt.js";
-import { wikiSelfDirectedWriterUserPrompt, findOutSelfDirectedWriterUserPrompt } from "../../server/research/pipeline/report-prompts.js";
+import { renderNoteAgentSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
+import { wikiSelfDirectedWriterUserPrompt, notesSelfDirectedWriterUserPrompt } from "../../server/research/pipeline/report-prompts.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-candidate-prompts-"));
 const input = join(root, "input");
@@ -39,19 +39,20 @@ try {
 	assert.throws(() => renderCapturedCandidatePrompts(promptCase("main-agent", { question: "Old question" }), root), /use observed or override for older Cases/u);
 	assert.throws(() => renderCapturedCandidatePrompts(promptCase("main-agent", { promptContext: { ...mainContext, globalPreferences: undefined }, question: "Old question" }), root), /preference context/u);
 	writeFileSync(join(input, "catalog.json"), JSON.stringify({ sources: [{ ref: "S1" }, { ref: "S2" }] }));
-	const reader = renderCapturedCandidatePrompts(promptCase("cornell-note", {
-		mode: "deep-search", question: "Verify the streaming transport", invocationId: "historical-reader",
-	}, "/source", "deep-search"), root);
-	assert.equal(reader.systemPrompt, renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content);
-	assert.equal(reader.userPrompt, buildDeepSearchTaskPrompt("Verify the streaming transport", 2));
-	const ordinary = renderCapturedCandidatePrompts(promptCase("cornell-note", {
+	const reader = renderCapturedCandidatePrompts(promptCase("note-agent", {
+		mode: "question-reading", question: "Verify the streaming transport", invocationId: "historical-reader",
+	}, "/source", "question-reading"), root);
+	assert.equal(reader.systemPrompt, renderNoteAgentSystemPrompt(undefined, "question-reading").content);
+	assert.equal(reader.userPrompt, buildNoteReadingTaskPrompt("Verify the streaming transport", 2));
+	const ordinary = renderCapturedCandidatePrompts(promptCase("note-agent", {
 		question: "What changed?", goal: { title: "Transport", description: "Original evidence" },
 		discoveryEnabled: false, noteFocus: "Protocol fields",
 	}), root);
 	assert.match(ordinary.userPrompt, /What changed\?/u);
-	assert.match(ordinary.userPrompt, /Protocol fields/u);
-	assert.equal(ordinary.systemPrompt, renderCornellNoteAgentSystemPrompt().content);
-	assert.throws(() => renderCapturedCandidatePrompts(promptCase("cornell-note", {}), root), /frozen request context/u);
+	assert.match(ordinary.userPrompt, /inputs\/context\.md/u);
+	assert.doesNotMatch(ordinary.userPrompt, /Protocol fields/u);
+	assert.equal(ordinary.systemPrompt, renderNoteAgentSystemPrompt().content);
+	assert.throws(() => renderCapturedCandidatePrompts(promptCase("note-agent", {}), root), /frozen request context/u);
 
 	const answer = renderCapturedCandidatePrompts(promptCase("report-writer", { mode: "investigation-answer" }, "/inputs", "answer"), root);
 	assert.equal(answer.userPrompt, renderAgentPrompt("research", "report-writer", "user", {}, "answer").content);
@@ -65,7 +66,7 @@ try {
 		temporal_context: { currentDate: variables.currentDate, timeZone: variables.timeZone } }));
 	mkdirSync(join(input, "prior-reports"));
 	writeFileSync(join(input, "prior-reports", "index.md"), variables.priorReports);
-	for (const [kind, render] of [["wiki", wikiSelfDirectedWriterUserPrompt], ["findout", findOutSelfDirectedWriterUserPrompt]] as const) {
+	for (const [kind, render] of [["wiki", wikiSelfDirectedWriterUserPrompt], ["notes", notesSelfDirectedWriterUserPrompt]] as const) {
 		writeFileSync(join(input, "materials.json"), JSON.stringify({ kind }));
 		const report = renderCapturedCandidatePrompts(promptCase("report-writer", {}), root);
 		assert.equal(report.userPrompt, render(variables));

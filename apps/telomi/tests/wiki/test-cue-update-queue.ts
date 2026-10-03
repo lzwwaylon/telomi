@@ -117,7 +117,7 @@ async function testInterruptedAndOrphanRecovery() {
 	const directory = wikiUpdateRecordDir(input.workspaceDir, input.goalId, failed.wikiUpdateId!);
 	const jobs = new WikiUpdateJobStore(directory);
 	const previous = jobs.load()!;
-	jobs.start({ compiler: "note-first", goalId: input.goalId, runId: previous.run_id, wikiUpdateId: previous.wiki_update_id,
+	jobs.start({ compiler: "wiki-compilation", goalId: input.goalId, runId: previous.run_id, wikiUpdateId: previous.wiki_update_id,
 		goal: previous.goal, goalContext: previous.goal_context, topicPlan: previous.topic_plan,
 		cornellNotes: previous.cornell_notes, cueOrigins: previous.cue_origins });
 	jobs.markInterrupted();

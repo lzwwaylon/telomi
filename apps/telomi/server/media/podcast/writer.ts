@@ -85,7 +85,7 @@ async function executeWritePrimePodcast(input: {
 
 	const accountManager = accountManagerFor(models.root.provider);
 	await accountManager.load();
-	let lastError = "Prime podcast writer was not started";
+	let lastError = "Podcast Writer Root was not started";
 	for (let attempt = 1; attempt <= 2; attempt += 1) {
 		input.signal.throwIfAborted();
 		const active = accountManager.getActiveSummary();
@@ -93,7 +93,7 @@ async function executeWritePrimePodcast(input: {
 		try {
 			// 启动器每次重新 stage Agent Directory，账号切换后的凭证因此在下一次尝试生效。
 			await spawnPrimeWorker({
-				name: "Prime podcast writer",
+				name: "Podcast Writer Root",
 				worker: WORKER,
 				agentRoot,
 				runtimeRoot,
@@ -127,7 +127,7 @@ async function executeWritePrimePodcast(input: {
 		if (!replacement || replacement.id === active.id) break;
 		input.observe(`podcast_prime_account_fallback from=${active.id} to=${replacement.id}`);
 	}
-	throw new Error(`Prime podcast writer failed: ${lastError}`);
+	throw new Error(`Podcast Writer Root failed: ${lastError}`);
 }
 
 export function readPrimePodcastOutput(
@@ -143,28 +143,28 @@ function readOutput(agentRoot: string, runtimeRoot: string, rootModel: string, c
 	const outputRoot = join(agentRoot, "writer-output");
 	const manifestPath = join(outputRoot, "manifest.json");
 	const completePath = join(outputRoot, ".complete");
-	if (!existsSync(manifestPath) || !existsSync(completePath)) throw new Error("Prime podcast writer output is incomplete");
+	if (!existsSync(manifestPath) || !existsSync(completePath)) throw new Error("Podcast Writer Root output is incomplete");
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
 		version?: unknown;
 		title?: unknown;
 		sections?: Array<{ sectionId?: unknown; title?: unknown; path?: unknown }>;
 	};
 	if (manifest.version !== 1 || typeof manifest.title !== "string" || !manifest.title.trim() || !Array.isArray(manifest.sections) || manifest.sections.length < 3) {
-		throw new Error("Prime podcast writer manifest is invalid");
+		throw new Error("Podcast Writer Root manifest is invalid");
 	}
 	const sections = manifest.sections.map((section, index) => {
 		const expectedId = `segment-${String(index + 1).padStart(3, "0")}`;
 		const expectedPath = `sections/${expectedId}.txt`;
 		if (section.sectionId !== expectedId || section.path !== expectedPath || typeof section.title !== "string" || !section.title.trim()) {
-			throw new Error(`Prime podcast writer manifest segment ${index + 1} is invalid`);
+			throw new Error(`Podcast Writer Root manifest segment ${index + 1} is invalid`);
 		}
 		const textPath = join(outputRoot, expectedPath);
-		if (!existsSync(textPath)) throw new Error(`Prime podcast writer is missing ${expectedPath}`);
+		if (!existsSync(textPath)) throw new Error(`Podcast Writer Root is missing ${expectedPath}`);
 		const text = readFileSync(textPath, "utf-8").trim();
-		if (!text) throw new Error(`Prime podcast writer ${expectedId} is empty`);
+		if (!text) throw new Error(`Podcast Writer Root ${expectedId} is empty`);
 		return { sectionId: expectedId, title: section.title.trim(), text };
 	});
-	if (!existsSync(join(runtimeRoot, "result.json"))) throw new Error("Prime podcast writer produced no runtime result");
+	if (!existsSync(join(runtimeRoot, "result.json"))) throw new Error("Podcast Writer Root produced no runtime result");
 	return { title: manifest.title.trim(), sections, artifactRoot: outputRoot, rootModel, childModel };
 }
 

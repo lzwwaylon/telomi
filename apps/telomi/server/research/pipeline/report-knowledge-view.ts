@@ -33,7 +33,7 @@ export interface ReportKnowledgeManifest {
 	files: string[];
 }
 
-export function materializeFindOutReportView(input: {
+export function materializeNotesReportView(input: {
 	targetStore: RunArtifactStore;
 	evidence: CornellNotesSnapshot;
 	cornellNotesArtifact: PublishedArtifactRef;
@@ -45,12 +45,12 @@ export function materializeFindOutReportView(input: {
 			cornell_notes_sha256?: unknown;
 		};
 		if (index.cornell_notes_sha256 !== input.cornellNotesArtifact.sha256) {
-			throw new Error("Existing Find Out snapshot has different immutable Evidence");
+			throw new Error("Existing Notes snapshot has different immutable Evidence");
 		}
 		return existing;
 	}
 	const handles = createAgentEvidenceHandles([input.evidence]);
-	const temporary = mkdtempSync(join(tmpdir(), "telomi-find-out-report-"));
+	const temporary = mkdtempSync(join(tmpdir(), "telomi-notes-report-"));
 	try {
 		const notes = input.evidence.notes.filter((record) => record.note.sections.length > 0).map((record, index) => {
 			const members = record.members.map((member) => ({ title: member.title, url: member.canonical_locator }));

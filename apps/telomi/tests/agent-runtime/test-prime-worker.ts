@@ -126,12 +126,12 @@ if (mode === "ok") {
 	// output. The Activity a user reads renders this text, so the reason survives and the frame
 	// around it, which names files on the machine that ran it, does not.
 	const crashDump = [
-		"/Users/someone/checkout/apps/telomi/server/wiki/wiki-shard-merge.ts:554",
+		"/Users/someone/checkout/apps/telomi/server/wiki/wiki-curator.ts:554",
 		"                return new Error(`[wiki-curator:worksets] ${issue}`);",
 		"                       ^",
 		"Error: [wiki-curator:worksets] field 'pages[0].topic_refs': contains unknown Goal Topic 'topic_c51016fb'",
-		"    at curatorResultViolation (/Users/someone/checkout/apps/telomi/server/wiki/wiki-shard-merge.ts:554:9)",
-		"    at async <anonymous> (/Users/someone/checkout/apps/telomi/server/wiki/prime-wiki-merge-worker.ts:115:2)",
+		"    at curatorResultViolation (/Users/someone/checkout/apps/telomi/server/wiki/wiki-curator.ts:554:9)",
+		"    at async <anonymous> (/Users/someone/checkout/apps/telomi/server/wiki/prime-wiki-curator-worker.ts:115:2)",
 		"",
 		"Node.js v24.20.0",
 	].join("\n");

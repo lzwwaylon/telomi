@@ -60,7 +60,7 @@ mkdirSync(join(evidenceSource, "src"), { recursive: true });
 writeFileSync(join(evidenceSource, "src", "runtime.md"), "EVIDENCE_TOOL_MARKER\n", "utf-8");
 const evidenceSandbox = createSrtAgentSandbox({
 	id: "evidence-screening-full-tools",
-	role: "report.cornell_note",
+	role: "report.note_agent",
 	workDirectory: evidenceWork,
 	readonlyMounts: [{ hostPath: evidenceSource, guestPath: "/source", access: "read-only" }],
 	activeTools: SANDBOX_TOOL_NAMES,
@@ -132,7 +132,7 @@ const writableWiki = join(root, "writable-wiki");
 mkdirSync(writableWiki, { recursive: true });
 const writableMountSandbox = createSrtAgentSandbox({
 	id: "pi-builtin-writable-mount",
-	role: "report.cornell_note",
+	role: "report.note_agent",
 	workDirectory: join(root, "writable-mount-work"),
 	readonlyMounts: [],
 	writableMounts: [{

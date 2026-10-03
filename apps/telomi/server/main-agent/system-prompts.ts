@@ -46,7 +46,7 @@ export function buildMainAgentPrompt(
 /** Current instructions over frozen structured business state. */
 export function renderMainAgentPrompt(context: MainAgentPromptContext): string {
 	const goalBlock = [context.title.trim(), context.description.trim()].filter(Boolean).join("\n\n") || "(not yet defined)";
-	const agentPrompt = renderAgentPrompt("main", "router", "system", {
+	const agentPrompt = renderAgentPrompt("main", "main-agent", "system", {
 		goal: goalBlock,
 		previous_searches: JSON.stringify(context.previousSearches),
 		output_language: context.outputLanguage,

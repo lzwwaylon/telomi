@@ -5,9 +5,9 @@ import { join } from "node:path";
 
 import { sha256 } from "../../server/lib/hash.js";
 import {
-	RuntimeCornellNoteAgentProcessor,
+	RuntimeNoteAgentProcessor,
 	validateCornellNote,
-} from "../../server/research/cornell-note-agent.js";
+} from "../../server/research/note-agent.js";
 import type {
 	AgentStageRequest,
 	AgentStageRunner,
@@ -19,7 +19,7 @@ import { materializeAgentSourceView } from "../../server/research/pipeline/agent
 import { validateCornellNotesSnapshot } from "../../server/cornell/contracts.js";
 import type { GoalTopicPlan } from "../../server/goals/topic-plan/index.js";
 
-const root = mkdtempSync(join(tmpdir(), "cornell-note-contract-"));
+const root = mkdtempSync(join(tmpdir(), "note-agent-contract-"));
 try {
 	const path = join(root, "paper.md");
 	writeFileSync(path, "alpha\nbeta\ngamma\n");
@@ -232,10 +232,10 @@ try {
 		},
 	};
 	const runRoot = join(root, "run");
-	const processor = new RuntimeCornellNoteAgentProcessor({
+	const processor = new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 1,
-		cornellNoteModel: "openai-codex/test", cornellNoteThinkingLevel: "medium",
+		noteAgentModel: "openai-codex/test", noteAgentThinkingLevel: "medium",
 	}, stageRunner);
 	const produced = await processor.process({
 		runId: "run:cornell-source-view",
@@ -274,10 +274,10 @@ try {
 			return stageRunner.runStage(request);
 		},
 	};
-	const isolated = await new RuntimeCornellNoteAgentProcessor({
+	const isolated = await new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 2,
-		cornellNoteModel: "openai-codex/test", cornellNoteThinkingLevel: "medium",
+		noteAgentModel: "openai-codex/test", noteAgentThinkingLevel: "medium",
 	}, isolatingRunner).process({
 		runId: "run:cornell-isolation",
 		sequence: 2,
@@ -303,10 +303,10 @@ try {
 	assert.deepEqual(isolated.notes.map((item) => item.source.id), ["source:one", "source:two"]);
 	assert.deepEqual(isolated.failures.map((item) => [item.source.id, item.message]),
 		[["source:broken", "invalid Cornell section"]]);
-	await assert.rejects(new RuntimeCornellNoteAgentProcessor({
+	await assert.rejects(new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 1,
-		cornellNoteModel: "openai-codex/test", cornellNoteThinkingLevel: "medium",
+		noteAgentModel: "openai-codex/test", noteAgentThinkingLevel: "medium",
 	}, {
 		async runStage(): Promise<never> {
 			throw new Error("artifact store unavailable");

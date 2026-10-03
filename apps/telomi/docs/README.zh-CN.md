@@ -31,7 +31,7 @@
 | 任务 | 文档 |
 |---|---|
 | 修改搜索、证据处理、报告或异步 Wiki 的主链路 | [Research Runtime](research.md) |
-| 修改 Source 审阅或 Cornell Note 输入输出 | [Cornell Note Agent](cornell-note-agent.md) |
+| 修改 Source 审阅或 Cornell Note 输入输出 | [Note Agent](note-agent.md) |
 | 修改 Case Capture、Replay Recipe 或 Operations 契约 | [Node Evaluation](node-agent-backtest.md) |
 | 修改 Source 文档解析和规范化 | [Document Parsing Runtime](document-parsing-runtime.md) |
 | 修改 Source 注册、连接状态、Provider 服务、缓存或文档解析 API | [Research Source Service](../services/research-source-service/README.md) |

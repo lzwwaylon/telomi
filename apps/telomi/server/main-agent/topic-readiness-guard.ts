@@ -6,14 +6,14 @@ import { findLogicalSourceInRun, readSourceEvidenceAnchors, type SourceEvidenceE
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 
 export function buildTopicPlanConfirmedEvent(revision: string, proposalId: string): string {
-	return renderAgentPrompt("main", "router", "user", {
+	return renderAgentPrompt("main", "main-agent", "user", {
 		revision,
 		proposal_id: proposalId,
 	}, "topic-confirmed-event").content;
 }
 
 export function buildDiscoveryDiscussionContext(candidate: DiscoveryCandidate, excerpts: SourceEvidenceExcerpt[] = []): string {
-	return renderAgentPrompt("main", "router", "system-append", {
+	return renderAgentPrompt("main", "main-agent", "system-append", {
 		candidate_json: JSON.stringify({
 			id: candidate.id,
 			finding: candidate.finding,
@@ -43,10 +43,10 @@ export function registerTopicReadinessGuard(
 		const store = new GoalTopicPlanStore(goalId, workspaceDir);
 		const active = store.readActive();
 		const guard = !active
-			? renderAgentPrompt("main", "router", "system-append", {}, "topic-guard-unconfirmed").content
+			? renderAgentPrompt("main", "main-agent", "system-append", {}, "topic-guard-unconfirmed").content
 			: store.hasPendingRequiredConfirmation()
-				? renderAgentPrompt("main", "router", "system-append", { revision: active.revision }, "topic-guard-pending").content
-				: renderAgentPrompt("main", "router", "system-append", { revision: active.revision }, "topic-guard-confirmed").content;
+				? renderAgentPrompt("main", "main-agent", "system-append", { revision: active.revision }, "topic-guard-pending").content
+				: renderAgentPrompt("main", "main-agent", "system-append", { revision: active.revision }, "topic-guard-confirmed").content;
 
 		const discoveryCandidateId = getDiscoveryCandidateId();
 		const discovery = discoveryCandidateId ? store.readDiscovery(discoveryCandidateId) : undefined;
@@ -56,7 +56,7 @@ export function registerTopicReadinessGuard(
 			systemPrompt: [
 				event.systemPrompt,
 				guard,
-				activeTopic ? renderAgentPrompt("main", "router", "system-append", {
+				activeTopic ? renderAgentPrompt("main", "main-agent", "system-append", {
 					topic_json: JSON.stringify(activeTopic),
 				}, "topic-focus").content : undefined,
 				discovery ? buildDiscoveryDiscussionContext(discovery,

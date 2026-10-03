@@ -268,7 +268,7 @@ try {
 		"", 2)?.clues[0]?.cue, "Exact finding");
 	writeFileSync(join(sourceSequence, "sources", "paper", "members", "web", "paper.md"), "Changed evidence.\n");
 	assert.throws(() => resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 1),
-		/Deep Search evidence changed/u);
+		/Note Reading evidence changed/u);
 } finally {
 	rmSync(workspace, { recursive: true, force: true });
 }

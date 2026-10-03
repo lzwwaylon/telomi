@@ -67,9 +67,9 @@ writeFileSync(join(runDir, "run-state.json"), JSON.stringify({
 }), "utf8");
 
 appendResearchNodeRecord(runDir, {
-	node_id: "cornell-note",
+	node_id: "note-agent",
 	node_type: "agent",
-	agent: "cornell_note",
+	agent: "note_agent",
 	execution_id: "planner",
 	attempt: 1,
 	status: "succeeded",
@@ -82,13 +82,13 @@ appendResearchNodeRecord(runDir, {
 		finished_at: "2026-07-31T10:01:00.000Z",
 		duration_ms: 60_000,
 	},
-	trace_ref: "cornell_note--planner.jsonl",
+	trace_ref: "note_agent--planner.jsonl",
 });
 for (const nodeId of ["screen-source-a", "screen-source-b"]) {
 	appendResearchNodeRecord(runDir, {
 		node_id: nodeId,
 		node_type: "agent",
-		agent: "cornell_note",
+		agent: "note_agent",
 		execution_id: `execution-${nodeId}`,
 		status: "succeeded",
 		group_id: "screening-round-1",
@@ -139,7 +139,7 @@ for (const attempt of [1, 2]) {
 		},
 	});
 }
-writeFileSync(agentSessionPath(runDir, "cornell_note", "planner"), [
+writeFileSync(agentSessionPath(runDir, "note_agent", "planner"), [
 	JSON.stringify({
 		type: "message",
 		timestamp: Date.parse("2026-07-31T10:00:30.000Z"),
@@ -231,9 +231,9 @@ appendRuntimeContext(liveRunDir, "research", {
 	created_at: "2026-07-31T09:01:50.000Z",
 });
 appendResearchNodeRecord(liveRunDir, {
-	node_id: "cornell-note",
+	node_id: "note-agent",
 	node_type: "agent",
-	agent: "cornell_note",
+	agent: "note_agent",
 	execution_id: "live-planner",
 	attempt: 1,
 	status: "succeeded",
@@ -317,7 +317,7 @@ appendRuntimeContext(interruptedRunDir, "research", {
 	type: "runtime.agent_bound",
 	stage_id: "evidence-screening-source-a",
 	execution_id: "interrupted-screening",
-	agent: "cornell_note",
+	agent: "note_agent",
 	created_at: "2026-07-31T09:30:30.000Z",
 });
 
@@ -352,7 +352,7 @@ for (const nodeId of ["evidence-screening-a", "evidence-screening-b"]) {
 	appendResearchNodeRecord(cancelledRunDir, {
 		node_id: nodeId,
 		node_type: "agent",
-		agent: "cornell_note",
+		agent: "note_agent",
 		execution_id: `execution-${nodeId}`,
 		status: "cancelled",
 		group_id: "cancelled-evidence-screening",
@@ -386,7 +386,7 @@ appendRuntimeContext(cancelledRunDir, "research", {
 	type: "runtime.agent_bound",
 	stage_id: "evidence-screening-orphaned",
 	execution_id: "cancelled-orphaned-agent",
-	agent: "cornell_note",
+	agent: "note_agent",
 	created_at: "2026-07-31T10:02:58.000Z",
 });
 
@@ -557,7 +557,7 @@ try {
 		?.dependsOnStepIds, ["wiki-batch:1"]);
 	const wikiOutputRef = wikiActivity.steps.find((step) => step.stepId === "wiki-batch:2")
 		?.agentActivities[0]?.outputRef;
-	assert.ok(wikiOutputRef, "a running Wiki Maintainer must expose replay output");
+	assert.ok(wikiOutputRef, "a running Wiki Curator must expose replay output");
 	assert.match(JSON.stringify(service.readOutput(goalId, wikiOutputRef)), /正在合并 Wiki 实体页面/u);
 	wikiJobs.recordBatch({
 		batchIndex: 1, totalBatches: 2, status: "succeeded", pageCount: 11,
@@ -600,13 +600,13 @@ try {
 		cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "d".repeat(64), byte_length: 12 },
 	});
 	const curatorTrace = [
-		"Wiki Curator exited with code 1: /Users/maintainer/My Checkout/apps/telomi/server/wiki/wiki-shard-merge.ts:590",
+		"Wiki Curator exited with code 1: /Users/maintainer/My Checkout/apps/telomi/server/wiki/wiki-curator.ts:590",
 		"\treturn new Error(`[wiki-curator:worksets] file '${file}', field '${field}': ${issue}`);",
 		"\t       ^",
 		"",
 		"Error: [wiki-curator:worksets] file 'state/groups/ws-concept-2ea7.json': contains unknown Goal Topic",
-		"    at curatorResultViolation (C:\\Users\\maintainer\\checkout\\server\\wiki\\wiki-shard-merge.ts:590:9)",
-		"    at validateGroupResult (/srv/telomi/server/wiki/wiki-shard-merge.ts:566:27)",
+		"    at curatorResultViolation (C:\\Users\\maintainer\\checkout\\server\\wiki\\wiki-curator.ts:590:9)",
+		"    at validateGroupResult (/srv/telomi/server/wiki/wiki-curator.ts:566:27)",
 		"",
 		"Node.js v24.20.0",
 	].join("\n");
@@ -864,7 +864,7 @@ try {
 	writeFileSync(interruptedStatePath, interruptedState);
 
 	appendResearchNodeRecord(liveRunDir, {
-		node_id: "cornell-note", node_type: "agent", agent: "cornell_note",
+		node_id: "note-agent", node_type: "agent", agent: "note_agent",
 		execution_id: "resumed-cornell", attempt: 2, status: "succeeded", group_id: null,
 		depends_on: [], input: {}, output: {},
 		time: { started_at: "2026-07-31T09:03:00.000Z", finished_at: "2026-07-31T09:04:00.000Z", duration_ms: 60_000 },
@@ -875,7 +875,7 @@ try {
 		time: { started_at: "2026-07-31T09:00:00.000Z", finished_at: "2026-07-31T09:04:00.000Z", duration_ms: 240_000 },
 	});
 	const resumedSteps = service.getGoal(goalId).liveActivities.find((item) => item.activityId === `research:${liveRunId}`)?.steps ?? [];
-	assert.deepEqual(resumedSteps.filter((step) => text(step.title) === "Cornell Note").map((step) => step.executionRound), [1, 2],
+	assert.deepEqual(resumedSteps.filter((step) => text(step.title) === "Note Agent").map((step) => step.executionRound), [1, 2],
 		"same Agent retried after Run resume must not swallow the historical execution");
 
 	assert.equal(resumedSteps.find((step) => text(step.title) === "完成本次研究")?.executionRound, 2,

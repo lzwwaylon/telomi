@@ -4,25 +4,25 @@ import { primeModelDefinitions } from '../agent-runtime/prime-agent-paths.js';
 import { listJsonl, writeJsonAtomic } from '../lib/fs.js';
 import { hashJson, sha256 } from '../lib/hash.js';
 import { toErrorMessage } from '../lib/values.js';
-import { objectFirstEntries, type ObjectFirstPagesResult } from './object-first-contract.js';
-import { noteFirstCapabilityIdentity, noteFirstOutputHash, noteFirstTraceUsage, readNoteFirstOutput } from './note-first-stage.js';
+import { wikiPageEntryIds, type WikiPagesResult } from './wiki-page-contract.js';
+import { wikiStageCapabilityIdentity, wikiStageOutputHash, wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
 import { runPiObjectTargetStage, runPiResidualCueStage } from './pi-object-stage.js';
-import type { NoteFirstInput, NoteFirstOutcome, NoteFirstPageInput, NoteFirstStageRequest } from './note-first-contract.js';
+import type { WikiStageInput, WikiStageOutcome, WikiStagePageInput, WikiStageRequest } from './wiki-stage-contract.js';
 
-type Destination = { page: NoteFirstPageInput['page']; origins: string[] };
+type Destination = { page: WikiStagePageInput['page']; origins: string[] };
 
 /** Global identity planning, serial target writing, and deterministic acceptance. */
-export async function runPiObjectMergeStage(request: NoteFirstStageRequest,
- options: { target?: typeof runPiObjectTargetStage; residual?: typeof runPiResidualCueStage } = {}): Promise<NoteFirstOutcome> {
+export async function runPiObjectMergeStage(request: WikiStageRequest,
+ options: { target?: typeof runPiObjectTargetStage; residual?: typeof runPiResidualCueStage } = {}): Promise<WikiStageOutcome> {
  request.signal.throwIfAborted();
  if (request.input.stage !== 'merge-objects') throw new Error('Object merging expects merge-objects');
  mkdirSync(request.workRoot, { recursive: true });
- const identity = hashJson({ input: request.input, semantics: noteFirstCapabilityIdentity(), models: primeModelDefinitions(request.env) });
+ const identity = hashJson({ input: request.input, semantics: wikiStageCapabilityIdentity(), models: primeModelDefinitions(request.env) });
  const checkpoint = join(request.workRoot, 'checkpoint.json');
- const saved = existsSync(checkpoint) ? JSON.parse(readNoteFirstOutput(checkpoint).toString('utf8')) : undefined;
+ const saved = existsSync(checkpoint) ? JSON.parse(readWikiStageOutput(checkpoint).toString('utf8')) : undefined;
  if (saved && saved.identity !== identity) throw new Error('Object merge input or execution contract changed across resume');
  if (saved?.status === 'succeeded') {
-  if (saved.resultHash !== sha256(readNoteFirstOutput(join(saved.attemptRoot, 'runtime/accepted-result.json')))
+  if (saved.resultHash !== sha256(readWikiStageOutput(join(saved.attemptRoot, 'runtime/accepted-result.json')))
    || saved.outputHash !== outputsHash(saved.childRoots) || saved.outcomeHash !== hashJson(saved.outcome))
    throw new Error('Accepted object merge artifacts changed');
   return saved.outcome;
@@ -35,7 +35,7 @@ export async function runPiObjectMergeStage(request: NoteFirstStageRequest,
  const childRoots: string[] = [];
  const target = options.target ?? runPiObjectTargetStage;
  const residual = options.residual ?? runPiResidualCueStage;
- const execute = async (input: NoteFirstInput, key: string, phase: 'plan' | 'write' | 'residual') => {
+ const execute = async (input: WikiStageInput, key: string, phase: 'plan' | 'write' | 'residual') => {
   request.signal.throwIfAborted();
   const workRoot = join(attemptRoot, key);
   const child = { ...request, input, workRoot };
@@ -47,9 +47,9 @@ export async function runPiObjectMergeStage(request: NoteFirstStageRequest,
  try {
   const members = request.input.pages.filter(row => row.role === 'member');
   const origins = new Map(members.map(row => [row.ref, [row.ref]]));
-  let deferred: ObjectFirstPagesResult['deferred_entries'] = [];
+  let deferred: WikiPagesResult['deferred_entries'] = [];
   if (request.input.unplacedEntries?.length) {
-   const input: NoteFirstInput = { ...request.input, key: `${request.input.key}/resolve-cues`,
+   const input: WikiStageInput = { ...request.input, key: `${request.input.key}/resolve-cues`,
     pages: request.input.pages.map(row => ({ ...row, role: 'context' })),
     requiredEntries: request.input.unplacedEntries.map(row => row.entryId), requiredPages: [] };
    const resolved = await execute(input, 'resolve-cues', 'residual');
@@ -63,8 +63,8 @@ export async function runPiObjectMergeStage(request: NoteFirstStageRequest,
     members.push({ ref, page: object, previous: false, role: 'member' }); origins.set(ref, []);
    }
   }
-  const requiredEntries = [...new Set(members.flatMap(row => objectFirstEntries(row.page.body)))];
-  const planningInput: NoteFirstInput = { ...request.input, key: `${request.input.key}/plan`,
+  const requiredEntries = [...new Set(members.flatMap(row => wikiPageEntryIds(row.page.body)))];
+  const planningInput: WikiStageInput = { ...request.input, key: `${request.input.key}/plan`,
    pages: [...members, ...request.input.pages.filter(row => row.role === 'context')], requiredEntries, requiredPages: [], unplacedEntries: [] };
   const destinations: Destination[] = [];
   if (!members.some(row => !row.previous)) {
@@ -95,8 +95,8 @@ export async function runPiObjectMergeStage(request: NoteFirstStageRequest,
     for (let start = 0; start < incoming.length; start += 4) {
      const scoped = [...previous, ...incoming.slice(start, start + 4)];
      if (anchor) scoped.sort((left, right) => Number(right.ref === anchor) - Number(left.ref === anchor));
-     const cueIds = new Set(scoped.flatMap(row => objectFirstEntries(row.page.body)));
-     const input: NoteFirstInput = { ...request.input, key: `${request.input.key}/write-${index + 1}-${start / 4 + 1}`,
+     const cueIds = new Set(scoped.flatMap(row => wikiPageEntryIds(row.page.body)));
+     const input: WikiStageInput = { ...request.input, key: `${request.input.key}/write-${index + 1}-${start / 4 + 1}`,
       pages: scoped, entries: request.input.entries.filter(entry => cueIds.has(entry.id)), requiredEntries: [...cueIds],
       requiredPages: anchor ? [anchor] : [], unplacedEntries: [],
       instructions: job.reason.replace(/\bP[1-9]\d*\b/gu, ref => JSON.stringify(names.get(ref) ?? ref)) };
@@ -116,28 +116,28 @@ export async function runPiObjectMergeStage(request: NoteFirstStageRequest,
     else throw new Error('Object writing job has no incoming member');
    }
   }
-  const value: ObjectFirstPagesResult = { pages: [], retained_refs: [], discarded_refs: [], deferred_entries: deferred, relations: [] };
+  const value: WikiPagesResult = { pages: [], retained_refs: [], discarded_refs: [], deferred_entries: deferred, relations: [] };
   for (const row of destinations) {
    const old = row.origins.length === 1 ? request.input.pages.find(page => page.ref === row.origins[0]) : undefined;
    if (old && hashJson(old.page) === hashJson(row.page)) value.retained_refs.push(old.ref);
    else value.pages.push({ ...row.page, member_refs: row.origins });
   }
   validateObjectMergeResult(request.input, value);
-  const outcome: NoteFirstOutcome = { result: { kind: 'pages', value, consideredPages: [] },
-   usage: noteFirstTraceUsage(attemptRoot), sessionPaths: sessionPaths(attemptRoot) };
+  const outcome: WikiStageOutcome = { result: { kind: 'pages', value, consideredPages: [] },
+   usage: wikiStageTraceUsage(attemptRoot), sessionPaths: sessionPaths(attemptRoot) };
   writeJsonAtomic(join(runtime, 'accepted-result.json'), outcome.result);
   writeJsonAtomic(checkpoint, { identity, status: 'succeeded', attemptRoot, childRoots, outcome,
-   resultHash: sha256(readNoteFirstOutput(join(runtime, 'accepted-result.json'))), outputHash: outputsHash(childRoots), outcomeHash: hashJson(outcome) });
+   resultHash: sha256(readWikiStageOutput(join(runtime, 'accepted-result.json'))), outputHash: outputsHash(childRoots), outcomeHash: hashJson(outcome) });
   return outcome;
  } catch (error) {
-  const usage = noteFirstTraceUsage(attemptRoot), paths = sessionPaths(attemptRoot);
+  const usage = wikiStageTraceUsage(attemptRoot), paths = sessionPaths(attemptRoot);
   writeJsonAtomic(checkpoint, { identity, status: request.signal.aborted ? 'cancelled' : 'failed', attemptRoot,
    error: toErrorMessage(error), usage, sessionPaths: paths });
   throw Object.assign(error instanceof Error ? error : new Error(toErrorMessage(error)), { usage, sessionPaths: paths });
  }
 }
 
-export function validateObjectMergeResult(input: NoteFirstInput, value: ObjectFirstPagesResult): void {
+export function validateObjectMergeResult(input: WikiStageInput, value: WikiPagesResult): void {
  const members = input.pages.filter(row => row.role === 'member');
  const consumed = [...value.retained_refs, ...value.pages.flatMap(page => page.member_refs)];
  if (new Set(consumed).size !== consumed.length || consumed.length !== members.length || consumed.some(ref => !members.some(row => row.ref === ref)))
@@ -146,24 +146,24 @@ export function validateObjectMergeResult(input: NoteFirstInput, value: ObjectFi
  if (new Set(pages.map(page => page.id)).size !== pages.length
   || new Set(pages.map(page => page.title.normalize('NFKC').trim().toLocaleLowerCase())).size !== pages.length)
   throw new Error('Object merge produced duplicate identities or titles across targets');
- const known = new Set(input.entries.map(entry => entry.id)), cited = new Set(pages.flatMap(page => objectFirstEntries(page.body)));
+ const known = new Set(input.entries.map(entry => entry.id)), cited = new Set(pages.flatMap(page => wikiPageEntryIds(page.body)));
  const deferred = new Set(value.deferred_entries.map(row => row.entry_ref));
- const historical = new Set(input.pages.filter(row => row.previous && row.page.kind === 'concept').flatMap(row => objectFirstEntries(row.page.body)));
+ const historical = new Set(input.pages.filter(row => row.previous && row.page.kind === 'concept').flatMap(row => wikiPageEntryIds(row.page.body)));
  if (deferred.size !== value.deferred_entries.length || [...deferred].some(id => cited.has(id) || !input.requiredEntries.includes(id) || historical.has(id))
   || [...cited].some(id => !known.has(id)) || input.requiredEntries.some(id => !cited.has(id) && !deferred.has(id)))
   throw new Error('Object merge lost or conflicted with required Cue dispositions');
  for (const old of members.filter(row => row.previous)) {
   const destination = value.retained_refs.includes(old.ref) ? old.page : value.pages.find(page => page.member_refs.includes(old.ref));
-  if (!destination || objectFirstEntries(old.page.body).some(id => !objectFirstEntries(destination.body).includes(id)))
+  if (!destination || wikiPageEntryIds(old.page.body).some(id => !wikiPageEntryIds(destination.body).includes(id)))
    throw new Error(`Object merge lost previous citations: ${old.ref}`);
  }
 }
 
 function outputsHash(roots: string[]): string {
  return hashJson(roots.map(root => {
-  const checkpoint = JSON.parse(readNoteFirstOutput(join(root, 'checkpoint.json')).toString('utf8'));
-  const output = noteFirstOutputHash(join(checkpoint.attemptRoot, 'work'));
-  const result = sha256(readNoteFirstOutput(join(checkpoint.attemptRoot, 'runtime/accepted-result.json')));
+  const checkpoint = JSON.parse(readWikiStageOutput(join(root, 'checkpoint.json')).toString('utf8'));
+  const output = wikiStageOutputHash(join(checkpoint.attemptRoot, 'work'));
+  const result = sha256(readWikiStageOutput(join(checkpoint.attemptRoot, 'runtime/accepted-result.json')));
   if (checkpoint.status !== 'succeeded' || output !== checkpoint.outputHash || result !== checkpoint.resultHash
    || hashJson(checkpoint.outcome) !== checkpoint.outcomeHash) throw new Error('Accepted object merge child artifacts changed');
   return { root, output, result, outcome: checkpoint.outcomeHash };

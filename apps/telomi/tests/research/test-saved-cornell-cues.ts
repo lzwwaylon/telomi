@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { sha256 } from "../../server/lib/hash.js";
-import { noteWikiEntries } from "../../server/wiki/note-wiki-maintainer.js";
-import { listSavedCornellCues, rankSavedCues, resolveSavedCornellCue } from "../../server/research/saved-cornell-cues.js";
+import { noteWikiEntries } from "../../server/wiki/wiki-shard-builder.js";
+import { listSavedNoteCues, rankSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
 import { MainWikiCitationSession } from "../../server/main-agent/wiki-citations.js";
 import { resolveMessageCitationSourcePreview } from "../../server/citations/preview.js";
 
@@ -48,11 +48,11 @@ try {
 	writeFileSync(join(notesRoot, "snapshot-1.json"), JSON.stringify(snapshot));
 	const entry = noteWikiEntries(snapshot as never)[0]!;
 	writeFileSync(join(knowledgeRoot, ".note-registry.json"), JSON.stringify({ schema_version: 2, entries: [entry] }));
-	const [cue] = listSavedCornellCues(knowledgeRoot);
+	const [cue] = listSavedNoteCues(knowledgeRoot);
 	assert.equal(cue?.kind, "cornell");
-	assert.equal(rankSavedCues([cue!, { ref: "irrelevant", cue: "Qwen training", note: "A separate TTS system" }],
+	assert.equal(rankSavedNoteCues([cue!, { ref: "irrelevant", cue: "Qwen training", note: "A separate TTS system" }],
 		"Gemini Hume voice design accent modeling scores", 2)[0]?.ref, cue!.ref);
-	assert.equal(resolveSavedCornellCue(goalDir, cue!.ref)?.evidence[0]?.excerpt, sourceText.trim());
+	assert.equal(resolveSavedNoteCue(goalDir, cue!.ref)?.evidence[0]?.excerpt, sourceText.trim());
 
 	const session = new MainWikiCitationSession({ goalDir, goalId, workspaceDir: workspace });
 	const message = { role: "assistant", timestamp: Date.now(),
@@ -63,7 +63,7 @@ try {
 	assert.equal(preview?.clues[0]?.excerpts[0]?.text, sourceText.trim());
 	assert.equal(preview?.clues[0]?.excerpts[0]?.sourceRevisionSha256, revision);
 	writeFileSync(document, "The score changed.\n");
-	assert.throws(() => resolveSavedCornellCue(goalDir, cue!.ref), /Evidence Source range changed/u);
+	assert.throws(() => resolveSavedNoteCue(goalDir, cue!.ref), /Evidence Source range changed/u);
 } finally {
 	rmSync(workspace, { recursive: true, force: true });
 }

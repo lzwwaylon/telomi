@@ -35,7 +35,7 @@ import { wikiCuratorReplayRecipe, wikiShardReplayRecipe } from "./wiki-replay.js
 import {
 	createRecordedStageReplayRecipes,
 	withResearchNodeEvaluationCapture,
-	withCornellNoteCapture,
+	withNoteAgentCapture,
 } from "../agent-runtime/recorded-stage-replay.js";
 import { withPrimeSearchNodeEvaluationCapture } from "./prime-search-replay.js";
 import { runWikiCuratorNodeEvaluation, runWikiShardNodeEvaluation } from "./wiki-replay.js";
@@ -43,7 +43,7 @@ import { runPodcastWriterNodeEvaluation } from "./podcast-replay.js";
 import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
 import { OPERATIONS_PROTOCOL_VERSION, OPERATIONS_SCHEMA_HASH } from "./operations-contract.js";
 import { producesBrowserEvolutionEvidence } from "../evolution/targets.js";
-import { validateDeepSearchDraftFromCorpus } from "../research/deep-search.js";
+import { validateNoteReadingDraftFromCorpus } from "../research/note-reading.js";
 import { validateInvestigationAnswerFromInput } from "../research/investigation-answer.js";
 
 export interface OperationsRuntime {
@@ -72,7 +72,7 @@ export function createOperationsRuntime(options: {
 		}),
 	} : {
 		researchStages: withResearchNodeEvaluationCapture,
-		cornellNote: withCornellNoteCapture,
+		noteAgent: withNoteAgentCapture,
 		primeSearchBatch: withPrimeSearchNodeEvaluationCapture,
 		investigation: withInvestigationNodeCapture,
 		wikiShard: runWikiShardNodeEvaluation,
@@ -98,7 +98,7 @@ export function createOperationsRuntime(options: {
 			wikiCompilationReplayRecipe,
 			wikiCuratorReplayRecipe,
 			evolutionReplayRecipe,
-			...createRecordedStageReplayRecipes(validateDeepSearchDraftFromCorpus, validateInvestigationAnswerFromInput),
+			...createRecordedStageReplayRecipes(validateNoteReadingDraftFromCorpus, validateInvestigationAnswerFromInput),
 		],
 	});
 

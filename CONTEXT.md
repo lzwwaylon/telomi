@@ -54,6 +54,20 @@ _Avoid_: Podcast Preference, Artifact Feedback, prompt injection
 The immutable per-generation combination of the applicable Podcast Preferences and one Podcast Generation Instruction supplied to a Podcast Writer alongside one Canonical Report.
 _Avoid_: mutable preference profile, complete User Memory, Podcast feedback history
 
+## Agent Description
+
+**Agent Identity**:
+The identity of one executable Agent boundary, retained with the evidence it produced.
+_Avoid_: display name, Bundle folder, output format
+
+**Agent Name**:
+The human-readable name published by the product for one Agent boundary.
+_Avoid_: Agent Identity, directory name, report title
+
+**Agent Catalog**:
+The product-owned description of available Agent boundaries, their names, evidence presentation, and supported evaluation capabilities.
+_Avoid_: downstream rename map, local list of observed executions, Agent output
+
 ## Execution Model
 
 **Telomi Research Runtime**:
@@ -112,7 +126,7 @@ _Avoid_: Research Stage, Wiki Page edit, background side effect
 
 **Wiki Update Request**:
 An immutable request to run one Wiki Update from a specific validated input, with its trigger and optional parent Activity preserved as provenance.
-_Avoid_: raw Markdown mutation, Research Run continuation, Wiki Maintainer prompt
+_Avoid_: raw Markdown mutation, Research Run continuation, Wiki Curator prompt
 
 **Batch Wiki Shard**:
 An immutable, unpublished Wiki draft built from one bounded Source batch and used only as internal input to one Wiki Curator execution.
@@ -230,7 +244,7 @@ _Avoid_: Source Snapshot, Logical Source, Wiki Page
 A published Concept or Entity Markdown page maintained from Cornell Notes and linked to its supporting Note entries.
 _Avoid_: Cornell Note, raw Source, factual authority without citations
 
-**Wiki Maintainer**:
+**Wiki Curator**:
 Legacy name for the Wiki Curator or its internal draft children. New interfaces and Activities use Wiki Curator.
 _Avoid_: current domain term, Source Organizer, Report Writer
 
@@ -312,7 +326,7 @@ _Avoid_: Search Question, Runtime summary, report outline
 
 **Source Organizer**:
 The fresh Prime Agent that incrementally assigns newly observed or previously ungrouped Source Snapshots to evidence-backed Canonical Source Groups while preserving established Group membership.
-_Avoid_: Prime Search Root, Wiki Maintainer, deterministic Runtime grouping
+_Avoid_: Prime Search Root, Wiki Curator, deterministic Runtime grouping
 
 **Canonical Source Group**:
 A durable Goal-scoped identity joining Source Snapshots from distinct Providers only when they directly represent the same canonical research object.
@@ -322,20 +336,24 @@ _Avoid_: topic cluster, model family umbrella, dependency group, Logical Source 
 A question-processing input that immutably snapshots the current revision of one Canonical Source Group or one justified ungrouped Source Snapshot.
 _Avoid_: Provider result, Source Bundle, Cornell Note
 
-**Cornell Reading**:
-One question-scoped interpretation of one Logical Source revision produced by a Cornell Note Agent; a later question may require a new Reading of unchanged Source evidence.
+**Note Reading**:
+One question-scoped interpretation of pinned original Source evidence produced by the Note Agent; a later question may require a new Reading of unchanged evidence.
 _Avoid_: Source Snapshot summary, reusable final answer, Wiki Page
 
-**Cornell Note Agent**:
-The fresh Prime Agent that reads one complete Logical Source and records question-relevant Sections, Cue Notes, and exact Source line references.
-_Avoid_: global answer writer, relevance grader, Wiki Maintainer
+**Note Agent**:
+The evidence-reading Agent that produces Cornell Notes either from one complete Logical Source or from pinned original Sources for a specific unresolved question. Both reading modes preserve exact original Source line references.
+_Avoid_: separate Deep Search Agent, global answer writer, relevance grader, Wiki Curator
+
+**Note Retrieval**:
+Deterministic lookup and resolution of saved Cue Notes with their evidence provenance; it locates existing evidence without performing a new Note Reading.
+_Avoid_: Note Agent execution, original Source reading, new evidence acquisition
 
 **Cornell Note Snapshot**:
 The immutable cumulative set of Runtime-validated Cornell Notes for one Run revision.
 _Avoid_: mutable note store, Source Bundle, final report
 
 **Report Outline**:
-The title and ordered Sections chosen after evidence exists by the Full Report Writer Root or the explicit report-outline Agent evaluation path.
+The title and ordered Sections chosen after evidence exists by the Report Writer Root or the explicit report-outline Agent evaluation path.
 _Avoid_: evidence coverage, Provider assignment, draft prose, fixed Note assignment
 
 **Executable Report Plan**:

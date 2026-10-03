@@ -7,27 +7,27 @@ import { startConsumerConfiguration } from "./fixtures/consumer-configuration.js
 const harness = await startConsumerConfiguration();
 const { root, env, signal, apply, configure, stopped, selected } = harness;
 const { runPrimeScheduleReviewer } = await import("../../server/research/schedules/reviewer.js");
-const { curateWikiEdition } = await import("../../server/wiki/wiki-shard-merge.js");
-const { runPrimeNoteWikiMaintainer, NOTE_WIKI_MAINTAINER_CONTRACT_VERSION } = await import("../../server/wiki/note-wiki-maintainer.js");
+const { curateWikiEdition } = await import("../../server/wiki/wiki-curator.js");
+const { runWikiShardBuilder, WIKI_SHARD_BUILDER_CONTRACT_VERSION } = await import("../../server/wiki/wiki-shard-builder.js");
 const draftRoot = join(root, "wiki-draft");
 mkdirSync(draftRoot);
 writeFileSync(join(draftRoot, ".note-registry.json"), JSON.stringify({
-	schema_version: 2, contract_version: NOTE_WIKI_MAINTAINER_CONTRACT_VERSION, entries: [],
+	schema_version: 2, contract_version: WIKI_SHARD_BUILDER_CONTRACT_VERSION, entries: [],
 }));
 writeFileSync(join(draftRoot, ".deferred-notes.json"), "[]");
 const topicPlan = { schema_version: 1 as const, goal_id: "test", revision: "v1", status: "active" as const,
 	topics: [{ id: "topic", title: "Topic", intent: "Knowledge", questions: [], include: [], exclude: [] }] };
 try {
 	await apply("second", "high");
-	await configure({ stageThinkingLevels: { "primeRoot.scheduleReview": "low", "wikiMaintainer.maintenance": "low" },
-		taskModels: { primeChild: "consumer-test/child", wikiMaintainer: "consumer-test/first" } });
+	await configure({ stageThinkingLevels: { "primeRoot.scheduleReview": "low", "wikiCurator.maintenance": "low" },
+		taskModels: { primeChild: "consumer-test/child", wikiCurator: "consumer-test/first" } });
 	await stopped(() => runPrimeScheduleReviewer({ language: "en", goalId: "test", workspaceDir: root, reviewId: "review", root: join(root, "review"),
 		schedule: { id: "schedule", question: "Question", monitoringScope: "Scope", reportContext: "Context", runs: [] },
 		previousReview: null, answerTool: async () => ({}), signal, env }), "second", "low");
 	await stopped(() => curateWikiEdition({ operation: "initialize", goal: "Goal", topicPlan, draftRoots: [draftRoot],
 		workRoot: join(root, "wiki-curator"), sessionRoot: join(root, "wiki-sessions"), signal, env }), "first", "low");
 	assert.deepEqual(selected("wiki-curator/curator").scoped, [{ model: "first", thinking: "low" }, { model: "child", thinking: "low" }]);
-	await stopped(() => runPrimeNoteWikiMaintainer({ goal: "Goal", goalContext: { title: "Goal", description: "Knowledge" }, topicPlan,
+	await stopped(() => runWikiShardBuilder({ goal: "Goal", goalContext: { title: "Goal", description: "Knowledge" }, topicPlan,
 		evidence: { schema_version: 1, snapshot_id: "snapshot", run_id: "run", pipeline: { id: "test", version: "1", sha256: "a".repeat(64) },
 			source_bundle_refs: [], notes: [] },
 		workRoot: join(root, "wiki-shard"), sessionRoot: join(root, "shard-sessions"),

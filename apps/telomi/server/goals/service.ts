@@ -964,7 +964,7 @@ export class GoalService {
 		description: string;
 		reason: "created" | "goal_updated";
 	}): void {
-		const event = renderAgentPrompt("main", "router", "user", {
+		const event = renderAgentPrompt("main", "main-agent", "user", {
 			goal_context_json: JSON.stringify({ title: input.title, description: input.description }),
 		}, input.reason === "created" ? "goal-created-event" : "goal-updated-event").content;
 		void this.startRun(input.goalId, event).catch((error) => {

@@ -142,7 +142,7 @@ export class MainWorkspaceRuntime {
 		copyDirectory(join(this.goalDir, "artifacts"), join(sandboxDir, "artifacts"));
 		const skillRoot = join(sandboxDir, agentSkillRoot("main-agent"));
 		materializeSkills(snapshotSkills([
-			...bundledAgentSkillPaths("main", "router"),
+			...bundledAgentSkillPaths("main", "main-agent"),
 			join(this.goalDir, agentSkillRoot("main-agent")),
 		], { allowOverrides: true }), skillRoot);
 		const workDirectory = join(sandboxDir, MAIN_WORKSPACE_ROOT);

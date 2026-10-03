@@ -81,7 +81,7 @@ test("Wiki read summaries use the page title and never the internal page ref", (
 	}
 });
 
-test("resolves a Wiki Logical Source from its Find Out snapshot", async () => {
+test("resolves a Wiki Logical Source from its Notes snapshot", async () => {
 	const goalDir = await mkdtemp(join(tmpdir(), "pi-wiki-logical-source-"));
 	try {
 		const runId = "2026-08-15T00-00-00.000Z";

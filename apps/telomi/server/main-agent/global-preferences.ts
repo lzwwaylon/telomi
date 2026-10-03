@@ -21,7 +21,7 @@ export async function renderGlobalPreferences(client: Pick<HindsightClient, "lis
 		units = await client.listMemoryUnits([GLOBAL_MEMORY_TAG], "valid");
 	} catch (error) {
 		console.warn(`[memory] Global Preferences not loaded: ${error instanceof Error ? error.message : String(error)}`);
-		return renderAgentPrompt("main", "router", "system-append", { unavailable: true }, "global-preferences").content;
+		return renderAgentPrompt("main", "main-agent", "system-append", { unavailable: true }, "global-preferences").content;
 	}
 	const facts = units
 		// Observations are Hindsight's consolidation and stay in the Goal they came from.
@@ -36,7 +36,7 @@ export async function renderGlobalPreferences(client: Pick<HindsightClient, "lis
 		if (preferences.length > 0 && length > MAX_PREFERENCE_CHARS) break;
 		preferences.push(fact);
 	}
-	return renderAgentPrompt("main", "router", "system-append", {
+	return renderAgentPrompt("main", "main-agent", "system-append", {
 		preferences,
 		omitted: facts.length - preferences.length,
 	}, "global-preferences").content;

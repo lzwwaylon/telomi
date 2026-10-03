@@ -1,5 +1,6 @@
 schema_version: 2
 id: podcast-writer
+display_name: Podcast Writer Root
 skills: [podcast-writing]
 prompts:
   system-append:

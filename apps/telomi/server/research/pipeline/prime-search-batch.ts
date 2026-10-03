@@ -1,3 +1,4 @@
+import { copyTaskContext } from "../task-context.js";
 import { primeExecutionToken } from "../../../../extensions/telomi-srt/prime-workspace.js";
 import { effectiveProviderWorkerSkills } from "../../agent-runtime/provider-skills.js";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -81,10 +82,10 @@ import type {
 } from "./search-batch.js";
 import type { AgentStageActivity } from "../../agent-runtime/agent-stage-runtime.js";
 import {
-	materializeFindOutSources,
-	type FindOutSourceMember,
-	type FindOutSourceOrganization,
-} from "./find-out-sources.js";
+	materializeOrganizedSources,
+	type OrganizedSourceMember,
+	type OrganizedSourceOrganization,
+} from "./organized-sources.js";
 import {
 	ORGANIZER_COMPLETE_MARKER,
 	ORGANIZER_RUNTIME_INDEX,
@@ -244,6 +245,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 		for (const directory of [root, runtimeRoot, bundlesRoot]) mkdirSync(directory, { recursive: true });
 		mkdirSync(join(root, ".runtime"), { recursive: true });
 		mkdirSync(join(root, "work"), { recursive: true });
+		copyTaskContext(join(root, "inputs"), request.taskContextFile);
 		const workspace = Object.assign(request.workspaceSnapshot ?? emptyWorkspaceSnapshot(), {
 			input_tree_source: "empty-work-dir" as const,
 		});
@@ -374,7 +376,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 					module: primeModule,
 					cwd: root,
 					runtimeRoot,
-					readonlyRoots: [sdkRoot, join(root, "skills"), ...rootPythonPaths],
+					readonlyRoots: [sdkRoot, join(root, "skills"), join(root, "inputs"), ...rootPythonPaths],
 					privateRoots: [bundlesRoot, join(root, ".runtime")],
 					sessionDir: join(runtimeRoot, "acquisition-session", "session"),
 					provider: rootProvider,
@@ -903,7 +905,7 @@ function materializeOrganizerProjection(
 	root: string,
 	index: ReturnType<typeof loadPrimeSourceOrganizerIndex>,
 	organizerItems: readonly PrimeSourceOrganizerItem[],
-): FindOutSourceOrganization {
+): OrganizedSourceOrganization {
 	const organization = projectPrimeSourceOrganization(index, organizerItems);
 	const organizerRoot = join(root, "organizer");
 	mkdirSync(organizerRoot, { recursive: true });
@@ -1090,8 +1092,8 @@ function materializeResult(
 	bundlesRoot: string,
 	items: readonly PrimeSourceItem[],
 	providerLog: readonly PrimeProviderLogEntry[],
-	organization: FindOutSourceOrganization,
-	members: readonly (FindOutSourceMember & { changeKind: "new" | "changed" | "unchanged" })[],
+	organization: OrganizedSourceOrganization,
+	members: readonly (OrganizedSourceMember & { changeKind: "new" | "changed" | "unchanged" })[],
 	providerExecutions: readonly ProviderExecution[],
 	usage: ResearchModelUsage,
 	toolCalls: number,
@@ -1149,7 +1151,7 @@ function materializeResult(
 		);
 		executionRecords.push({ record, artifact });
 	}
-	const findOut = materializeFindOutSources({
+	const organized = materializeOrganizedSources({
 		artifactStore: request.artifactStore,
 		sequence: request.sequence,
 		workingDirectory: root,
@@ -1157,9 +1159,9 @@ function materializeResult(
 		members,
 	});
 	return {
-		logicalSources: findOut.sources.sort((left, right) => left.id.localeCompare(right.id)),
+		logicalSources: organized.sources.sort((left, right) => left.id.localeCompare(right.id)),
 		sourceBundles: sourceBundles.sort((left, right) => left.relativePath.localeCompare(right.relativePath)),
-		findOutSources: findOut.artifact,
+		organizedSources: organized.artifact,
 		executionRecords: executionRecords.sort((left, right) => left.record.attempt_id.localeCompare(right.record.attempt_id)),
 		usage,
 		agentStages,
@@ -1497,7 +1499,7 @@ export interface PrimeBridgeOptions {
 		/** Inline responses exist only to replay historical Cases with their original protocol. */
 		responseMode?: "file" | "inline";
 		knowledgeSearch(query: string, limit: number): Promise<unknown>;
-		deepSearch(question: string): Promise<unknown>;
+		readSources(question: string): Promise<unknown>;
 		writeAnswer?(evidenceRefs: string[], requirements: string[]): Promise<unknown>;
 		externalSearch?(question: string): Promise<unknown>;
 		/** Frozen historical investigation Cases only; production uses generic acquisition. */
@@ -1513,7 +1515,7 @@ const BRIDGE_ROUTES = new Set([
 	"/v1/skill-read",
 	"/v1/provider-fallback",
 	"/v1/knowledge-search",
-	"/v1/deep-search",
+	"/v1/read-sources",
 	"/v1/write-answer",
 	"/v1/external-search",
 	"/v1/github-read",
@@ -1638,8 +1640,8 @@ export async function startPrimeSourceBridge(
 					));
 					return;
 				}
-				if (route === "/v1/deep-search") {
-					handoff("deep_search", await options.investigation.deepSearch(requiredString(body.question, "Deep Search question")));
+				if (route === "/v1/read-sources") {
+					handoff("read_sources", await options.investigation.readSources(requiredString(body.question, "Note Reading question")));
 					return;
 				}
 				if (route === "/v1/write-answer" && options.investigation.writeAnswer) {
@@ -1671,7 +1673,7 @@ export async function startPrimeSourceBridge(
 				}
 				throw new Error("This investigation cannot access external Providers");
 			}
-			if (route === "/v1/knowledge-search" || route === "/v1/deep-search" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
+			if (route === "/v1/knowledge-search" || route === "/v1/read-sources" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
 			if (route === "/v1/root-search") {
 				// Discovery belongs to the Root; children get the specialized Providers below.
 				if (bridgeExecutionId(body.agent_session_id) !== "root") throw new Error("General Web search is available only to the Search Root");

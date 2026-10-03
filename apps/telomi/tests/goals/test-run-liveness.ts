@@ -59,7 +59,7 @@ try {
 			const harness = loadResearchHarnessSnapshot(goalDir);
 			const context = buildRunContextSnapshotFromHarness({ goalId, goalDir, dataDir: workspaceDir, harness });
 			return runtime.run({
-			env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/note", TELOMI_WIKI_MAINTAINER_MODEL: "test/root" },
+			env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_NOTE_AGENT_MODEL: "test/note", TELOMI_WIKI_CURATOR_MODEL: "test/root" },
 				goalId, runId, question: "Check Run admission", reportContext: "Verify deterministic Run lifecycle",
 				discoveryEnabled: true, workspaceDirectory: join(goalDir, "wiki/runs", runId), controlDirectory,
 				goalWorkspaceDirectory: goalDir, workspaceRootDirectory: workspaceDir,
@@ -242,7 +242,7 @@ try {
 	const context = buildRunContextSnapshotFromHarness({ goalId, goalDir, dataDir: workspaceDir, harness });
 	const failedSetupStore = new RunStateStore(join(runRecordsDir(workspaceDir, goalId), "run_setup_failure"));
 	const failedSetup = runtime.run({
-			env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/note", TELOMI_WIKI_MAINTAINER_MODEL: "test/root" },
+			env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_NOTE_AGENT_MODEL: "test/note", TELOMI_WIKI_CURATOR_MODEL: "test/root" },
 		goalId, runId: "run_setup_failure", question: "Check setup failure", reportContext: "Verify failure releases admission",
 		discoveryEnabled: true, workspaceDirectory: join(goalDir, "wiki/runs/run_setup_failure"),
 		controlDirectory: failedSetupStore.controlDirectory, goalWorkspaceDirectory: goalDir,
@@ -257,7 +257,7 @@ try {
 	const controller = new AbortController();
 	const cancelledStore = new RunStateStore(join(runRecordsDir(workspaceDir, goalId), "run_setup_cancelled"));
 	const cancelledSetup = runtime.run({
-			env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "test/note", TELOMI_WIKI_MAINTAINER_MODEL: "test/root" },
+			env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_NOTE_AGENT_MODEL: "test/note", TELOMI_WIKI_CURATOR_MODEL: "test/root" },
 		goalId, runId: "run_setup_cancelled", question: "Check setup cancellation", reportContext: "Verify cancellation stays terminal",
 		discoveryEnabled: true, workspaceDirectory: join(goalDir, "wiki/runs/run_setup_cancelled"),
 		controlDirectory: cancelledStore.controlDirectory, goalWorkspaceDirectory: goalDir,

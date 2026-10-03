@@ -22,7 +22,7 @@ const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Se
 	workspaceDirectory: workspace, temporalContext: { schemaVersion: 1, currentDate: "2026-01-01", timeZone: "UTC" },
 	signal: new AbortController().signal,
 }, workspace, { runDir: workspace, nodeId: "prime-investigation", attemptId: "1" }, {
-	investigation: { knowledgeSearch: async () => knowledge, deepSearch: async () => reading,
+	investigation: { knowledgeSearch: async () => knowledge, readSources: async () => reading,
 		externalSearch: async () => ({ ...reading, sources: [{ title: "Source", url: "https://example.org" }] }),
 		writeAnswer: async () => answer },
 });
@@ -30,7 +30,7 @@ const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Se
 try {
 	for (const [operation, route, request, expected] of [
 		["knowledge_search", "knowledge-search", { query: "implementation", limit: 5 }, knowledge],
-		["deep_search", "deep-search", { question: "Read implementation" }, reading],
+		["read_sources", "read-sources", { question: "Read implementation" }, reading],
 		["external_search", "external-search", { question: "Find configuration" },
 			{ ...reading, sources: [{ title: "Source", url: "https://example.org" }] }],
 		["write_answer", "write-answer", { evidence_refs: ["N1"], requirements: ["Explain implementation"] }, answer],
@@ -44,10 +44,10 @@ try {
 		assert.equal(receipt.operation, operation);
 		assert.deepEqual(readInvestigationHandoff(workspace, receipt, operation), expected,
 			"file transport retains every Note, original excerpt and gap");
-		if (operation === "deep_search") assert.ok(Buffer.byteLength(JSON.stringify(receipt)) < 500,
+		if (operation === "read_sources") assert.ok(Buffer.byteLength(JSON.stringify(receipt)) < 500,
 			"a long original excerpt is not automatically returned to the Root");
 	}
-	const receipt = publishInvestigationHandoff(workspace, "deep_search", reading);
+	const receipt = publishInvestigationHandoff(workspace, "read_sources", reading);
 	const sdkPath = fileURLToPath(new URL("../../server/research/python-tools/research_runtime.py", import.meta.url));
 	const python = `import importlib.util, json, os, sys
 spec = importlib.util.spec_from_file_location("research_runtime", sys.argv[1])
@@ -85,7 +85,7 @@ print("Python verified the complete file and rejected invalid receipts")
 	symlinkSync(outside, file);
 	assert.throws(() => readInvestigationHandoff(workspace, receipt), /symbolic|symlink|regular/u);
 	const empty = { status: "not_found", cues: [], gaps: ["No evidence in accessible materials"] };
-	assert.deepEqual(readInvestigationHandoff(workspace, publishInvestigationHandoff(workspace, "deep_search", empty)), empty);
+	assert.deepEqual(readInvestigationHandoff(workspace, publishInvestigationHandoff(workspace, "read_sources", empty)), empty);
 	const earlier = publishInvestigationHandoff(workspace, "write_answer", answer);
 	const latest = publishInvestigationHandoff(workspace, "write_answer", { ...answer, coverage: [] });
 	assert.throws(() => readLatestInvestigationWriter(workspace, earlier), /latest Writer/u,

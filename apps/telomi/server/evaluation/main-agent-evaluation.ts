@@ -56,8 +56,8 @@ export function captureMainAgentNodeEvaluation(input: {
 		role: "main-agent",
 		promptConfig: {
 			domain: "main",
-			id: "router",
-			sandboxRole: "main.router",
+			id: "main-agent",
+			sandboxRole: "main.main_agent",
 		} as unknown as NonNullable<AgentStageRequest<unknown>["promptConfig"]>,
 		recordKind: "main",
 		evaluation: {

@@ -1,12 +1,12 @@
 # Goal Topic Plan and Discovery: design rationale
 
-This document records rationale that is not apparent from the code. Current behavior is defined elsewhere: `agents/main/router/skills/topic-plan/SKILL.md` for the Agent, the Topic entries in [`CONTEXT.md`](../../../CONTEXT.md) for terminology, and `server/goals/topic-plan/` for Runtime.
+This document records rationale that is not apparent from the code. Current behavior is defined elsewhere: `agents/main/main-agent/skills/topic-plan/SKILL.md` for the Agent, the Topic entries in [`CONTEXT.md`](../../../CONTEXT.md) for terminology, and `server/goals/topic-plan/` for Runtime.
 
 ## 1. Design decision
 
 After creating a Goal, the system first generates a Topic outline to discuss with the user instead of immediately deriving the knowledge structure from Source clustering.
 
-Once confirmed by the user, this outline becomes the `Goal Topic Plan`, a shared, lasting agreement about the user's areas of attention within a Goal. Main Agent, Search, Cornell Note, Wiki, and scheduled research read the same active revision instead of independently inferring those interests.
+Once confirmed by the user, this outline becomes the `Goal Topic Plan`, a shared, lasting agreement about the user's areas of attention within a Goal. Main Agent, Search, Note Agent, Wiki, and scheduled research read the same active revision instead of independently inferring those interests.
 
 The Topic Plan is not a Goal Ontology, Wiki directory, or report outline. It expresses the questions the user cares about over time, including each question's intent and scope. Concepts, Entities, Pages, and factual evidence remain the responsibility of their respective knowledge models.
 
@@ -56,6 +56,6 @@ The Discovery Inbox must not become an indefinitely growing miscellaneous bucket
 
 ## 5. Three easily broken decisions
 
-- **Agents do not transcribe Topic IDs.** A canonical Topic ID is 20 hexadecimal characters. One mistyped character produces an unknown Topic and wastes a repair attempt. Stages that write Topic associations (Cornell Note and Wiki Curator) read and write short Refs such as `T1` and `T2`; Runtime maps them back to canonical IDs when reading results. Agent-visible input files also contain only short Refs. When validation rejects a Topic reference, it must return the valid short-Ref set so the repair turn does not have to guess again.
+- **Agents do not transcribe Topic IDs.** A canonical Topic ID is 20 hexadecimal characters. One mistyped character produces an unknown Topic and wastes a repair attempt. Agents that write Topic associations (Note Agent and Wiki Curator) read and write short Refs such as `T1` and `T2`; Runtime maps them back to canonical IDs when reading results. Agent-visible input files also contain only short Refs. When validation rejects a Topic reference, it must return the valid short-Ref set so the repair turn does not have to guess again.
 - **Semantic files do not express revision relationships.** The Topic document maintained by the Agent contains only `topics` and Runtime-confirmed `id` values, with no redirect, parent, priority, status, or version fields. Deleting a Topic means removing it from the array. Revision relationships exist only in the outer metadata of the append-only history; do not add them to the semantic file for traceability.
 - **A confirmed revision is not rolled back when activation succeeds but subsequent processing fails.** The Proposal is recorded as a failed reframe. The user can continue by calling the same confirmation endpoint through the Activity's existing Wiki-retry action. If the process stops midway, startup recovery likewise turns a confirmed Proposal without a reframe record into a retryable failure. Confirmation notifications are deduplicated by the existing event text in the Goal log, so retries complete only unfinished processing.

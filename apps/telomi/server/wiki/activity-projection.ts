@@ -78,7 +78,7 @@ export class WikiActivityProjection {
 				dependsOnStepIds: [],
 				parallelSteps: [],
 				agentActivities: [{
-					agentActivityId: `wiki-maintainer:${id}:${batch.batch_index}`,
+					agentActivityId: `wiki-shard-builder:${id}:${batch.batch_index}`,
 					agentName: "wiki_maintainer",
 					summary: batch.status === "running" ? chrome("activityChrome.wiki.maintainerRunning")
 						: batch.status === "interrupted" ? chrome("activityChrome.wiki.maintainerInterrupted")
@@ -90,7 +90,7 @@ export class WikiActivityProjection {
 					timing,
 					...(outputRef ? { outputRef } : {}),
 					attempts: [{
-						attemptId: `wiki-maintainer:${id}:${batch.batch_index}:${batch.attempt}`,
+						attemptId: `wiki-shard-builder:${id}:${batch.batch_index}:${batch.attempt}`,
 						number: batch.attempt,
 						lifecycle: batchLifecycle,
 						...(batchOutcome ? { outcome: batchOutcome } : {}),

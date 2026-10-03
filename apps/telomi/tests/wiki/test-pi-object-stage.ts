@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { acceptPiObjectFiles, piObjectUserContext,
  validatePiObjectFiles, piObjectMergeUserContext, observePiMergeRead,
  validatePiObjectMergeFiles, piResidualCueUserContext, piObjectMergePlanUserContext, validatePiObjectMergePlanFiles } from '../../server/wiki/pi-object-stage.js';
-import { createNoteFirstWorkspace } from '../../server/wiki/note-first-workspace.js';
+import { createWikiStageWorkspace } from '../../server/wiki/wiki-stage-workspace.js';
 import { createSrtAgentSandbox } from '../../server/agent-runtime/srt-agent-sandbox.js';
 import { renderAgentPrompt } from '../../server/agent-runtime/prompt-registry.js';
-import type { NoteFirstInput } from '../../server/wiki/note-first-contract.js';
+import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'pi-object-files-'));
 const inputRoot = join(root, 'input'), work = join(root, 'work');
@@ -16,11 +16,11 @@ mkdirSync(inputRoot); mkdirSync(join(work, 'pages'), { recursive: true });
 const a = `entry:${'a'.repeat(24)}`, b = `entry:${'b'.repeat(24)}`;
 const entries = [a, b].map((id, index) => ({ id, revisionSha256: 'r', sourceRunId: 'run', sourceId: 'source', sourceTitle: 'Source', canonicalLocator: '', members: [],
  section: 'Methods', sectionSummary: 'Conditions', cue: `Cue ${index}`, detail: `Detail ${index}`, anchors: [] }));
-const input: NoteFirstInput = { stage: 'objects', key: 'objects/demo', language: 'en', goal: { title: 'Study methods', description: '' }, entries,
+const input: WikiStageInput = { stage: 'objects', key: 'objects/demo', language: 'en', goal: { title: 'Study methods', description: '' }, entries,
  pages: [], requiredEntries: [a, b], requiredPages: [], previousRelations: [], instructions: '', topics: [], sections: [] };
 const page = join(work, 'pages/O1.md'), manifest = join(work, 'result.json');
 try {
- const piSystem = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'objects-pi').content;
+ const piSystem = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'objects-pi').content;
  assert.match(piSystem, /First identify the research subject or subjects/);
  assert.match(piSystem, /Use the write tool to create one file per object/);
  const user = piObjectUserContext(input, inputRoot);
@@ -65,12 +65,12 @@ try {
   readonlyMounts: [], activeTools: ['read', 'write', 'edit'], network: 'deny' });
  assert.deepEqual(sandbox.tools.map(tool => tool.name), ['read', 'write', 'edit']);
  await sandbox.close();
- const mergeInput: NoteFirstInput = { ...input, stage: 'merge-objects', pages: [
+ const mergeInput: WikiStageInput = { ...input, stage: 'merge-objects', pages: [
   { ref: 'old:a', previous: true, role: 'member', page: { id: 'entity:a', kind: 'entity', title: 'Method A', description: 'Existing method', body: `## Mechanism\nEvidence [[${a}]].` } },
   { ref: 'new:b', previous: false, role: 'member', page: { id: 'entity:b', kind: 'entity', title: 'Method A draft', description: 'New observations', body: `## Observations\nEvidence [[${b}]].` } },
  ] };
  const mergeRoot = join(root, 'merge-input');
- createNoteFirstWorkspace(mergeInput, mergeRoot);
+ createWikiStageWorkspace(mergeInput, mergeRoot);
  // Follow the Runtime's paths, not inferred filenames for section or Cue aliases.
  for (const ref of ['P1', 'P2']) {
   const index = JSON.parse(readFileSync(join(mergeRoot, `indexes/${ref}.json`), 'utf8'));
@@ -91,12 +91,12 @@ try {
  assert.match(mergeUser, /P2 \| incoming/);
  assert.match(mergeUser, /wiki\/indexes\/P1.json \| wiki\/pages\/P1.md/);
  assert.match(mergeUser, /cue_files.*null means this stage supplies only the page's inline citation/);
- const writerSystem = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'write-object-target-pi').content;
+ const writerSystem = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'write-object-target-pi').content;
  assert.match(writerSystem, /Open only the file paths listed in the catalog or indexes/);
  const mappedRoot = join(root, 'mapped-input');
- const mappedInput: NoteFirstInput = { ...mergeInput, pages: [{ ...mergeInput.pages[0]!,
+ const mappedInput: WikiStageInput = { ...mergeInput, pages: [{ ...mergeInput.pages[0]!,
   page: { ...mergeInput.pages[0]!.page, body: `Preamble.\n\n## Repeated\nEvidence [[${a}]].\n\n\`\`\`md\n## Code heading\n\`\`\`\n\n## Repeated\nEvidence [[${a}]].\n` } }, mergeInput.pages[1]!] };
- createNoteFirstWorkspace(mappedInput, mappedRoot);
+ createWikiStageWorkspace(mappedInput, mappedRoot);
  const mappedSandbox = createSrtAgentSandbox({ id: 'mapped-object-test', role: 'wiki.object_builder', workDirectory: work,
   readonlyMounts: [{ hostPath: mappedRoot, guestPath: '/work/wiki', access: 'read-only' }],
   activeTools: ['read', 'write', 'edit'], network: 'deny' });
@@ -165,7 +165,7 @@ try {
  }
  const historicalPending = { ...mergeInput.pages[1]!, ref: 'history:b', previous: true, role: 'context' as const,
   page: { ...mergeInput.pages[1]!.page, id: 'concept:history', kind: 'concept' as const } };
- const pendingInput: NoteFirstInput = { ...mergeInput,
+ const pendingInput: WikiStageInput = { ...mergeInput,
   pages: [{ ...mergeInput.pages[0]!, role: 'context' }, historicalPending], requiredEntries: [b],
   unplacedEntries: [{ entryId: b, reason: 'Not yet in objects' }] };
  assert.match(piResidualCueUserContext(pendingInput), /Detail 1/);
@@ -177,11 +177,11 @@ try {
   unplacedEntries: [{ entryId: a, reason: 'No accepted object yet' }, { entryId: b, reason: 'Historical concept evidence' }] };
  assert.deepEqual(JSON.parse(piResidualCueUserContext(mixedPending)).required_object_adoption_refs, ['N2'],
   'mandatory adoption is derived from historical concept usage, not every unplaced Cue');
- const residualSystem = renderAgentPrompt('wiki', 'note-first', 'system', {}, 'resolve-object-cues-pi').content;
+ const residualSystem = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'resolve-object-cues-pi').content;
  assert.match(residualSystem, /Adoption is recorded only by inline \[\[N#\]\] citations/);
  assert.match(residualSystem, /Every pages\[\]\.member_refs is \[\]/);
  assert.match(residualSystem, /"deferred_entries":\[\]/);
- createNoteFirstWorkspace(pendingInput, mergeRoot);
+ createWikiStageWorkspace(pendingInput, mergeRoot);
  const pendingIndex = JSON.parse(readFileSync(join(mergeRoot, 'indexes/P2.json'), 'utf8'));
  assert.equal(pendingIndex.cue_files.N2, 'evidence/N2.md');
  assert.match(readFileSync(join(mergeRoot, pendingIndex.cue_files.N2), 'utf8'), /Detail 1/,
@@ -203,14 +203,14 @@ try {
  }, 'historical detail feedback names the real Pi source path');
  assert.equal(pendingResolved.result.value.pages.length, 1, 'resolving pending Cues does not require rewriting read-only old objects');
  assert.deepEqual(pendingResolved.result.value.pages[0]!.member_refs, []);
- assert.throws(() => createNoteFirstWorkspace({ ...pendingInput, pages: mergeInput.pages.slice(0, 1) }, mergeRoot),
+ assert.throws(() => createWikiStageWorkspace({ ...pendingInput, pages: mergeInput.pages.slice(0, 1) }, mergeRoot),
   /required Entries must cover/, 'real members still require full citation coverage');
  writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: ['P1', 'P2'] }], retained_refs: [], discarded_refs: [], deferred_entries: [] }));
  const extra = `entry:${'c'.repeat(24)}`;
- const aggregateInput: NoteFirstInput = { ...mergeInput,
+ const aggregateInput: WikiStageInput = { ...mergeInput,
   entries: [...entries, { ...entries[0]!, id: extra }], requiredEntries: [a, b, extra],
   pages: [{ ...mergeInput.pages[0]!, page: { ...mergeInput.pages[0]!.page, body: `## Mechanism\nEvidence [[${a}]] and [[${extra}]].` } }, mergeInput.pages[1]!] };
- createNoteFirstWorkspace(aggregateInput, mergeRoot);
+ createWikiStageWorkspace(aggregateInput, mergeRoot);
  mergeReads.clear(); observe('P1'); observe('P2');
  writeFileSync(page, '---\ntitle: "Method A"\ndescription: "A method with conditions"\n---\n\n## Mechanism\nEvidence [[N3]].\n');
  assert.throws(() => validatePiObjectMergeFiles(aggregateInput, mergeRoot, work, mergeReads), error => {
@@ -220,7 +220,7 @@ try {
   assert.match(message, /wiki\/pages\/P2.md/);
   return true;
  }, 'one repair must see both old and incoming citation losses');
- createNoteFirstWorkspace(mergeInput, mergeRoot);
+ createWikiStageWorkspace(mergeInput, mergeRoot);
  mergeReads.clear(); observe('P1'); observe('P2');
  writeFileSync(page, '---\ntitle: "Method A"\ndescription: "A method with conditions"\n---\n\n## Mechanism\nEvidence [[N1]].\n');
  writeFileSync(manifest, JSON.stringify({ pages: [{ file: 'pages/O1.md', member_refs: ['P1'] }], retained_refs: ['P2'], discarded_refs: [], deferred_entries: [] }));

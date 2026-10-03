@@ -6,10 +6,10 @@ import { renderMainAgentPrompt, type MainAgentPromptContext } from "../main-agen
 import type { NodeEvaluationCase } from "../agent-runtime/node-evaluation.js";
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import { isRecord } from "../lib/values.js";
-import { buildDeepSearchTaskPrompt } from "../research/deep-search.js";
-import { renderCornellNoteAgentSystemPrompt, renderCornellNoteAgentUserPrompt } from "../research/pipeline/cornell-note-agent-prompt.js";
-import { buildFullReportWriterSystemPrompt, buildFindOutReportWriterSystemPrompt,
-	findOutSelfDirectedWriterUserPrompt, wikiSelfDirectedWriterUserPrompt } from "../research/pipeline/report-prompts.js";
+import { buildNoteReadingTaskPrompt } from "../research/note-reading.js";
+import { renderNoteAgentSystemPrompt, renderNoteAgentUserPrompt } from "../research/pipeline/note-agent-prompt.js";
+import { buildWikiReportWriterSystemPrompt, buildNotesReportWriterSystemPrompt,
+	notesSelfDirectedWriterUserPrompt, wikiSelfDirectedWriterUserPrompt } from "../research/pipeline/report-prompts.js";
 
 type CandidatePromptInput = Pick<NodeEvaluationCase, "agentId" | "recipeInput" | "mounts"> & {
 	request: { promptConfig: Pick<NodeEvaluationCase["request"]["promptConfig"], "userVariant"> };
@@ -32,22 +32,22 @@ export function renderCapturedCandidatePrompts(value: CandidatePromptInput, sour
 		if (typeof context.question !== "string") throw new Error("Candidate Main Agent Prompt requires its frozen question; use observed or override for older Cases");
 		return { systemPrompt: renderMainAgentPrompt(promptContext), userPrompt: context.question };
 	}
-	if (value.agentId === "cornell-note") {
-		if (context.mode === "deep-search") {
+	if (value.agentId === "note-agent") {
+		if (context.mode === "question-reading") {
 			const catalog = readInput(value, sourceRunDirectory, "/source", "catalog.json");
 			if (typeof context.question !== "string" || !context.question.trim() || !Array.isArray(catalog.sources)) {
-				throw new Error("Candidate Deep Search Prompt requires its frozen question and Source catalog");
+				throw new Error("Candidate Note Reading Prompt requires its frozen question and Source catalog");
 			}
-			return { systemPrompt: renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content,
-				userPrompt: buildDeepSearchTaskPrompt(context.question, catalog.sources.length) };
+			return { systemPrompt: renderNoteAgentSystemPrompt(undefined, "question-reading").content,
+				userPrompt: buildNoteReadingTaskPrompt(context.question, catalog.sources.length) };
 		}
 		if (typeof context.question !== "string" || !isRecord(context.goal)
 			|| typeof context.goal.title !== "string" || typeof context.goal.description !== "string"
 			|| typeof context.discoveryEnabled !== "boolean") {
-			throw new Error("Candidate Cornell Note Prompt requires its frozen request context; use observed or override for older Cases");
+			throw new Error("Candidate Note Agent Prompt requires its frozen request context; use observed or override for older Cases");
 		}
-		return { systemPrompt: renderCornellNoteAgentSystemPrompt().content,
-			userPrompt: renderCornellNoteAgentUserPrompt(context as unknown as Parameters<typeof renderCornellNoteAgentUserPrompt>[0]).content };
+		return { systemPrompt: renderNoteAgentSystemPrompt().content,
+			userPrompt: renderNoteAgentUserPrompt(context as unknown as Parameters<typeof renderNoteAgentUserPrompt>[0]).content };
 	}
 	if (value.agentId === "report-writer") {
 		if (context.mode === "investigation-answer") {
@@ -63,13 +63,13 @@ export function renderCapturedCandidatePrompts(value: CandidatePromptInput, sour
 			throw new Error("Candidate Report Writer Prompt requires frozen language and temporal_context; use observed or override for older Cases");
 		}
 		const materials = readInput(value, sourceRunDirectory, "/inputs", "materials.json");
-		if (materials.kind !== "wiki" && materials.kind !== "findout") throw new Error("Candidate Report Writer Prompt requires a frozen knowledge mode");
+		if (materials.kind !== "wiki" && materials.kind !== "notes") throw new Error("Candidate Report Writer Prompt requires a frozen knowledge mode");
 		const priorPath = join(inputRoot(value, sourceRunDirectory, "/inputs"), "prior-reports", "index.md");
 		const variables = { language: request.language, currentDate: temporal.currentDate, timeZone: temporal.timeZone,
 			priorReports: existsSync(priorPath) ? readFileSync(priorPath, "utf-8") : "" };
-		return materials.kind === "findout"
-			? { systemPrompt: buildFindOutReportWriterSystemPrompt(), userPrompt: findOutSelfDirectedWriterUserPrompt(variables) }
-			: { systemPrompt: buildFullReportWriterSystemPrompt(), userPrompt: wikiSelfDirectedWriterUserPrompt(variables) };
+		return materials.kind === "notes"
+			? { systemPrompt: buildNotesReportWriterSystemPrompt(), userPrompt: notesSelfDirectedWriterUserPrompt(variables) }
+			: { systemPrompt: buildWikiReportWriterSystemPrompt(), userPrompt: wikiSelfDirectedWriterUserPrompt(variables) };
 	}
 	throw new Error(`Agent '${value.agentId}' does not use captured Candidate Prompt rendering`);
 }

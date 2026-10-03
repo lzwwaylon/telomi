@@ -16,15 +16,15 @@ const settings = {
 const taskSettings = {
 	...settings,
 	taskModels: {
-		cornellNote: "deepseek/deepseek-v4-pro",
+		noteAgent: "deepseek/deepseek-v4-pro",
 		primeRoot: "openai-codex/gpt-5.6-sol",
 		primeChild: "openai-codex/gpt-5.6-luna",
-		wikiMaintainer: "openai-codex/gpt-5.6-terra",
+		wikiCurator: "openai-codex/gpt-5.6-terra",
 	},
 };
-assert.equal(researchConfigFromEnv({}, taskSettings).cornellNoteModel, "deepseek/deepseek-v4-pro");
+assert.equal(researchConfigFromEnv({}, taskSettings).noteAgentModel, "deepseek/deepseek-v4-pro");
 assert.equal(resolveLLMConfig({
-	taskModelRole: "wikiMaintainer",
+	taskModelRole: "wikiCurator",
 	settingsOverride: taskSettings,
 }).model, "openai-codex/gpt-5.6-terra");
 assert.deepEqual(resolvePrimeAgentModels({}, taskSettings), {
@@ -36,19 +36,19 @@ assert.equal(resolvePrimeAgentModels({
 }, taskSettings).root.selector, "deepseek/deepseek-v4-flash");
 
 assert.equal(researchConfigFromEnv({ TELOMI_RESEARCH_OUTPUT_LANGUAGE: "zh-CN" }, taskSettings).outputLanguage, "zh-CN");
-assert.equal(researchConfigFromEnv({ TELOMI_RESEARCH_CORNELL_NOTE_MODEL: "deepseek/deepseek-v4-flash" }, taskSettings).cornellNoteModel, "deepseek/deepseek-v4-flash");
+assert.equal(researchConfigFromEnv({ TELOMI_NOTE_AGENT_MODEL: "deepseek/deepseek-v4-flash" }, taskSettings).noteAgentModel, "deepseek/deepseek-v4-flash");
 
 // A role with no override inherits the capability default, so one change reaches every role.
-assert.equal(researchConfigFromEnv({}, settings).cornellNoteModel, "deepseek/deepseek-v4-pro");
+assert.equal(researchConfigFromEnv({}, settings).noteAgentModel, "deepseek/deepseek-v4-pro");
 assert.deepEqual(resolvePrimeAgentModels({}, settings), {
 	root: { provider: "deepseek", modelId: "deepseek-v4-pro", selector: "deepseek/deepseek-v4-pro" },
 	child: { provider: "deepseek", modelId: "deepseek-v4-pro", selector: "deepseek/deepseek-v4-pro" },
 });
-assert.equal(resolveLLMConfig({ taskModelRole: "cornellNote", settingsOverride: settings }).source, "settings");
+assert.equal(resolveLLMConfig({ taskModelRole: "noteAgent", settingsOverride: settings }).source, "settings");
 
 // Nothing substitutes a model nobody configured: the role fails where the user can see it.
 assert.equal(resolveLLMConfig({ taskModelRole: "primeRoot", settingsOverride: {} }).model, null);
 assert.throws(() => resolvePrimeAgentModels({}, {}), /Prime Root requires a configured provider\/model/u);
-assert.throws(() => researchConfigFromEnv({}, {}), /Cornell Note requires a configured provider\/model/u);
+assert.throws(() => researchConfigFromEnv({}, {}), /Note Agent requires a configured provider\/model/u);
 
 console.log("model config resolution: ok");

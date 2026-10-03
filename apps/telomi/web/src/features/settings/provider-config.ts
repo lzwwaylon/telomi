@@ -43,13 +43,13 @@ export interface ProviderConfig extends ModelDefaultsView {
 }
 
 export type TaskModelRole =
-  "cornellNote" | "primeRoot" | "primeChild" | "wikiMaintainer" | "browserEvolution";
+  "noteAgent" | "primeRoot" | "primeChild" | "wikiCurator" | "browserEvolution";
 
 interface TaskModelRoleInfo {
   id: TaskModelRole;
   label: string;
   description: string;
-  legacyEnvVar: string;
+  modelEnvVar: string;
   stages: Record<string, { label: string; envVar: string }>;
 }
 

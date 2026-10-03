@@ -1,7 +1,7 @@
 import { hashJson } from '../lib/hash.js';
 import { assertNoDuplicates, isRecord } from '../lib/values.js';
-import type { NoteFirstInput } from './note-first-contract.js';
-import { objectFirstEntries, objectFirstSections } from './object-first-contract.js';
+import type { WikiStageInput } from './wiki-stage-contract.js';
+import { wikiPageEntryIds, wikiPageSections } from './wiki-page-contract.js';
 
 function fail(message: string): never { throw new Error(`Page Topic task: ${message}`); }
 function shape(value: unknown, keys: string[], field: string): asserts value is Record<string, unknown> {
@@ -17,13 +17,13 @@ function text(value: unknown, field: string): string {
 }
 
 /** One complete body is supplied inline; durable identities stay in this Runtime closure. */
-export function createPageTopicTask(input: NoteFirstInput): {
+export function createPageTopicTask(input: WikiStageInput): {
  userContext: string;
  validate(output: unknown): Array<{ sectionRef: string; matches: Array<{ topicId: string; reason: string }> }>;
 } {
  if (input.stage !== 'page-topics' || input.pages.length !== 1) fail('expected page-topics with exactly one page');
  const page = input.pages[0]!.page;
- const actualSections = objectFirstSections([page]);
+ const actualSections = wikiPageSections([page]);
  if (!actualSections.length || input.sections.length !== actualSections.length) fail('input must include every body section');
  assertNoDuplicates(input.sections.map(row => row.ref), 'input sections');
  for (const section of input.sections) {
@@ -31,7 +31,7 @@ export function createPageTopicTask(input: NoteFirstInput): {
   const { entryIds, ...core } = section as typeof section & { entryIds?: string[] };
   if (!actual || hashJson(actual) !== hashJson(core)) fail('input contains stale or invalid section');
   if (entryIds) {
-   const cited = objectFirstEntries(page.body.split('\n').slice(section.startLine - 1, section.endLine).join('\n'));
+   const cited = wikiPageEntryIds(page.body.split('\n').slice(section.startLine - 1, section.endLine).join('\n'));
    if (entryIds.length !== new Set(entryIds).size || hashJson([...entryIds].sort()) !== hashJson([...cited].sort())) fail('input section evidence does not match its body');
   }
  }
@@ -79,7 +79,7 @@ export function createPageTopicTask(input: NoteFirstInput): {
     });
     // Cue markers stay hidden from the classifier; Runtime owns link eligibility.
     // Uncited sections remain reading context, but cannot become navigation targets.
-    return { sectionRef: section.ref, matches: objectFirstEntries(body(section)).length ? matches : [] };
+    return { sectionRef: section.ref, matches: wikiPageEntryIds(body(section)).length ? matches : [] };
    });
    const missing = [...sections.keys()].filter(ref => !seen.has(ref));
    if (missing.length) fail(`output.sections: missing sections [${missing.join(', ')}]; return every section exactly once`);

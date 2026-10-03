@@ -13,38 +13,38 @@ export interface ReportOutline {
 	}>;
 }
 
-export function buildFullReportWriterSystemPrompt(): string {
-	return renderAgentPrompt("research", "report-writer", "system-append").content;
+export function buildWikiReportWriterSystemPrompt(): string {
+	return renderAgentPrompt("research", "report-writer", "system-append", {}, "wiki").content;
 }
 
-export const FULL_REPORT_WRITER_SYSTEM_PROMPT = buildFullReportWriterSystemPrompt();
+export const WIKI_REPORT_WRITER_SYSTEM_PROMPT = buildWikiReportWriterSystemPrompt();
 
-export function buildFindOutReportWriterSystemPrompt(): string {
-	return renderAgentPrompt("research", "find-out-report-writer", "system-append").content;
+export function buildNotesReportWriterSystemPrompt(): string {
+	return renderAgentPrompt("research", "report-writer", "system-append", {}, "notes").content;
 }
 
 /**
  * 输入只有用户的问题与 Cornell Notes：没有事先的 Outline，Root 自己决定章节、自己派子 Agent，
  * 结构以它写出的 manifest 为准，Runtime 事后接住。少一次上下文交接，也少一遍对同一批笔记的重复通读。
  */
-export function findOutSelfDirectedWriterUserPrompt(input: {
+export function notesSelfDirectedWriterUserPrompt(input: {
 	language: string;
 	currentDate: string;
 	timeZone: string;
 	priorReports?: string;
 }): string {
-	return renderAgentPrompt("research", "find-out-report-writer", "user", {
+	return renderAgentPrompt("research", "report-writer", "user", {
 		language: input.language,
 		current_date: input.currentDate,
 		time_zone: input.timeZone,
 		prior_reports: input.priorReports ?? "",
-	}, "plan").content;
+	}, "notes-plan").content;
 }
 
-export function findOutSelfDirectedDelegationPrompt(childModel: string): string {
-	return renderAgentPrompt("research", "find-out-report-writer", "user", {
+export function notesSelfDirectedDelegationPrompt(childModel: string): string {
+	return renderAgentPrompt("research", "report-writer", "user", {
 		child_model: childModel,
-	}, "delegate").content;
+	}, "notes-delegate").content;
 }
 
 export function wikiSelfDirectedWriterUserPrompt(input: {
@@ -58,25 +58,25 @@ export function wikiSelfDirectedWriterUserPrompt(input: {
 		current_date: input.currentDate,
 		time_zone: input.timeZone,
 		prior_reports: input.priorReports ?? "",
-	}, "plan").content;
+	}, "wiki-plan").content;
 }
 
 export function wikiSelfDirectedDelegationPrompt(childModel: string): string {
 	return renderAgentPrompt("research", "report-writer", "user", {
 		child_model: childModel,
-	}, "delegate").content;
+	}, "wiki-delegate").content;
 }
 
-export function primeWriterFinalPrompt(mode: "wiki" | "findout" = "wiki", useChineseLint = false): string {
+export function primeWriterFinalPrompt(mode: "wiki" | "notes" = "wiki", useChineseLint = false): string {
 	return renderAgentPrompt("research", "report-writer", "user", {
-		find_out_mode: mode === "findout",
+		notes_mode: mode === "notes",
 		use_chinese_lint: useChineseLint,
 	}, "final").content;
 }
 
-export function primeWriterFinalRepairPrompt(mode: "wiki" | "findout"): string {
+export function primeWriterFinalRepairPrompt(mode: "wiki" | "notes"): string {
 	return renderAgentPrompt("research", "report-writer", "user", {
-		mode_label: mode === "findout" ? "Find Out" : "Wiki-only",
+		mode_label: mode === "notes" ? "Notes" : "Wiki-only",
 	}, "final-repair").content;
 }
 

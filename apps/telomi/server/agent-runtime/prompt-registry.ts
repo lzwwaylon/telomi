@@ -71,6 +71,7 @@ export interface AgentPromptSandboxConfig {
 export interface AgentPromptConfig {
 	schemaVersion: 2;
 	id: string;
+	displayName?: string;
 	skills?: string[];
 	prompts: Partial<Record<PromptKind, Record<string, string>>>;
 	sandbox?: AgentPromptSandboxConfig;
@@ -437,7 +438,7 @@ function resolveInside(root: string, value: string): string {
 
 function parseAgentPromptConfig(value: unknown, expectedId: string, source: string): AgentPromptConfig {
 	const record = requireRecord(value, source);
-	assertExactKeys(record, ["schema_version", "id", "skills", "prompts", "sandbox"], source);
+	assertExactKeys(record, ["schema_version", "id", "display_name", "skills", "prompts", "sandbox"], source);
 	if (record.schema_version !== 2) throw new Error(`${source} schema_version must be 2`);
 	if (record.id !== expectedId) throw new Error(`${source} id must be '${expectedId}'`);
 	const prompts = requireRecord(record.prompts, `${source} prompts`);
@@ -450,6 +451,7 @@ function parseAgentPromptConfig(value: unknown, expectedId: string, source: stri
 	const skills = record.skills === undefined ? undefined : parseSkills(record.skills, source);
 	const sandbox = record.sandbox === undefined ? undefined : parseSandbox(record.sandbox, source);
 	return { schemaVersion: 2, id: expectedId,
+		...(record.display_name === undefined ? {} : { displayName: requireBoundedString(record.display_name, `${source} display_name`, 200) }),
 		...(skills ? { skills } : {}),
 		prompts: parsedPrompts,
 		...(sandbox ? { sandbox } : {}) };

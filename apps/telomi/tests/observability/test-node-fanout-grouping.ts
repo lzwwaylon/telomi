@@ -19,7 +19,7 @@ import {
 	latestNodeDependencyIds,
 	type NodeExecutionRecord,
 } from "../../server/observability/run-records.js";
-import { RuntimeCornellNoteAgentProcessor } from "../../server/research/cornell-note-agent.js";
+import { RuntimeNoteAgentProcessor } from "../../server/research/note-agent.js";
 import { RuntimeCornellNotesMaterializer } from "../../server/research/pipeline/cornell-notes.js";
 import type { LogicalSource } from "../../server/research/research-types.js";
 
@@ -44,7 +44,7 @@ const recordingRunner: AgentStageRunner = {
 		const dependsOn = latestNodeDependencyIds(runDir, "research", { group: groupId });
 		// 同一波起跑的 Stage 在任何记录落盘前都已确定身份与依赖。
 		await new Promise((resolve) => { setImmediate(resolve); });
-		const sourceId = request.session.key.replace("cornell-note/", "");
+		const sourceId = request.session.key.replace("note-agent/", "");
 		const failed = failing.delete(sourceId);
 		const entryPath = join(request.workDirectory, "cornell-note.json");
 		if (!failed) {
@@ -94,11 +94,11 @@ const recordingRunner: AgentStageRunner = {
 	},
 };
 
-const materializer = new RuntimeCornellNotesMaterializer(new RuntimeCornellNoteAgentProcessor({
+const materializer = new RuntimeCornellNotesMaterializer(new RuntimeNoteAgentProcessor({
 	outputLanguage: "en",
 	documentConcurrency: 2,
-	cornellNoteModel: "openai-codex/test",
-	cornellNoteThinkingLevel: "medium",
+	noteAgentModel: "openai-codex/test",
+	noteAgentThinkingLevel: "medium",
 }, recordingRunner));
 
 function logicalSource(id: string, revision: string): LogicalSource {
@@ -170,7 +170,7 @@ try {
 		.map((id) => logicalSource(id, "revision-1")));
 	assert.equal(first.evidence.notes.length, 4);
 	const batchOneStageIds = startedStageIds;
-	const fanoutOne = `${runId}:cornell_note:sequence-1`;
+	const fanoutOne = `${runId}:note_agent:sequence-1`;
 	assert.deepEqual(agentRecords().map((node) => node.group_id), Array<string>(4).fill(fanoutOne),
 		"a staggered start must not change the fanout a Note belongs to");
 	assert.deepEqual(agentRecords().map((node) => node.depends_on),
@@ -196,7 +196,7 @@ try {
 	assert.deepEqual(resumed.evidence.notes.map((note) => note.note.source_id).sort(), ["source-a", "source-b"]);
 	assert.deepEqual(startedStageIds, attempted.slice(1),
 		"a shorter pending list must not rename the Stage the same Source already ran under");
-	const fanoutTwo = `${runId}:cornell_note:sequence-2`;
+	const fanoutTwo = `${runId}:note_agent:sequence-2`;
 	const retries = nodeIdRecords(startedStageIds[0]!);
 	assert.equal(retries.length, 2, "the resumed Note stays one logical node in its batch");
 	assert.deepEqual(retries.map((node) => node.group_id), [fanoutTwo, fanoutTwo]);

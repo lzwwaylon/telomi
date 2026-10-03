@@ -9,7 +9,7 @@ const readOnlyWorkspace = await mkdtemp(join(tmpdir(), "telomi-readonly-agent-")
 try {
 	const sandbox = createSrtAgentSandbox({
 		id: "read-only-regression",
-		role: "report.cornell_note",
+		role: "report.note_agent",
 		workDirectory: readOnlyWorkspace,
 		readonlyMounts: [],
 		activeTools: ["read"],

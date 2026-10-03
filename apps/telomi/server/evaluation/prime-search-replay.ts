@@ -383,9 +383,9 @@ function publishPrimeSearchEvaluationOutput(
 				file_count: bundle.files.length,
 			})),
 			find_out_sources: {
-				sha256: result.findOutSources.sha256,
-				byte_length: result.findOutSources.byteLength,
-				file_count: result.findOutSources.files.length,
+				sha256: result.organizedSources.sha256,
+				byte_length: result.organizedSources.byteLength,
+				file_count: result.organizedSources.files.length,
 			},
 			usage: result.usage,
 			tool_calls: result.toolCalls,
@@ -394,7 +394,7 @@ function publishPrimeSearchEvaluationOutput(
 		for (const [index, bundle] of result.sourceBundles.entries()) {
 			cpSync(bundle.absolutePath, join(staging, "source-bundles", String(index + 1)), { recursive: true });
 		}
-		cpSync(result.findOutSources.absolutePath, join(staging, "find-out-sources"), { recursive: true });
+		cpSync(result.organizedSources.absolutePath, join(staging, "find-out-sources"), { recursive: true });
 		for (const [index, execution] of result.executionRecords.entries()) {
 			mkdirSync(join(staging, "search-executions"), { recursive: true });
 			cpSync(execution.artifact.absolutePath, join(staging, "search-executions", `${index + 1}.json`));

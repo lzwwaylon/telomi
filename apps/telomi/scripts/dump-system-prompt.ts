@@ -168,7 +168,7 @@ async function main(): Promise<void> {
 		"## Composition",
 		"",
 		"1. Project global base (`agents/main/global-base/prompts/system.md.njk`)",
-		"2. Main Agent routing prompt (`agents/main/router/prompts/system.md.njk`)",
+		"2. Main Agent routing prompt (`agents/main/main-agent/prompts/system.md.njk`)",
 		"3. SDK-added Skill Pool and current working directory (Pi >= 0.80.7 no longer injects the date; the router prompt tells the Agent to run `date`)",
 		"4. `before_agent_start` hook chain",
 		"",

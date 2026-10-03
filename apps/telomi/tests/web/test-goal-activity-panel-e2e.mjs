@@ -68,7 +68,7 @@ const fixtureInitScript = String.raw`
     agentActivities,
   });
   const notes = ['finished', 'finished', 'finished', 'running', 'running'].map((lifecycle, index) =>
-    step('note_' + index, 'Note ' + (index + 1), lifecycle, [agent('note_' + index, 'cornell_note', lifecycle)]));
+    step('note_' + index, 'Note ' + (index + 1), lifecycle, [agent('note_' + index, 'note_agent', lifecycle)]));
   const fixture = {
     activityId,
     kind: 'research',

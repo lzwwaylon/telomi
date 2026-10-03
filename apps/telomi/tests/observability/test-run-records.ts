@@ -22,14 +22,14 @@ import { readRuntimeStageReports } from "../../server/research/workspace-adapter
 
 const root = mkdtempSync(join(tmpdir(), "telomi-run-records-"));
 const runDir = runRecordDir(root, "goal_123", "Run:123");
-const plannerPath = agentSessionPath(runDir, "Cornell Note", "A001");
-const plannerPromptPath = agentSystemPromptPath(runDir, "Cornell Note", "Cornell Note 1", "Attempt:1");
+const plannerPath = agentSessionPath(runDir, "Note Agent", "A001");
+const plannerPromptPath = agentSystemPromptPath(runDir, "Note Agent", "Note Agent 1", "Attempt:1");
 
 assert.equal(runDir, join(root, ".pi", "runtime", "harness", "goal_123", "runs", "Run-123"));
-assert.equal(plannerPath, join(runDir, "cornell-note--a001.jsonl"));
+assert.equal(plannerPath, join(runDir, "note-agent--a001.jsonl"));
 assert.equal(
 	plannerPromptPath,
-	join(runDir, "cornell-note--cornell-note-1--attempt-1.system-prompt.txt"),
+	join(runDir, "note-agent--note-agent-1--attempt-1.system-prompt.txt"),
 );
 assert.equal(runtimeContextPath(runDir, "research"), join(runDir, "runtime--research.jsonl"));
 for (const kind of ["main", "evaluation"] as const) {
@@ -58,13 +58,13 @@ for (const kind of ["main", "evaluation"] as const) {
 mkdirSync(runDir, { recursive: true });
 const systemPrompt = "Exact Agent system prompt\nwithout an injected trailing newline";
 assert.equal(
-	writeAgentSystemPrompt(runDir, "Cornell Note", "Cornell Note 1", "Attempt:1", systemPrompt),
+	writeAgentSystemPrompt(runDir, "Note Agent", "Note Agent 1", "Attempt:1", systemPrompt),
 	plannerPromptPath,
 );
 assert.equal(readFileSync(plannerPromptPath, "utf-8"), systemPrompt);
 assert.equal(statSync(plannerPromptPath).mode & 0o777, 0o600);
 chmodSync(plannerPromptPath, 0o644);
-writeAgentSystemPrompt(runDir, "Cornell Note", "Cornell Note 1", "Attempt:1", systemPrompt);
+writeAgentSystemPrompt(runDir, "Note Agent", "Note Agent 1", "Attempt:1", systemPrompt);
 assert.equal(statSync(plannerPromptPath).mode & 0o777, 0o600);
 writeFileSync(plannerPath, [
 	JSON.stringify({ type: "session", id: "pi-session-1" }),
@@ -72,23 +72,23 @@ writeFileSync(plannerPath, [
 ].join("\n") + "\n", "utf-8");
 appendRuntimeContext(runDir, "research", {
 	type: "agent.bound",
-	agent: "cornell-note",
+	agent: "note-agent",
 	execution_id: "a001",
-	session_file: "cornell-note--a001.jsonl",
+	session_file: "note-agent--a001.jsonl",
 });
 appendRuntimeContext(runDir, "research", { type: "runtime.validation_succeeded", execution_id: "a001" });
 appendRuntimeContext(runDir, "research", {
 	type: "runtime.agent_bound",
-	stage_id: "cornell-note-1",
+	stage_id: "note-agent-1",
 	execution_id: "a001",
 	attempt: 1,
-	agent: "cornell_note",
-	session_file: "cornell-note--a001.jsonl",
-	system_prompt_file: "cornell-note--cornell-note-1--attempt-1.system-prompt.txt",
+	agent: "note_agent",
+	session_file: "note-agent--a001.jsonl",
+	system_prompt_file: "note-agent--note-agent-1--attempt-1.system-prompt.txt",
 });
 appendRuntimeContext(runDir, "research", {
 	type: "runtime.stage_completed",
-	stage_id: "cornell-note-1",
+	stage_id: "note-agent-1",
 	execution_id: "a001",
 	metrics: {
 		turns: 2,
@@ -105,7 +105,7 @@ appendRuntimeContext(runDir, "research", {
 	stage_id: "evidence-screening-source-1",
 	execution_id: "evidence-screening-attempt-a936643b",
 	attempt: 1,
-	agent: "cornell_note",
+	agent: "note_agent",
 	session_file: "evidence-screening--attempt-a936643b.jsonl",
 });
 appendRuntimeContext(runDir, "research", {
@@ -115,22 +115,22 @@ appendRuntimeContext(runDir, "research", {
 	error: "Agent stage cancelled by user",
 });
 const plannerNode = appendResearchNodeRecord(runDir, {
-	node_id: "cornell-note-1",
+	node_id: "note-agent-1",
 	node_type: "agent",
-	agent: "cornell_note",
+	agent: "note_agent",
 	execution_id: "a001",
 	attempt: 1,
 	status: "succeeded",
 	group_id: null,
 	depends_on: [],
-	input: { stage_id: "cornell-note-1" },
+	input: { stage_id: "note-agent-1" },
 	output: { artifact_ref: "artifacts/cornell-notes/cornell-note-1.json" },
 	time: {
 		started_at: "2026-07-29T00:00:00.000Z",
 		finished_at: "2026-07-29T00:00:01.000Z",
 		duration_ms: 1_000,
 	},
-	trace_ref: "cornell-note--a001.jsonl",
+	trace_ref: "note-agent--a001.jsonl",
 });
 const workerOne = appendResearchNodeRecord(runDir, {
 	node_id: "prime-search-1",
@@ -229,7 +229,7 @@ assert.deepEqual(parsed.runtime?.events.map((event) => event.type), [
 	"node_execution",
 ]);
 assert.equal(parsed.agentSessions.length, 2);
-const parsedPlanner = parsed.agentSessions.find((session) => session.agent === "cornell-note");
+const parsedPlanner = parsed.agentSessions.find((session) => session.agent === "note-agent");
 assert.equal(parsedPlanner?.executionId, "a001");
 assert.equal(parsedPlanner?.entries.length, 2);
 assert.equal(parsedPlanner?.toolCompletions.length, 1);
@@ -237,7 +237,7 @@ assert.equal(parsedPlanner?.toolCompletions[0]?.toolName, "submit_stage_output")
 assert.equal(parsedPlanner?.toolCompletions[0]?.isError, false);
 
 const reports = readRuntimeStageReports(runDir, "Run-123");
-const plannerReport = reports.find((report) => report.stage_id === "cornell-note-1");
+const plannerReport = reports.find((report) => report.stage_id === "note-agent-1");
 const cancelledReport = reports.find((report) => report.stage_id === "evidence-screening-source-1");
 assert.equal(plannerReport?.attempt, 1);
 assert.equal(plannerReport?.metrics.tool_calls, 3);
@@ -245,7 +245,7 @@ assert.equal(plannerReport?.metrics.model_calls, 1);
 assert.deepEqual(plannerReport?.metrics.tool_counts, { bash: 2, submit_stage_output: 1 });
 assert.equal(
 	plannerReport?.system_prompt_file,
-	"cornell-note--cornell-note-1--attempt-1.system-prompt.txt",
+	"note-agent--note-agent-1--attempt-1.system-prompt.txt",
 );
 assert.equal(cancelledReport?.attempt, 1);
 assert.equal(cancelledReport?.status, "cancelled");

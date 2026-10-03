@@ -1,3 +1,4 @@
+import { writeTaskContext } from "./task-context.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -94,6 +95,7 @@ export function writeInvestigationAnswerInput(input: {
 		});
 		writeFileSync(join(input.inputRoot, "evidence", `${ref}.json`), `${JSON.stringify({ ...item, evidence }, null, 2)}\n`);
 	}
+	writeTaskContext(input.inputRoot, input.request.context);
 	writeFileSync(join(input.inputRoot, "request.json"), `${JSON.stringify(input.request, null, 2)}\n`);
 	readInvestigationAnswerRequest(input.inputRoot);
 }
@@ -167,7 +169,7 @@ export async function executeInvestigationAnswer(input: {
 	const answerKey = sha256(input.invocationId).slice(0, 24);
 	const result = await capturedRunner.runStage<InvestigationAnswer>({
 		runId: input.invocationId, stageId: `writer-answer-${answerKey}`, attemptId: "attempt-1", role: "report_writer",
-		promptConfig: { domain: "research", id: "report-writer", sandboxRole: "report.report_writer", userVariant: "answer",
+		promptConfig: { domain: "research", id: "report-writer", sandboxRole: "report.report_writer", systemVariant: "answer", userVariant: "answer",
 			revisions: { system: system.revision, user: user.revision } },
 		session: { key: `answer/${input.invocationId}`, policy: "fresh" },
 		modelPolicy: input.modelPolicy ?? primeReportWriterStageModelPolicy(input.env),

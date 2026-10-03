@@ -153,7 +153,7 @@ try {
 	assert.throws(() => resolveInvestigationReplayResult({ ...normalization,
 		value: { answer_ref: receipt, ...publicAnswer } }), /only answer_ref/u);
 	assert.throws(() => resolveInvestigationReplayResult({ ...normalization,
-		value: { answer_ref: { ...receipt, operation: "deep_search" } } }), /handoff|operation/iu);
+		value: { answer_ref: { ...receipt, operation: "read_sources" } } }), /handoff|operation/iu);
 	const changedRequirements = createFrozenInvestigationTools([frozenInteractions[1]!, writer], true, () => {});
 	changedRequirements.replayCall("external_search", { question: "Find documentation" });
 	assert.throws(() => changedRequirements.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain a different algorithm"] }), /different evidence or requirements/u);

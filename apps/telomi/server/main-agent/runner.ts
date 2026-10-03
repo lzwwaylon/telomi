@@ -551,9 +551,9 @@ export class GoalRunner {
 			),
 			...createMainAgentSandboxProxyTools(() => this.activeMainSandbox),
 		];
-		const promptConfig = loadAgentPromptConfig("main", "router");
+		const promptConfig = loadAgentPromptConfig("main", "main-agent");
 		const promptSandbox = promptConfig.sandbox;
-		if (!promptSandbox || promptSandbox.role !== "main.router") {
+		if (!promptSandbox || promptSandbox.role !== "main.main_agent") {
 			throw new Error("Main Agent Prompt config has an invalid sandbox role");
 		}
 		const availableToolNames = availableTools.map((tool) => tool.name);

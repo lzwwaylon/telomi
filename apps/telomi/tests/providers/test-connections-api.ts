@@ -36,7 +36,7 @@ const { saveSettings } = await import("../../server/config/settings.js");
 const { mountConnectionsApi } = await import("../../server/providers/connections-api.js");
 
 test("connections aggregate credentials, capabilities and the reverse index of selections", async () => {
-	saveSettings({ defaultProvider: "openrouter", defaultModel: "qwen/qwen3", taskModels: { cornellNote: "local-llm/m1" },
+	saveSettings({ defaultProvider: "openrouter", defaultModel: "qwen/qwen3", taskModels: { noteAgent: "local-llm/m1" },
 		embedding: { default: { connection: "openrouter", model: "qwen/qwen3-embedding-4b" } },
 		// Speech models are the user's choice too; nothing is listed as used until one is chosen.
 		audioGeneration: { default: { connection: "telomi-audio", model: "Qwen3-TTS-12Hz-0.6B", voice: "", rate: 1 } },
@@ -65,7 +65,7 @@ test("connections aggregate credentials, capabilities and the reverse index of s
 		const local = byId.get("local-llm");
 		assert.equal(local.kind, "custom");
 		assert.equal(local.auth, "anonymous");
-		assert.deepEqual(local.usedBy.map((u: { consumer: string }) => u.consumer), ["cornellNote"]);
+		assert.deepEqual(local.usedBy.map((u: { consumer: string }) => u.consumer), ["noteAgent"]);
 		assert.deepEqual(byId.get("local-stt").capabilities, ["stt"]);
 		assert.deepEqual(byId.get("local-stt").models.stt.map((m: { id: string }) => m.id), ["whisper"], "a hand-added id counts as the pinned capability");
 		assert.deepEqual(byId.get("telomi-audio").capabilities, ["tts", "stt"]);

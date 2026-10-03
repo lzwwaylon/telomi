@@ -5,7 +5,7 @@
 		"version": "3.0.0",
 		"description": "Loopback-only Evaluation Interface. Generated from server/evaluation/operations-contract.ts; do not edit by hand.",
 		"x-protocol-version": 3,
-		"x-schema-hash": "cf5d403f09a9157fc5c7d908a372bab095f5fad5397c63b2924338f82c6b8f85"
+		"x-schema-hash": "eb21cdf5e3dc53341cdb3655669adcbbfe3a47caa9c45ea1c7cecaac428cd5fb"
 	},
 	"servers": [
 		{
@@ -14,6 +14,37 @@
 		}
 	],
 	"paths": {
+		"/operations/v1/agents": {
+			"get": {
+				"operationId": "getAgentCatalog",
+				"summary": "Read product Agent names, source Bundles and output presentation contracts",
+				"tags": [
+					"capture"
+				],
+				"responses": {
+					"200": {
+						"description": "OK",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AgentCatalogResponse"
+								}
+							}
+						}
+					},
+					"default": {
+						"description": "Error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorResponse"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
 		"/operations/v1/status": {
 			"get": {
 				"operationId": "getStatus",
@@ -895,6 +926,247 @@
 	},
 	"components": {
 		"schemas": {
+			"AgentDescriptor": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"id",
+					"displayName",
+					"sourcePath",
+					"presentationKind"
+				],
+				"properties": {
+					"id": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"displayName": {
+						"minLength": 1,
+						"type": "string"
+					},
+					"sourcePath": {
+						"anyOf": [
+							{
+								"minLength": 1,
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"presentationKind": {
+						"anyOf": [
+							{
+								"const": "source-search",
+								"type": "string"
+							},
+							{
+								"const": "provider-child",
+								"type": "string"
+							},
+							{
+								"const": "note",
+								"type": "string"
+							},
+							{
+								"const": "investigation",
+								"type": "string"
+							},
+							{
+								"const": "report",
+								"type": "string"
+							},
+							{
+								"const": "wiki",
+								"type": "string"
+							},
+							{
+								"const": "evolution",
+								"type": "string"
+							},
+							{
+								"const": "chat",
+								"type": "string"
+							},
+							{
+								"const": "generic",
+								"type": "string"
+							}
+						]
+					},
+					"impactPaths": {
+						"type": "array",
+						"items": {
+							"minLength": 1,
+							"type": "string"
+						}
+					},
+					"replayPromptModes": {
+						"type": "array",
+						"items": {
+							"anyOf": [
+								{
+									"const": "candidate",
+									"type": "string"
+								},
+								{
+									"const": "observed",
+									"type": "string"
+								},
+								{
+									"const": "override",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"promptOverrideFields": {
+						"type": "array",
+						"items": {
+							"anyOf": [
+								{
+									"const": "systemPrompt",
+									"type": "string"
+								},
+								{
+									"const": "userPrompt",
+									"type": "string"
+								}
+							]
+						}
+					}
+				}
+			},
+			"AgentCatalogResponse": {
+				"additionalProperties": false,
+				"type": "object",
+				"required": [
+					"ok",
+					"agents"
+				],
+				"properties": {
+					"ok": {
+						"const": true,
+						"type": "boolean"
+					},
+					"agents": {
+						"type": "array",
+						"items": {
+							"additionalProperties": false,
+							"type": "object",
+							"required": [
+								"id",
+								"displayName",
+								"sourcePath",
+								"presentationKind"
+							],
+							"properties": {
+								"id": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"displayName": {
+									"minLength": 1,
+									"type": "string"
+								},
+								"sourcePath": {
+									"anyOf": [
+										{
+											"minLength": 1,
+											"type": "string"
+										},
+										{
+											"type": "null"
+										}
+									]
+								},
+								"presentationKind": {
+									"anyOf": [
+										{
+											"const": "source-search",
+											"type": "string"
+										},
+										{
+											"const": "provider-child",
+											"type": "string"
+										},
+										{
+											"const": "note",
+											"type": "string"
+										},
+										{
+											"const": "investigation",
+											"type": "string"
+										},
+										{
+											"const": "report",
+											"type": "string"
+										},
+										{
+											"const": "wiki",
+											"type": "string"
+										},
+										{
+											"const": "evolution",
+											"type": "string"
+										},
+										{
+											"const": "chat",
+											"type": "string"
+										},
+										{
+											"const": "generic",
+											"type": "string"
+										}
+									]
+								},
+								"impactPaths": {
+									"type": "array",
+									"items": {
+										"minLength": 1,
+										"type": "string"
+									}
+								},
+								"replayPromptModes": {
+									"type": "array",
+									"items": {
+										"anyOf": [
+											{
+												"const": "candidate",
+												"type": "string"
+											},
+											{
+												"const": "observed",
+												"type": "string"
+											},
+											{
+												"const": "override",
+												"type": "string"
+											}
+										]
+									}
+								},
+								"promptOverrideFields": {
+									"type": "array",
+									"items": {
+										"anyOf": [
+											{
+												"const": "systemPrompt",
+												"type": "string"
+											},
+											{
+												"const": "userPrompt",
+												"type": "string"
+											}
+										]
+									}
+								}
+							}
+						}
+					}
+				}
+			},
 			"CaseRef": {
 				"additionalProperties": false,
 				"type": "object",
@@ -951,6 +1223,118 @@
 					"agentId": {
 						"minLength": 1,
 						"type": "string"
+					},
+					"agent": {
+						"additionalProperties": false,
+						"type": "object",
+						"required": [
+							"id",
+							"displayName",
+							"sourcePath",
+							"presentationKind"
+						],
+						"properties": {
+							"id": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"displayName": {
+								"minLength": 1,
+								"type": "string"
+							},
+							"sourcePath": {
+								"anyOf": [
+									{
+										"minLength": 1,
+										"type": "string"
+									},
+									{
+										"type": "null"
+									}
+								]
+							},
+							"presentationKind": {
+								"anyOf": [
+									{
+										"const": "source-search",
+										"type": "string"
+									},
+									{
+										"const": "provider-child",
+										"type": "string"
+									},
+									{
+										"const": "note",
+										"type": "string"
+									},
+									{
+										"const": "investigation",
+										"type": "string"
+									},
+									{
+										"const": "report",
+										"type": "string"
+									},
+									{
+										"const": "wiki",
+										"type": "string"
+									},
+									{
+										"const": "evolution",
+										"type": "string"
+									},
+									{
+										"const": "chat",
+										"type": "string"
+									},
+									{
+										"const": "generic",
+										"type": "string"
+									}
+								]
+							},
+							"impactPaths": {
+								"type": "array",
+								"items": {
+									"minLength": 1,
+									"type": "string"
+								}
+							},
+							"replayPromptModes": {
+								"type": "array",
+								"items": {
+									"anyOf": [
+										{
+											"const": "candidate",
+											"type": "string"
+										},
+										{
+											"const": "observed",
+											"type": "string"
+										},
+										{
+											"const": "override",
+											"type": "string"
+										}
+									]
+								}
+							},
+							"promptOverrideFields": {
+								"type": "array",
+								"items": {
+									"anyOf": [
+										{
+											"const": "systemPrompt",
+											"type": "string"
+										},
+										{
+											"const": "userPrompt",
+											"type": "string"
+										}
+									]
+								}
+							}
+						}
 					},
 					"role": {
 						"minLength": 1,
@@ -2843,6 +3227,118 @@
 											"minLength": 1,
 											"type": "string"
 										},
+										"agent": {
+											"additionalProperties": false,
+											"type": "object",
+											"required": [
+												"id",
+												"displayName",
+												"sourcePath",
+												"presentationKind"
+											],
+											"properties": {
+												"id": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"displayName": {
+													"minLength": 1,
+													"type": "string"
+												},
+												"sourcePath": {
+													"anyOf": [
+														{
+															"minLength": 1,
+															"type": "string"
+														},
+														{
+															"type": "null"
+														}
+													]
+												},
+												"presentationKind": {
+													"anyOf": [
+														{
+															"const": "source-search",
+															"type": "string"
+														},
+														{
+															"const": "provider-child",
+															"type": "string"
+														},
+														{
+															"const": "note",
+															"type": "string"
+														},
+														{
+															"const": "investigation",
+															"type": "string"
+														},
+														{
+															"const": "report",
+															"type": "string"
+														},
+														{
+															"const": "wiki",
+															"type": "string"
+														},
+														{
+															"const": "evolution",
+															"type": "string"
+														},
+														{
+															"const": "chat",
+															"type": "string"
+														},
+														{
+															"const": "generic",
+															"type": "string"
+														}
+													]
+												},
+												"impactPaths": {
+													"type": "array",
+													"items": {
+														"minLength": 1,
+														"type": "string"
+													}
+												},
+												"replayPromptModes": {
+													"type": "array",
+													"items": {
+														"anyOf": [
+															{
+																"const": "candidate",
+																"type": "string"
+															},
+															{
+																"const": "observed",
+																"type": "string"
+															},
+															{
+																"const": "override",
+																"type": "string"
+															}
+														]
+													}
+												},
+												"promptOverrideFields": {
+													"type": "array",
+													"items": {
+														"anyOf": [
+															{
+																"const": "systemPrompt",
+																"type": "string"
+															},
+															{
+																"const": "userPrompt",
+																"type": "string"
+															}
+														]
+													}
+												}
+											}
+										},
 										"role": {
 											"minLength": 1,
 											"type": "string"
@@ -2927,6 +3423,118 @@
 							"agentId": {
 								"minLength": 1,
 								"type": "string"
+							},
+							"agent": {
+								"additionalProperties": false,
+								"type": "object",
+								"required": [
+									"id",
+									"displayName",
+									"sourcePath",
+									"presentationKind"
+								],
+								"properties": {
+									"id": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"displayName": {
+										"minLength": 1,
+										"type": "string"
+									},
+									"sourcePath": {
+										"anyOf": [
+											{
+												"minLength": 1,
+												"type": "string"
+											},
+											{
+												"type": "null"
+											}
+										]
+									},
+									"presentationKind": {
+										"anyOf": [
+											{
+												"const": "source-search",
+												"type": "string"
+											},
+											{
+												"const": "provider-child",
+												"type": "string"
+											},
+											{
+												"const": "note",
+												"type": "string"
+											},
+											{
+												"const": "investigation",
+												"type": "string"
+											},
+											{
+												"const": "report",
+												"type": "string"
+											},
+											{
+												"const": "wiki",
+												"type": "string"
+											},
+											{
+												"const": "evolution",
+												"type": "string"
+											},
+											{
+												"const": "chat",
+												"type": "string"
+											},
+											{
+												"const": "generic",
+												"type": "string"
+											}
+										]
+									},
+									"impactPaths": {
+										"type": "array",
+										"items": {
+											"minLength": 1,
+											"type": "string"
+										}
+									},
+									"replayPromptModes": {
+										"type": "array",
+										"items": {
+											"anyOf": [
+												{
+													"const": "candidate",
+													"type": "string"
+												},
+												{
+													"const": "observed",
+													"type": "string"
+												},
+												{
+													"const": "override",
+													"type": "string"
+												}
+											]
+										}
+									},
+									"promptOverrideFields": {
+										"type": "array",
+										"items": {
+											"anyOf": [
+												{
+													"const": "systemPrompt",
+													"type": "string"
+												},
+												{
+													"const": "userPrompt",
+													"type": "string"
+												}
+											]
+										}
+									}
+								}
 							},
 							"role": {
 								"minLength": 1,

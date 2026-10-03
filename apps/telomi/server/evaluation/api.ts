@@ -88,6 +88,9 @@ function operationsHandlers(
 	});
 
 	return {
+		getAgentCatalog: (_req, res) => {
+			res.json({ ok: true, agents: service.agentCatalog() });
+		},
 		getStatus: (_req, res) => {
 			res.json({
 				ok: true,
