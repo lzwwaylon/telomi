@@ -11,7 +11,7 @@ import {
 } from "../../server/agent-runtime/prompt-registry.js";
 import { bundledAgentSkillPaths } from "../../server/agent-runtime/skill-registry.js";
 import { composeAgentSystemPrompt } from "../../server/agent-runtime/global-system-prompt.js";
-import { buildCornellNoteAgentSystemPrompt, buildCornellNoteAgentUserPrompt, renderCornellNoteAgentSystemPrompt } from "../../server/research/pipeline/index.js";
+import { buildNoteAgentSystemPrompt, buildNoteAgentUserPrompt, renderNoteAgentSystemPrompt } from "../../server/research/pipeline/index.js";
 
 const agentRoot = fileURLToPath(new URL("../../agents", import.meta.url));
 const domains: PromptDomain[] = ["main", "research", "wiki", "evolution"];
@@ -119,14 +119,14 @@ assert.equal(loadAgentPromptConfig("research", "cornell-note").sandbox?.network,
 const readingQuality = renderAgentPrompt("research", "cornell-note", "reference", {}, "evidence-reading-quality").content;
 for (const variant of ["default", "deep-search"] as const) {
 	const scope = renderAgentPrompt("research", "cornell-note", "system-append", {}, variant);
-	const composed = renderCornellNoteAgentSystemPrompt(undefined, variant);
+	const composed = renderNoteAgentSystemPrompt(undefined, variant);
 	assert.equal(composed.content, `${scope.content}\n\n${readingQuality}`,
 		`${variant} Reader must include the registered quality rules exactly once`);
 	assert.deepEqual(composed.revision, scope.revision, "Reader scope retains its registered variant identity");
 }
-assert.match(buildCornellNoteAgentSystemPrompt(), /one supplied Source/u);
-assert.match(buildCornellNoteAgentSystemPrompt(), /same language as the original Source/u);
-assert.match(renderCornellNoteAgentSystemPrompt(undefined, "deep-search").content, /question's language/u);
+assert.match(buildNoteAgentSystemPrompt(), /one supplied Source/u);
+assert.match(buildNoteAgentSystemPrompt(), /same language as the original Source/u);
+assert.match(renderNoteAgentSystemPrompt(undefined, "deep-search").content, /question's language/u);
 assert.throws(() => loadAgentPromptConfig("research", "../escape"), /Invalid Prompt identity/u);
 assert.equal(existsSync(new URL("../../prompts", import.meta.url)), false, "legacy Prompt root must not exist");
 assert.equal(existsSync(new URL("../../skills", import.meta.url)), false, "legacy Skill root must not exist");
@@ -139,7 +139,7 @@ const topicPlan = {
 		{ id: "multilingual", title: "Multilingual", intent: "Track Chinese and multilingual quality", questions: [], include: ["Chinese"], exclude: [] },
 	],
 };
-const cornellPrompt = `${buildCornellNoteAgentSystemPrompt()}\n${buildCornellNoteAgentUserPrompt({
+const cornellPrompt = `${buildNoteAgentSystemPrompt()}\n${buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "Understand speech generation" },
 	discoveryEnabled: true,
@@ -151,15 +151,16 @@ assert.match(cornellPrompt, /T1 \| Multilingual/u);
 assert.match(cornellPrompt, /"topic_refs":\["T1"\]/u);
 assert.doesNotMatch(cornellPrompt, /- multilingual \| Multilingual/u);
 assert.doesNotMatch(cornellPrompt, /## Note focus/u);
-const cornellWithFocus = buildCornellNoteAgentUserPrompt({
+const cornellWithFocus = buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "" },
 	discoveryEnabled: false,
 	noteFocus: "Loss definitions and data pipelines, at the level of PyTorch modules.",
 });
-assert.match(cornellWithFocus, /## Note focus\n\nLoss definitions and data pipelines, at the level of PyTorch modules\./u);
-assert.match(cornellWithFocus, /the focus is an emphasis, not a filter/u);
-const cornellWithoutDiscovery = buildCornellNoteAgentUserPrompt({
+assert.match(cornellWithFocus, /inputs\/context\.md/u);
+assert.doesNotMatch(cornellWithFocus, /Loss definitions and data pipelines/u, "task content stays in the input file instead of being duplicated in the Prompt");
+assert.match(cornellWithFocus, /emphasis does not replace the assigned scope/u);
+const cornellWithoutDiscovery = buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "" },
 	discoveryEnabled: false,
@@ -167,7 +168,7 @@ const cornellWithoutDiscovery = buildCornellNoteAgentUserPrompt({
 });
 assert.doesNotMatch(cornellWithoutDiscovery, /Discovery|discovery|finding/u);
 assert.doesNotMatch(cornellWithoutDiscovery, /Source update|New member paths|Changed member paths/u);
-const cornellWithSourceUpdate = buildCornellNoteAgentUserPrompt({
+const cornellWithSourceUpdate = buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "" },
 	discoveryEnabled: false,

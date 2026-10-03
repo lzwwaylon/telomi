@@ -1,7 +1,7 @@
 # Paper workflow
 
 Use this branch for scholarly papers. The funnel completes only when every retained paper has a readable full-text
-bundle for the Cornell Note Agent.
+bundle for the Note Agent.
 
 ## Discover
 
@@ -26,7 +26,7 @@ Keep complete preview results in variables and print only compact fields.
 
 Call `download_paper()` only for retained papers. Each returned record owns one Runtime-written directory:
 
-- `paper.md` is the Hugging Face full-text Markdown read by the Cornell Note Agent.
+- `paper.md` is the Hugging Face full-text Markdown read by the Note Agent.
 - `metadata.json` preserves the complete native Hugging Face paper response plus normalized paper, project, GitHub,
   Markdown, and PDF links.
 

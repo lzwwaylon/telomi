@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { sha256 } from "../../server/lib/hash.js";
 import { snapshotInvestigationKnowledge } from "../../server/research/investigate.js";
 import { createWikiReferenceAdapterFromRoot } from "../../server/research/pipeline/wiki-report-references.js";
-import { listSavedCornellCues } from "../../server/research/saved-cornell-cues.js";
+import { listSavedNoteCues } from "../../server/research/note-retrieval.js";
 import { resolveWikiEdition } from "../../server/wiki/editions.js";
 import { createGoalLlmWikiTools } from "../../server/wiki/tools.js";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
@@ -23,7 +23,7 @@ try {
 	const emptyHash = snapshotInvestigationKnowledge(goalDir, goalId, emptySnapshot);
 	assert.equal(emptyHash, sha256(""));
 	assert.deepEqual(readdirSync(emptySnapshot), [], "the frozen empty state contains no fabricated Wiki Edition");
-	assert.deepEqual(listSavedCornellCues(emptySnapshot), []);
+	assert.deepEqual(listSavedNoteCues(emptySnapshot), []);
 	const adapter = createWikiReferenceAdapterFromRoot(emptySnapshot,
 		createGoalLlmWikiTools({ goalDir, knowledgeRoot: emptySnapshot }));
 	assert.deepEqual(adapter.pageRefs, []);

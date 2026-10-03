@@ -5,7 +5,7 @@ import { dirname, join, relative } from "node:path";
 
 import { loadResearchHarnessSnapshot, type ResearchHarnessSnapshot } from "./harness/snapshot.js";
 import type { ResearchExecutionResult, ResearchNodeStatus } from "./types.js";
-import { cornellNoteAgentContractIdentity } from "./cornell-note-agent.js";
+import { noteAgentContractIdentity } from "./note-agent.js";
 import {
 	hashRunContextIdentity,
 	ResearchRuntime,
@@ -227,7 +227,7 @@ export async function runResearchWorkspace(
 		dataDir: stateDataDir,
 		harness: researchHarnessSnapshot,
 	}, request.controlDirectory, request);
-	const cornellNoteAgentContract = cornellNoteAgentContractIdentity();
+	const cornellNoteAgentContract = noteAgentContractIdentity();
 	mkdirSync(request.controlDirectory, { recursive: true });
 	writeFileSync(join(request.controlDirectory, "research-harness-snapshot.json"), `${JSON.stringify({
 		schema_version: researchHarnessSnapshot.schemaVersion,

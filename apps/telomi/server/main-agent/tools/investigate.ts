@@ -16,7 +16,7 @@ const schema = Type.Object({
 	question: Type.String({ minLength: 1, maxLength: 20_000,
 		description: "The user's complete Goal knowledge question and source restrictions. Do not guess specialist search terms or an answer." }),
 	context: Type.Optional(Type.String({ maxLength: 40_000,
-		description: "Current constraints and relevant conversation. A continued thread restores its own investigation progress; do not repeat its full history." })),
+		description: "Complete current brief: relevant user background, preferences, reading priorities, format, depth and language. Downstream Agents read its saved context file. In a continued thread, omission retains the previous brief; a supplied brief replaces it, and an empty string clears it." })),
 	thread_id: Type.Optional(Type.String({ pattern: "^[a-f0-9]{24}$",
 		description: "Continue a saved investigation thread using its returned id or the Goal's investigation thread catalog. Omit for a new subject. Never invent an id." })),
 	title: Type.Optional(Type.String({ minLength: 1, maxLength: 120,

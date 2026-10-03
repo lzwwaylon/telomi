@@ -46,7 +46,7 @@ assert.equal(research.length, 1);
 assert.deepEqual(research[0]!.entries.map((entry) => entry.kind), ["step", "worker-pool", "step"]);
 const cornellPool = research[0]!.entries[1]!;
 assert.equal(cornellPool.kind, "worker-pool");
-assert.equal(activityText(cornellPool.label), "Cornell Note", "the pool label is a message id the UI renders");
+assert.equal(activityText(cornellPool.label), "Note Agent", "the pool label is a message id the UI renders");
 assert.deepEqual(cornellPool.workers.map((worker) => worker.agent.agentActivityId), ["cornell:a", "cornell:b", "cornell:c"]);
 
 const wiki = groupActivitySteps([

@@ -1,19 +1,19 @@
-# Cornell Note Agent
+# Note Agent
 
-## Boundaries
+## Source reading
 
 Search and the cross-provider Organizer first produce an immutable Source directory. Runtime then materializes a Cornell Source View for each Source and starts a fresh Prime Agent. The Agent sees only:
 
 - The read-only Cornell Source View, containing UTF-8 text and local image assets declared in the conversion manifest
 - The Source ID
-- The current user question
+- The current user question and read-only task context
 - The Cornell Note prompt and output contract
 
 PDFs, DOCX files, audio, video, archives, and undeclared binary files remain in the immutable Source Artifact but do not enter the Agent View. Images referenced in converted Markdown retain their relative paths and can be viewed through IPython rich display; Evidence can still cite only exact line numbers in text files.
 
 The Agent uses native IPython and the Python standard library to choose which files and regions to read. Network access is disabled, the Source is read-only, thinking is fixed to medium, and auto refine is disabled.
 
-## Sole output
+## Source-reading output
 
 The Agent writes to the fixed `cornell-note.json` path and submits only `sections` at the top level. Each Section has a title, summary, and nonempty Cue Notes; each Cue has text and nonempty Evidence citing Source-relative paths and exact start and end line numbers.
 
@@ -22,7 +22,7 @@ Runtime supplies `schema_version` and `source_id` from the calling context and c
 - When a Topic Plan is supplied, every Cue must submit `topic_refs` using the short Refs in that prompt. Runtime rejects unknown or duplicate Refs and maps them to confirmed Topic IDs. Use an empty array when no Topic matches.
 - When Discovery is enabled, every Cue must submit `discovery.finding`. Submit an empty string when there is no finding; Runtime does not store empty findings. Conditional fields must not be submitted when their feature is disabled.
 
-The authoritative field validation is `validateCornellNote` in `server/research/cornell-note-agent.ts`. The prompt supplies submission requirements using the same Topic Plan and Discovery switches.
+The authoritative field validation is `validateCornellNote` in `server/research/note-agent.ts`. The prompt supplies submission requirements using the same Topic Plan and Discovery switches.
 
 When a Source contributes nothing to the question, `sections` may be empty. The system does not generate or store relevance grades, acceptance/rejection decisions, reasons, matched questions, Note types, Report Section routing, or unresolved questions.
 
@@ -48,3 +48,7 @@ Runtime does not judge semantic relevance, filter by grades, route Notes to pred
 - Scheduled research records only processed Source revisions and Cornell Note counts, not retained/rejected dispositions.
 
 The Note Workspace serves only Report Writer. Runtime provides pagination, limits, short Refs, lexical search, and read auditing for Writer without interpreting query semantics. The Wiki pipeline does not use the Note Workspace or its read tracking.
+
+## Question reading and retrieval
+
+The same Note Agent also reads pinned original Sources for one unresolved investigation question, preserving existing Cue navigation and exact evidence anchors. Both reading modes read `inputs/context.md` before Source inspection. The brief determines required emphasis and granularity; original text remains the factual authority. Question reading reports found, partial or not_found with a summary, gaps and evidence-backed Cue Notes. Note retrieval locates saved Cues deterministically and does not launch another Agent.

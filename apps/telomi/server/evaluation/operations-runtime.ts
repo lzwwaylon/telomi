@@ -43,7 +43,7 @@ import { runPodcastWriterNodeEvaluation } from "./podcast-replay.js";
 import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
 import { OPERATIONS_PROTOCOL_VERSION, OPERATIONS_SCHEMA_HASH } from "./operations-contract.js";
 import { producesBrowserEvolutionEvidence } from "../evolution/targets.js";
-import { validateDeepSearchDraftFromCorpus } from "../research/deep-search.js";
+import { validateNoteReadingDraftFromCorpus } from "../research/note-reading.js";
 import { validateInvestigationAnswerFromInput } from "../research/investigation-answer.js";
 
 export interface OperationsRuntime {
@@ -98,7 +98,7 @@ export function createOperationsRuntime(options: {
 			wikiCompilationReplayRecipe,
 			wikiCuratorReplayRecipe,
 			evolutionReplayRecipe,
-			...createRecordedStageReplayRecipes(validateDeepSearchDraftFromCorpus, validateInvestigationAnswerFromInput),
+			...createRecordedStageReplayRecipes(validateNoteReadingDraftFromCorpus, validateInvestigationAnswerFromInput),
 		],
 	});
 

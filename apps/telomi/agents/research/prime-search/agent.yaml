@@ -1,6 +1,6 @@
 schema_version: 2
 id: prime-search
-skills: [deep-search]
+skills: [note-investigation]
 prompts:
   system-append:
     scheduled: system-append.scheduled.md.njk

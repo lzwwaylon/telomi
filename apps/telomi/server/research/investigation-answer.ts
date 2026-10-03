@@ -1,3 +1,4 @@
+import { writeTaskContext } from "./task-context.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -94,6 +95,7 @@ export function writeInvestigationAnswerInput(input: {
 		});
 		writeFileSync(join(input.inputRoot, "evidence", `${ref}.json`), `${JSON.stringify({ ...item, evidence }, null, 2)}\n`);
 	}
+	writeTaskContext(input.inputRoot, input.request.context);
 	writeFileSync(join(input.inputRoot, "request.json"), `${JSON.stringify(input.request, null, 2)}\n`);
 	readInvestigationAnswerRequest(input.inputRoot);
 }

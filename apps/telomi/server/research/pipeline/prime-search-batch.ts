@@ -1,3 +1,4 @@
+import { copyTaskContext } from "../task-context.js";
 import { primeExecutionToken } from "../../../../extensions/telomi-srt/prime-workspace.js";
 import { effectiveProviderWorkerSkills } from "../../agent-runtime/provider-skills.js";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -244,6 +245,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 		for (const directory of [root, runtimeRoot, bundlesRoot]) mkdirSync(directory, { recursive: true });
 		mkdirSync(join(root, ".runtime"), { recursive: true });
 		mkdirSync(join(root, "work"), { recursive: true });
+		copyTaskContext(join(root, "inputs"), request.taskContextFile);
 		const workspace = Object.assign(request.workspaceSnapshot ?? emptyWorkspaceSnapshot(), {
 			input_tree_source: "empty-work-dir" as const,
 		});
@@ -374,7 +376,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 					module: primeModule,
 					cwd: root,
 					runtimeRoot,
-					readonlyRoots: [sdkRoot, join(root, "skills"), ...rootPythonPaths],
+					readonlyRoots: [sdkRoot, join(root, "skills"), join(root, "inputs"), ...rootPythonPaths],
 					privateRoots: [bundlesRoot, join(root, ".runtime")],
 					sessionDir: join(runtimeRoot, "acquisition-session", "session"),
 					provider: rootProvider,
@@ -1496,7 +1498,7 @@ export interface PrimeBridgeOptions {
 		/** Inline responses exist only to replay historical Cases with their original protocol. */
 		responseMode?: "file" | "inline";
 		knowledgeSearch(query: string, limit: number): Promise<unknown>;
-		deepSearch(question: string): Promise<unknown>;
+		readSources(question: string): Promise<unknown>;
 		writeAnswer?(evidenceRefs: string[], requirements: string[]): Promise<unknown>;
 		externalSearch?(question: string): Promise<unknown>;
 		/** Frozen historical investigation Cases only; production uses generic acquisition. */
@@ -1636,7 +1638,7 @@ export async function startPrimeSourceBridge(
 					return;
 				}
 				if (route === "/v1/deep-search") {
-					handoff("deep_search", await options.investigation.deepSearch(requiredString(body.question, "Deep Search question")));
+					handoff("deep_search", await options.investigation.readSources(requiredString(body.question, "Deep Search question")));
 					return;
 				}
 				if (route === "/v1/write-answer" && options.investigation.writeAnswer) {

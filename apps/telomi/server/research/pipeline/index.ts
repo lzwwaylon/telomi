@@ -6,7 +6,7 @@ export * from "./find-out-sources.js";
 export * from "./prime-cornell-note.js";
 export * from "./input-view.js";
 export * from "./prior-reports.js";
-export * from "./cornell-note-agent-prompt.js";
+export * from "./note-agent-prompt.js";
 export * from "./report-prompts.js";
 export * from "./prime-report-writer.js";
 export * from "./production-stage-runner.js";

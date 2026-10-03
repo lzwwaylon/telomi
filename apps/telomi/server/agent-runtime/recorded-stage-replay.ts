@@ -28,12 +28,12 @@ export const RECORDED_STAGE_RECIPE_VERSIONS = {
 
 type InvestigationAnswerValidator = (value: unknown, inputRoot: string) => unknown;
 
-type DeepSearchValidator = (value: unknown, question: string, invocationId: string, corpusDir: string) => unknown;
+type NoteReadingValidator = (value: unknown, question: string, invocationId: string, corpusDir: string) => unknown;
 
-export function createRecordedStageReplayRecipes(deepSearchValidator?: DeepSearchValidator,
+export function createRecordedStageReplayRecipes(noteReadingValidator?: NoteReadingValidator,
 	answerValidator?: InvestigationAnswerValidator): readonly NodeReplayRecipe[] {
 	return RECORDED_STAGE_AGENT_IDS.map((agentId) => createRecordedStageReplayRecipe(agentId,
-		recipeVersion(agentId), deepSearchValidator, answerValidator));
+		recipeVersion(agentId), noteReadingValidator, answerValidator));
 }
 
 export const recordedStageReplayRecipes = createRecordedStageReplayRecipes();
@@ -103,7 +103,7 @@ export function withResearchNodeEvaluationCapture(
 function createRecordedStageReplayRecipe(
 	agentId: typeof RECORDED_STAGE_AGENT_IDS[number],
 	version: number,
-	deepSearchValidator?: DeepSearchValidator,
+	noteReadingValidator?: NoteReadingValidator,
 	answerValidator?: InvestigationAnswerValidator,
 ): NodeReplayRecipe {
 	return {
@@ -128,7 +128,7 @@ function createRecordedStageReplayRecipe(
 			const interactionReplay = createInteractionReplay(casePath, value.request.interactions);
 			const readonlyMounts = resolveNodeEvaluationMounts(
 				casePath, value, sourceRunDirectory, harnessWorkspaceDirectory);
-			const deepSearchContext = value.recipeInput && typeof value.recipeInput === "object"
+			const noteReadingContext = value.recipeInput && typeof value.recipeInput === "object"
 				&& (value.recipeInput as { mode?: unknown }).mode === "deep-search"
 				? value.recipeInput as { mode: "deep-search"; question: string; invocationId: string }
 				: undefined;
@@ -184,11 +184,11 @@ function createRecordedStageReplayRecipe(
 							if (!inputs) throw new Error("Investigation Answer Replay has no captured /inputs");
 							return answerValidator(JSON.parse(readFileSync(entryPath, "utf-8")) as unknown, inputs.hostPath);
 						}
-						if (!deepSearchContext || !deepSearchValidator) return validateRecordedOutput(output.kind, entryPath);
+						if (!noteReadingContext || !noteReadingValidator) return validateRecordedOutput(output.kind, entryPath);
 						const corpus = readonlyMounts.find((mount) => mount.guestPath === "/source");
 						if (!corpus) throw new Error("Deep Search Replay has no captured Source corpus");
-						const normalized = deepSearchValidator(JSON.parse(readFileSync(entryPath, "utf-8")) as unknown,
-							deepSearchContext.question, deepSearchContext.invocationId, corpus.hostPath);
+						const normalized = noteReadingValidator(JSON.parse(readFileSync(entryPath, "utf-8")) as unknown,
+							noteReadingContext.question, noteReadingContext.invocationId, corpus.hostPath);
 						writeFileSync(entryPath, `${JSON.stringify(normalized, null, 2)}\n`);
 						return normalized;
 					},

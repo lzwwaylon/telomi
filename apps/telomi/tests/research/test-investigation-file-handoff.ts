@@ -22,7 +22,7 @@ const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Se
 	workspaceDirectory: workspace, temporalContext: { schemaVersion: 1, currentDate: "2026-01-01", timeZone: "UTC" },
 	signal: new AbortController().signal,
 }, workspace, { runDir: workspace, nodeId: "prime-investigation", attemptId: "1" }, {
-	investigation: { knowledgeSearch: async () => knowledge, deepSearch: async () => reading,
+	investigation: { knowledgeSearch: async () => knowledge, readSources: async () => reading,
 		externalSearch: async () => ({ ...reading, sources: [{ title: "Source", url: "https://example.org" }] }),
 		writeAnswer: async () => answer },
 });

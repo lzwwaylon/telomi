@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { AgentStageRequest, AgentStageRunner, ValidatedStageArtifact } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { readExternalSources } from "../../server/research/external-search.js";
-import { resolveDeepSearchCue } from "../../server/research/deep-search.js";
+import { resolveNoteReadingCue } from "../../server/research/note-reading.js";
 import { materializeFindOutSources } from "../../server/research/pipeline/find-out-sources.js";
 import type { SearchBatchRequest, SearchBatchExecutor, SearchBatchResult } from "../../server/research/pipeline/search-batch.js";
 
@@ -94,7 +94,7 @@ try {
 	assert.equal(result.sources[0]!.id, acquired!.sources[0]!.id);
 	assert.equal(result.sources[0]!.revision_sha256, acquired!.sources[0]!.revisionSha256);
 	assert.equal(result.cues[0]!.evidence[0]!.source_run_id, sourceRunId);
-	assert.equal(resolveDeepSearchCue(goalDir, result.cues[0]!.ref)?.evidence[0]!.excerpt,
+	assert.equal(resolveNoteReadingCue(goalDir, result.cues[0]!.ref)?.evidence[0]!.excerpt,
 		"The current paper documents the feature.");
 	assert.ok(existsSync(join(goalDir, "wiki", "runs", sourceRunId, "artifacts", "find-out-sources", "sequence-1")));
 	assert.deepEqual(await readExternalSources(input), result);

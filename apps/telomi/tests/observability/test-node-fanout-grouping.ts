@@ -19,7 +19,7 @@ import {
 	latestNodeDependencyIds,
 	type NodeExecutionRecord,
 } from "../../server/observability/run-records.js";
-import { RuntimeCornellNoteAgentProcessor } from "../../server/research/cornell-note-agent.js";
+import { RuntimeNoteAgentProcessor } from "../../server/research/note-agent.js";
 import { RuntimeCornellNotesMaterializer } from "../../server/research/pipeline/cornell-notes.js";
 import type { LogicalSource } from "../../server/research/research-types.js";
 
@@ -94,7 +94,7 @@ const recordingRunner: AgentStageRunner = {
 	},
 };
 
-const materializer = new RuntimeCornellNotesMaterializer(new RuntimeCornellNoteAgentProcessor({
+const materializer = new RuntimeCornellNotesMaterializer(new RuntimeNoteAgentProcessor({
 	outputLanguage: "en",
 	documentConcurrency: 2,
 	cornellNoteModel: "openai-codex/test",

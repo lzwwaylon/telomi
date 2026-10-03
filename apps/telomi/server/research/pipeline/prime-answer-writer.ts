@@ -1,4 +1,5 @@
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { writeTaskContext } from "../task-context.js";
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, delimiter, join, relative } from "node:path";
 
 import { finalizeStageOutput, type AgentStageRequest, type ValidatedStageArtifact } from "../../agent-runtime/agent-stage-runtime.js";
@@ -42,6 +43,10 @@ export async function runPrimeAnswerStage<T>(
 	mkdirSync(join(agentRoot, "work"), { recursive: true });
 	mkdirSync(runtimeRoot, { recursive: true });
 	snapshotSourceDirectory(input.hostPath, inputRoot);
+	if (!existsSync(join(inputRoot, "context.md"))) {
+		const historical = JSON.parse(readFileSync(join(inputRoot, "request.json"), "utf8")) as { context?: string };
+		writeTaskContext(inputRoot, historical.context ?? "");
+	}
 	const writingSkill = bundledAgentSkillPaths("research", "report-writer").find((path) => basename(path) === "writing-skill");
 	if (!writingSkill) throw new Error("Answer Writer requires the bundled writing-skill");
 	const skills = [...materializeSkills(snapshotSkills([writingSkill]), join(agentRoot, "skills")).values()];

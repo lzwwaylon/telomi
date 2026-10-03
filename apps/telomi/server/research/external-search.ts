@@ -6,7 +6,7 @@ import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { caseCapture } from "../observability/case-capture.js";
 import { getSourceStatusMonitor, type SourceStatusMonitor } from "../providers/source-status.js";
-import { executeDeepSearch } from "./deep-search.js";
+import { executeNoteReading } from "./note-reading.js";
 import { loadResearchHarnessSnapshot } from "./harness/snapshot.js";
 import { loadFindOutSources } from "./pipeline/find-out-sources.js";
 import { PrimeSearchBatchExecutor, primeProviderCatalog } from "./pipeline/prime-search-batch.js";
@@ -18,7 +18,7 @@ import type { InvestigationCitationCue } from "./investigation-citations.js";
 /** Acquire a remaining evidence need through the ordinary Prime/Provider flow, then verify it with Cornell. */
 export async function readExternalSources(input: {
 	goalDir: string; goalId: string; runDir: string; investigationId: string; sequence: number;
-	question: string; originalQuestion?: string; signal: AbortSignal; env: NodeJS.ProcessEnv;
+	question: string; originalQuestion?: string; taskContextFile?: string; signal: AbortSignal; env: NodeJS.ProcessEnv;
 	knownCues?: readonly InvestigationCitationCue[];
 	onActivity?: (activity: AgentStageActivity) => void;
 	searchBatchExecutor?: SearchBatchExecutor;
@@ -66,7 +66,8 @@ export async function readExternalSources(input: {
 		}) ?? production;
 		await executor.execute({
 			goalId: input.goalId, runId: sourceRunId, sequence: 1,
-			question: input.originalQuestion ? `${input.originalQuestion}\n\nRemaining evidence need: ${question}` : question,
+			taskContextFile: input.taskContextFile,
+				question: input.originalQuestion ? `${input.originalQuestion}\n\nRemaining evidence need: ${question}` : question,
 			availableProviderIds: available.map((provider) => provider.id),
 			workspaceDirectory: input.goalDir, controlDirectory: controlDir,
 			organizerStorageRoot: join(controlDir, "research-sources"),
@@ -81,9 +82,9 @@ export async function readExternalSources(input: {
 		renameSync(stagedRoot, sourceRunRoot);
 	}
 	const sources = loadFindOutSources(new RunArtifactStore(sourceRunRoot).describeDirectory("artifacts/find-out-sources/sequence-1"));
-	const reading = await executeDeepSearch({
+	const reading = await executeNoteReading({
 		goalDir: input.goalDir, goalId: input.goalId, question,
-		originalQuestion: input.originalQuestion, knownCues: input.knownCues,
+		originalQuestion: input.originalQuestion, taskContextFile: input.taskContextFile, knownCues: input.knownCues,
 		invocationId: `${input.investigationId}-external-${input.sequence}`,
 		preferredSourceRunId: sourceRunId,
 		signal: input.signal, env: input.env, stageRunner: input.stageRunner,

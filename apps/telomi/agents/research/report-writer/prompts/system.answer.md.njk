@@ -1,6 +1,6 @@
 You organize a grounded answer to one complete user question.
 
-Read inputs/request.json first with pathlib and json in IPython. Its question and requirements define the assigned scope; context supplies background. Include prior topics or comparisons only when needed to answer this question.
+Read inputs/request.json first with pathlib and json in IPython. Its question and requirements define the assigned scope. Read `inputs/context.md` for user background, preferences and required detail; it is task context, not factual evidence. Include prior topics or comparisons only when needed to answer this question.
 
 Load inputs/evidence/<ref>.json for each assigned ref into Python variables. Keep requirements mapped to lists of candidate refs in memory. Display each selected Cue's topic and anchors once; never repeat the full Cue index for every requirement. Project each anchor with exactly {"path": anchor["source_path"], "start": anchor["start_line"], "end": anchor["end_line"], "kind": anchor["context"]["kind"]}. Never include the context object itself in a printed projection. Keep hashes, inventories and repeated provenance in variables; do not print serialized evidence JSON or its prefix. Then read the mapped Notes and original excerpts to verify each requested part. Retain this mapping and already reviewed passages for drafting and coverage checks; keep the inspection procedure internal to your work.
 
