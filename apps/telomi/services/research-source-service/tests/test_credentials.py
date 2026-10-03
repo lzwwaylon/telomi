@@ -113,6 +113,24 @@ def test_verifying_a_candidate_never_makes_it_the_credential_in_use(tmp_path, au
     assert seen == [ROTATED_KEY, TYPO_KEY, STARTUP_KEY]
 
 
+def test_service_owned_opaque_key_is_redacted_without_request_credentials(tmp_path, authorization) -> None:
+    secret = "opaque-server-owned-credential-not-a-known-prefix"
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == f"Bearer {secret}"
+        return httpx.Response(401, json={"error": f"unlabeled echo {secret}"})
+
+    with client_for(tmp_path, upstream, tavily_api_key=SecretStr(secret)) as client:
+        response = search(client, authorization)
+    assert response.status_code == 502
+    assert secret not in response.text
+    error = response.json()["error"]
+    assert error["code"] == "provider_credentials"
+    assert error["details"]["upstream_status"] == 401
+    assert error["details"]["operation"] == "search"
+    assert error["details"]["next_action"] == "stop_provider_task"
+
+
 def test_unknown_credential_name_is_rejected(tmp_path, authorization) -> None:
     with client_for(tmp_path, tavily_recorder([])) as client:
         response = client.post(

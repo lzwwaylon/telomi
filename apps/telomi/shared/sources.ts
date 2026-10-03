@@ -1,6 +1,12 @@
 /** How an external source authenticates. Decides what the settings page shows for it. */
 export type SourceAuth = "api_key" | "browser_session" | "none";
 
+/** Optional-only credentials still become active when a key is supplied. */
+export function hasConfiguredSourceCredential(fields: readonly { optional?: boolean; configured: boolean }[]): boolean {
+  const required = fields.filter((field) => !field.optional);
+  return (required.length ? required : fields).some((field) => field.configured);
+}
+
 /** The last verification outcome for one external source. */
 export type SourceState = "ok" | "needs_login" | "error" | "unconfigured";
 

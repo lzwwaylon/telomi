@@ -23,6 +23,6 @@ export const arxiv: SourceDescriptor = {
 				"categories", "primary_category", "comment", "journal_ref", "doi", "links", "source_url"],
 			supportedFilters: ["search_query", "id_list", "start", "max_results", "sortBy", "sortOrder", "all", "title", "author", "abstract", "comment",
 				"journal_reference", "category", "report_number", "id", "submitted_date"],
-			evidenceTypes: ["primary_document", "preprint_metadata"], operations: ["native_query", "id_lookup", "paginated_acquisition", "paper_front", "download_pdf"] },
+			evidenceTypes: ["primary_document", "preprint_metadata", "scholarly_metadata"], operations: ["native_query", "id_lookup", "paginated_acquisition", "paper_front", "download_pdf"] },
 	},
 };

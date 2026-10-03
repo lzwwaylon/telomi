@@ -18,6 +18,10 @@ try {
 	mkdirSync(join(output, "work"), { recursive: true });
 	writeFileSync(join(output, "work", ".execution-id"), "sub-fresh");
 	writeFileSync(join(input, "work", ".execution-id"), "sub-historical");
+	writeFileSync(join(input, "work", ".provider-assignment"), "github\n");
+	mkdirSync(join(input, ".runtime/provider-submissions/sub-historical"), { recursive: true });
+	writeFileSync(join(input, ".runtime/provider-submissions/sub-historical/receipt.json"), "stale host authority\n");
+	writeFileSync(join(input, ".system-prompt.md"), "historical prompt\n");
 	writeFileSync(join(input, "work", "task-data.txt"), "frozen dependency");
 	mkdirSync(join(input, "skills"));
 	writeFileSync(join(input, "skills", "old.md"), "old skill");
@@ -25,6 +29,9 @@ try {
 	assert.equal(readFileSync(join(output, "work", "task-data.txt"), "utf8"), "frozen dependency");
 	assert.equal(readFileSync(join(output, "work", ".execution-id"), "utf8"), "sub-fresh");
 	assert.equal(existsSync(join(output, "skills")), false);
+	assert.equal(existsSync(join(output, "work", ".provider-assignment")), false, "historical final markers cannot authorize a fresh replay");
+	assert.equal(existsSync(join(output, ".runtime")), false, "input cannot copy Host Runtime authority");
+	assert.equal(existsSync(join(output, ".system-prompt.md")), false);
 	symlinkSync(join(input, "work", "task-data.txt"), join(input, "escape"));
 	assert.throws(() => restoreProviderChildInput(input, output), /symbolic links/u);
 	const linkedWork = join(root, "linked-work");
@@ -42,6 +49,7 @@ export const SettingsManager = {create: () => ({applyOverrides(){}, getAutoRefin
 export class DefaultResourceLoader { async reload() {} }
 export const SessionManager = {create: (_cwd, directory) => ({getSessionDir:()=>directory, newSession: ({rlmDepth}) => assert.equal(rlmDepth,1)})};
 export async function createAgentSession(options) {
+ assert.equal(options.cwd.endsWith('provider-executions/sub-replay'),true);
  assert.equal(options.rlmDepth,1);
  assert.equal(options.rlmMaxDepth,1);
  assert.equal(options.rlmParentNodeId,'sub-replay');
@@ -50,7 +58,8 @@ export async function createAgentSession(options) {
  assert.deepEqual(options.customTools.map(tool=>tool.name),['submit_candidate_ledger']);
  assert.equal(options.thinkingLevel,'medium');
  assert.equal(options.serviceTier,'flex');
- return {session:{
+	return {session:{
+	 systemPrompt:'candidate child prompt',
  subscribe(){},
  prompt(){throw new Error('Root prompt must never run')},
  async promptAndWait(content, parameters){
@@ -61,7 +70,7 @@ export async function createAgentSession(options) {
   assert.equal(parameters.customMessage.details.fromRelationship,'parent');
   writeFileSync(process.env.PROOF,'child executed');
  },
- async waitForRlmQuiescence(){}, async abort(){}, dispose(){}
+ async waitForRlmQuiescence(){}, async abort(){}, async disposeAsync(){}
  }};
 }
 `);
@@ -83,6 +92,8 @@ export async function createAgentSession(options) {
 		stdio: "pipe",
 	});
 	assert.equal(readFileSync(join(root, "proof"), "utf8"), "child executed");
+	assert.equal(readFileSync(join(output, "provider-executions/sub-replay/.system-prompt.md"), "utf8"), "candidate child prompt");
+	assert.equal(existsSync(join(output, ".system-prompt.md")), false, "effective replay prompt belongs to the actual child workspace");
 	const frozenRoot = join(root, "frozen");
 	const frozenSkills = join(frozenRoot, "skills");
 	const skill = (base: string, name: string, body: string) => {

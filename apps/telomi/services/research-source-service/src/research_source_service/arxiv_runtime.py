@@ -21,22 +21,33 @@ class ArxivUpstreamLease:
 
 
 class ArxivRuntimeStore:
-    """Shared exact-response cache and upstream request scheduler for arXiv."""
+    """Instance-local response cache with an optionally shared arXiv upstream scheduler."""
 
-    def __init__(self, database: Path, *, cache_ttl_seconds: int = 24 * 60 * 60) -> None:
+    def __init__(
+        self,
+        database: Path,
+        *,
+        scheduler_database: Path | None = None,
+        cache_ttl_seconds: int = 24 * 60 * 60,
+    ) -> None:
         self.database = database.expanduser().resolve()
+        self.scheduler_database = (scheduler_database or self.database).expanduser().resolve()
         self.cache_ttl_seconds = cache_ttl_seconds
         self.database.parent.mkdir(parents=True, exist_ok=True)
-        self.lock_path = self.database.with_name(f"{self.database.name}.lock")
+        self.scheduler_database.parent.mkdir(parents=True, exist_ok=True)
+        self.lock_path = self.scheduler_database.with_name(f"{self.scheduler_database.name}.lock")
         self.connection = sqlite3.connect(self.database, timeout=30, check_same_thread=False)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA synchronous=FULL")
-        self.connection.execute("PRAGMA busy_timeout=30000")
+        self.scheduler_connection = sqlite3.connect(self.scheduler_database, timeout=30, check_same_thread=False)
+        for connection in (self.connection, self.scheduler_connection):
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute("PRAGMA busy_timeout=30000")
         self._initialize()
 
     def close(self) -> None:
         self.connection.close()
+        self.scheduler_connection.close()
 
     def get_cached_response(self, endpoint: str, parameters: dict[str, object]) -> str | None:
         row = self.connection.execute(
@@ -81,38 +92,38 @@ class ArxivRuntimeStore:
             return None
         return ArxivUpstreamLease(handle)
 
-    def reserve_upstream_slot(self, scope: str, min_interval_seconds: float) -> float:
-        """Reserve the next request start for one endpoint class and return its delay."""
+    def upstream_delay(self, scope: str) -> float:
+        """Read the applicable deadlines while holding the upstream lease; never reserve a future start."""
 
-        self.connection.execute("BEGIN IMMEDIATE")
-        try:
+        row = self.scheduler_connection.execute(
+            "SELECT max(next_allowed_at) AS next_allowed_at FROM arxiv_access_slots WHERE scope IN (?, 'any')",
+            (scope,),
+        ).fetchone()
+        return max(0.0, float(row["next_allowed_at"] or 0) - time.time())
+
+    def record_upstream_start(
+        self, scope: str, min_interval_seconds: float, global_min_interval_seconds: float
+    ) -> None:
+        """Anchor both deadlines to the actual HTTP call, after all waiting, under the upstream lease."""
+
+        with self.scheduler_connection:
+            self.scheduler_connection.execute("BEGIN IMMEDIATE")
             now = time.time()
-            row = self.connection.execute(
-                "SELECT next_allowed_at FROM arxiv_access_slots WHERE scope=?",
-                (scope,),
-            ).fetchone()
-            next_allowed_at = float(row["next_allowed_at"]) if row is not None else 0.0
-            slot = max(now, next_allowed_at)
-            self.connection.execute(
+            self.scheduler_connection.executemany(
                 """
                 INSERT INTO arxiv_access_slots(scope, next_allowed_at) VALUES (?, ?)
                 ON CONFLICT(scope) DO UPDATE SET next_allowed_at=excluded.next_allowed_at
                 """,
-                (scope, slot + min_interval_seconds),
+                ((scope, now + min_interval_seconds), ("any", now + global_min_interval_seconds)),
             )
-            self.connection.commit()
-        except BaseException:
-            self.connection.rollback()
-            raise
-        return max(0.0, slot - now)
 
     def cooldown(self, delay_seconds: float) -> None:
         """Persist an upstream Retry-After window across service processes."""
 
         if delay_seconds <= 0:
             return
-        with self.connection:
-            self.connection.execute(
+        with self.scheduler_connection:
+            self.scheduler_connection.execute(
                 "UPDATE arxiv_access_slots SET next_allowed_at=max(next_allowed_at, ?)",
                 (time.time() + delay_seconds,),
             )
@@ -131,7 +142,10 @@ class ArxivRuntimeStore:
 
             CREATE INDEX IF NOT EXISTS arxiv_query_cache_expiry
             ON arxiv_query_cache(expires_at);
-
+            """
+        )
+        self.scheduler_connection.executescript(
+            """
             CREATE TABLE IF NOT EXISTS arxiv_access_policy (
                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                 next_allowed_at REAL NOT NULL
@@ -148,9 +162,11 @@ class ArxivRuntimeStore:
             SELECT 'api', next_allowed_at FROM arxiv_access_policy WHERE singleton=1;
 
             INSERT OR IGNORE INTO arxiv_access_slots(scope, next_allowed_at) VALUES ('main', 0);
+            INSERT OR IGNORE INTO arxiv_access_slots(scope, next_allowed_at) VALUES ('any', 0);
             """
         )
         self.connection.commit()
+        self.scheduler_connection.commit()
 
 
 def _query_cache_key(endpoint: str, parameters: dict[str, object]) -> str:

@@ -41,12 +41,17 @@ class Settings(BaseSettings):
     arxiv_sqlite_path: Path = Field(
         default_factory=lambda: Path.home() / ".telomi" / "runtime" / "research-sources" / "arxiv-runtime.sqlite3"
     )
+    # Query caches may be isolated; upstream pacing and cooldown belong to the whole caller.
+    arxiv_scheduler_sqlite_path: Path = Field(
+        default_factory=lambda: Path.home() / ".telomi" / "runtime" / "research-sources" / "arxiv-upstream.sqlite3"
+    )
     arxiv_cache_ttl_seconds: int = Field(default=24 * 60 * 60, ge=60, le=30 * 24 * 60 * 60)
     arxiv_min_start_interval_seconds: float = Field(default=4, ge=0, le=60)
     arxiv_main_site_min_start_interval_seconds: float = Field(default=8, ge=0, le=60)
     arxiv_global_min_start_interval_seconds: float = Field(default=3, ge=0, le=60)
     arxiv_overload_cooldown_seconds: float = Field(default=15 * 60, ge=0, le=60 * 60)
     huggingface_max_concurrency: int = Field(default=1, ge=1, le=16)
+    openalex_max_concurrency: int = Field(default=1, ge=1, le=16)
     twitter_max_concurrency: int = Field(default=1, ge=1, le=4)
     github_max_concurrency: int = Field(default=1, ge=1, le=16)
     general_web_max_concurrency: int = Field(default=1, ge=1, le=16)
@@ -61,6 +66,10 @@ class Settings(BaseSettings):
     huggingface_token: SecretStr | None = Field(
         default=None,
         validation_alias="SOURCE_SERVICE_HUGGINGFACE_TOKEN",
+    )
+    openalex_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="SOURCE_SERVICE_OPENALEX_API_KEY",
     )
     twitter_cookie: SecretStr | None = Field(
         default=None,
@@ -93,6 +102,7 @@ class Settings(BaseSettings):
 
     arxiv_endpoint: str = "https://export.arxiv.org/api/query"
     huggingface_endpoint: str = "https://huggingface.co"
+    openalex_endpoint: str = "https://api.openalex.org"
     twitter_endpoint: str = "https://x.com"
     firecrawl_endpoint: str = "https://api.firecrawl.dev/v2/search"
     tavily_endpoint: str = "https://api.tavily.com/search"

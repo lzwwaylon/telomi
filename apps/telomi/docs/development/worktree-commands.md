@@ -13,6 +13,8 @@ npm run worktree -- check -- npm run typecheck
 
 `run` allows at most three concurrent commands across Worktrees in the same repository; a fourth command is rejected. `check` serializes heavy checks through an operating-system file lock, which the normal pre-commit Hook also uses. Commands retain the caller's working directory and standard input. Running Node/Python programs directly, bypassing npm entry points, does not automatically register process ownership.
 
+Worktrees and evaluation instances keep their arXiv query caches separate, but share upstream admission and cooldown by default. A private cache is not a separate upstream allowance. See the [Source Service arXiv runtime](../../services/research-source-service/README.md#arxiv-sqlite-runtime-cache) for the shared scheduler configuration.
+
 To restart the current Worktree, run `npm run worktree -- stop` and wait for it to succeed before starting services. It stops every managed command in the current Worktree, including checks and Coding Agents. To restart only the foreground development service, press Ctrl-C in its terminal and restart it there. When a port is occupied, identify its owning instance; do not kill processes in bulk by port or process name.
 
 `browser:start`, `browser:status` and `browser:stop` use the current Worktree's CDP configuration. The browser stop command only acts on a browser recorded by this checkout whose process arguments match both the port and Profile path. Specifying another port does not grant permission to close that browser.

@@ -37,6 +37,7 @@ def make_settings(tmp_path: Path, **overrides: object) -> Settings:
         "api_token": SecretStr(TOKEN),
         "workspace_roots": (tmp_path,),
         "arxiv_sqlite_path": tmp_path / "arxiv-runtime.sqlite3",
+        "arxiv_scheduler_sqlite_path": tmp_path / "arxiv-upstream.sqlite3",
         "arxiv_min_start_interval_seconds": 0,
         "arxiv_main_site_min_start_interval_seconds": 0,
         "arxiv_global_min_start_interval_seconds": 0,

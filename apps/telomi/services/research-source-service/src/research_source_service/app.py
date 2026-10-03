@@ -182,6 +182,20 @@ def create_app(
 
     @app.exception_handler(ServiceError)
     async def service_error_handler(request: Request, error: ServiceError) -> JSONResponse:
+        details = dict(error.details)
+        if getattr(request.state, "source_id", None):
+            details.setdefault("provider_id", error.provider or request.state.source_id)
+            details.setdefault("operation", request.state.source_operation)
+            action = "report_gap"
+            if error.retryable:
+                action = "runtime_retry"
+            elif details.get("failure_scope") == "provider" or details.get("circuit_scope") == "provider":
+                action = "stop_provider_task"
+            elif error.status_code in {400, 422}:
+                action = "correct_request"
+            details.setdefault("next_action", action)
+            if "github_status" in details:
+                details.setdefault("upstream_status", details["github_status"])
         body = ErrorResponse(
             error=ErrorBody(
                 code=error.code,
@@ -191,13 +205,18 @@ def create_app(
                 provider=error.provider,
                 request_id=request_id(request),
                 retry_after_ms=error.retry_after_ms,
-                details=error.details,
+                details=details,
             )
         )
         headers = {"WWW-Authenticate": "Bearer"} if error.status_code == 401 else None
         # Provider errors may echo arbitrary keys, including cookie components, without labels.
         credentials = getattr(request.state, "provider_credentials", None) or {}
         secrets = [value for value in credentials.values() if value]
+        # A remote caller may delegate credentials to this service; upstream echoes still need redaction.
+        for field in configured.credential_fields().values():
+            value = getattr(configured, field, None)
+            if callable(getattr(value, "get_secret_value", None)):
+                secrets.append(value.get_secret_value())
         cookie = credentials.get("SOURCE_SERVICE_TWITTER_COOKIE")
         if cookie:
             with suppress(ServiceError):
@@ -263,6 +282,10 @@ def create_app(
         started = time.monotonic()
         registry: SourceRegistry = raw_request.app.state.registry
         raw_request.state.provider_credentials = request.credential
+        raw_request.state.source_id = request.source_id
+        raw_request.state.source_operation = (
+            request.provider_request.operation if request.provider_request else "search"
+        )
         results = await cancel_on_disconnect(raw_request, registry.search(request))
         return SearchResponse(
             source_id=request.source_id,
@@ -378,6 +401,8 @@ def request_id(request: Request) -> str:
 
 
 def failure_class(error: ServiceError) -> str:
+    if error.code == "provider_daily_budget_exhausted":
+        return "budget"
     if error.code in {"provider_timeout"}:
         return "timeout"
     if error.code in {"provider_rate_limit"}:

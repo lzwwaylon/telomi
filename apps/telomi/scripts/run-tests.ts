@@ -85,6 +85,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 	process.env.TELOMI_DATA_DIR = data;
 	process.env.TELOMI_CACHE_DIR = join(data, "cache");
 	process.env.SOURCE_SERVICE_ARXIV_SQLITE_PATH = join(data, "arxiv-runtime.sqlite3");
+	process.env.SOURCE_SERVICE_ARXIV_SCHEDULER_SQLITE_PATH = join(data, "arxiv-upstream.sqlite3");
 	const listener = createServer();
 	await new Promise<void>((ready, reject) => {
 		listener.once("error", reject);

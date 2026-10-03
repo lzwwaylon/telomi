@@ -16,6 +16,7 @@ import { browser } from "./sources/browser.js";
 import { exa, firecrawl, tavily } from "./sources/general-web.js";
 import { github } from "./sources/github.js";
 import { huggingface } from "./sources/huggingface.js";
+import { openalex } from "./sources/openalex.js";
 import { twitter } from "./sources/twitter.js";
 import { userDocuments } from "./sources/user-documents.js";
 import { youtube } from "./sources/youtube.js";
@@ -71,6 +72,7 @@ export const SOURCE_DESCRIPTORS: readonly SourceDescriptor[] = [
 	tavily,
 	exa,
 	arxiv,
+	openalex,
 	userDocuments,
 ];
 

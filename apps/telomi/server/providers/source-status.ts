@@ -242,7 +242,8 @@ export class SourceStatusMonitor {
 type Outcome = { state: SourceState; code?: SourceReasonCode; reason?: string };
 
 function isConfigured(source: SourceDescriptor, credential: Record<string, string | null>): boolean {
-	return (source.fields ?? []).some((field) => !field.optional && Boolean(credential[field.env]));
+	const fields = source.fields ?? [];
+	return fields.every((field) => field.optional) || fields.some((field) => !field.optional && Boolean(credential[field.env]));
 }
 
 async function probeYouTubeAccount(signal: AbortSignal): Promise<void> {

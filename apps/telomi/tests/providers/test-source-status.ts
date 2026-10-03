@@ -27,7 +27,7 @@ const { ResearchNodeError } = await import("../../server/agent-runtime/retry-pol
 const { SOURCE_DESCRIPTORS } = await import("../../server/providers/source-descriptors.js");
 const { SEARCH_CREDENTIAL_PROVIDERS } = await import("../../server/providers/search-credential-catalog.js");
 
-const REGISTERED = ["arxiv", "general_web_exa", "general_web_firecrawl", "general_web_tavily", "github", "huggingface", "twitter", "user_documents"];
+const REGISTERED = ["arxiv", "general_web_exa", "general_web_firecrawl", "general_web_tavily", "github", "huggingface", "openalex", "twitter", "user_documents"];
 
 class ServiceStand {
 	readonly verified: string[] = [];
@@ -72,7 +72,8 @@ try {
 	assert.equal(state("browser"), "ok");
 	assert.equal(state("arxiv"), "ok");
 	assert.equal(state("user_documents"), "ok");
-	assert.deepEqual(service.verified, [], "nothing is probed without a credential to probe");
+	assert.equal(state("openalex"), "ok", "optional free API key permits anonymous operation");
+	assert.deepEqual(service.verified, ["openalex"], "only the optional-key Provider is probed anonymously");
 
 	// A login the browser holds is probed; a rejection means the login is gone.
 	const withLogins = new ServiceStand();

@@ -61,6 +61,7 @@ def test_sources_lists_every_registered_source_id(tmp_path, authorization) -> No
             "general_web_tavily",
             "github",
             "huggingface",
+            "openalex",
             "twitter",
             "user_documents",
         ],
@@ -127,6 +128,7 @@ def test_max_results_is_bounded_by_runtime_configuration(tmp_path, authorization
         "provided": 6,
         "maximum": 5,
         "parameter": "max_results",
+        "provider_id": "github", "operation": "search", "next_action": "correct_request",
     }
 
 
@@ -149,4 +151,5 @@ def test_every_source_module_registers_through_its_specs() -> None:
     assert [spec.id for spec in specs] == sorted(spec.id for spec in specs)
     assert {spec.id for spec in specs if spec.credentialed} == {
         "github", "huggingface", "twitter", "general_web_firecrawl", "general_web_tavily", "general_web_exa",
+        "openalex",
     }

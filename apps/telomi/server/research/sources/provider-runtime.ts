@@ -47,6 +47,7 @@ export class ProviderRuntime {
 	private readonly db: DatabaseSync;
 	private readonly inflight = new Map<string, ProviderFlight>();
 	private readonly accessGates = new Map<string, AccessGate>();
+	private readonly terminalProviderFailures = new Map<string, { cause: ResearchNodeError; expiresAt: number }>();
 	private lastCleanupAt = 0;
 
 	constructor(options: ProviderRuntimeOptions) {
@@ -112,9 +113,19 @@ export class ProviderRuntime {
 		context: ProviderSearchContext = {},
 	): Promise<ProviderSearchOutcome> {
 		this.cleanup(Date.now());
-		const policy = provider.runtimePolicy?.(request) ?? bypassPolicy(provider);
+		let policy = bypassPolicy(provider);
 		const startedAt = Date.now();
 		try {
+			try {
+				policy = provider.runtimePolicy?.(request) ?? policy;
+			} catch (cause) {
+				if (cause instanceof ResearchNodeError) throw cause;
+				throw new ResearchNodeError(toErrorMessage(cause), "validation", false, {
+					cause, code: "invalid_provider_request",
+					details: { provider_id: provider.id, operation: request.providerRequest?.operation ?? "search", next_action: "correct_request" },
+				});
+			}
+			if (context.overloadBudget?.terminal) throw context.overloadBudget.terminal;
 			const outcome = await this.executeSearch(provider, request, policy, context.overloadBudget);
 			this.recordEvent(provider.id, policy.accessScope, outcome, startedAt, Date.now());
 			if (context.recorder) recordProviderCall(context.recorder, {
@@ -133,7 +144,7 @@ export class ProviderRuntime {
 			);
 			if (context.recorder) {
 				recordProviderCall(context.recorder, {
-					provider: provider.id, request, startedAt, error: failure?.cause ?? error, execution: failure?.execution,
+					provider: provider.id, request, startedAt, error: failure?.cause ?? error, execution: failure?.execution ?? emptyExecution(),
 				});
 			}
 			throw failure?.cause ?? error;
@@ -333,6 +344,18 @@ export class ProviderRuntime {
 		// A caller outside a Provider Child still gets a budget of its own for this one request.
 		const budgetMs = policy.overloadBudgetMs;
 		const budget = budgetMs === undefined ? undefined : sharedBudget ?? new ProviderOverloadBudget();
+		const blockProvider = (cause: ResearchNodeError): number => {
+			const now = Date.now();
+			const existing = this.terminalProviderFailures.get(policy.accessScope);
+			if (existing && existing.expiresAt > now) return existing.expiresAt - now;
+			const untilTomorrow = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate() + 1) - now;
+			const delayMs = cause.retryAfterMs ?? (cause.code === "provider_daily_budget_exhausted" ? untilTomorrow : 15 * 60_000);
+			this.terminalProviderFailures.set(policy.accessScope, { cause, expiresAt: now + delayMs });
+			gate.cooldown(delayMs);
+			this.persistCooldown(policy.accessScope, delayMs);
+			gate.rejectQueued(cause);
+			return delayMs;
+		};
 		let attempts = 0;
 		let queueWaitMs = 0;
 		let intervalWaitMs = 0;
@@ -350,6 +373,13 @@ export class ProviderRuntime {
 		for (;;) {
 			const now = Date.now();
 			if (budget?.terminal) throw failure(budget.terminal);
+			const blocked = this.terminalProviderFailures.get(policy.accessScope);
+			if (blocked && blocked.expiresAt <= now) this.terminalProviderFailures.delete(policy.accessScope);
+			if (blocked && blocked.expiresAt > now) {
+				if (!budget) throw failure(blocked.cause);
+				budget.lastCause = blocked.cause;
+				throw failure(budget.trip(provider.id, terminalProviderReason(blocked.cause), blocked.expiresAt - now));
+			}
 			const priorFailures = key ? this.requestFailureBudget(key, now) : 0;
 			if (priorFailures >= maxAttempts) {
 				const exhausted = upstreamBudgetExhausted(policy);
@@ -384,6 +414,8 @@ export class ProviderRuntime {
 						// filed under must describe the same credential.
 						return await provider.search(budget ? { ...request, signal } : request, { credential: policy.credential });
 					} catch (error) {
+						// Publish provider-wide failure before the gate releases a queued sibling.
+						if (isTerminalProviderFailure(error)) blockProvider(error);
 						const decision = retryDecision(error, attempts, maxAttempts);
 						if (isUpstreamOverload(error)) {
 							const delayMs = overloadDelayMs(error, decision.delayMs, policy);
@@ -409,6 +441,13 @@ export class ProviderRuntime {
 				intervalWaitMs += accessFailure?.execution.intervalWaitMs ?? 0;
 				rateLimitWaitMs += accessFailure?.execution.rateLimitWaitMs ?? 0;
 				if (budget && cause === budget.terminal) throw failure(cause);
+				if (isTerminalProviderFailure(cause)) {
+					const delayMs = blockProvider(cause);
+					if (!budget) throw failure(cause);
+					budget.lastCause = cause;
+					budget.attempts += attempts;
+					throw failure(budget.trip(provider.id, terminalProviderReason(cause), delayMs));
+				}
 				const overloaded = isUpstreamOverload(cause);
 				const overloadFailures = key && overloaded
 					? this.recordRequestFailure(key, policy, Date.now())
@@ -555,6 +594,8 @@ export class ProviderRuntime {
  * without reaching the Provider, so a new request key cannot extend the wait.
  */
 export type ProviderOverloadTripReason =
+	| "provider_access_denied"
+	| "free_budget_exhausted"
 	| "retry_attempts_exhausted"
 	| "retry_after_exceeds_budget"
 	| "budget_exhausted"
@@ -644,6 +685,13 @@ export class ProviderOverloadBudget {
 					attempts: this.attempts,
 					retry_after_ms: retryAfterMs === undefined ? null : Math.round(retryAfterMs),
 					reason,
+					next_action: "submit_partial_and_handoff",
+					...(cause instanceof ResearchNodeError ? {
+						cause_code: cause.code ?? null,
+						cause_details: cause.details ?? {},
+						operation: cause.details?.operation ?? null,
+						upstream_status: cause.details?.upstream_status ?? null,
+					} : {}),
 				},
 			},
 		);
@@ -658,6 +706,15 @@ export class ProviderOverloadBudget {
 		});
 		return this.terminal;
 	}
+}
+
+function terminalProviderReason(cause: ResearchNodeError): ProviderOverloadTripReason {
+	return cause.code === "provider_daily_budget_exhausted" ? "free_budget_exhausted" : "provider_access_denied";
+}
+
+function isTerminalProviderFailure(cause: unknown): cause is ResearchNodeError {
+	return cause instanceof ResearchNodeError && !cause.retryable
+		&& (cause.details?.failure_scope === "provider" || cause.details?.circuit_scope === "provider");
 }
 
 interface ProviderFlight {
@@ -735,6 +792,19 @@ class AccessGate {
 	cooldown(delayMs: number): void {
 		if (!Number.isFinite(delayMs) || delayMs <= 0) return;
 		this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + delayMs);
+	}
+
+	rejectQueued(cause: ResearchNodeError): void {
+		if (this.timer) clearTimeout(this.timer);
+		this.timer = undefined;
+		for (const queued of this.queue.splice(0)) {
+			queued.signal.removeEventListener("abort", queued.onAbort);
+			queued.reject(new AccessFailure(cause, {
+				queueWaitMs: Math.max(0, Date.now() - queued.enqueuedAt - queued.intervalWaitMs - queued.cooldownWaitMs),
+				intervalWaitMs: queued.intervalWaitMs,
+				rateLimitWaitMs: queued.cooldownWaitMs,
+			}));
+		}
 	}
 
 	cooldownRemainingMs(): number {

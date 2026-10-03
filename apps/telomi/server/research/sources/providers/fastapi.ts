@@ -101,6 +101,11 @@ export function builtInFastApiRuntimePolicy(
 			maxConcurrency,
 			minIntervalMs,
 			maxAttempts: options.sourceId === "arxiv" ? 1 : options.sourceId === "huggingface" ? 4 : 3,
+			...(["huggingface", "openalex"].includes(options.sourceId) ? {
+				overloadCooldownMs: 20_000,
+				overloadBudgetWindowMs: 15 * 60_000,
+				overloadBudgetMs: 60_000,
+			} : {}),
 			...(options.sourceId === "arxiv" ? {
 				overloadCooldownMs: 15 * 60_000,
 				overloadBudgetWindowMs: 15 * 60_000,
@@ -162,6 +167,19 @@ export function builtInFastApiRuntimePolicy(
 					cacheScope: accessScope,
 					cacheKey: canonicalTwitterQuery(parsed),
 					cacheTtlMs: 2 * 60_000,
+				} : {}),
+			};
+		}
+		if (options.sourceId === "openalex") {
+			if (!request.providerRequest) throw new Error("OpenAlex requires an explicit native operation");
+			const identity = credentialIdentity(identityEnv, searchCredentialAliasGroups(options.sourceId));
+			const scope = authenticatedOrAnonymousScope(options, identity, env);
+			return {
+				...base, accessScope: scope.access,
+				...(scope.cache && request.providerRequest.operation !== "download_pdf" ? {
+					cacheScope: scope.cache,
+					cacheKey: { ...request.providerRequest, max_results: request.maxResults, temporal_range: request.temporalRange ?? null },
+					cacheTtlMs: DAILY_SOURCE_CACHE_TTL_MS,
 				} : {}),
 			};
 		}

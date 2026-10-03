@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -10,6 +12,7 @@ from conftest import client_for
 
 from research_source_service.app import cancel_on_disconnect
 from research_source_service.arxiv_runtime import ArxivRuntimeStore
+from research_source_service.sources.arxiv import ArxivSource
 
 ATOM_PAGE = """<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom"
@@ -128,15 +131,36 @@ def test_sqlite_coordinates_minimum_start_interval_for_upstream_calls(
 
 
 def test_upstream_lock_is_exclusive_across_store_instances(tmp_path: Path) -> None:
-    database = tmp_path / "arxiv.sqlite3"
-    first_store = ArxivRuntimeStore(database)
-    second_store = ArxivRuntimeStore(database)
+    scheduler = tmp_path / "shared" / "upstream.sqlite3"
+    first_store = ArxivRuntimeStore(tmp_path / "first" / "cache.sqlite3", scheduler_database=scheduler)
+    second_store = ArxivRuntimeStore(tmp_path / "second" / "cache.sqlite3", scheduler_database=scheduler)
+    def other_process_lock() -> str:
+        return subprocess.run(
+            [sys.executable, "-c", """
+import sys
+from pathlib import Path
+from research_source_service.arxiv_runtime import ArxivRuntimeStore
+store = ArxivRuntimeStore(Path(sys.argv[1]), scheduler_database=Path(sys.argv[2]))
+lease = store.try_acquire_upstream_lock()
+print('busy' if lease is None else 'available')
+if lease is not None:
+    lease.release()
+store.close()
+""", str(tmp_path / "process" / "cache.sqlite3"), str(scheduler)],
+            check=True, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+
     first = first_store.try_acquire_upstream_lock()
     assert first is not None
     try:
         assert second_store.try_acquire_upstream_lock() is None
+        assert other_process_lock() == "busy"
     finally:
         first.release()
+        second = second_store.try_acquire_upstream_lock()
+        assert second is not None
+        second.release()
+        assert other_process_lock() == "available"
         first_store.close()
         second_store.close()
 
@@ -173,35 +197,155 @@ async def test_client_disconnect_cancels_work_and_releases_upstream_lock(tmp_pat
         second_store.close()
 
 
-def test_upstream_intervals_are_scoped_but_share_one_lock(tmp_path: Path) -> None:
+def test_upstream_intervals_are_scoped_but_share_one_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(time, "time", lambda: 100.0)
     store = ArxivRuntimeStore(tmp_path / "arxiv.sqlite3")
     try:
         first = store.try_acquire_upstream_lock()
         assert first is not None
-        assert store.reserve_upstream_slot("main", 0.05) == 0
+        assert store.upstream_delay("main") == 0
+        store.record_upstream_start("main", 0.05, 0)
         first.release()
 
         second = store.try_acquire_upstream_lock()
         assert second is not None
-        delay = store.reserve_upstream_slot("main", 0.05)
+        delay = store.upstream_delay("main")
         second.release()
-        assert delay >= 0.04
+        assert delay == pytest.approx(0.05)
 
         api = store.try_acquire_upstream_lock()
         assert api is not None
-        assert store.reserve_upstream_slot("api", 0) == 0
+        assert store.upstream_delay("api") == 0
         api.release()
     finally:
         store.close()
 
 
-def test_global_slot_spaces_api_after_main(tmp_path: Path) -> None:
+def test_global_slot_spaces_api_after_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(time, "time", lambda: 100.0)
     store = ArxivRuntimeStore(tmp_path / "arxiv.sqlite3")
     try:
-        assert store.reserve_upstream_slot("main", 0) == 0
-        assert store.reserve_upstream_slot("any", 0.05) == 0
+        assert store.upstream_delay("main") == 0
+        store.record_upstream_start("main", 0, 0.05)
         # a request on a different scope right afterwards still waits for the global slot
-        assert store.reserve_upstream_slot("api", 0) == 0
-        assert store.reserve_upstream_slot("any", 0.05) >= 0.04
+        assert store.upstream_delay("api") == pytest.approx(0.05)
     finally:
         store.close()
+
+
+def test_separate_query_caches_share_deadlines_and_cooldown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = [100.0]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+    scheduler = tmp_path / "shared" / "upstream.sqlite3"
+    first = ArxivRuntimeStore(tmp_path / "first" / "cache.sqlite3", scheduler_database=scheduler)
+    second = ArxivRuntimeStore(tmp_path / "second" / "cache.sqlite3", scheduler_database=scheduler)
+    try:
+        lease = first.try_acquire_upstream_lock()
+        assert lease is not None
+        try:
+            assert second.try_acquire_upstream_lock() is None
+        finally:
+            lease.release()
+        endpoint, query = "https://export.arxiv.org/api/query", {"search_query": "fixture"}
+        first.put_cached_response(endpoint, query, "first instance response")
+        assert second.get_cached_response(endpoint, query) is None
+        second.put_cached_response(endpoint, query, "second instance response")
+        assert first.get_cached_response(endpoint, query) == "first instance response"
+        assert second.get_cached_response(endpoint, query) == "second instance response"
+        assert first.scheduler_connection.execute(
+            "SELECT name FROM sqlite_master WHERE name='arxiv_query_cache'"
+        ).fetchone() is None
+
+        first.record_upstream_start("main", 8, 3)
+        assert second.upstream_delay("api") == 3
+        assert second.upstream_delay("main") == 8
+        clock[0] += 2
+        second.cooldown(20)
+        assert first.upstream_delay("api") == 20
+        assert first.upstream_delay("main") == 20
+        first.cooldown(1)
+        assert second.upstream_delay("api") == 20, "A shorter retry window cannot erase the shared cooldown"
+    finally:
+        first.close()
+        second.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("oversleep", [0.0, 5.0])
+@pytest.mark.parametrize("separate_cache", [False, True])
+async def test_scope_wait_and_oversleep_keep_global_interval_at_actual_http_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    oversleep: float,
+    separate_cache: bool,
+) -> None:
+    clock = [100.0]
+    started_at: list[float] = []
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+
+    async def sleep(delay: float) -> None:
+        clock[0] += delay + oversleep
+
+    class Http:
+        async def request(self, _provider: str, method: str, url: str, **_kwargs: object) -> httpx.Response:
+            started_at.append(clock[0])
+            return httpx.Response(200, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    scheduler = tmp_path / "scheduler.sqlite3"
+    store = ArxivRuntimeStore(tmp_path / "cache.sqlite3", scheduler_database=scheduler)
+    source = ArxivSource(Http(), "https://export.arxiv.org/api/query", runtime_store=store,
+                         global_min_start_interval_seconds=3)
+    other = ArxivSource(Http(), "https://export.arxiv.org/api/query",
+                        runtime_store=ArxivRuntimeStore(tmp_path / "other-cache.sqlite3", scheduler_database=scheduler),
+                        global_min_start_interval_seconds=3) if separate_cache else source
+    try:
+        await source._request_upstream("main", 8, "GET", "https://arxiv.org/html/fixture-a")
+        await source._request_upstream("main", 8, "GET", "https://arxiv.org/html/fixture-b")
+        await other._request_upstream("api", 4, "GET", "https://export.arxiv.org/api/query")
+        assert started_at[1] - started_at[0] >= 8
+        assert started_at[2] - started_at[1] >= 3
+        assert started_at == [100.0, 108.0 + oversleep, 111.0 + 2 * oversleep]
+    finally:
+        source.close()
+        if other is not source:
+            other.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_pacing_wait_releases_shared_lock_without_reserving_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(time, "time", lambda: 100.0)
+    waiting = asyncio.Event()
+
+    async def sleep(_delay: float) -> None:
+        waiting.set()
+        await asyncio.Event().wait()
+
+    class Http:
+        async def request(self, *_args: object, **_kwargs: object) -> httpx.Response:
+            raise AssertionError("A cancelled pacing wait must never reach HTTP")
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    scheduler = tmp_path / "scheduler.sqlite3"
+    first = ArxivRuntimeStore(tmp_path / "first-cache.sqlite3", scheduler_database=scheduler)
+    second = ArxivRuntimeStore(tmp_path / "second-cache.sqlite3", scheduler_database=scheduler)
+    first.cooldown(60)
+    source = ArxivSource(Http(), "https://export.arxiv.org/api/query", runtime_store=first)
+    task = asyncio.create_task(source._request_upstream("api", 4, "GET", source.endpoint))
+    try:
+        await asyncio.wait_for(waiting.wait(), 1)
+        assert second.try_acquire_upstream_lock() is None
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert second.upstream_delay("api") == 60
+        lease = second.try_acquire_upstream_lock()
+        assert lease is not None
+        lease.release()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        source.close()
+        second.close()

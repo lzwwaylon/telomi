@@ -106,6 +106,7 @@ class HttpGateway:
 UPSTREAM_HEADER_KEYS = (
     "server", "via", "x-served-by", "x-cache", "age", "date", "retry-after",
     "ratelimit", "ratelimit-reset", "x-ratelimit-remaining", "x-timer", "cf-ray", "content-type",
+    "location", "x-ratelimit-limit", "x-ratelimit-reset", "x-ratelimit-credits-used", "x-ratelimit-credits-required",
 )
 
 
@@ -130,6 +131,8 @@ def provider_http_error(provider: str, response: httpx.Response) -> ServiceError
             details={
                 "circuit_scope": "provider",
                 "failure_scope": "provider",
+                "reason": "payment_required" if response.status_code == 402 else "access_denied",
+                "next_action": "stop_provider_task",
                 **upstream_details(response),
             },
         )
@@ -139,14 +142,27 @@ def provider_http_error(provider: str, response: httpx.Response) -> ServiceError
             f"{provider} rejected the request (HTTP {response.status_code}): {detail}",
             status_code=400,
             provider=provider,
-            details=upstream_details(response),
+            details={
+                **upstream_details(response),
+                "failure_scope": "object" if response.status_code == 404 else "request",
+                "reason": "not_found" if response.status_code == 404 else "invalid_request",
+                "next_action": "resolve_identity" if response.status_code == 404 else "correct_request",
+            },
         )
     return ServiceError(
         "provider_rate_limit" if response.status_code == 429 else "provider_error",
         f"{provider} returned HTTP {response.status_code}: {detail}",
         retryable=response.status_code in RETRYABLE_STATUSES or response.status_code >= 500,
         provider=provider,
-        details=upstream_details(response),
+        details={
+            **upstream_details(response),
+            "failure_scope": "provider" if response.status_code == 429 else "request",
+            "reason": "rate_limited" if response.status_code == 429 else "upstream_http_error",
+            "next_action": (
+                "runtime_retry" if response.status_code in RETRYABLE_STATUSES or response.status_code >= 500
+                else "report_gap"
+            ),
+        },
         retry_after_ms=provider_retry_after_ms(response.headers) if response.status_code == 429 else None,
     )
 

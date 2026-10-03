@@ -8,8 +8,10 @@ description: Use arXiv subject categories, native fielded search, exact paper lo
 Use `import prime_arxiv_selection_skill as arxiv`. The module exposes the arXiv Provider operations and the shared
 `CandidateLedger`.
 
-Every operation returns ordinary dictionaries. Read fields with `row["field"]` or `row.get("field")`, never attribute
-access such as `row.field`.
+Provider query, `fetch_ids()`, `paper_profile()`, `download_pdf()` and `categories()` return lists of ordinary
+dictionaries; `discover_papers()` returns a dictionary with `records`. Read fields with `row["field"]` or
+`row.get("field")`, never attribute access such as `row.field`. These Provider and Ledger helpers are synchronous
+Python calls. Do not `await` them.
 
 ## Choose a path
 
@@ -87,9 +89,11 @@ ledger.add(
 )
 ```
 
-Build the output with `CandidateLedger()` from the returned download records, then call
-`ledger.write("work/arxiv_candidates.json")` exactly once as the final tool call.
-Do not inspect, repair, or rewrite the Ledger afterward.
+Build the output with `CandidateLedger()` from the returned download records and save with
+`ledger.write("work/arxiv_candidates.json")`. Draft writes are atomic and can be repeated before final
+submission. Use that exact filename, including the underscore. Then call `submit_candidate_ledger(provider_id="arxiv")`.
+Successful submission freezes this task's final Ledger and ends its acquisition; do not query again or rewrite the
+submitted result. Ask Root for a new bounded task if new evidence is needed later.
 
 ## Provider unavailable
 

@@ -90,6 +90,7 @@ import {
 	ORGANIZER_RUNTIME_INDEX,
 	PROVIDER_EXECUTIONS_DIRECTORY,
 	primeProviderAssignments,
+	primeProviderSubmission,
 	validatePrimeOrganizerDecisionFile,
 	validatePrimeSearchCandidateLedger,
 } from "./prime-search-contract.js";
@@ -111,7 +112,7 @@ import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../../agent-runti
 import { isInsideRoot } from "../../lib/paths.js";
 import { isRecord, toErrorMessage } from "../../lib/values.js";
 import { ResearchNodeError } from "../../agent-runtime/retry-policy.js";
-import { listFilesRecursive } from "../../lib/fs.js";
+import { listFilesRecursive, writeFileAtomic } from "../../lib/fs.js";
 import { comparePaths } from "../../lib/paths.js";
 
 const PRIME_SEARCH_SDK_WORKER = fileURLToPath(new URL("./prime-search-sdk-worker.ts", import.meta.url));
@@ -179,18 +180,18 @@ export function primeSearchBatchContractIdentity(
 	const models = resolvePrimeAgentModels(env, settingsOverride);
 	return {
 		id: "prime-search-batch",
-		version: 65,
+		version: 66,
 		rootModel: models.root.selector,
 		childModel: models.child.selector,
 		thinkingLevel: primeSearchRootThinking(env, settingsOverride),
 		autoRefine: PRIME_AUTO_REFINE_ENABLED,
 		autonomous: PRIME_AUTONOMOUS_CONFIG.enabled,
 		executionAdapter: "prime-sdk-rlm-quiescence-v2",
-		candidateLedgerValidation: "sdk-custom-tool-candidate-materials-v6",
+		candidateLedgerValidation: "sdk-custom-tool-candidate-materials-v7-final-receipt",
 		providerWorkerSkills: "catalog-declared-bundled-skill-with-goal-override",
 		organizerWorkspace: "metadata-only-ipython-no-rlm",
 		promptBundle: {
-		acquisition: "root-web-native-provider-children-v51",
+		acquisition: "root-web-native-provider-children-bounded-fallback-v52",
 			organizer: "incremental-source-group-patch-v7",
 		},
 		schema: {
@@ -241,6 +242,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 		const bundlesRoot = join(stageRoot, "bundles");
 		const reuse = reuseInterruptedStage(stageRoot, root, request);
 		for (const directory of [root, runtimeRoot, bundlesRoot]) mkdirSync(directory, { recursive: true });
+		mkdirSync(join(root, ".runtime"), { recursive: true });
 		mkdirSync(join(root, "work"), { recursive: true });
 		const workspace = Object.assign(request.workspaceSnapshot ?? emptyWorkspaceSnapshot(), {
 			input_tree_source: "empty-work-dir" as const,
@@ -373,7 +375,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 					cwd: root,
 					runtimeRoot,
 					readonlyRoots: [sdkRoot, join(root, "skills"), ...rootPythonPaths],
-					privateRoots: [bundlesRoot],
+					privateRoots: [bundlesRoot, join(root, ".runtime")],
 					sessionDir: join(runtimeRoot, "acquisition-session", "session"),
 					provider: rootProvider,
 					model: rootModel,
@@ -447,7 +449,7 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 				module: primeModule,
 				cwd: organizerRoot,
 				runtimeRoot,
-				privateRoots: [bundlesRoot],
+				privateRoots: [bundlesRoot, join(root, ".runtime")],
 				kernelLogPath: join(runtimeRoot, "organizer-kernel-launches.jsonl"),
 				sessionDir: join(runtimeRoot, "organizer-session", "session"),
 				provider: rootProvider,
@@ -735,11 +737,11 @@ export function materializePrimeSources(
 			`Provider execution '${execution.execution_id}' work output`);
 		const prefix = join(executionWorkRoot, safeId(providerId));
 		const executionIdentity = execution.workspace_path ? basename(execution.workspace_path) : undefined;
-		validatePrimeSearchCandidateLedger(
-			executionRoot, providerId, `${prefix}_candidates.json`, executionIdentity,
-		);
+		const submission = executionIdentity ? primeProviderSubmission(root, executionIdentity, providerId) : undefined;
+		if (executionIdentity && !submission) throw new ResearchNodeError("Provider child has no final submission receipt.", "permanent", false, { code: "ledger_submission_missing" });
+		if (!submission) validatePrimeSearchCandidateLedger(executionRoot, providerId, `${prefix}_candidates.json`, executionIdentity);
 		const candidateLedger = JSON.parse(readFileSync(
-			safeFile(`${prefix}_candidates.json`, executionWorkRoot, `${providerId} candidate ledger`),
+			submission?.ledger_path ?? safeFile(`${prefix}_candidates.json`, executionWorkRoot, `${providerId} candidate ledger`),
 			"utf-8",
 		)) as unknown;
 		if (!isRecord(candidateLedger) || candidateLedger.schema_version !== 2
@@ -1542,7 +1544,29 @@ export async function startPrimeSourceBridge(
 	const providerCatalog = new Map(registry.catalog().map((provider) => [provider.id, provider]));
 	// One overload budget per Provider Child and Provider, alive as long as this Search Root.
 	const overloadBudgets = new Map<string, ProviderOverloadBudget>();
-	const selectedFallbacks = new Map<string, string>();
+	const childProviders = new Map<string, string>();
+	const bindProvider = (childId: string, sourceId: string) => {
+		if (childId === "root") throw new ResearchNodeError("Only Provider children may acquire specialized Provider evidence.", "permanent", false, { code: "provider_permission_denied" });
+		if (!allowedSources.has(sourceId)) throw new ResearchNodeError(`Provider '${sourceId}' is not enabled for this Search Batch.`, "permanent", false, { code: "provider_not_enabled" });
+		const directory = join(artifactWorkspace, ".runtime", "provider-bindings");
+		const bindingPath = join(directory, childId);
+		const persisted = existsSync(bindingPath) ? readFileSync(bindingPath, "utf-8").trim() : undefined;
+		const cached = childProviders.get(childId);
+		if ((persisted !== undefined && !/^[a-z][a-z0-9_-]{0,63}$/u.test(persisted))
+			|| (cached !== undefined && cached !== persisted)) {
+			throw new ResearchNodeError(`Child '${childId}' has inconsistent Runtime Provider bindings. Restore its durable binding before continuing.`, "permanent", false, { code: "provider_scope_mismatch" });
+		}
+		const assigned = persisted;
+		if (assigned && assigned !== sourceId) throw new ResearchNodeError(`Child '${childId}' is bound to '${assigned}', not '${sourceId}'. Ask Root for a separate task.`, "permanent", false, { code: "provider_scope_mismatch" });
+		if (!assigned) {
+			mkdirSync(directory, { recursive: true });
+			writeFileAtomic(bindingPath, `${sourceId}\n`);
+		}
+		childProviders.set(childId, sourceId);
+	};
+	const fallbackNeeds = new Map<string, { scope: string; evidenceTypes: string[]; path: string[]; edges: Map<string, string> }>();
+	let fallbackCount = 0;
+	const fallbackFailure = (code: string, message: string) => new ResearchNodeError(message, "validation", false, { code });
 	const providerAccess = (state: ProviderOverloadState, childId: string) => {
 		appendRuntimeContext(recorder.runDir, "research", {
 			type: "runtime.provider_access",
@@ -1600,6 +1624,8 @@ export async function startPrimeSourceBridge(
 				response.end(JSON.stringify({ error: "unauthorized execution" }));
 				return;
 			}
+			if (executionId !== "root" && ["/v1/search", "/v1/browser", "/v1/browser/materialize"].includes(route)
+				&& primeProviderSubmission(artifactWorkspace, executionId)) throw new ResearchNodeError("This child already submitted its final Ledger. Ask Root to create a new bounded task for further acquisition.", "permanent", false, { code: "provider_task_completed" });
 			if (options.investigation) {
 				if (executionId !== "root") throw new Error("Investigation Tools are available only to the Search Root");
 				if (route === "/v1/knowledge-search") {
@@ -1660,6 +1686,7 @@ export async function startPrimeSourceBridge(
 			if (route === "/v1/browser") {
 				if (!options.browser) throw new Error("Browser is not available in this Prime Search run");
 				await assertBrowserToolChild(options.browser.config, executionId);
+				bindProvider(executionId, "browser");
 				const program = body.program !== undefined
 					? (Array.isArray(body.program) && body.program.length > 0 && body.program.length <= 32
 						? body.program.map((item) => commandVector(item, "program command"))
@@ -1677,6 +1704,7 @@ export async function startPrimeSourceBridge(
 			if (route === "/v1/browser/materialize") {
 				if (!options.browser) throw new Error("Browser is not available in this Prime Search run");
 				await assertBrowserToolChild(options.browser.config, executionId);
+				bindProvider(executionId, "browser");
 				const root = options.browser.root;
 				const artifactRoot = providerExecutionWorkspace(root, executionId).absolutePath;
 				const result = await materializeBrowserSource(
@@ -1721,29 +1749,55 @@ export async function startPrimeSourceBridge(
 				return;
 			}
 			if (route === "/v1/provider-fallback") {
-				if (bridgeExecutionId(body.agent_session_id) !== "root") throw new Error("Only the Search Root may select a Provider fallback");
+				if (bridgeExecutionId(body.agent_session_id) !== "root") throw fallbackFailure("fallback_permission_denied", "Only the Search Root may select a Provider fallback");
 				const fromSourceId = requiredString(body.from_source_id, "Fallback from_source_id");
 				const toSourceId = requiredString(body.to_source_id, "Fallback to_source_id");
+				const needId = requiredString(body.evidence_need_id, "Fallback evidence_need_id");
+				const scope = requiredString(body.scope, "Fallback scope");
+				const fromExecutionId = bridgeExecutionId(body.from_execution_id);
+				if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u.test(needId) || scope.length > 4000
+					|| !Array.isArray(body.required_evidence_types) || body.required_evidence_types.length === 0
+					|| body.required_evidence_types.length > 16) {
+					throw fallbackFailure("fallback_invalid_need", "Fallback requires a stable Evidence Need ID, scope of at most 4000 characters and 1 to 16 required evidence types.");
+				}
+				const evidenceTypes = [...new Set(body.required_evidence_types.map((value) => requiredString(value, "Required evidence type")))].sort();
 				if (fromSourceId === toSourceId || !allowedSources.has(fromSourceId) || !allowedSources.has(toSourceId)) {
-					throw new Error("Provider fallback must name two different enabled Providers");
+					throw fallbackFailure("fallback_invalid_provider", "Provider fallback must name two different enabled Providers.");
 				}
 				const fromCapabilities = providerCatalog.get(fromSourceId)?.capabilities ?? [];
-				const toCapabilities = new Set(providerCatalog.get(toSourceId)?.capabilities ?? []);
-				if (!fromCapabilities.some((capability) => toCapabilities.has(capability))) {
-					throw new Error(`Provider fallback '${toSourceId}' does not share a capability with '${fromSourceId}'`);
+				const replacement = providerCatalog.get(toSourceId);
+				if (!fromCapabilities.some((capability) => replacement?.capabilities?.includes(capability))
+					|| !evidenceTypes.every((type) => replacement?.evidenceTypes?.includes(type))) {
+					throw fallbackFailure("fallback_incompatible_provider", `Provider '${toSourceId}' must share a capability with '${fromSourceId}' and supply every required evidence type: ${evidenceTypes.join(", ")}.`);
 				}
-				if (![...overloadBudgets.entries()].some(([key, budget]) => key.endsWith(`\0${fromSourceId}`) && budget.terminal)) {
-					throw new Error(`Provider fallback requires '${fromSourceId}' to be unavailable first`);
+				if (!overloadBudgets.get(`${fromExecutionId}\0${fromSourceId}`)?.terminal) {
+					throw fallbackFailure("fallback_source_not_unavailable", `Execution '${fromExecutionId}' has no Tool-reported source_unavailable for '${fromSourceId}'. Empty results and not-found errors do not permit this fallback.`);
 				}
-				const selected = selectedFallbacks.get(fromSourceId);
-				if (selected && selected !== toSourceId) throw new Error(`Provider '${fromSourceId}' already has fallback '${selected}'`);
-				if (selected === toSourceId) {
-					response.end(JSON.stringify({ accepted: true }));
+				const submission = primeProviderSubmission(artifactWorkspace, fromExecutionId, fromSourceId);
+				if (!submission) throw fallbackFailure("fallback_handoff_missing", `Execution '${fromExecutionId}' must submit its partial or empty Candidate Ledger before fallback.`);
+				let need = fallbackNeeds.get(needId);
+				if (need && (need.scope !== scope || JSON.stringify(need.evidenceTypes) !== JSON.stringify(evidenceTypes))) {
+					throw fallbackFailure("fallback_need_changed", `Evidence Need '${needId}' already has a different scope or required evidence types. Preserve its identity throughout the fallback chain.`);
+				}
+				if (need?.edges.get(fromSourceId) === toSourceId) {
+					response.end(JSON.stringify({ accepted: true, evidence_need_id: needId, provider_path: need.path }));
 					return;
 				}
-				selectedFallbacks.set(fromSourceId, toSourceId);
+				if (need?.path.includes(toSourceId)) throw fallbackFailure("fallback_cycle", `Provider '${toSourceId}' was already tried for Evidence Need '${needId}'. Finish with the remaining gap instead of repeating it.`);
+				if (need && need.path.at(-1) !== fromSourceId) throw fallbackFailure("fallback_invalid_path", `Evidence Need '${needId}' currently ends at '${need.path.at(-1)}', not '${fromSourceId}'.`);
+				if (fallbackCount >= 32) throw fallbackFailure("fallback_budget_exhausted", "This Search Batch has exhausted its 32 fallback decisions. Preserve submitted evidence and report remaining gaps.");
+				need ??= { scope, evidenceTypes, path: [fromSourceId], edges: new Map() };
+				need.path.push(toSourceId);
+				need.edges.set(fromSourceId, toSourceId);
+				fallbackNeeds.set(needId, need);
+				fallbackCount += 1;
 				appendRuntimeContext(recorder.runDir, "research", {
 					type: "runtime.provider_fallback_selected",
+					evidence_need_id: needId,
+					from_execution_id: fromExecutionId,
+					provider_path: [...need.path],
+					required_evidence_types: evidenceTypes,
+					scope,
 					from_provider_id: fromSourceId,
 					to_provider_id: toSourceId,
 				});
@@ -1755,7 +1809,7 @@ export async function startPrimeSourceBridge(
 					kind: "status",
 					text: `正在改用 ${toSourceId} 补充 ${fromSourceId} 未覆盖的证据`,
 				});
-				response.end(JSON.stringify({ accepted: true }));
+				response.end(JSON.stringify({ accepted: true, evidence_need_id: needId, provider_path: need.path }));
 				return;
 			}
 			const sourceId = requiredString(body.source_id, "Provider source_id");
@@ -1772,6 +1826,9 @@ export async function startPrimeSourceBridge(
 				requiredString(body.workspace_dir, "Provider workspace_dir"),
 			);
 			const childId = basename(providerWorkspace);
+			if (executionId !== childId) throw new ResearchNodeError("Provider workspace must match the authenticated child execution.", "permanent", false, { code: "provider_execution_mismatch" });
+			if (primeProviderSubmission(artifactWorkspace, childId)) throw new ResearchNodeError("This child already submitted its final Ledger. Ask Root for a new acquisition task.", "permanent", false, { code: "provider_task_completed" });
+			bindProvider(executionId, sourceId);
 			const budgetKey = `${childId}\0${sourceId}`;
 			const overloadBudget = overloadBudgets.get(budgetKey)
 				?? new ProviderOverloadBudget((state) => providerAccess(state, childId));
@@ -1830,9 +1887,21 @@ function bridgeError(error: unknown): unknown {
 		failure_class: error.failureClass,
 		retryable: error.retryable,
 		...(error.retryAfterMs === undefined ? {} : { retry_after_ms: Math.round(error.retryAfterMs) }),
-		// Provider errors may echo upstream bodies; only the Runtime-authored unavailability details reach the Agent.
-		...(error.code === "source_unavailable" ? { details: error.details } : {}),
+		...(error.details ? { details: agentErrorDetails(error.details) } : {}),
 	};
+}
+
+const AGENT_ERROR_FIELDS = new Set([
+	"provider_id", "child_id", "expected_path", "operation", "failure_class", "elapsed_ms", "attempts", "retry_after_ms", "reason", "next_action",
+	"cause_code", "upstream_status", "failure_scope", "circuit_scope", "parameter", "provided", "maximum",
+	"parameters", "suggestions", "available_tags", "recovery", "repo_id", "paper_id", "identifier", "document_url",
+	"suggested_provider", "reset_at", "spent_usd", "limit_usd", "budget_scope", "host", "github_status", "errors", "message",
+]);
+
+function agentErrorDetails(details: Record<string, unknown>): Record<string, unknown> {
+	const safe = Object.fromEntries(Object.entries(details).filter(([key]) => AGENT_ERROR_FIELDS.has(key)));
+	if (isRecord(details.cause_details)) safe.cause_details = agentErrorDetails(details.cause_details);
+	return safe;
 }
 
 export function primeProviderArtifactWorkspace(root: string, requested: string): string {
@@ -1891,7 +1960,7 @@ function agentFacingMetadata(metadata: Record<string, unknown>, carryCursor: boo
  * 之外的一切要么是 Agent 自己的草稿，要么是 Runtime 每次重铺的输入（skills、.prime），
  * 一律清掉：留着既占空间，也会让下一次执行继承来路不明的状态。
  */
-const AGENT_CONTRACT_PATHS = new Set(["source", "work", "organizer", "artifacts", PROVIDER_EXECUTIONS_DIRECTORY]);
+const AGENT_CONTRACT_PATHS = new Set(["source", "work", "organizer", "artifacts", ".runtime", PROVIDER_EXECUTIONS_DIRECTORY]);
 
 /**
  * 判定上一次中断留下的现场封存到了哪一步。
@@ -1915,13 +1984,13 @@ export function reuseInterruptedStage(stageRoot: string, root: string, request: 
 		// 执行身份来自已经提交的 Provider Ledger。
 		sources = validatePrimeSource(root, primeProviderExecutions(root, request));
 	} catch {
-		if (primeProviderAssignments(root).length > 0) {
-			try {
+		try {
+			if (primeProviderAssignments(root).length > 0) {
 				const executions = primeProviderExecutions(root, request);
 				materializePrimeSources(root, executions);
 				return { sources: validatePrimeSource(root, executions) };
-			} catch {}
-		}
+			}
+		} catch {}
 		const archive = `${stageRoot}.interrupted`;
 		rmSync(archive, { recursive: true, force: true });
 		renameSync(stageRoot, archive);
