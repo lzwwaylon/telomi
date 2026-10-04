@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, sep } from "node:path";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { AttachmentParseStatus, AttachmentPayload, UserMessageWithAttachmentsPayload } from "../../shared/types.js";
@@ -11,7 +11,8 @@ import {
 import { attachmentKind, type AttachmentKind } from "../ingestion/attachment-kind.js";
 import { PARSED_DOCUMENT_FILES } from "../ingestion/parsed-documents.js";
 import type { FileIngestJob } from "../ingestion/types.js";
-import { isFileNameSegment, sanitizeFileName } from "../lib/paths.js";
+import { sha256 } from "../lib/hash.js";
+import { assertSafeRelativePath, isFileNameSegment, sanitizeFileName } from "../lib/paths.js";
 import { toErrorMessage } from "../lib/values.js";
 
 /**
@@ -60,11 +61,18 @@ function relativeSegments(relativePath: string): string[] {
 		.filter((segment) => segment && segment !== "." && segment !== "..");
 }
 
+function attachmentStorageSegment(segment: string): string {
+	const safe = sanitizeFileName(segment);
+	if (safe === segment && safe.length <= 128) return safe;
+	// The reserved '~' separator cannot appear in an unchanged sanitized name.
+	return `${sha256(segment)}~${safe.slice(-128)}`;
+}
+
 /** Host path of one attachment under the Goal attachments directory, folder members inside their folder. */
 export function attachmentRelativePath(attachment: AttachmentPayload): string {
 	const segments = attachment.folderId && attachment.relativePath ? relativeSegments(attachment.relativePath) : [];
 	if (attachment.folderId && segments.length > 1) {
-		const [folderName, ...rest] = segments.map((segment) => sanitizeFileName(segment));
+		const [folderName, ...rest] = segments.map(attachment.storageVersion === 2 ? attachmentStorageSegment : sanitizeFileName);
 		return join(`${attachment.folderId}_${folderName}`, ...rest);
 	}
 	return `${attachment.id}_${sanitizeFileName(attachment.fileName)}`;
@@ -89,13 +97,14 @@ function guestPath(relativePath: string): string {
  * What a Node Evaluation Case keeps about one attachment: everything except the bytes, which live in
  * the Case input tree under `attachments/`. A Candidate Replay rebuilds the payload from both.
  */
-export type AttachmentCaseDescriptor = Pick<AttachmentPayload, "id" | "type" | "fileName" | "mimeType" | "size" | "folderId" | "relativePath">;
+export type AttachmentCaseDescriptor = Pick<AttachmentPayload, "id" | "type" | "fileName" | "mimeType" | "size" | "folderId" | "relativePath" | "storageVersion">;
 
 export function attachmentCaseDescriptors(attachments: AttachmentPayload[]): AttachmentCaseDescriptor[] {
-	return attachments.map(({ id, type, fileName, mimeType, size, folderId, relativePath }) => ({
+	return attachments.map(({ id, type, fileName, mimeType, size, folderId, relativePath, storageVersion }) => ({
 		id, type, fileName, mimeType, size,
 		...(folderId ? { folderId } : {}),
 		...(relativePath ? { relativePath } : {}),
+		...(storageVersion ? { storageVersion } : {}),
 	}));
 }
 
@@ -110,14 +119,33 @@ export function attachmentPayloadsFromCase(goalDir: string, descriptors: Attachm
 
 export async function persistAttachments(goalDir: string, attachments: AttachmentPayload[]): Promise<string[]> {
 	const attachmentsDir = join(goalDir, "attachments");
-	const savedPaths: string[] = [];
-	for (const attachment of attachments) {
-		const filePath = join(attachmentsDir, attachmentRelativePath(attachment));
-		await mkdir(dirname(filePath), { recursive: true });
-		await writeFile(filePath, Buffer.from(attachment.content, "base64"));
-		savedPaths.push(filePath);
+	const paths = attachments.map((attachment) => {
+		attachment.storageVersion = 2;
+		const relativePath = attachmentRelativePath(attachment);
+		assertSafeRelativePath(relativePath, "Attachment path");
+		return join(attachmentsDir, relativePath);
+	});
+	if (new Set(paths).size !== paths.length) throw new Error("Uploaded attachments contain conflicting storage paths");
+	for (const [index, attachment] of attachments.entries()) {
+		try {
+			const existing = await readFile(paths[index]!);
+			if (!existing.equals(Buffer.from(attachment.content, "base64"))) throw new Error("Uploaded attachment conflicts with an existing file");
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
 	}
-	return savedPaths;
+	for (const [index, attachment] of attachments.entries()) {
+		const filePath = paths[index]!;
+		await mkdir(dirname(filePath), { recursive: true });
+		const bytes = Buffer.from(attachment.content, "base64");
+		try {
+			await writeFile(filePath, bytes, { flag: "wx" });
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			if (!(await readFile(filePath)).equals(bytes)) throw new Error("Uploaded attachment conflicts with an existing file");
+		}
+	}
+	return paths;
 }
 
 interface DocumentOutcome {

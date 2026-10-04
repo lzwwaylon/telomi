@@ -145,6 +145,8 @@ export interface AttachmentPayload {
 	folderId?: string;
 	/** Path inside the picked folder, including the folder name as its first segment. */
 	relativePath?: string;
+	/** Runtime-owned folder storage format; absent on historical attachment records. */
+	storageVersion?: 2;
 	/** Set by the Runtime before the turn on parseable documents; the chat shows it on the file chip. */
 	parseStatus?: AttachmentParseStatus;
 	parseError?: string;
