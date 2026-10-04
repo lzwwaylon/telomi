@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -11,6 +11,12 @@ import { createWikiRouter } from "../../server/wiki/api.js";
 
 const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-wiki-api-"));
 const goalId = "goal-wiki-api";
+const emptyGoalId = "goal-empty-wiki";
+const corruptGoalId = "goal-corrupt-wiki";
+mkdirSync(join(workspaceDir, emptyGoalId));
+const corruptRoot = join(workspaceDir, corruptGoalId, "wiki", "knowledge");
+mkdirSync(corruptRoot, { recursive: true });
+writeFileSync(join(corruptRoot, ".topic-plan.json"), "{");
 const knowledgeRoot = join(workspaceDir, goalId, "wiki", "knowledge");
 const runsRoot = join(workspaceDir, goalId, "wiki", "runs");
 mkdirSync(join(knowledgeRoot, "topics"), { recursive: true });
@@ -61,7 +67,7 @@ Only deterministic checks live here.
 writeFileSync(join(runsRoot, "secret.md"), "# Must not be exposed\n");
 
 const goals = {
-	getGoal: (id: string) => id === goalId ? { id, title: "Wiki API" } : undefined,
+	getGoal: (id: string) => [goalId, emptyGoalId, corruptGoalId].includes(id) ? { id, title: "Wiki API" } : undefined,
 } as unknown as GoalService;
 const app = express();
 app.use(createWikiRouter(workspaceDir, goals));
@@ -74,6 +80,36 @@ const port = (server.address() as AddressInfo).port;
 const api = (path: string) => fetch(`http://127.0.0.1:${port}${path}`);
 
 try {
+	const emptyTree = await api(`/api/goals/${emptyGoalId}/wiki`);
+	assert.equal(emptyTree.status, 200);
+	assert.deepEqual(await emptyTree.json(), { pages: [], topics: [], edition: null });
+	const emptyGraph = await api(`/api/goals/${emptyGoalId}/wiki/graph`);
+	assert.equal(emptyGraph.status, 200);
+	const { generatedAt, ...emptyNavigation } = await emptyGraph.json() as { generatedAt: string };
+	assert.equal(generatedAt, "", "an unpublished Wiki has no publication timestamp");
+	assert.deepEqual(emptyNavigation, { types: [], nodes: [], edges: [], communities: [], relations: [] });
+	const emptySearch = await api(`/api/goals/${emptyGoalId}/wiki/search?q=runtime`);
+	assert.equal(emptySearch.status, 200);
+	assert.deepEqual(await emptySearch.json(), {
+		mode: "keyword_graph", tokenHits: 0, vectorHits: 0, graphHits: 0, elapsedMs: 0,
+		index: { status: "unavailable", indexedPages: 0, totalPages: 0, refreshing: false }, results: [],
+	});
+	assert.equal(existsSync(join(workspaceDir, emptyGoalId, "wiki")), false,
+		"reading an unpublished Wiki must not create a fabricated Edition or index");
+	assert.equal((await api(`/api/goals/${emptyGoalId}/wiki/page?path=missing.md`)).status, 404);
+	assert.equal((await api(`/api/goals/${emptyGoalId}/wiki/source?path=source:test&run=missing-run`)).status, 404);
+	for (const suffix of ["", "/graph", "/search?q=runtime"]) {
+		const separator = suffix.includes("?") ? "&" : "?";
+		assert.equal((await api(`/api/goals/${emptyGoalId}/wiki${suffix}${separator}revision=missing`)).status, 404,
+			"an explicit missing Edition must not become an empty current Wiki");
+		assert.equal((await api(`/api/goals/unknown/wiki${suffix}`)).status, 404);
+		assert.equal((await api(`/api/goals/${corruptGoalId}/wiki${suffix}`)).status, 500,
+			"damaged Edition metadata must not become an empty current Wiki");
+	}
+	writeFileSync(join(corruptRoot, ".topic-plan.json"), JSON.stringify({ revision: "" }));
+	assert.equal((await api(`/api/goals/${corruptGoalId}/wiki`)).status, 500,
+		"invalid Edition revision metadata must not be silently ignored");
+
 	const treeResponse = await api(`/api/goals/${goalId}/wiki`);
 	assert.equal(treeResponse.status, 200);
 	const tree = await treeResponse.json() as { pages: Array<{ path: string }> };
