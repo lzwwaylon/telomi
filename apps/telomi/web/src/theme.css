@@ -1118,7 +1118,8 @@ body[data-theme="dark"] .pulse-band .avs .av.dim { opacity: 0.35; }
 }
 .goal-activity-step-group-head b { font-weight: 500; }
 .goal-activity-step {
-  display: flex;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
   align-items: flex-start;
   gap: 10px;
   width: calc(100% + 12px);
@@ -1179,6 +1180,7 @@ button.goal-activity-step:hover { background: rgba(var(--ink-rgb), .035); }
   overflow-wrap: anywhere;
 }
 .goal-activity-step-targets {
+  grid-column: 2;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
