@@ -92,7 +92,7 @@ function linkNodes(nodes: WikiNode[], root: string, relations: WikiRelation[]): 
 		const markdownTargets = [...node.body.matchAll(MARKDOWN_LINK)].map((match) => ({
 			value: safeDecode(match[1]),
 			relative: true,
-		}));
+		})).filter((link) => !/^(?:[a-z][a-z\d+.-]*:|\/\/)/iu.test(link.value));
 		for (const link of markdownTargets) {
 			const target = resolveLinkTarget(root, sourceDirectory, link.value, link.relative, aliases);
 			if (!target) {
