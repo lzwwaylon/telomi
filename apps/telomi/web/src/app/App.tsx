@@ -210,6 +210,7 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 	const viewedRevision = viewedPlan?.revision ?? null;
 	const activeRevision = topicPlan.active?.revision ?? null;
 	const topics = viewedPlan?.topics ?? [];
+	const wikiTopics = (topicRevision ? selectedVersion?.plan : topicPlan.active)?.topics ?? [];
 	const selectedTopicId = topics.some((topic) => topic.id === activeTopicId)
 		? activeTopicId
 		: topics[0]?.id ?? null;
@@ -292,7 +293,7 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 		[globalActivityProjection.summary, selected],
 	);
 
-	useUrlSync(route, selected, artifactFilename, viewingProposal ? null : selectedTopicId, historicalRevision, wikiPagePath);
+	useUrlSync(route, selected, artifactFilename, route === "wiki" ? activeTopicId : viewingProposal ? null : selectedTopicId, historicalRevision, wikiPagePath);
 
 	const createGoal = useCallback(
 		async (input: { title: string; description: string; outputLanguage: OutputLanguage }) => {
@@ -467,7 +468,7 @@ function MainApp({ playerSource }: { playerSource: PlayerSourceRequest | null })
 									<Suspense fallback={<div className="grid min-h-[calc(100dvh-var(--topbar-h))] place-items-center text-sm text-muted-foreground">{uiText("app.app.loadingWiki")}</div>}>
 										<WikiExplorer
 											goalId={selected}
-											topics={topics}
+											topics={wikiTopics}
 											activeTopicId={activeTopicId}
 											onActiveTopicChange={setActiveTopicId}
 											revision={historicalRevision}

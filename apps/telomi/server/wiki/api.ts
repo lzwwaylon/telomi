@@ -8,7 +8,7 @@ import { GoalWikiSearch } from "./index.js";
 import { wikiSearchExcerpt } from "./evidence.js";
 import { createWikiRuntime } from "./model/index.js";
 import { resolveWikiSource, resolveWikiSourceAsset } from "./source.js";
-import { resolveWikiEdition } from "./editions.js";
+import { listWikiEditions, resolveWikiEdition } from "./editions.js";
 import { toErrorMessage } from "../lib/values.js";
 import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 
@@ -34,6 +34,9 @@ export function createWikiRouter(
 		? query.revision.trim()
 		: undefined;
 	const editionFor = (goalId: string, query: Record<string, unknown>) => resolveWikiEdition(workspaceDir, goalId, revisionFrom(query));
+	const collectionEditionFor = (goalId: string, query: Record<string, unknown>) => revisionFrom(query)
+		? editionFor(goalId, query)
+		: listWikiEditions(workspaceDir, goalId)[0];
 	const runtimeFor = (goalId: string, query: Record<string, unknown>) => {
 		const edition = editionFor(goalId, query);
 		return { edition, runtime: createWikiRuntime(edition.root, { goalDir: join(workspaceDir, goalId) }) };
@@ -42,7 +45,9 @@ export function createWikiRouter(
 	router.get("/api/goals/:goalId/wiki", async (req, res) => {
 		if (!knownGoal(req.params.goalId)) return res.status(404).json({ error: "Unknown goal" });
 		try {
-			const { edition, runtime } = runtimeFor(req.params.goalId, req.query);
+			const edition = collectionEditionFor(req.params.goalId, req.query);
+			if (!edition) return res.json({ pages: [], topics: [], edition: null });
+			const runtime = createWikiRuntime(edition.root, { goalDir: join(workspaceDir, req.params.goalId) });
 			res.json({ ...await runtime.readTree(), edition: { revision: edition.revision, source: edition.source } });
 		} catch (error) {
 			res.status(errorStatus(error)).json({ error: errorMessage(error) });
@@ -63,7 +68,9 @@ export function createWikiRouter(
 	router.get("/api/goals/:goalId/wiki/graph", async (req, res) => {
 		if (!knownGoal(req.params.goalId)) return res.status(404).json({ error: "Unknown goal" });
 		try {
-			const { nodes, ...graph } = await runtimeFor(req.params.goalId, req.query).runtime.buildGraph();
+			const edition = collectionEditionFor(req.params.goalId, req.query);
+			if (!edition) return res.json({ generatedAt: "", types: [], nodes: [], edges: [], communities: [], relations: [] });
+			const { nodes, ...graph } = await createWikiRuntime(edition.root, { goalDir: join(workspaceDir, req.params.goalId) }).buildGraph();
 			res.json({ ...graph, nodes: nodes.map(({ body: _body, ...node }) => node) });
 		} catch (error) {
 			res.status(errorStatus(error)).json({ error: errorMessage(error) });
@@ -79,7 +86,11 @@ export function createWikiRouter(
 		const limit = Number.isInteger(parsedLimit) ? Math.max(1, Math.min(20, parsedLimit)) : 20;
 		const goalDir = join(workspaceDir, req.params.goalId);
 		try {
-			const edition = editionFor(req.params.goalId, req.query);
+			const edition = collectionEditionFor(req.params.goalId, req.query);
+			if (!edition) return res.json({
+				mode: "keyword_graph", tokenHits: 0, vectorHits: 0, graphHits: 0, elapsedMs: 0,
+				index: { status: "unavailable", indexedPages: 0, totalPages: 0, refreshing: false }, results: [],
+			});
 			const search = new GoalWikiSearch(edition.root, { goalDir });
 			const result = await search.search(query, limit, undefined, topicId || undefined);
 			const results = await Promise.all(result.results.map(async (hit) => {

@@ -85,7 +85,7 @@ function addEdition(
 	const topicPlanPath = join(root, ".topic-plan.json");
 	if (!existsSync(topicPlanPath)) return;
 	const value = JSON.parse(readFileSync(topicPlanPath, "utf-8")) as { revision?: unknown };
-	if (typeof value.revision !== "string" || !value.revision.trim()) return;
+	if (typeof value.revision !== "string" || !value.revision.trim()) throw new Error("Invalid Wiki Edition Topic revision");
 	editions.push({ revision: value.revision, root, source, updatedAt: updatedAt ?? statSync(topicPlanPath).mtime.toISOString() });
 }
 
