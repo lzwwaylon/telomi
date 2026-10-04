@@ -79,6 +79,9 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
   session.appendModelChange(model.provider, model.id);
   session.appendThinkingLevelChange(thinking);
   session.appendCustomEntry('execution', { executionMode, tools: [], completionLimit: 1, transportRetryPolicy, transportAttemptLimit });
+  writeJsonAtomic(join(runtime, 'workspace-capture.json'), { schemaVersion: 1, sessionId: session.getSessionId(),
+   role: 'root', stage: { kind: request.input.stage, key: request.input.key },
+   applicability: 'not-applicable', reason: 'stateless-no-file-tools' });
   const user = { role: 'user' as const, content: task.userContext, timestamp: Date.now() };
   session.appendMessage(user);
   session.flushNow();
@@ -127,7 +130,7 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
   writeJsonAtomic(join(runtime, 'accepted-result.json'), result);
   const outcome: WikiStageOutcome = { result, usage: wikiStageTraceUsage(request.workRoot), sessionPaths: sessionPaths(request.workRoot) };
   const artifacts = Object.fromEntries(['work/result.json', 'runtime/input.json', 'runtime/accepted-result.json', 'runtime/response.json',
-   'runtime/effective-system-prompt.md', 'runtime/agent-context.json', 'runtime/model-metadata.json',
+   'runtime/effective-system-prompt.md', 'runtime/agent-context.json', 'runtime/model-metadata.json', 'runtime/workspace-capture.json',
    ...responseFiles, ...listJsonl(sessions).map(file => file.slice(attemptRoot.length + 1))].map(file => [file, sha256(readWikiStageOutput(join(attemptRoot, file)))]));
   writeJsonAtomic(checkpoint, { identity, status: 'succeeded', attemptRoot, artifacts, outcomeHash: hashJson(outcome), outcome });
   return outcome;

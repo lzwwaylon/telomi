@@ -20,6 +20,7 @@ const topicPlan = { schema_version: 1 as const, goal_id: "goal", revision: "v1",
 const usage = { inputTokens: 10, outputTokens: 20, costUsd: 0, calls: 1 };
 const signal = new AbortController().signal;
 const executionMetadata: Record<string, string> = {
+	"workspace-capture.json": JSON.stringify({ schemaVersion: 1, sessionId: "fixture-session", role: "root", applicability: "not-applicable", reason: "stateless-no-file-tools" }),
 	"response.json": JSON.stringify({ role: "assistant", content: [{ type: "text", text: "{}" }], stopReason: "stop" }),
 	"failure.json": JSON.stringify({ executionMode: "single-completion", error: "injected classification failure" }),
 	"effective-system-prompt.md": "Full effective system prompt with SDK and stage instructions.\n",
@@ -47,6 +48,9 @@ function trace(directory: string): string {
 	write(path, `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "call1", name: "ipython" }] } })}\n`);
 	write(join(directory, "runtime", "input.json"), JSON.stringify({ page: "P1" }));
 	for (const [name, content] of Object.entries(executionMetadata)) write(join(directory, "runtime", name), content);
+	write(join(directory, "runtime", "logical-workspaces", "root.json"), JSON.stringify({ schemaVersion: 1, guestCwd: "/work", sessionId: "fixture-session", role: "root", mounts: [{ guestPath: "/work", access: "read-write" }] }));
+	write(join(directory, "runtime", "logical-workspaces", "root", "work", "asset.bin"), "business binary bytes");
+	write(join(directory, "runtime", "logical-workspaces", "root", "work", ".business-state"), "business hidden state");
 	write(join(directory, "runtime", "credentials", "secret.json"), "secret");
 	write(join(directory, "runtime", "agent", "auth.json"), "secret");
 	return path;
@@ -144,6 +148,11 @@ try {
 			assert.ok(files.some(file => file.kind === "agent_trace" && file.ref.endsWith("native.jsonl")));
 			assert.ok(files.some(file => file.kind === "runtime_result" && file.ref.endsWith("runtime/input.json")));
 			assert.ok(!files.some(file => /credentials|auth\.json/u.test(file.ref)));
+			for (const [suffix, content] of [["root/work/asset.bin", "business binary bytes"], ["root/work/.business-state", "business hidden state"]]) {
+				const file = files.find(file => file.ref.endsWith(`/runtime/logical-workspaces/${suffix}`));
+				assert.ok(file, `Capture must retain logical Workspace business file ${suffix}`);
+				assert.equal(readFileSync(service.caseFile(goalId, item.ref, file.ref), "utf8"), content);
+			}
 			for (const [name, content] of Object.entries(executionMetadata)) {
 				const file = files.find(file => file.ref.endsWith(`/runtime/${name}`));
 				assert.ok(file, `Capture must expose ${name}`);

@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readd
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import { snapshotLogicalWorkspace } from '../agent-runtime/logical-workspace-snapshot.js';
 import { createSrtAgentSandbox } from '../agent-runtime/srt-agent-sandbox.js';
 import type { SrtAgentSandboxOptions } from '../agent-runtime/srt-agent-sandbox.js';
 import { primeAgentDir, primeModelDefinitions, removeStagedPrimeCredentials, stagePrimeAgentDirectory } from '../agent-runtime/prime-agent-paths.js';
@@ -10,6 +11,7 @@ import { scrubResearchModelError } from '../agent-runtime/models/error-classifie
 import { listJsonl, writeJsonAtomic } from '../lib/fs.js';
 import { hashJson, sha256 } from '../lib/hash.js';
 import { toErrorMessage } from '../lib/values.js';
+import { hashWikiDirectory } from './files.js';
 import { wikiStageOutputHash, wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
 import type { WikiStageOutcome, WikiStageResult, WikiStageRequest } from './wiki-stage-contract.js';
 
@@ -45,9 +47,9 @@ function acceptedArtifactHash(runtime: string): string {
   const sources = JSON.parse(readWikiStageOutput(sourcePath).toString('utf8')) as Array<{ path: string; sha256: string }>;
   for (const source of sources) if (sha256(readWikiStageOutput(source.path)) !== source.sha256) throw new Error('Accepted Pi source changed');
  }
- return hashJson(['input.json', 'receipts.json', 'read-coverage.json', 'complete-page-reads.json', 'source-hashes.json']
+ return hashJson({ logicalWorkspace: hashWikiDirectory(join(runtime, 'logical-workspaces')), metadata: ['input.json', 'receipts.json', 'read-coverage.json', 'complete-page-reads.json', 'source-hashes.json']
   .filter(file => existsSync(join(runtime, file)))
-  .map(file => ({ file, sha256: sha256(readWikiStageOutput(join(runtime, file))) })));
+  .map(file => ({ file, sha256: sha256(readWikiStageOutput(join(runtime, file))) })) });
 }
 
 export async function acceptPiFiles(
@@ -83,7 +85,7 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
   model: modelId, thinking, tools, role: options.role, executionMode: options.executionMode,
   maxAttempts: options.maxAttempts ?? 2, definitions: primeModelDefinitions(request.env),
   code: [...options.codeFiles, './pi-file-stage.ts', './wiki-stage.ts', './wiki-stage-workspace.ts',
-   '../agent-runtime/srt-agent-sandbox.ts', '../../../extensions/telomi-srt/sandbox-spec.ts',
+   '../agent-runtime/srt-agent-sandbox.ts', '../agent-runtime/logical-workspace-snapshot.ts', '../../../extensions/telomi-srt/sandbox-spec.ts',
    '../../../extensions/telomi-srt/tool-operations.ts'].map(file => sha256(readFileSync(fileURLToPath(new URL(file, import.meta.url))))) });
  const checkpoint = join(request.workRoot, 'checkpoint.json');
  if (existsSync(checkpoint)) {
@@ -149,6 +151,10 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
   writeFileSync(join(runtime, 'effective-system-prompt.md'), session.systemPrompt);
   writeJsonAtomic(join(runtime, 'tool-definitions.json'), sandbox.toolDefinitions.map(({ name, description }) => ({ name, description })));
   writeJsonAtomic(join(runtime, 'model-metadata.json'), { provider: model.provider, id: model.id, thinking, tools, executionMode });
+  writeJsonAtomic(join(runtime, 'mounted-skills.json'), loader.getSkills());
+  snapshotLogicalWorkspace({ ...sandbox.logicalWorkspace, sessionId: session.sessionId, sessionRole: 'root',
+   stage: { kind: request.input.stage, key: request.input.key }, captureMoment: 'before-first-agent-turn' },
+   join(runtime, 'logical-workspaces', 'root'));
   const active = session;
   const abort = () => { void active.abort(); };
   request.signal.addEventListener('abort', abort, { once: true });

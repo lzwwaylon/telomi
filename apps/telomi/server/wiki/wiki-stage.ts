@@ -141,7 +141,7 @@ export function wikiStageCapabilityIdentity(): string {
  const files = ["wiki-stage.ts", "prime-wiki-stage-worker.ts", "wiki-stage-contract.ts", "wiki-stage-workspace.ts",
   "wiki-stage-search.ts", "wiki-topic-skill.ts", "wiki-stage-prompt.ts", "wiki-page-contract.ts", "wiki-edition.ts",
   "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts",
-  "pi-file-stage.ts", "pi-concept-stage.ts", "pi-concept-contract.ts", "../agent-runtime/accept-agent-output.ts"];
+  "pi-file-stage.ts", "../agent-runtime/logical-workspace-snapshot.ts", "../agent-runtime/srt-agent-sandbox.ts", "pi-concept-stage.ts", "pi-concept-contract.ts", "../agent-runtime/accept-agent-output.ts"];
  const semantics = files.map(path => sha256(readFileSync(fileURLToPath(new URL(path, import.meta.url)))));
  const system = renderAgentPrompt("wiki", "wiki-compilation", "system-append", {});
  return hashJson({ semantics, system: system.content, registration: system.configSha256,
