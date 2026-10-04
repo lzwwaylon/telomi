@@ -189,13 +189,15 @@ function documentNotice(outcome: DocumentOutcome): string {
 
 function folderNotice(outcomes: DocumentOutcome[]): string {
 	const folderRelative = outcomes[0]!.relativePath.split(sep)[0]!;
-	const folderName = folderRelative.replace(/^[^_]*_/u, "");
+	const folderName = attachmentOriginalPath(outcomes[0]!.attachment)?.split("/")[0]
+		?? folderRelative.replace(/^[^_]*_/u, "");
 	return renderAgentPrompt("main", "main-agent", "user", {
 		folder_name: folderName,
 		folder_path: guestPath(folderRelative),
 		file_count: outcomes.length,
 		files: outcomes.map((outcome) => ({
 			path: guestPath(outcome.relativePath),
+			original_path: JSON.stringify(attachmentOriginalPath(outcome.attachment) ?? outcome.attachment.fileName),
 			...outcome.parse,
 		})),
 	}, "folder-attachment-notice").content;

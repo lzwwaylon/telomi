@@ -11,6 +11,7 @@ import type { FastApiDocumentParser } from "../../server/research/documents/fast
 import {
 	attachmentCaseDescriptors,
 	attachmentPayloadsFromCase,
+	attachmentRelativePath,
 	persistAttachments,
 	parseDocumentAttachmentsForTurn,
 	type IngestAttachmentDocument,
@@ -205,6 +206,20 @@ try {
 	assert.match(folderNoticeText, new RegExp(`${attachmentsGuestPath}/f1_project/bin/blob\\.dat[^\\n]* unrecognised binary`, "u"));
 	assert.doesNotMatch(folderNoticeText, /logo\.png/u, "images are not documents and stay out of the folder notice");
 	assert.equal(folder[3]?.content, Buffer.from("png").toString("base64"), "folder images still reach the model as images");
+
+	// Original names identify the user's files; sanitized guest paths remain the read targets.
+	const namedFolder: AttachmentPayload[] = [
+		{ id: "named-a", type: "document", fileName: "审阅计划.txt", mimeType: "text/plain", folderId: "named", relativePath: "资料/中文目录/审阅计划.txt", content: Buffer.from("plan").toString("base64") },
+		{ id: "named-b", type: "document", fileName: "notes.txt", mimeType: "text/plain", folderId: "named", relativePath: "资料/meeting notes/notes.txt", content: Buffer.from("notes").toString("base64") },
+	];
+	const namedPaths = await persistAttachments(goalDir, namedFolder);
+	await parseDocumentAttachmentsForTurn(namedFolder, namedPaths, ingestDocument());
+	const namedNotice = namedFolder[0]?.extractedText || "";
+	assert.match(namedNotice, /Folder attachment: 资料/u);
+	assert.ok(namedNotice.includes('original relative path: "资料/中文目录/审阅计划.txt"'));
+	assert.ok(namedNotice.includes('original relative path: "资料/meeting notes/notes.txt"'));
+	assert.ok(namedNotice.includes(`${attachmentsGuestPath}/${attachmentRelativePath(namedFolder[0]!)}`));
+	assert.ok(namedNotice.includes(`${attachmentsGuestPath}/${attachmentRelativePath(namedFolder[1]!)}`));
 
 	// A Node Evaluation Case keeps descriptors only; a Candidate Replay rebuilds the payloads from the
 	// restored Goal workspace, byte for byte, including folder members.
