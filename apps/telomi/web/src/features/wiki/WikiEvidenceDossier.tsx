@@ -64,7 +64,7 @@ export function WikiEvidenceDossier({ goalId, evidence, revision, onOpenSource }
 										</button> : null;
 									})}
 									{anchor.format === "markdown"
-										? <MarkdownView text={anchor.content} goalId={goalId} linkify={false} className="wiki-evidence-markdown" />
+										? <MarkdownView text={anchor.content} goalId={goalId} baseUrl={anchor.source?.url ?? entry.source.url} linkify={false} className="wiki-evidence-markdown" />
 										: <pre>{anchor.content}</pre>}
 									{anchorIndex < entry.anchors.length - 1 ? <hr /> : null}
 								</section>)}
