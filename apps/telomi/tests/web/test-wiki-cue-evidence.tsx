@@ -35,3 +35,16 @@ assert.match(html, /source=source%3Amember-run-a[^"\s]+run=run-a/u);
 assert.match(html, /source=source%3Amember-run-b[^"\s]+run=run-b/u);
 assert.equal(sourceAssetHttpUrl("source-asset:source:member-run-b/assets/figure.png", "goal", "topics-v1", "run-b"),
 	"/api/goals/goal/wiki/source-asset?source=source%3Amember-run-b&path=assets%2Ffigure.png&revision=topics-v1&run=run-b");
+
+const sourceLinks = normalizeWikiEvidence([{ ...raw[0], anchors: [{ ...raw[0]!.anchors[1],
+	format: "markdown", content: "[Root](/guide) [Sibling](./next) [Absolute](https://elsewhere.test/) [Protocol](//cdn.test/guide) [Local](#section) [Unsafe](javascript:alert(1))\n\n## Section",
+	source: { ...raw[0]!.anchors[1]!.source, url: "https://original.test/docs/page" },
+}] }]);
+const linked = renderToStaticMarkup(<WikiEvidenceDossier goalId="goal" evidence={sourceLinks} onOpenSource={() => undefined} />);
+assert.match(linked, /href="https:\/\/original.test\/guide"/u);
+assert.match(linked, /href="https:\/\/original.test\/docs\/next"/u);
+assert.match(linked, /href="https:\/\/elsewhere.test\/"/u);
+assert.match(linked, /href="https:\/\/cdn.test\/guide"/u);
+assert.match(linked, /href="#[^"]+"[^>]*>Local</u, "excerpt fragments stay within the rendered excerpt");
+assert.doesNotMatch(linked, /href="javascript:/u, "source URL resolution must preserve link sanitization");
+assert.match(linked, /source=source%3Amember-run-b/u, "local source image assets retain their Goal route");

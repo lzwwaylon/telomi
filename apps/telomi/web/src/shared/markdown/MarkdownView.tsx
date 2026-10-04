@@ -92,6 +92,8 @@ interface LinkClickContextValue {
 	 * 没有 goalId 时(独立挂载、邮件页面等)file 预览功能 silently fallback 到不显示行内容。
 	 */
 	goalId?: string | null;
+	/** Original web document URL for relative links in captured source excerpts. */
+	baseUrl?: string;
 	/** Artifact path for resolving report URL citations back to Research Evidence. */
 	artifactName?: string;
 	/**
@@ -186,6 +188,10 @@ function MarkdownAnchor({
 	...rest
 }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children?: ReactNode }) {
 	const ctx = useContext(LinkClickContext);
+	const baseUrl = ctx?.baseUrl;
+	if (href && !href.startsWith("#") && !/^[a-z][a-z\d+.-]*:/iu.test(href) && baseUrl && /^https?:\/\//iu.test(baseUrl)) {
+		try { href = new URL(href, baseUrl).href; } catch { /* Keep the sanitized link when the source URL is malformed. */ }
+	}
 
 	const onClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
 		// Route file and URL targets through dedicated callbacks.
@@ -669,6 +675,8 @@ MemoMarkdownBody.displayName = "MemoMarkdownBody";
 
 export interface MarkdownViewProps {
 	text: string;
+	/** Original web document URL for relative links in captured source excerpts. */
+	baseUrl?: string;
 	/**
 	 * Render mode controlling formatting density.
 	 *
@@ -723,6 +731,7 @@ export const MarkdownView = memo(function MarkdownView({
 	goalId,
 	artifactName,
 	messageId,
+	baseUrl,
 }: MarkdownViewProps) {
 	const shouldLinkify = linkify ?? mode === "chat";
 
@@ -753,12 +762,13 @@ export const MarkdownView = memo(function MarkdownView({
 			onFileClick: onFileClick ?? outerCtx?.onFileClick,
 			resolveFileUrl: outerCtx?.resolveFileUrl,
 			goalId: goalId ?? outerCtx?.goalId,
+			baseUrl,
 			artifactName: artifactName ?? outerCtx?.artifactName,
 			// messageId 永远以 props 为准 —— 每条 message 的归属 id 必须由当前
 			// MarkdownView 自己声明,不从 outer ctx 串台。
 			messageId: messageId ?? outerCtx?.messageId,
 		}),
-		[onUrlClick, onFileClick, goalId, artifactName, messageId, outerCtx],
+		[onUrlClick, onFileClick, goalId, artifactName, messageId, baseUrl, outerCtx],
 	);
 
 	if (!text) return null;
