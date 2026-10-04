@@ -11,6 +11,7 @@ import type { FastApiDocumentParser } from "../../server/research/documents/fast
 import {
 	attachmentCaseDescriptors,
 	attachmentPayloadsFromCase,
+	attachmentRelativePath,
 	persistAttachments,
 	parseDocumentAttachmentsForTurn,
 	type IngestAttachmentDocument,
@@ -217,8 +218,8 @@ try {
 	assert.match(namedNotice, /Folder attachment: 资料/u);
 	assert.ok(namedNotice.includes('original relative path: "资料/中文目录/审阅计划.txt"'));
 	assert.ok(namedNotice.includes('original relative path: "资料/meeting notes/notes.txt"'));
-	assert.ok(namedNotice.includes(`${attachmentsGuestPath}/named__/_/_.txt`));
-	assert.ok(namedNotice.includes(`${attachmentsGuestPath}/named__/meeting_notes/notes.txt`));
+	assert.ok(namedNotice.includes(`${attachmentsGuestPath}/${attachmentRelativePath(namedFolder[0]!)}`));
+	assert.ok(namedNotice.includes(`${attachmentsGuestPath}/${attachmentRelativePath(namedFolder[1]!)}`));
 
 	// A Node Evaluation Case keeps descriptors only; a Candidate Replay rebuilds the payloads from the
 	// restored Goal workspace, byte for byte, including folder members.

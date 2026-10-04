@@ -42,6 +42,7 @@ interface UpstreamOptions {
 	/** Refuse the first transcription with this status, as a server that cannot decode the upload would. */
 	rejectFirstWith?: { status: number; body: string };
 	transcriptionDelayMs?: number;
+	onTranscription?: () => Promise<void>;
 	onJobPoll?: () => void;
 }
 
@@ -79,6 +80,7 @@ async function startUpstream(options: UpstreamOptions = {}): Promise<Upstream> {
 				}
 				inFlight += 1;
 				peakInFlight = Math.max(peakInFlight, inFlight);
+				if (options.onTranscription) await options.onTranscription();
 				if (options.transcriptionDelayMs) {
 					await new Promise((resolve) => setTimeout(resolve, options.transcriptionDelayMs));
 				}
@@ -187,7 +189,7 @@ test("an endpoint advertising no extensions gets none of them", async () => {
 	}
 });
 
-test("a declared concurrency limit serialises requests and its absence does not", async () => {
+test("a declared concurrency limit serialises requests and its absence does not", { timeout: 15_000 }, async (context) => {
 	const serial = await startUpstream({ health: { capabilities: [], max_concurrency: 1 }, transcriptionDelayMs: 60 });
 	await configureManagedSpeech({ connection: "serial-stt", model: "asr-model", baseUrl: serial.baseUrl, apiKey: "serial-key" });
 	try {
@@ -197,12 +199,20 @@ test("a declared concurrency limit serialises requests and its absence does not"
 		await serial.close();
 	}
 
-	const parallel = await startUpstream({ health: { capabilities: [] }, transcriptionDelayMs: 60 });
+	const allArrived = Promise.withResolvers<void>();
+	let arrivals = 0;
+	context.signal.addEventListener("abort", () => allArrived.resolve(), { once: true });
+	if (context.signal.aborted) allArrived.resolve();
+	const parallel = await startUpstream({ health: { capabilities: [] }, onTranscription: () => {
+		if (++arrivals === 4) allArrived.resolve();
+		return allArrived.promise;
+	} });
 	await configureManagedSpeech({ connection: "parallel-stt", model: "asr-model", baseUrl: parallel.baseUrl, apiKey: "parallel-key" });
 	try {
 		await transcribeConcurrently();
 		assert.equal(parallel.peakInFlight, 4, "an endpoint that declares no limit is used in parallel");
 	} finally {
+		allArrived.resolve();
 		await parallel.close();
 	}
 });
