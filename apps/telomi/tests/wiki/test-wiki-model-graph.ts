@@ -7,7 +7,17 @@ import { buildWikiGraph } from "../../server/wiki/model/graph.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-wiki-graph-"));
 mkdirSync(join(root, "concepts"));
-writeFileSync(join(root, "concepts", "alpha.md"), page("Alpha", "beta.md"));
+writeFileSync(join(root, "concepts", "alpha.md"), page("Alpha", "beta.md") + `
+[Missing local page](missing.md)
+
+## Evidence
+
+[^1]: [Source README](https://example.test/source/README.md)
+[^2]: [HTTP source](http://example.test/README.md)
+[^3]: [Source with fragment](HTTPS://example.test/README.md#readme)
+[^4]: [Protocol-relative source](//example.test/README.md)
+[^5]: [Encoded source URI](https%3A%2F%2Fexample.test%2FREADME.md)
+`);
 writeFileSync(join(root, "concepts", "beta.md"), page("Beta", "alpha.md"));
 writeFileSync(join(root, "README.md"), "# Goal Wiki\n\nNavigation index only.\n");
 
@@ -25,6 +35,10 @@ assert.deepEqual(graph.nodes.map(({ primaryTopicRef, topicRefs }) => [primaryTop
 ]);
 assert.deepEqual(graph.edges[0]?.signals, { direct: 6, sourceOverlap: 0, adamicAdar: 0, typeAffinity: 0.8 });
 assert.equal(graph.edges[0]?.weight, 6.8);
+assert.deepEqual(graph.nodes.map(({ id, missingLinks }) => [id, missingLinks]), [
+	["concepts/alpha", ["missing.md"]],
+	["concepts/beta", []],
+], "Source URIs in compiler Evidence footnotes are not missing Wiki pages; unresolved local pages remain visible");
 console.log("wiki runtime graph: reciprocal links collapse to one undirected edge");
 
 function page(title: string, related: string): string {
