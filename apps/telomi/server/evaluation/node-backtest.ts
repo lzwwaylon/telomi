@@ -2195,12 +2195,15 @@ function wikiCompilationTraceRefs(runDirectory: string, execution: { id: string 
 }
 
 function wikiCompilationCaseTraceKind(ref: string): string | undefined {
+	// These Runtime-owned snapshots were already sanitized at capture. Preserve every
+	// business asset and hidden state, without relaxing the surrounding trace filter.
+	if (/^stages\/(?:[^/]+\/)*runtime\/logical-workspaces\//u.test(ref)) return "logical_workspace";
 	if (ref === "lifecycle.jsonl") return "runtime_trace";
 	if (ref.split("/").some(part => part.startsWith(".") || ["agent", "sdk", "skills", "node-evaluation", "credentials"].includes(part))) return undefined;
 	if (!/^(?:stages|sessions)\//u.test(ref)) return undefined;
 	if (ref.endsWith(".jsonl")) return "agent_trace";
 	if (/\/effective-system-prompt\.md$/u.test(ref)) return "effective_system_prompt";
-	if (/\/(?:tool-definitions|mounted-skills|model-metadata)\.json$/u.test(ref)) return "execution_metadata";
+	if (/\/(?:tool-definitions|mounted-skills|model-metadata|workspace-capture)\.json$/u.test(ref)) return "execution_metadata";
 	if (/\/(?:system|user)-prompt\.md$/u.test(ref)) return "agent_prompt";
 	if (/\/(?:input|work)\/.*\.(?:json|md)$/u.test(ref)) return "agent_file_contract";
 	if (/\/(?:input|result|accepted|accepted-result|submitted-result|agent-context|response|failure|receipts|failures|partial-result|checkpoint|plan)\.json$/u.test(ref)) return "runtime_result";

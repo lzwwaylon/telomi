@@ -41,10 +41,13 @@ import {
 } from "../../../extensions/telomi-srt/tool-operations.js";
 import { agentPythonEnvironment, agentPythonRoots } from "./agent-python.js";
 
+import type { LogicalWorkspaceSnapshot } from "./logical-workspace-snapshot.js";
+
 type AnyToolDefinition = ToolDefinition<any, any, any>;
 
 export interface SrtAgentSandbox {
 	backend: "srt";
+	logicalWorkspace: LogicalWorkspaceSnapshot;
 	tools: AgentTool[];
 	toolDefinitions: AnyToolDefinition[];
 	close(): Promise<void>;
@@ -234,6 +237,10 @@ export function createSrtAgentSandbox(options: SrtAgentSandboxOptions): SrtAgent
 	});
 	return {
 		backend: "srt",
+		logicalWorkspace: { guestCwd: spec.guestCwd, mounts: baseSpec.mounts,
+			excludedMounts: spec.mounts.filter(mount => !baseSpec.mounts.includes(mount)
+				&& !baseSpec.mounts.some(base => base.guestPath === mount.guestPath))
+				.map(({ guestPath, access }) => ({ guestPath, access, reason: "runtime-library" as const })) },
 		toolDefinitions,
 		tools: toolDefinitions.map(toAgentTool),
 		async close() {

@@ -1,6 +1,6 @@
 import type { SearchRequest } from './wiki-stage-search.js';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { Type } from "@sinclair/typebox";
 import { assertPrimeModelAnswered, createPrimeModelRegistry, createPrimeSettingsManager } from '../agent-runtime/prime-agent-paths.js';
 import { acceptAgentOutput } from '../agent-runtime/accept-agent-output.js';
@@ -9,6 +9,8 @@ import { writeJsonAtomic } from '../lib/fs.js';
 import { hashJson, sha256 } from '../lib/hash.js';
 import { toErrorMessage } from '../lib/values.js';
 import type { WikiStageInput, WikiStageResult } from './wiki-stage-contract.js';
+import { agentPythonRoots } from '../agent-runtime/agent-python.js';
+import { createRlmChildLogicalWorkspaceSnapshotter, snapshotLogicalWorkspace } from '../agent-runtime/logical-workspace-snapshot.js';
 import { createStageWorkspace } from './wiki-topic-skill.js';
 import { wikiStageOutputHash, wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
 
@@ -81,7 +83,23 @@ const observePythonMessages = () => {
  }
  writeJsonAtomic(join(runtime, "native-read-observations.json"), workspace.observations());
 };
+const logicalWorkspace = { guestCwd: cwd, mounts: [
+ { hostPath: cwd, guestPath: cwd, access: 'read-write' as const, shadowPaths: ['/.prime-kernel'] },
+ { hostPath: inputRoot, guestPath: inputRoot, access: 'read-only' as const },
+], stage: { kind: input.stage, key: input.key }, captureMoment: 'before-first-agent-turn' as const,
+ excludedMounts: [
+  ...[...new Set([...agentPythonRoots(process.env), dirname(required('TELOMI_SRT_KERNEL_RUNNER'))])]
+   .map(guestPath => ({ guestPath, access: 'read-only' as const, reason: 'runtime-library' as const })),
+  { guestPath: join(cwd, '.prime-kernel'), access: 'read-write' as const, reason: 'runtime-state' as const },
+ ] };
+snapshotLogicalWorkspace({ ...logicalWorkspace, sessionId: session.sessionId, sessionRole: 'root' }, join(runtime, 'logical-workspaces', 'root'));
+const snapshotChild = createRlmChildLogicalWorkspaceSnapshotter((id) => {
+ const child = session.getRlmChildSession(id);
+ if (!child) throw new Error('Wiki child Workspace capture requires its published native Session');
+ return { ...logicalWorkspace, sessionId: child.sessionId, sessionRole: 'child' };
+}, join(runtime, 'logical-workspaces'), 'child');
 const unsubscribe = session.subscribe((event: any) => {
+ snapshotChild(event);
  if (topic && event.type === "tool_execution_end" && event.toolName === "ipython" && !event.isError) {
   const visible = event.result.content.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n");
   workspace.observe(event.toolCallId, visible);
