@@ -935,7 +935,7 @@ export const enMessages = {
 	"media.unavailable": "{{label}} is not available yet",
 	"media.unknown": "Unknown",
 	"schedule.active": "Running",
-	"schedule.empty": "No research schedules yet. Ask the Main Agent to create one from a published report.",
+	"schedule.empty": "No research schedules yet. A report from completed full research is required as a baseline; reports generated in conversation are not supported yet. Ask the Main Agent to check for an eligible baseline.",
 	"schedule.enabled": "Enabled",
 	"schedule.loading": "Loading",
 	"schedule.plans": "Plans",

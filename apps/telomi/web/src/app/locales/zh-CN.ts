@@ -933,7 +933,7 @@ export const zhCNMessages = {
 	"media.unavailable": "{{label}} 暂未上线",
 	"media.unknown": "未知",
 	"schedule.active": "运行中",
-	"schedule.empty": "还没有定时调研。可让主 Agent 从一份已发布报告创建。",
+	"schedule.empty": "还没有定时调研。需要完整调研已完成并发布的报告作为基线；对话中生成的报告暂不支持。可让主 Agent 检查可用基线。",
 	"schedule.enabled": "启用",
 	"schedule.loading": "加载中",
 	"schedule.plans": "计划",
