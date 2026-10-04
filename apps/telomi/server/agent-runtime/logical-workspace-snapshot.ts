@@ -6,6 +6,11 @@ import type { SandboxMountSpec } from "../../../extensions/telomi-srt/sandbox-sp
 export interface LogicalWorkspaceSnapshot {
 	guestCwd: string;
 	mounts: readonly SandboxMountSpec[];
+	sessionId?: string;
+	sessionRole?: "root" | "child";
+	stage?: { kind: string; key: string };
+	captureMoment?: "before-first-agent-turn";
+	excludedMounts?: ReadonlyArray<{ guestPath: string; access: SandboxMountSpec["access"]; reason: "runtime-library" | "runtime-state" }>;
 }
 
 /** Materializes one Agent-visible filesystem view under stable guest paths. */
@@ -19,6 +24,8 @@ export function snapshotLogicalWorkspace(input: LogicalWorkspaceSnapshot, destin
 		schemaVersion: 1,
 		guestCwd: input.guestCwd,
 		mounts: input.mounts.map(({ guestPath, access }) => ({ guestPath, access })),
+		...(input.sessionId ? { sessionId: input.sessionId, role: input.sessionRole, stage: input.stage,
+			captureMoment: input.captureMoment, capturedAt: new Date().toISOString(), excludedMounts: input.excludedMounts ?? [] } : {}),
 	}, null, 2)}\n`, { mode: 0o600 });
 }
 

@@ -56,6 +56,9 @@ try {
  const saved = json(join(successful.workRoot, 'checkpoint.json'));
  const runtime = join(saved.attemptRoot, 'runtime');
  assert.equal(saved.status, 'succeeded');
+ const capture = json(join(runtime, 'workspace-capture.json'));
+ assert.deepEqual(capture, { schemaVersion: 1, sessionId: JSON.parse(readFileSync(listJsonl(outcome.sessionPaths[0]!)[0]!, 'utf8').split('\n')[0]!).id, role: 'root',
+  stage: { kind: input.stage, key: input.key }, applicability: 'not-applicable', reason: 'stateless-no-file-tools' });
  assert.equal(json(join(runtime, 'model-metadata.json')).executionMode, 'single-completion');
  assert.equal(json(join(runtime, 'result.json')).actualModel, PAGE_TOPIC_MODEL);
  assert.deepEqual(json(join(runtime, 'tool-definitions.json')), []);
