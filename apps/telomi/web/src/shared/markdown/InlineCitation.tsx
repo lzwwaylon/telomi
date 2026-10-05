@@ -34,22 +34,30 @@ const HoverCardCtx = React.createContext<HoverCardCtxValue>({
 	triggerRef: { current: null },
 });
 
-// 卡片 portal 到 body 后 Radix 只按视口避让,会伸出 Dialog 边界、压住目录。
-// 碰撞边界取两者交集:chip 最近的纵向滚动容器(Dialog 正文区、聊天列表)限制
-// 上下,标了 data-citation-boundary 的正文列限制左右,目录列不再被压住;
-// 可用高度/宽度变量也随之按该交集计算。
-function collisionBoundariesOf(element: HTMLElement | null): Element[] {
-	const boundaries: Element[] = [];
+// The content column constrains width, not height: a short report must still
+// leave room for its Source preview. The enclosing scroll area bounds height.
+function collisionOptionsOf(element: HTMLElement | null) {
 	const column = element?.closest("[data-citation-boundary]");
-	if (column) boundaries.push(column);
+	let scrollArea: HTMLElement | null = null;
 	for (let node = element?.parentElement; node; node = node.parentElement) {
 		const { overflowY } = getComputedStyle(node);
-		if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
-			boundaries.push(node);
+		if (overflowY === "auto" || overflowY === "scroll") {
+			scrollArea = node;
 			break;
 		}
 	}
-	return boundaries;
+	const bounds = scrollArea?.getBoundingClientRect();
+	const columnBounds = column?.getBoundingClientRect();
+	return {
+		style: { maxWidth: Math.max(0, (columnBounds?.width ?? bounds?.width ?? window.innerWidth) - 32) },
+		collisionBoundary: scrollArea ? [scrollArea] : [],
+		collisionPadding: {
+			top: 16,
+			bottom: 16,
+			left: 16 + Math.max(0, (columnBounds?.left ?? 0) - (bounds?.left ?? 0)),
+			right: 16 + Math.max(0, (bounds?.right ?? window.innerWidth) - (columnBounds?.right ?? window.innerWidth)),
+		},
+	};
 }
 
 export type InlineCitationCardProps = {
@@ -296,6 +304,7 @@ export type InlineCitationCardBodyProps = React.ComponentProps<typeof PopoverPri
 
 export const InlineCitationCardBody = ({
 	className,
+	style,
 	sideOffset = 6,
 	align = "start",
 	children,
@@ -303,8 +312,19 @@ export const InlineCitationCardBody = ({
 	...props
 }: InlineCitationCardBodyProps) => {
 	const ctx = React.useContext(HoverCardCtx);
-	// 打开时按 chip 当前位置取边界;关闭态不渲染内容,边界无意义。
-	const collisionBoundary = ctx.open ? collisionBoundariesOf(ctx.triggerRef.current) : [];
+	const [, updateBounds] = React.useReducer((value: number) => value + 1, 0);
+	React.useEffect(() => {
+		if (!ctx.open) return;
+		const observer = new ResizeObserver(updateBounds);
+		const column = ctx.triggerRef.current?.closest("[data-citation-boundary]");
+		if (column) observer.observe(column);
+		window.addEventListener("resize", updateBounds);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", updateBounds);
+		};
+	}, [ctx.open, ctx.triggerRef]);
+	const collisionOptions = ctx.open ? collisionOptionsOf(ctx.triggerRef.current) : { style: {} };
 	return (
 		<PopoverPrimitive.Portal>
 			{/* 卡片 portal 到 body,落在 Dialog 滚动锁之外,滚轮会被 Dialog 拦截。
@@ -313,8 +333,7 @@ export const InlineCitationCardBody = ({
 				<PopoverPrimitive.Content
 					sideOffset={sideOffset}
 					align={align}
-					collisionPadding={16}
-					collisionBoundary={collisionBoundary}
+					{...collisionOptions}
 					onOpenAutoFocus={(e) => e.preventDefault()}
 					onPointerEnter={ctx.requestOpen}
 					onPointerLeave={ctx.requestClose}
@@ -327,6 +346,7 @@ export const InlineCitationCardBody = ({
 						"rounded-[8px] border border-[var(--line-soft)] bg-[var(--paper)] text-[var(--ink)] shadow-md",
 						className,
 					)}
+					style={{ ...collisionOptions.style, ...style }}
 					{...props}
 				>
 					{children}
