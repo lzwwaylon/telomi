@@ -43,23 +43,23 @@ For every Cue Note, include `discovery` with exactly one `finding` string. Leave
 {% if topic_plan_context and discovery_enabled %}
 Write JSON with exactly:
 
-{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","topic_refs":["T1"],"discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"...","note":"...","topic_refs":["T1"],"discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
 
 `topic_refs` must use exact short Topic references shown in the Active Goal Topic Plan and may contain multiple references or be empty. `discovery` is required on every Cue Note, but its `finding` may be empty. A non-empty finding creates only an Inbox candidate, never a Topic.
 {% elif topic_plan_context %}
 Write JSON with exactly:
 
-{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","topic_refs":["T1"],"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"...","note":"...","topic_refs":["T1"],"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
 
 `topic_refs` must use exact short Topic references shown in the Active Goal Topic Plan and may contain multiple references or be empty.
 {% elif discovery_enabled %}
 Write JSON with exactly:
 
-{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"...","note":"...","discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
 {% else %}
 Write JSON with exactly:
 
-{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"short topic + keywords","note":"1-3 sentences","evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"...","note":"...","evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
 {% endif %}
 
 Use no extra fields. Sections may be empty only when this Source contains nothing relevant to the supplied question. Every section needs at least one cue note. Evidence paths must be declared by the Source. Runtime adds the schema version, Source identity, and content hashes.
