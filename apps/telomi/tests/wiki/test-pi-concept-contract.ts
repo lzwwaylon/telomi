@@ -74,6 +74,27 @@ try {
  assert.throws(writer.check, /evidence not returned/);
  writer.read('P2'); assert.throws(writer.check, /Existing target citations/);
 
+ const missingWriter = setup('concepts', { requiredPages: ['object:a'],
+  conceptTask: { question: 'Mechanism?', scope: 'Condition', targetRef: 'old:c' },
+  pages: base.pages.map(row => row.ref === 'old:c'
+   ? { ...row, page: { ...row.page, body: `${row.page.body}\nAnother supported condition [[${b}]].` } } : row),
+ });
+ missingWriter.read('P1'); missingWriter.read('P3');
+ missingWriter.save({ pages: [{ file: 'pages/C1.md' }], considered_pages: [{ page_ref: 'P1', reason: 'Supported mechanism' }] });
+ writeFileSync(join(missingWriter.work, 'pages/C1.md'), prose('Updated explanation', '[[N1]]'));
+ assert.throws(missingWriter.check, error => {
+  const message = String(error);
+  assert.match(message, /Existing target citations.*P3.*missing: \[N2\]/);
+  assert.match(message, /input\/pages\/P3\.md/);
+  assert(!message.includes(a) && !message.includes(b), 'Repair feedback uses local aliases');
+  return true;
+ });
+ writeFileSync(join(missingWriter.work, 'pages/C1.md'), prose('Updated explanation', '[[N1]] [[N2]]'));
+ const repaired = missingWriter.check();
+ if (repaired.kind === 'pages') assert.equal(repaired.value.pages[0]!.id, 'concept:old');
+ missingWriter.save({ pages: [], considered_pages: [{ page_ref: 'P1', reason: 'Retain the supported old explanation unchanged' }] });
+ assert.equal(missingWriter.check().kind, 'pages');
+
  const auditPages = [base.pages[2]!, { ...base.pages[2]!, ref: 'candidate:d', previous: false, page: { ...base.pages[2]!.page, id: 'concept:new', title: 'New explanation' } }, ...base.pages.slice(0, 2)];
  const audit = setup('audit-concepts', { pages: auditPages, requiredPages: [] });
  const reviewed_pages = [{ page_ref: 'P1', reason: 'Historical boundary' }, { page_ref: 'P2', reason: 'Same explanatory question' }];

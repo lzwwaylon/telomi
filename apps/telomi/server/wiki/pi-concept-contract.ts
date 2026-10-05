@@ -171,9 +171,13 @@ export function validatePiConceptFiles(input: WikiStageInput, inputRoot: string,
   if (input.stage === 'concepts') {
    assert(result.value.pages.length <= 1, 'One candidate writer produces zero or one concept');
    if (input.conceptTask?.targetRef) {
-    const old = input.pages.find(row => row.ref === input.conceptTask!.targetRef)!.page;
+    const [target, targetRow] = [...pages].find(([, row]) => row.ref === input.conceptTask!.targetRef)!;
+    const old = targetRow.page;
     for (const page of result.value.pages) {
-     assert(wikiPageEntryIds(old.body).every(id => wikiPageEntryIds(page.body).includes(id)), 'Existing target citations must survive');
+     const present = new Set(wikiPageEntryIds(page.body));
+     const missing = new Set(wikiPageEntryIds(old.body).filter(id => !present.has(id)));
+     const aliases = input.entries.flatMap((entry, index) => missing.has(entry.id) ? [`N${index + 1}`] : []);
+     assert(missing.size === 0, `Existing target citations must survive in ${target}; missing: [${aliases.join(', ')}]. Read /work/input/pages/${target}.md and restore their supported prose and original citations, or return pages: [] to retain the old target unchanged.`);
      page.id = old.id;
     }
    }

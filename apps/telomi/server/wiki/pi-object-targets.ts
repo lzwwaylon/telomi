@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { isRecord } from '../lib/values.js';
+import { isRecord, toErrorMessage } from '../lib/values.js';
 import { readWikiStageOutput } from './wiki-stage.js';
 import { wikiPageEntryIds, wikiPageSections } from './wiki-page-contract.js';
 import type { WikiStageInput, WikiStageResult } from './wiki-stage-contract.js';
@@ -15,8 +15,8 @@ export function targetWriterContext(input: WikiStageInput): string {
  const target = input.requiredPages[0];
  const index = target ? input.pages.findIndex(row => row.ref === target && row.previous && row.role === 'member') : -1;
  if (target && index < 0) throw new Error('Object update target must be an assigned existing page');
- return target ? `Canonical update target: P${index + 1}. Preserve this existing page's identity. Write facts.json before the article.`
-  : 'Target: a new independent object. Write facts.json before the article.';
+ return `${target ? `Canonical update target: P${index + 1}. Preserve this existing page's identity.` : 'Target: a new independent object.'}
+Write the facts ledger to /work/facts.json before the article. Write article Markdown under /work/pages and its manifest to /work/result.json. The facts ledger is outside the article directory.`;
 }
 
 export function validateTargetWriter(input: WikiStageInput, work: string,
@@ -38,7 +38,8 @@ export function validateTargetWriter(input: WikiStageInput, work: string,
  const aliases = [...`${page.title}\n${page.description}\n${page.body}`.replace(/\[\[entry:[a-f0-9]{24}\]\]/gu, '').matchAll(/\b[PSNI]\d+\b/gu)].map(match => match[0]);
  // ponytail: allow source-backed technical terms shaped like aliases; semantic review must check their context.
  const leaked = aliases.filter(alias => !members.some(row => `${row.page.title}\n${row.page.body}`.includes(alias)));
- if (leaked.length) throw new Error(`Knowledge prose contains temporary task references [${[...new Set(leaked)].join(', ')}]; use proper object names and inline Cue citations`);
+ const violations: string[] = [];
+ if (leaked.length) violations.push(`Knowledge prose contains temporary task references [${[...new Set(leaked)].join(', ')}]; use proper object names and inline Cue citations`);
  const headings = new Set(wikiPageSections([page]).map(section => section.heading));
  const sections = wikiPageSections(input.pages.map(row => row.page));
  const sourceSections = sections.flatMap((section, index) => {
@@ -47,11 +48,17 @@ export function validateTargetWriter(input: WikiStageInput, work: string,
   const body = owner.page.body.split('\n').slice(section.startLine - 1, section.endLine).join('\n');
   return [{ ref: `S${index + 1}`, owner, section, ids: wikiPageEntryIds(body) }];
  });
- const ledger = fields(JSON.parse(readWikiStageOutput(join(work, 'facts.json')).toString('utf8')), ['facts'], 'facts.json');
+ let ledger: Record<string, unknown>;
+ try { ledger = fields(JSON.parse(readWikiStageOutput(join(work, 'facts.json')).toString('utf8')), ['facts'], 'facts.json'); }
+ catch (error) {
+  const reason = isRecord(error) && error.code === 'ENOENT'
+   ? 'required facts ledger is missing. Move your existing ledger to this exact path if you wrote it elsewhere, preserving all inventory entries. /work/pages contains article Markdown.'
+   : toErrorMessage(error);
+  throw new Error([`/work/facts.json: ${reason}`, ...violations].join('\n'));
+ }
  if (!Array.isArray(ledger.facts)) throw new Error('facts.json.facts: expected an array');
  const covered = new Map<string, Set<string>>();
  const facts: Extract<WikiStageResult, { kind: 'object-target-pages' }>['facts'] = [];
- const violations: string[] = [];
  ledger.facts.forEach((item, index) => {
   try {
   const path = `facts.json.facts[${index}]`;
