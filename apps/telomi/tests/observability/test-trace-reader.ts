@@ -224,7 +224,7 @@ for (const [path, content] of Object.entries({
 	"artifacts/report-flow/knowledge-url-registry.json": "{}",
 	"artifacts/report-flow/writer/manifest.json": "{}",
 	"artifacts/report-flow/writer/sections/section-001.md": "Writer chapter",
-	"artifacts/cornell-notes/snapshot-seed.json": "{}",
+	"artifacts/notes/snapshot-seed.json": "{}",
 	"artifacts/accepted-chapters/section-001.md": "# Chapter",
 	"artifacts/wiki-compilations/wiki-test/compilation.json": "{}",
 	"artifacts/wiki-compilations/wiki-test/knowledge/topics/final.md": "# Final",
@@ -330,7 +330,7 @@ writeFileSync(join(wikiUpdateDir, "wiki-update-job.json"), `${JSON.stringify({
 	topic_plan: { schema_version: 1, goal_id: goalId, revision: "fixture", status: "active", topics: [{
 		id: "trace", title: "Trace", intent: "Test Trace", questions: ["What changed?"], include: ["Trace"], exclude: ["Noise"],
 	}] },
-	cornell_notes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "a".repeat(64), byte_length: 1 },
+	notes: { relative_path: "artifacts/input/notes.json", sha256: "a".repeat(64), byte_length: 1 },
 	attempts: 1,
 	started_at: "2026-08-07T07:04:00.000Z",
 	updated_at: "2026-08-07T07:06:00.000Z",
@@ -445,7 +445,7 @@ for (const ref of [
 	"wiki/artifacts/report-flow/knowledge-url-registry.json",
 	"wiki/artifacts/report-flow/writer/manifest.json",
 	"wiki/artifacts/report-flow/writer/sections/section-001.md",
-	"wiki/artifacts/cornell-notes/snapshot-seed.json",
+	"wiki/artifacts/notes/snapshot-seed.json",
 	"wiki/artifacts/accepted-chapters/section-001.md",
 	"wiki/artifacts/wiki-compilations/wiki-test/compilation.json",
 	"wiki/artifacts/wiki-compilations/wiki-test/knowledge/topics/final.md",
@@ -591,7 +591,7 @@ async function testLiveResearchTrace(): Promise<void> {
 		"wiki/artifacts/report-flow/task.md",
 		"wiki/artifacts/report-flow/outline.json",
 		"wiki/artifacts/report-flow/executable-plan.json",
-		"wiki/artifacts/cornell-notes/snapshot-seed.json",
+		"wiki/artifacts/notes/snapshot-seed.json",
 	]) assert.ok(fileRefs.has(ref), `Live Trace is missing ${ref}`);
 	assert.ok([...fileRefs].some((ref) => ref.startsWith("wiki/artifacts/accepted-chapters/") && ref.endsWith(".md")));
 	const standardizedRefs = new Set<string>();

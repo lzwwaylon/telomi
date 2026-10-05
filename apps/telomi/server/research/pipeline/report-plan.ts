@@ -16,7 +16,7 @@ const RuntimeId = Type.String({
 const ExecutableReportClaimSchema = Type.Object({
 	claim_id: StableId,
 	content_intent: NonEmptyString,
-	cornell_notes_refs: Type.Array(RuntimeId, { uniqueItems: true }),
+	notes_refs: Type.Array(RuntimeId, { uniqueItems: true }),
 }, { additionalProperties: false });
 
 const ExecutableReportSectionSchema = Type.Object({

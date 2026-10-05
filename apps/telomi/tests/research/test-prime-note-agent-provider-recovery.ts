@@ -56,7 +56,7 @@ export async function createAgentSession(options) {
 				}
 			}
 			if (process.env.FAKE_VALID_OUTPUT === "true") {
-				writeFileSync(join(options.cwd, "cornell-note.json"), JSON.stringify({ sections: [{
+				writeFileSync(join(options.cwd, "note.json"), JSON.stringify({ sections: [{
 					section_title: "Recovered section", summary: "The valid artifact survived the transport error.",
 					cue_notes: [{ cue: "Recovery", note: "Evidence remains valid.", evidence: [
 						{ source_path: "paper.md", start_line: 1, end_line: 1 },
@@ -125,8 +125,8 @@ export async function createAgentSession(options) {
       child.send({
         type: "stage_output_validation",
         submission,
-        accepted: validOutput && existsSync(join(agentRoot, "cornell-note.json")),
-        error: "cornell-note.json is missing",
+        accepted: validOutput && existsSync(join(agentRoot, "note.json")),
+        error: "note.json is missing",
       });
     });
     child.once("error", reject);
@@ -150,12 +150,12 @@ export async function createAgentSession(options) {
   assert.notEqual(recoveredThenInvalid.status, 0);
   assert.equal(recoveredThenInvalid.submissions, 3);
   assert.equal(recoveredThenInvalid.failureClass, "validation");
-  assert.equal(recoveredThenInvalid.failureError, "cornell-note.json is missing");
+  assert.equal(recoveredThenInvalid.failureError, "note.json is missing");
   const invalid = await runWorker(false);
   assert.notEqual(invalid.status, 0);
   assert.equal(invalid.submissions, 3);
   assert.equal(invalid.failureClass, "validation");
-  assert.equal(invalid.failureError, "cornell-note.json is missing");
+  assert.equal(invalid.failureError, "note.json is missing");
   console.log("Note Agent provider recovery test passed");
 } finally {
   rmSync(root, { recursive: true, force: true });

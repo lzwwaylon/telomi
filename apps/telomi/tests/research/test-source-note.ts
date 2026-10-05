@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { sha256 } from "../../server/lib/hash.js";
 import {
 	RuntimeNoteAgentProcessor,
-	validateCornellNote,
+	validateSourceNote,
 } from "../../server/research/note-agent.js";
 import type {
 	AgentStageRequest,
@@ -16,14 +16,14 @@ import type {
 import { AgentStageExecutionError } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { materializeAgentSourceView } from "../../server/research/pipeline/agent-source-view.js";
-import { validateCornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import { validateSourceNotesSnapshot } from "../../server/notes/contracts.js";
 import type { GoalTopicPlan } from "../../server/goals/topic-plan/index.js";
 
 const root = mkdtempSync(join(tmpdir(), "note-agent-contract-"));
 try {
 	const path = join(root, "paper.md");
 	writeFileSync(path, "alpha\nbeta\ngamma\n");
-	const note = validateCornellNote({
+	const note = validateSourceNote({
 		sections: [{
 			section_title: "Architecture",
 			summary: "The Source describes the architecture.",
@@ -36,7 +36,7 @@ try {
 	}, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }]);
 	assert.equal(note.sections[0]!.cue_notes[0]!.evidence[0]!.content_sha256, sha256("beta\n"));
 	assert.equal(note.sections[0]!.cue_notes[0]!.evidence[0]!.source_path, "paper.md");
-	const caseNormalized = validateCornellNote({ sections: [{
+	const caseNormalized = validateSourceNote({ sections: [{
 		section_title: "Canonical path",
 		summary: "The Source path keeps its declared casing.",
 		cue_notes: [{ cue: "Path casing", note: "The citation resolves canonically.", evidence: [
@@ -46,7 +46,7 @@ try {
 	assert.equal(caseNormalized.sections[0]!.cue_notes[0]!.evidence[0]!.source_path, "paper.md");
 	const topicPlan: GoalTopicPlan = {
 		schema_version: 1,
-		goal_id: "goal-cornell",
+		goal_id: "goal-notes",
 		revision: "topic-plan-v1",
 		status: "active",
 		topics: [
@@ -54,7 +54,7 @@ try {
 			{ id: "historical", title: "Historical", intent: "Historical Topic", questions: [], include: [], exclude: [] },
 		],
 	};
-	const topicNote = validateCornellNote({ sections: [{
+	const topicNote = validateSourceNote({ sections: [{
 		section_title: "Language coverage",
 		summary: "The Source covers multilingual speech.",
 		cue_notes: [{
@@ -65,27 +65,27 @@ try {
 		}],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan);
 	assert.deepEqual(topicNote.sections[0]!.cue_notes[0]!.topic_refs, ["multilingual"]);
-	assert.throws(() => validateCornellNote({ sections: [{
+	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Duplicate",
 		summary: "Duplicate Topic references are invalid.",
 		cue_notes: [{ cue: "Duplicate", note: "Invalid.", topic_refs: ["T1", "T1"], evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan),
 	/sections\[0\]\.cue_notes\[0\]\.topic_refs contains duplicate reference 'T1'/u);
-	assert.throws(() => validateCornellNote({ sections: [{
+	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Unknown",
 		summary: "Invalid unknown Topic.",
 		cue_notes: [{ cue: "Unknown", note: "Invalid.", topic_refs: ["T9"], evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan),
 	/sections\[0\]\.cue_notes\[0\]\.topic_refs\[0\].*T9.*allowed references.*T1.*Multilingual/u);
-	assert.throws(() => validateCornellNote({ sections: "invalid" }, "source-group:test", []),
+	assert.throws(() => validateSourceNote({ sections: "invalid" }, "source-group:test", []),
 		/Cornell Note\.sections must be an array/u);
-	assert.throws(() => validateCornellNote({ sections: [{
+	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Evidence fields",
 		summary: "Evidence fields are invalid.",
 		cue_notes: [{ cue: "Evidence", note: "Invalid.", topic_refs: [], evidence: [{ source_path: "paper.md", start_line: 2, extra: true }] }],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan),
 	/sections\[0\]\.cue_notes\[0\]\.evidence\[0\].*missing: end_line.*unexpected: extra/u);
-	const discoveryNote = validateCornellNote({ sections: [{
+	const discoveryNote = validateSourceNote({ sections: [{
 		section_title: "Emerging",
 		summary: "A new direction is not covered.",
 		cue_notes: [{
@@ -97,29 +97,29 @@ try {
 		}],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan, true);
 	assert.equal(discoveryNote.sections[0]!.cue_notes[0]!.discovery?.finding, "Inference adaptation can materially extend the Goal.");
-	assert.throws(() => validateCornellNote({ sections: [{
+	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Missing Discovery",
 		summary: "Discovery is required by the enabled contract.",
 		cue_notes: [{ cue: "Missing", note: "Invalid.", topic_refs: [], evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan, true), /must contain exactly/u);
-	assert.throws(() => validateCornellNote({ sections: [{
+	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Unexpected Discovery",
 		summary: "Discovery is disabled.",
 		cue_notes: [{ cue: "Unexpected", note: "Invalid.", topic_refs: [], discovery: { finding: "Unexpected" }, evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan, false), /must contain exactly/u);
-	assert.throws(() => validateCornellNote({
+	assert.throws(() => validateSourceNote({
 		relevance_level: "high",
 		rationale: "legacy",
 		matched_questions: [],
-		cornell_notes: [],
+		notes: [],
 		unresolved_questions: [],
 	}, "source-group:test", []), /exactly sections/u);
 
-	const snapshot = validateCornellNotesSnapshot({
+	const snapshot = validateSourceNotesSnapshot({
 		schema_version: 1,
 		snapshot_id: "snapshot:test",
 		run_id: "run:test",
-		pipeline: { id: "research-cornell-note", version: "4", sha256: sha256("pipeline") },
+		pipeline: { id: "research-note", version: "4", sha256: sha256("pipeline") },
 		source_bundle_refs: ["artifacts/source-bundles/test"],
 		notes: [{
 			note,
@@ -194,13 +194,15 @@ try {
 	assert.equal(existsSync(join(convertedView, "parser-manifest.json")), false);
 	assert.equal(existsSync(join(convertedView, "record.json")), false);
 	assert.equal(existsSync(join(convertedSource, "paper.pdf")), true, "the immutable Source keeps its PDF");
+	let declaredOutput: { kind: string; entryRelativePath?: string; publishRelativePath: string } | undefined;
 	const stageRunner: AgentStageRunner = {
 		async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
+			declaredOutput = request.output;
 			assert.equal(request.evaluation, undefined, "default Cornell processing must not request Case Capture");
 			const sourceMount = request.readonlyMounts.find((mount) => mount.guestPath === "/source");
 			assert.ok(sourceMount);
 			assert.deepEqual(filesBelow(sourceMount.hostPath), ["assets/figure.png", "paper.md", "source-manifest.json"]);
-			const entryPath = join(request.workDirectory, "cornell-note.json");
+			const entryPath = join(request.workDirectory, "note.json");
 			writeFileSync(entryPath, `${JSON.stringify({
 				sections: [{
 					section_title: "Converted paper",
@@ -222,12 +224,12 @@ try {
 				artifact: request.artifactStore.publishFile(entryPath, request.output.publishRelativePath),
 				submissionCount: 1,
 				validationErrors: [],
-				session: { id: "cornell-source-view", mode: "fresh" },
+				session: { id: "note-source-view", mode: "fresh" },
 				turns: 1,
 				toolCalls: 1,
 				toolCounts: { ipython: 1 },
 				usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, calls: 1 },
-				sessionPath: join(request.controlDirectory, "cornell-source-view.jsonl"),
+				sessionPath: join(request.controlDirectory, "note-source-view.jsonl"),
 			};
 		},
 	};
@@ -238,7 +240,7 @@ try {
 		noteAgentModel: "openai-codex/test", noteAgentThinkingLevel: "medium",
 	}, stageRunner);
 	const produced = await processor.process({
-		runId: "run:cornell-source-view",
+		runId: "run:note-source-view",
 		sequence: 1,
 		question: "What does the converted paper contain?",
 		goal: { title: "Understand converted papers", description: "" },
@@ -259,9 +261,11 @@ try {
 		controlDir: join(root, "control"),
 		artifactStore: new RunArtifactStore(runRoot),
 	});
+	assert.equal(declaredOutput?.kind, "note", "the current Note Agent publishes the canonical Note output contract");
+	assert.equal(declaredOutput?.entryRelativePath, "note.json", "the Agent and Runtime share one current output filename");
 	assert.equal(produced.notes[0]?.note.sections[0]?.cue_notes[0]?.evidence[0]?.source_path, "paper.md");
 	assert.equal(produced.notes[0]?.artifactRef,
-		`artifacts/cornell-notes/sequence-1/source-converted-paper-${sha256("converted-paper").slice(0, 12)}.json`);
+		`artifacts/notes/sequence-1/source-converted-paper-${sha256("converted-paper").slice(0, 12)}.json`);
 	const attemptedSources: string[] = [];
 	const isolatingRunner: AgentStageRunner = {
 		async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
@@ -279,7 +283,7 @@ try {
 		documentConcurrency: 2,
 		noteAgentModel: "openai-codex/test", noteAgentThinkingLevel: "medium",
 	}, isolatingRunner).process({
-		runId: "run:cornell-isolation",
+		runId: "run:note-isolation",
 		sequence: 2,
 		question: "Continue after one Source fails.",
 		goal: { title: "Continue Cornell processing", description: "" },
@@ -312,7 +316,7 @@ try {
 			throw new Error("artifact store unavailable");
 		},
 	}).process({
-		runId: "run:cornell-runtime-failure",
+		runId: "run:note-runtime-failure",
 		sequence: 3,
 		question: "Do not hide Runtime failures.",
 		goal: { title: "Validate Runtime failures", description: "" },
@@ -355,7 +359,7 @@ try {
 		() => materializeAgentSourceView(unsafeSource, join(root, "unsafe-view")),
 		/asset escapes its Source/u,
 	);
-	console.log("Cornell Note contract test passed");
+	console.log("Source Note contract test passed");
 } finally {
 	rmSync(root, { recursive: true, force: true });
 }

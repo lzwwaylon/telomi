@@ -104,7 +104,7 @@ async function executeRunPrimeScheduleReviewer(input: ScheduleReviewerInput): Pr
 			status: run.status,
 			discoveredSources: run.discoveredSources,
 			incrementalSources: run.incrementalSources,
-			cornellNotes: run.cornellNotes,
+			sourceNotes: run.sourceNotes,
 			...(run.error ? { error: run.error } : {}),
 		})));
 	writeJsonAtomic(join(inputsRoot, "previous-review.json"), input.previousReview ?? null);

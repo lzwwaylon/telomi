@@ -564,7 +564,7 @@ function researchTrace(
 ): ResearchTraceSummary {
 	const artifactPaths = [
 		...state.source_bundles,
-		...state.cornell_note_snapshots,
+		...state.note_snapshots,
 		...state.writer_outputs.map((checkpoint) => checkpoint.output),
 		...state.accepted_chapters.map((chapter) => chapter.chapter),
 		...(state.canonical_report ? [state.canonical_report] : []),
@@ -637,7 +637,7 @@ function artifactPathsForNode(nodeId: string, paths: string[]): string[] {
 	}
 	const hints: Record<string, string[]> = {
 		search_batch: ["source-bundles", "search-executions"],
-		cornell_notes: ["note-agent"],
+		notes: ["note-agent"],
 		citation_compiler: ["report/final.md"],
 		complete: ["report/final.md"],
 	};
@@ -677,7 +677,7 @@ function reportsForTraceNode(nodeId: string, reports: RuntimeStageReport[]): Run
 	const [node, rawSequence] = nodeId.split(":");
 	const sequence = rawSequence ? Number.parseInt(rawSequence, 10) : undefined;
 	if (node === "search_batch") return reports.filter((report) => report.stage_id.startsWith("prime-search-batch-"));
-	if (node === "cornell_notes") return reports.filter((report) => report.stage_id.startsWith("note-agent-"));
+	if (node === "notes") return reports.filter((report) => report.stage_id.startsWith("note-agent-"));
 	if (node === "report_writer") {
 		if (!sequence) return [];
 		return sequence === 1

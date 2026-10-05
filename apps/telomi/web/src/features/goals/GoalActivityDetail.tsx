@@ -460,7 +460,7 @@ function ActivityWorkerPool({
 							<span>
 								<b>{workerTitle}</b>
 								<small>{activityText(worker.agent.summary) || activityText(worker.summary)}</small>
-								{/* Each card carries its own Agent Activity timing: one quiet Cornell Note in a
+								{/* Each card carries its own Agent Activity timing: one quiet Note Agent in a
 								    pool says so on its own card, whatever its siblings are doing. */}
 								<RunningTimes item={worker.agent} now={now} live={live} />
 							</span>

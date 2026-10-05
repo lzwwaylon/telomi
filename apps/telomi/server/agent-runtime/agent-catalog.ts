@@ -66,7 +66,7 @@ export function describeEvaluationAgent(id: string, applicationDir = APPLICATION
 		...(registration ? { impactPaths: [...new Set([...(sourcePath ? [`${sourcePath}/`] : []), ...(registration.impactPaths ?? []),
 			...(registration.domain === "research" ? ["apps/telomi/server/research/"] : []),
 			"apps/telomi/server/agent-runtime/", "apps/telomi/server/evaluation/", "apps/telomi/server/providers/", "apps/telomi/services/research-source-service/",
-			"apps/telomi/server/cornell/", "apps/telomi/server/citations/", "apps/telomi/server/embedding/",
+			"apps/telomi/server/notes/", "apps/telomi/server/citations/", "apps/telomi/server/embedding/",
 			"apps/telomi/server/media/product-"])] } : {}) };
 }
 

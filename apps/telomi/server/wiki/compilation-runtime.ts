@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { isThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { freezeModelDefinitions, pinTaskModelSelection } from "../agent-runtime/model-policy.js";
-import type { CornellNotesSnapshot } from "../cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../notes/contracts.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { isRecord } from "../lib/values.js";
 
@@ -41,7 +41,7 @@ export function sessionTraceRef(
 	return traceRef;
 }
 
-export function projectWikiEvidence(evidence: CornellNotesSnapshot): CornellNotesSnapshot {
+export function projectWikiEvidence(evidence: SourceNotesSnapshot): SourceNotesSnapshot {
 	return {
 		...evidence,
 		notes: evidence.notes.map((record) => ({

@@ -1,6 +1,6 @@
 export * from "./citation-compiler.js";
 export * from "./orchestrator.js";
-export * from "./cornell-notes.js";
+export * from "./source-notes.js";
 export * from "./evidence-handles.js";
 export * from "./organized-sources.js";
 export * from "./prime-note-agent.js";

@@ -142,7 +142,7 @@ const startJob = (wikiUpdateId: string, attempts = 1, compiler?: "wiki-compilati
 			goal: "Wiki 更新",
 			goalContext: { title: "Goal title", description: "Goal description" },
 			topicPlan,
-			cornellNotes: { relative_path: "artifacts/cornell-notes/evidence.json", sha256: "a".repeat(64), byte_length: 12 },
+			sourceNotes: { relative_path: "artifacts/notes/evidence.json", sha256: "a".repeat(64), byte_length: 12 },
 		});
 	}
 	return { controlDirectory, jobs };
@@ -244,7 +244,7 @@ const step = (id: string, activity: AgentActivity): ActivityStep => ({
 	agentActivities: [activity],
 });
 const groups = groupActivitySteps([
-	step("note:a", agent("cornell:a", "note_agent")),
+	step("note:a", agent("note:a", "note_agent")),
 	step("wiki-objects:1", agent("wiki:1", "wiki_compilation")),
 ]);
 const pools = groups.flatMap((group) => group.entries.flatMap((entry) => entry.kind === "worker-pool" ? [entry] : []));

@@ -74,7 +74,7 @@ export const WikiUpdateJobSchema = Type.Object({
 		language: Type.Optional(Type.Union([Type.Literal("zh-CN"), Type.Literal("en")])),
 	}, { additionalProperties: false }),
 	topic_plan: GoalTopicPlanSchema,
-	cornell_notes: Type.Object({
+	notes: Type.Object({
 		relative_path: NonEmptyString,
 		sha256: Type.String({ pattern: "^[a-f0-9]{64}$" }),
 		byte_length: Type.Integer({ minimum: 0 }),
@@ -171,7 +171,7 @@ export class WikiUpdateJobStore {
 		goal: string;
 		goalContext: WikiGoalContext;
 		topicPlan: WikiUpdateJob["topic_plan"];
-		cornellNotes: WikiUpdateJob["cornell_notes"];
+		sourceNotes: WikiUpdateJob["notes"];
 		wikiUpdateId?: string;
 		sourceRunId?: string;
 		cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
@@ -203,7 +203,7 @@ export class WikiUpdateJobStore {
 			goal: input.goal,
 			goal_context: input.goalContext,
 			topic_plan: input.topicPlan,
-			cornell_notes: input.cornellNotes,
+			notes: input.sourceNotes,
 			attempts: (previous?.attempts ?? 0) + 1,
 			started_at: previous?.started_at ?? now,
 			updated_at: now,

@@ -61,7 +61,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 	) {}
 
 	async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
-		if (request.role !== "note_agent" || request.output.kind !== "cornell_note") {
+		if (request.role !== "note_agent" || request.output.kind !== "note") {
 			return this.delegate.runStage(request);
 		}
 		return this.runPrimeStage(request);
@@ -70,8 +70,8 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 	private async runPrimeStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
 		request.signal.throwIfAborted();
 		if (request.session.policy !== "fresh") throw new Error("Note Agent requires a fresh Session");
-		if (request.output.entryRelativePath !== "cornell-note.json") {
-			throw new Error("Note Agent requires cornell-note.json");
+		if (request.output.entryRelativePath !== "note.json") {
+			throw new Error("Note Agent requires note.json");
 		}
 		const source = request.readonlyMounts.find((mount) => mount.guestPath === "/source");
 		if (!source) throw new Error("Note Agent requires the bounded /source mount");
@@ -210,10 +210,10 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 						validationQueue = validationQueue.then(async () => {
 							submissionCount += 1;
 							try {
-								const entryPath = join(stageRoot, "cornell-note.json");
-								const candidatePath = join(agentRoot, "cornell-note.json");
+								const entryPath = join(stageRoot, "note.json");
+								const candidatePath = join(agentRoot, "note.json");
 								if (!existsSync(candidatePath)) {
-									throw new Error("cornell-note.json is missing; create the complete fixed output file");
+									throw new Error("note.json is missing; create the complete fixed output file");
 								}
 								copyFileSync(candidatePath, entryPath);
 								finalized = await finalizeStageOutput({

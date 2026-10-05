@@ -222,7 +222,7 @@ export class ResearchScheduleScheduler {
 					: {}),
 				discoveredSources: processed.discoveredSources,
 				incrementalSources: processed.sources.length,
-				cornellNotes: processed.cornellNotes,
+				sourceNotes: processed.sourceNotes,
 				sources: processed.sources,
 				sourceGaps: processed.unprocessedSources,
 			});

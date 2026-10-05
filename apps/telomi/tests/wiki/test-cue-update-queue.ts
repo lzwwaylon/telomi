@@ -74,7 +74,7 @@ async function testConfirmedBatchAndNextBatch() {
 	const snapshots: unknown[] = [];
 	const execution = drainCueWikiUpdates({ ...input, dependencies: dependencies(async request => {
 		calls++;
-		snapshots.push(JSON.parse(readFileSync(new RunArtifactStore(request.runDirectory).openFile(request.cornellNotesSnapshot).absolutePath, "utf-8")));
+		snapshots.push(JSON.parse(readFileSync(new RunArtifactStore(request.runDirectory).openFile(request.notesSnapshot).absolutePath, "utf-8")));
 		if (calls === 1) { entered(); await gate; }
 		return compilation();
 	}) });
@@ -119,7 +119,7 @@ async function testInterruptedAndOrphanRecovery() {
 	const previous = jobs.load()!;
 	jobs.start({ compiler: "wiki-compilation", goalId: input.goalId, runId: previous.run_id, wikiUpdateId: previous.wiki_update_id,
 		goal: previous.goal, goalContext: previous.goal_context, topicPlan: previous.topic_plan,
-		cornellNotes: previous.cornell_notes, cueOrigins: previous.cue_origins });
+		sourceNotes: previous.notes, cueOrigins: previous.cue_origins });
 	jobs.markInterrupted();
 	assert.equal((await drainCueWikiUpdates({ ...input, dependencies: dependencies() })).status, "interrupted",
 		"a restart discovers interrupted work but never spends tokens retrying it");
@@ -157,7 +157,7 @@ async function testExplicitRetryRefreshesChangedTopicPlan() {
 	assert.equal(old.status, "failed", "obsolete Activity remains recorded");
 	assert.equal(old.attempts, 1);
 	assert.equal(fresh.attempts, 1);
-	assert.equal(fresh.cornell_notes.sha256, old.cornell_notes.sha256, "rebasing does not replace the frozen Cue evidence");
+	assert.equal(fresh.notes.sha256, old.notes.sha256, "rebasing does not replace the frozen Cue evidence");
 	assert.deepEqual(fresh.cue_origins, old.cue_origins);
 }
 
@@ -199,7 +199,7 @@ async function testSharedExecutionSerialization() {
 	const compiling = new Promise<void>(resolve => { entered = resolve; });
 	let calls = 0;
 	const deps = dependencies(async () => { calls++; if (calls === 1) { entered(); await gate; } return compilation(); });
-	const execute = (id: string) => executeWikiUpdate({ ...input, runId: id, goal: context.title, cornellNotes: {
+	const execute = (id: string) => executeWikiUpdate({ ...input, runId: id, goal: context.title, sourceNotes: {
 		relative_path: original.relativePath, sha256: original.sha256, byte_length: original.byteLength }, runDirectory: input.goalDir,
 		controlDirectory: join(root, id), signal: new AbortController().signal, dependencies: deps });
 	const oldResearch = execute("old-research");

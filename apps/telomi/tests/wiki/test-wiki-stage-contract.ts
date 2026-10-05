@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunArtifactStore } from '../../server/agent-runtime/artifact-store.js';
 import { WikiCompiler } from '../../server/wiki/wiki-compiler.js';
-import type { CornellNotesSnapshot } from '../../server/cornell/contracts.js';
+import type { SourceNotesSnapshot } from '../../server/notes/contracts.js';
 import type { WikiCompilationRequest } from '../../server/wiki/contracts.js';
 import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
 import { createWikiStageWorkspace } from '../../server/wiki/wiki-stage-workspace.js';
@@ -163,8 +163,8 @@ try {
  assert.equal(hugeNote.validate({ pages: draft.pages, deferred_entries: [] }, work).kind, 'pages');
  // Exercise real compiler stage boundaries with actual Markdown/alias validation.
  // Deferred Note material is resolved in objects before concept extraction.
- const snapshot: CornellNotesSnapshot = { schema_version: 1, snapshot_id: 'snapshot', run_id: 'source-run',
-  pipeline: { id: 'cornell', version: '1', sha256: 'a'.repeat(64) }, source_bundle_refs: [], notes: [{
+ const snapshot: SourceNotesSnapshot = { schema_version: 1, snapshot_id: 'snapshot', run_id: 'source-run',
+  pipeline: { id: 'note', version: '1', sha256: 'a'.repeat(64) }, source_bundle_refs: [], notes: [{
    note: { schema_version: 1, source_id: 'source:method', sections: [{ section_title: 'Loss', summary: 'Conditions', cue_notes: [{ cue: 'Rate', note: 'Exact 1.45% under condition A', topic_refs: [], evidence: [{ source_path: 'source.md', content_sha256: 'b'.repeat(64), start_line: 1, end_line: 2 }] }] }] },
    title: 'Method note', canonical_locator: 'https://example.test/method', provider_id: 'test', provenance_ref: 'provider:test', source_revision_sha256: 'c'.repeat(64), members: [],
   }] };
@@ -174,7 +174,7 @@ try {
   const store = new RunArtifactStore(join(base, 'run'));
   const artifact = store.publishText(JSON.stringify(snapshot), 'input/notes.json');
   return { goalDir, runId: name, runDirectory: store.root, controlDirectory: join(base, 'control'),
-   cornellNotesSnapshot: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
+   notesSnapshot: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
    goalContext: { title: 'Methods', description: 'Understand methods' },
    topicPlan: { schema_version: 1, goal_id: 'goal', revision: 'v1', status: 'active', topics: [topic] },
    env: { TELOMI_WIKI_COMPILATION_MODEL: 'test/root', TELOMI_PRIME_AGENT_CHILD_MODEL: 'test/child', TELOMI_WIKI_COMPILATION_THINKING_LEVEL: 'low' }, signal: new AbortController().signal };

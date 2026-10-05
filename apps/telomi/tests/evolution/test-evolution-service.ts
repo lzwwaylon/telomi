@@ -22,7 +22,7 @@ writeFileSync(join(bundledSkillRoot, "SKILL.md"), [
 ].join("\n"));
 
 const target: EvolutionTarget = {
-	id: "cornell-note/strategy",
+	id: "note-agent/strategy",
 	ownerAgentId: "note-agent",
 	version: 1,
 	baselineSkillRoots: (goalDirectory) => [bundledSkillRoot, join(goalDirectory, "skills", "note-agent")],

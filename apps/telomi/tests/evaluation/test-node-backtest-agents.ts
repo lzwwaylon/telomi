@@ -515,7 +515,7 @@ for (const status of ["error", "cancelled"] as const) {
 await assert.rejects(
 	productionRunner.runStage({ ...recordedRequest("note-agent", sourceRunId, sourceRun,
 		join(sourceRun, "routing-note"), new RunArtifactStore(sourceRun)), readonlyMounts: [],
-		output: { kind: "cornell_note", entryRelativePath: "cornell-note.json",
+		output: { kind: "note", entryRelativePath: "note.json",
 			publishRelativePath: "routing/note-agent.json", validate: () => ({}) } }),
 	/requires the bounded \/source mount/u,
 	"Note Agent must route through the Prime production runner",
@@ -1096,7 +1096,7 @@ function recordedRequest(
 		"report-writer": "report_writer",
 	} as const;
 	const kinds: Record<typeof agentId, StageArtifactKind> = {
-		"note-agent": "cornell_note",
+		"note-agent": "note",
 		"report-writer": "writer_chapters",
 	};
 	const knowledgeMount = agentId === "report-writer" ? {

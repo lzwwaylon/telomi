@@ -8,7 +8,7 @@ import { writeJsonAtomic } from "../lib/fs.js";
 import { sha256 } from "../lib/hash.js";
 import { toErrorMessage } from "../lib/values.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
-import { createCueCornellSnapshot } from "./cue-cornell-snapshot.js";
+import { createCueNoteSnapshot } from "./cue-note-snapshot.js";
 import { validateGoalTopicPlan, requireWikiGoalContext, type GoalTopicPlan, type WikiGoalContext } from "../wiki/contracts.js";
 import { WikiCueOriginSchema, WikiUpdateJobStore } from "../wiki/wiki-update-job.js";
 import { resumeWikiUpdate, startWikiUpdateActivity, wikiUpdateRecordDir, type WikiUpdateDependencies } from "../wiki/update-runner.js";
@@ -62,7 +62,7 @@ export function enqueueCueWikiUpdate(input: GoalLocation & {
 	const key = sha256(`${origin.artifact_ref.relative_path}\n${origin.artifact_ref.sha256}`);
 	if (!queue.entries.some(entry => entry.key === key)) {
 		// Revalidate persisted origins before admission so one damaged historical file cannot poison a batch.
-		createCueCornellSnapshot({ goalDir: input.goalDir, artifactRefs: [input.artifactRef], snapshotId: `cue-admission-${key}` });
+		createCueNoteSnapshot({ goalDir: input.goalDir, artifactRefs: [input.artifactRef], snapshotId: `cue-admission-${key}` });
 		queue.entries.push({ key, origin });
 		saveQueue(input, queue);
 	}
@@ -143,9 +143,9 @@ async function drain(input: Parameters<typeof drainCueWikiUpdates>[0]): Promise<
 				const entries = batch.keys.map(key => queue.entries.find(entry => entry.key === key)!);
 				const sourceRunDirectory = join(input.goalDir, "wiki", "cue-batches", batch.id);
 				const store = new RunArtifactStore(sourceRunDirectory);
-				const path = "artifacts/input/cornell-notes.json";
+				const path = "artifacts/input/notes.json";
 				if (!batch.snapshot_ref) {
-					const snapshot = createCueCornellSnapshot({ goalDir: input.goalDir,
+					const snapshot = createCueNoteSnapshot({ goalDir: input.goalDir,
 						artifactRefs: entries.map(entry => ({ path: entry.origin.artifact_ref.relative_path, sha256: entry.origin.artifact_ref.sha256 })),
 						snapshotId: `cue-batch-${batch.id}` });
 					const text = `${JSON.stringify(snapshot, null, 2)}\n`;
@@ -157,7 +157,7 @@ async function drain(input: Parameters<typeof drainCueWikiUpdates>[0]): Promise<
 				const frozen = store.openFile(batch.snapshot_ref);
 				const started = startWikiUpdateActivity({ ...input, wikiUpdateId: batch.wiki_update_id,
 					goal: `${goalContext.title}\n${goalContext.description}`, goalContext, topicPlan, sourceRunDirectory,
-					cornellNotes: { relative_path: path, sha256: frozen.sha256, byte_length: frozen.byteLength },
+					sourceNotes: { relative_path: path, sha256: frozen.sha256, byte_length: frozen.byteLength },
 					cueOrigins: entries.map(entry => entry.origin), trigger: { kind: "system" }, reason: "整理已验证的新 Cue Notes 到 Wiki" });
 				if (started.reused) return describe(queue);
 				execution = started.execution;

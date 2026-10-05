@@ -79,7 +79,7 @@ export class MainWikiCitationSession {
 						wiki: citation,
 					};
 				}
-				const cue = ref.startsWith("cornell:")
+				const cue = ref.startsWith("note:")
 					? resolveSavedNoteCue(this.options.goalDir, ref)
 					: resolveNoteReadingCue(this.options.goalDir, ref);
 				if (!cue) throw new Error(`Unknown saved Cue citation '${ref}'`);

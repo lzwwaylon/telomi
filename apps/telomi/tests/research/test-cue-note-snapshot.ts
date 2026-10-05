@@ -6,9 +6,9 @@ import type { AddressInfo } from "node:net";
 import express from "express";
 
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
-import { validateCornellNoteArtifact, validateCornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import { validateSourceNoteArtifact, validateSourceNotesSnapshot } from "../../server/notes/contracts.js";
 import { sha256 } from "../../server/lib/hash.js";
-import { createCueCornellSnapshot, createGoalCornellSnapshot } from "../../server/research/cue-cornell-snapshot.js";
+import { createCueNoteSnapshot, createGoalNoteSnapshot } from "../../server/research/cue-note-snapshot.js";
 import { listSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
 import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { WikiCompiler } from "../../server/wiki/wiki-compiler.js";
@@ -21,7 +21,7 @@ import { createGoalLlmWikiTools } from "../../server/wiki/tools.js";
 import { createWikiReferenceAdapterFromRoot } from "../../server/research/pipeline/wiki-report-references.js";
 import { resolveCitationSourcePreview } from "../../server/citations/preview.js";
 
-const root = mkdtempSync(join(tmpdir(), "cue-cornell-snapshot-"));
+const root = mkdtempSync(join(tmpdir(), "cue-note-snapshot-"));
 try {
 	const goalDir = join(root, "goal");
 	ensureGoalWorkspace({ goalDir, goalId: "goal", title: "Reference protocols" });
@@ -57,7 +57,7 @@ try {
 	const bytes = `${JSON.stringify(original)}\n`;
 	writeFileSync(join(goalDir, artifactPath), bytes);
 	const artifact = { path: artifactPath, sha256: sha256(bytes) };
-	const snapshot = createCueCornellSnapshot({ goalDir, artifactRefs: [artifact, artifact], snapshotId: "cue-batch-one" });
+	const snapshot = createCueNoteSnapshot({ goalDir, artifactRefs: [artifact, artifact], snapshotId: "cue-batch-one" });
 	assert.equal(snapshot.notes.length, 2, "equal Source IDs in distinct original Runs remain separate Notes");
 	assert.equal(snapshot.notes[0]?.source_run_id, "run-a");
 	assert.equal(snapshot.notes[1]?.source_run_id, "run-b");
@@ -65,14 +65,14 @@ try {
 	const entries = noteWikiEntries(snapshot);
 	assert.deepEqual(entries.map(entry => entry.originCueRef), original.cues.map(cue => cue.ref));
 	assert.deepEqual(entries[0]?.anchors.map(anchor => anchor.sourceRunId), ["run-a", "run-b"]);
-	assert.deepEqual(noteWikiEntries(createCueCornellSnapshot({ goalDir, artifactRefs: [artifact], snapshotId: "different-batch" })), entries,
+	assert.deepEqual(noteWikiEntries(createCueNoteSnapshot({ goalDir, artifactRefs: [artifact], snapshotId: "different-batch" })), entries,
 		"batch identity and repeated registration cannot change Cue Entry identities or revisions");
-	assert.throws(() => createCueCornellSnapshot({ goalDir, artifactRefs: [{ ...artifact, sha256: "0".repeat(64) }], snapshotId: "bad" }), /input changed/u);
-	assert.throws(() => createCueCornellSnapshot({ goalDir, artifactRefs: [{ ...artifact, path: "../read-one.json" }], snapshotId: "bad" }), /artifact ref/u);
+	assert.throws(() => createCueNoteSnapshot({ goalDir, artifactRefs: [{ ...artifact, sha256: "0".repeat(64) }], snapshotId: "bad" }), /input changed/u);
+	assert.throws(() => createCueNoteSnapshot({ goalDir, artifactRefs: [{ ...artifact, path: "../read-one.json" }], snapshotId: "bad" }), /artifact ref/u);
 	const broken = structuredClone(snapshot);
 	delete broken.notes[0]!.note.sections[0]!.cue_notes[0]!.evidence[0]!.source_id;
-	assert.throws(() => validateCornellNotesSnapshot(broken), /Source identity/u);
-	assert.throws(() => validateCornellNoteArtifact(snapshot.notes[0]!.note), /Runtime-owned/u,
+	assert.throws(() => validateSourceNotesSnapshot(broken), /Source identity/u);
+	assert.throws(() => validateSourceNoteArtifact(snapshot.notes[0]!.note), /Runtime-owned/u,
 		"Reader artifacts cannot forge Runtime-only original Cue identities");
 
 	const seenObjects: WikiStageInput[] = [];
@@ -99,9 +99,9 @@ try {
 		return { result, usage: { calls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }, sessionPaths: [] };
 	} });
 	const batchRoot = join(goalDir, "wiki", "cue-batches", snapshot.snapshot_id);
-	const store = new RunArtifactStore(batchRoot), frozen = store.publishText(JSON.stringify(snapshot), "artifacts/input/cornell-notes.json");
+	const store = new RunArtifactStore(batchRoot), frozen = store.publishText(JSON.stringify(snapshot), "artifacts/input/notes.json");
 	const compiled = await compiler.compile({ goalDir, runId: snapshot.snapshot_id, runDirectory: batchRoot,
-		controlDirectory: join(root, "control"), cornellNotesSnapshot: { relative_path: frozen.relativePath, sha256: frozen.sha256, byte_length: frozen.byteLength },
+		controlDirectory: join(root, "control"), notesSnapshot: { relative_path: frozen.relativePath, sha256: frozen.sha256, byte_length: frozen.byteLength },
 		goalContext: { title: "Reference protocols", description: "Compare reference protocol requirements" },
 		topicPlan: { schema_version: 1, goal_id: "goal", revision: "topics-v1", status: "active", topics: [{ id: "references",
 			title: "References", intent: "Reference protocol requirements", questions: [], include: [], exclude: [] }] },
@@ -142,11 +142,11 @@ try {
 			start_line: 1, end_line: 1, content_sha256: anchors[0]!.content_sha256 }],
 	}] }];
 	const legacy = { ...snapshot, snapshot_id: "legacy-snapshot", run_id: "run-a", notes: [legacyRecord] };
-	const notesRoot = join(goalDir, "wiki", "runs", "run-a", "artifacts", "cornell-notes");
+	const notesRoot = join(goalDir, "wiki", "runs", "run-a", "artifacts", "notes");
 	mkdirSync(notesRoot, { recursive: true });
 	writeFileSync(join(notesRoot, "snapshot-1.json"), JSON.stringify({ ...legacy, notes: [] }));
 	writeFileSync(join(notesRoot, "snapshot-2.json"), JSON.stringify(legacy));
-	const corpus = createGoalCornellSnapshot({ goalDir, snapshotId: "rebuild-corpus" });
+	const corpus = createGoalNoteSnapshot({ goalDir, snapshotId: "rebuild-corpus" });
 	assert.equal(corpus.notes.length, 2);
 	assert.equal(noteWikiEntries(corpus).length, 3, "rebuild includes old Cornell Cues and all saved Note Reading Cues");
 	assert.deepEqual(noteWikiEntries(corpus)[0], noteWikiEntries(legacy)[0], "adding per-record Run identity and new sections preserves legacy Entry identity and revision");
@@ -188,7 +188,7 @@ try {
 	}
 	writeFileSync(join(goalDir, "wiki", "runs", "run-b", "artifacts", "find-out-sources", "sequence-1", "sources", "shared", "members", "article", "document.md"), "Changed evidence.\n");
 	assert.throws(() => readWikiPageEvidence(knowledge, { entry_ids: [entries[0]!.id] }, goalDir), /range changed/u);
-	assert.throws(() => createCueCornellSnapshot({ goalDir, artifactRefs: [artifact], snapshotId: "changed" }), /evidence changed/u);
+	assert.throws(() => createCueNoteSnapshot({ goalDir, artifactRefs: [artifact], snapshotId: "changed" }), /evidence changed/u);
 } finally {
 	rmSync(root, { recursive: true, force: true });
 }

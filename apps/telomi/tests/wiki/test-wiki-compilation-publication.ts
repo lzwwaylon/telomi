@@ -34,7 +34,7 @@ try {
  const jobs = new WikiUpdateJobStore(controlDirectory);
  await assert.rejects(executeWikiUpdate({ goalId, runId, wikiUpdateId: runId, goalDir, workspaceDir: root,
   goal: "Study", goalContext: { title: "Study", description: "" }, topicPlan: plan, runDirectory, controlDirectory,
-  cornellNotes: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength },
+  sourceNotes: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength },
   env: {}, signal: new AbortController().signal, dependencies: {
    compile: async () => ({ ...complete, publicationReady: false,
     failedBatches: [{ batchIndex: 0, sourceIds: ["source:a"], message: "retry me", usage }] }),

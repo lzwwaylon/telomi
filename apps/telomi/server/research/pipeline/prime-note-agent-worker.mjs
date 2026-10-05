@@ -77,7 +77,7 @@ try {
 		if (validation.accepted) break;
 		// Only a model call Prime's own retries could not recover ends the note; a recovered one still gets its repair.
 		assertPrimeModelAnswered(session);
-		const validationError = validation.error || "Runtime rejected cornell-note.json without an error description";
+		const validationError = validation.error || "Runtime rejected note.json without an error description";
 		if (submission === 3) {
 			terminalValidationError = validationError;
 			throw new Error(validationError);

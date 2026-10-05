@@ -11,7 +11,7 @@ import {
 } from "../../server/wiki/wiki-update-job.js";
 import { runRecordsDir } from "../../server/observability/run-records.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
-import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
 import type { GoalTopicPlan, WikiCompilationResult } from "../../server/wiki/contracts.js";
 import type { WikiPublicationResult } from "../../server/wiki/publication.js";
 import { subscribe } from "../../server/events/event-bus.js";
@@ -57,7 +57,7 @@ async function testWikiUpdateToolCurrentGoal(): Promise<void> {
 	const sourceControl = join(serverRuntimeDirForGoal(goalId, workspaceDir), "runs", runId);
 	mkdirSync(sourceControl, { recursive: true });
 	writeFileSync(join(sourceControl, "run-state.json"), JSON.stringify({ goal_id: goalId, run_id: runId,
-		question: "NOT_A_GOAL_DESCRIPTION", language: "zh-CN", cornell_note_snapshots: [{ relative_path: "notes.json", sha256: "a".repeat(64), byte_length: 1 }] }));
+		question: "NOT_A_GOAL_DESCRIPTION", language: "zh-CN", note_snapshots: [{ relative_path: "notes.json", sha256: "a".repeat(64), byte_length: 1 }] }));
 	const store = new GoalTopicPlanStore(goalId, workspaceDir);
 	const proposal = store.proposePatch({ source: "main_agent", patch: { schema_version: 1, base_revision: null,
 		summary: "Test", operations: [{ op: "add", topic: topicPlan.topics[0]! }] } });
@@ -107,7 +107,7 @@ async function testStandaloneWikiUpdateActivity(): Promise<void> {
 	const sourceRunId = "run-source";
 	const sourceRunDirectory = join(goalDir, "wiki", "runs", sourceRunId);
 	const source = new RunArtifactStore(sourceRunDirectory)
-		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/cornell-notes/snapshot.json");
+		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/notes/snapshot.json");
 	const started = startWikiUpdateActivity({
 		workspaceDir,
 		goalId,
@@ -117,7 +117,7 @@ async function testStandaloneWikiUpdateActivity(): Promise<void> {
 		topicPlan,
 		sourceRunId,
 		sourceRunDirectory,
-		cornellNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
+		sourceNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
 		parentActivityId: `research:${sourceRunId}`,
 		trigger: { kind: "system" },
 		reason: "validated Cornell Notes",
@@ -153,7 +153,7 @@ async function testStandaloneWikiUpdateActivity(): Promise<void> {
 	assert.equal(job.topic_plan?.revision, topicPlan.revision);
 	assert.equal(job.progress?.completed_batches, 1);
 	assert.equal(job.progress?.stages?.find((stage) => stage.kind === "publication")?.status, "succeeded");
-	assert.ok(existsSync(join(artifactDirectory, "artifacts", "input", "cornell-notes.json")));
+	assert.ok(existsSync(join(artifactDirectory, "artifacts", "input", "notes.json")));
 	assert.ok(existsSync(join(artifactDirectory, "artifacts", "wiki-update", "result.json")));
 }
 
@@ -164,7 +164,7 @@ async function testStandaloneWikiUpdateIdempotency(): Promise<void> {
 	const sourceRunId = "run-source-idempotent";
 	const sourceRunDirectory = join(goalDir, "wiki", "runs", sourceRunId);
 	const source = new RunArtifactStore(sourceRunDirectory)
-		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/cornell-notes/snapshot.json");
+		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/notes/snapshot.json");
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => { release = resolve; });
 	const input = {
@@ -176,7 +176,7 @@ async function testStandaloneWikiUpdateIdempotency(): Promise<void> {
 		topicPlan,
 		sourceRunId,
 		sourceRunDirectory,
-		cornellNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
+		sourceNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
 		parentActivityId: `research:${sourceRunId}`,
 		trigger: { kind: "system" as const },
 		reason: "validated Cornell Notes",
@@ -207,7 +207,7 @@ async function testStandaloneWikiUpdateRebuildAndRetry(): Promise<void> {
 	const sourceRunId = "run-source-rebuild";
 	const sourceRunDirectory = join(goalDir, "wiki", "runs", sourceRunId);
 	const source = new RunArtifactStore(sourceRunDirectory)
-		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/cornell-notes/snapshot.json");
+		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/notes/snapshot.json");
 	const base = {
 		workspaceDir,
 		goalId,
@@ -217,7 +217,7 @@ async function testStandaloneWikiUpdateRebuildAndRetry(): Promise<void> {
 		topicPlan,
 		sourceRunId,
 		sourceRunDirectory,
-		cornellNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
+		sourceNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
 		trigger: { kind: "system" as const },
 		reason: "validated Cornell Notes",
 		env: {},
@@ -244,7 +244,7 @@ async function testStandaloneWikiUpdateRebuildAndRetry(): Promise<void> {
 		goal: "Failed Wiki",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan,
-		cornellNotes: base.cornellNotes,
+		sourceNotes: base.sourceNotes,
 	});
 	failed.settle("failed", { message: "provider failed" });
 	const retry = startWikiUpdateActivity({ ...base, goalId: failedGoalId, goalDir: join(workspaceDir, failedGoalId) });
@@ -258,7 +258,7 @@ async function testPartialWikiUpdateActivity(): Promise<void> {
 	const goalDir = join(workspaceDir, goalId);
 	const sourceRunDirectory = join(goalDir, "wiki", "runs", "source-run");
 	const source = new RunArtifactStore(sourceRunDirectory)
-		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/cornell-notes/snapshot.json");
+		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/notes/snapshot.json");
 	const failure = {
 		batchIndex: 2,
 		sourceIds: ["source:failed"],
@@ -274,7 +274,7 @@ async function testPartialWikiUpdateActivity(): Promise<void> {
 		topicPlan,
 		sourceRunId: "source-run",
 		sourceRunDirectory,
-		cornellNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
+		sourceNotes: { relative_path: source.relativePath, sha256: source.sha256, byte_length: source.byteLength },
 		trigger: { kind: "system" },
 		reason: "partial test",
 		env: {},
@@ -314,7 +314,7 @@ function testJobRecordLifecycle(): void {
 		goal: "Partial failure",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan,
-		cornellNotes: { relative_path: "artifacts/evidence.json", sha256: "f".repeat(64), byte_length: 10 },
+		sourceNotes: { relative_path: "artifacts/evidence.json", sha256: "f".repeat(64), byte_length: 10 },
 	});
 	partial.markRunning(2);
 	partial.recordBatch({
@@ -343,7 +343,7 @@ function testJobRecordLifecycle(): void {
 		goal: "Research resume",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan,
-		cornellNotes: { relative_path: "artifacts/evidence.json", sha256: "a".repeat(64), byte_length: 10 },
+		sourceNotes: { relative_path: "artifacts/evidence.json", sha256: "a".repeat(64), byte_length: 10 },
 	});
 	assert.equal(started.attempts, 1);
 	assert.equal(jobs.markInterrupted(), true);
@@ -356,7 +356,7 @@ function testJobRecordLifecycle(): void {
 			goal: "Research resume",
 			goalContext: { title: "Goal title", description: "Goal description" },
 			topicPlan,
-			cornellNotes: { relative_path: "artifacts/evidence.json", sha256: "a".repeat(64), byte_length: 10 },
+			sourceNotes: { relative_path: "artifacts/evidence.json", sha256: "a".repeat(64), byte_length: 10 },
 		}).attempts, attempt);
 		jobs.markInterrupted();
 	}
@@ -378,7 +378,7 @@ function testJobRecordLifecycle(): void {
 		goal: "Trace lifecycle",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan,
-		cornellNotes: { relative_path: "artifacts/evidence.json", sha256: "d".repeat(64), byte_length: 10 },
+		sourceNotes: { relative_path: "artifacts/evidence.json", sha256: "d".repeat(64), byte_length: 10 },
 	});
 	traceStore.markRunning(1);
 	traceStore.recordBatch({
@@ -398,7 +398,7 @@ function testJobRecordLifecycle(): void {
 		goal: "Trace lifecycle",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan,
-		cornellNotes: { relative_path: "artifacts/evidence.json", sha256: "d".repeat(64), byte_length: 10 },
+		sourceNotes: { relative_path: "artifacts/evidence.json", sha256: "d".repeat(64), byte_length: 10 },
 	});
 	traceStore.markRunning(1);
 	traceStore.recordBatch({
@@ -433,7 +433,7 @@ async function testRetiredCompilerResume(): Promise<void> {
 		const controlDirectory = wikiUpdateRecordDir(workspaceDir, goalId, runId);
 		const jobs = new WikiUpdateJobStore(controlDirectory);
 		const input = { goalId, runId, goal: "Retired update", goalContext: { title: "Goal", description: "" },
-			topicPlan, cornellNotes: { relative_path: "artifacts/evidence.json", sha256: "b".repeat(64), byte_length: 4 } };
+			topicPlan, sourceNotes: { relative_path: "artifacts/evidence.json", sha256: "b".repeat(64), byte_length: 4 } };
 		const job = { ...jobs.start(input), compiler, status: "interrupted" };
 		const path = join(controlDirectory, WIKI_UPDATE_JOB_FILE);
 		const bytes = JSON.stringify(job);
@@ -458,12 +458,12 @@ async function testInterruptedJobResume(): Promise<void> {
 	const runDirectory = wikiUpdateArtifactDir(goalDir, runId);
 	mkdirSync(controlDirectory, { recursive: true });
 	mkdirSync(runDirectory, { recursive: true });
-	const cornellNotes = {
+	const sourceNotes = {
 		relative_path: "artifacts/evidence.json",
 		sha256: "b".repeat(64),
 		byte_length: 4,
 	};
-	new WikiUpdateJobStore(controlDirectory).start({ goalId, runId, goal: "Research resume", topicPlan, cornellNotes,
+	new WikiUpdateJobStore(controlDirectory).start({ goalId, runId, goal: "Research resume", topicPlan, sourceNotes,
 		goalContext: { title: "Frozen goal title", description: "Frozen goal description" } });
 	const legacyDirectory = join(runRecordsDir(workspaceDir, goalId), "old-job");
 	mkdirSync(legacyDirectory, { recursive: true });
@@ -498,7 +498,7 @@ async function testInterruptedJobResume(): Promise<void> {
 				compiled.push(request.runDirectory);
 				assert.equal(request.goal, "Research resume");
 				assert.deepEqual(request.goalContext, { title: "Frozen goal title", description: "Frozen goal description" });
-				assert.deepEqual(request.cornellNotesSnapshot, cornellNotes);
+				assert.deepEqual(request.notesSnapshot, sourceNotes);
 				return fakeCompilation();
 			},
 			publish: async () => fakePublication(),
@@ -533,7 +533,7 @@ async function testInterruptedJobResume(): Promise<void> {
 	const failingRunDirectory = wikiUpdateArtifactDir(goalDir, failingRunId);
 	mkdirSync(failingRunDirectory, { recursive: true });
 	mkdirSync(failingControl, { recursive: true });
-	new WikiUpdateJobStore(failingControl).start({ goalId, runId: failingRunId, goal: "Research resume", topicPlan, cornellNotes,
+	new WikiUpdateJobStore(failingControl).start({ goalId, runId: failingRunId, goal: "Research resume", topicPlan, sourceNotes,
 		goalContext: { title: "Frozen goal", description: "" } });
 	assert.deepEqual(markInterruptedWikiUpdates(workspaceDir, goalId), [failingRunId]);
 	await assert.rejects(resumeWikiUpdate({
@@ -557,7 +557,7 @@ async function testInterruptedJobResume(): Promise<void> {
 	mkdirSync(exhaustedControl, { recursive: true });
 	const exhausted = new WikiUpdateJobStore(exhaustedControl);
 	for (let attempt = 0; attempt < MAX_WIKI_UPDATE_ATTEMPTS; attempt += 1) {
-		exhausted.start({ goalId, runId: exhaustedRunId, goal: "Research resume", goalContext: { title: "Goal title", description: "Goal description" }, topicPlan, cornellNotes });
+		exhausted.start({ goalId, runId: exhaustedRunId, goal: "Research resume", goalContext: { title: "Goal title", description: "Goal description" }, topicPlan, sourceNotes });
 		exhausted.markInterrupted();
 	}
 	await assert.rejects(
@@ -568,7 +568,7 @@ async function testInterruptedJobResume(): Promise<void> {
 	const invalidControl = wikiUpdateRecordDir(workspaceDir, goalId, invalidRunId);
 	const invalid = new WikiUpdateJobStore(invalidControl);
 	const valid = invalid.start({ goalId, runId: invalidRunId, goal: "Research resume",
-		goalContext: { title: "Goal title", description: "Goal description" }, topicPlan, cornellNotes });
+		goalContext: { title: "Goal title", description: "Goal description" }, topicPlan, sourceNotes });
 	const { goal_context: _context, ...missingContext } = valid;
 	writeFileSync(join(invalidControl, "wiki-update-job.json"), JSON.stringify(missingContext));
 	await assert.rejects(resumeWikiUpdate({ workspaceDir, goalId, goalDir, runId: invalidRunId, env: {},
@@ -607,7 +607,7 @@ function fakePublication(): WikiPublicationResult {
 	};
 }
 
-function buildEvidence(noteCount: number): CornellNotesSnapshot {
+function buildEvidence(noteCount: number): SourceNotesSnapshot {
 	return {
 		schema_version: 1,
 		snapshot_id: "snapshot:resume",

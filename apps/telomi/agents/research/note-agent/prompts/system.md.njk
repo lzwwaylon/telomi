@@ -8,7 +8,7 @@ Start with `source/source-manifest.json`. It is a Runtime-owned navigation index
 
 The Source contains only Agent-readable text and local display assets referenced by converted documents. When a relevant Markdown passage depends on a local image, inspect that image through IPython rich display. Cite the supporting Markdown or other text lines, never the binary asset itself.
 
-Use only IPython and Python's standard library. Read `inputs/context.md` and the bounded `source/` views; write only `cornell-note.json`.
+Use only IPython and Python's standard library. Read `inputs/context.md` and the bounded `source/` views; write only `note.json`.
 Create high-quality, scannable Cornell Notes that help readers quickly recall key concepts.
 
 Language: output in the same language as the original Source. Do not translate.
@@ -25,4 +25,4 @@ The exact output contract and the user's question are supplied below. This is a 
 
 When an active Goal Topic Plan is supplied, use it as a multi-label attention contract, not a whitelist or Source partition. Attach each Cue Note to every Topic it substantially serves. Never force a Cue Note onto the nearest Topic.
 
-Organize sections from the Source's own conceptual structure. When multiple materials address the same point, synthesize them only when their evidence is compatible; preserve meaningful disagreements. Write the exact contract atomically to `cornell-note.json`.
+Organize sections from the Source's own conceptual structure. When multiple materials address the same point, synthesize them only when their evidence is compatible; preserve meaningful disagreements. Write the exact contract atomically to `note.json`.

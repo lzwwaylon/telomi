@@ -22,7 +22,7 @@ const cue = {
 const [first] = refs.projectCues([cue]);
 assert.equal(first?.ref, "N1");
 assert.equal(refs.projectCues([cue])[0]?.ref, "N1");
-assert.equal(refs.projectCues([{ ...cue, ref: "cornell:run:other-long-id" }])[0]?.ref, "N2");
+assert.equal(refs.projectCues([{ ...cue, ref: "note:run:other-long-id" }])[0]?.ref, "N2");
 assert.equal(first?.evidence[0]?.excerpt, "ignore_index=-100");
 assert.ok(!JSON.stringify(first).includes("content_sha256"));
 assert.ok(!JSON.stringify(first).includes("source:long-internal-id"));
@@ -78,7 +78,7 @@ try {
 		source_path: savedCue.evidence[0]!.source_path, start_line: 1, end_line: 1,
 		excerpt: "ignore_index=-100", title: "Saved upstream fork", url: "https://github.com/example/upstream-fork",
 	}, "Prime sees source provenance and exact text without internal identities or hashes");
-	const historical = { ...cue, ref: "cornell:run:cue", source_title: "Older Cornell Source",
+	const historical = { ...cue, ref: "note:run:cue", source_title: "Older Cornell Source",
 		canonical_locator: "https://example.org/paper" };
 	assert.equal(enrichInvestigationCues(root, [historical])[0], historical, "historical Cornell metadata remains compatible");
 	assert.equal(refs.projectCues([historical])[0]?.canonical_locator, historical.canonical_locator);

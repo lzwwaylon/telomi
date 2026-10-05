@@ -2,26 +2,26 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { hashJson } from "../../lib/hash.js";
-import type { CornellNoteProcessor, CornellSourceFailure } from "../cornell-note.js";
+import type { SourceNoteProcessor, SourceNoteFailure } from "../source-note.js";
 import type { GoalTopicPlan } from "../../goals/topic-plan/index.js";
 import type { ResearchModelUsage } from "../../agent-runtime/model-usage.js";
 import type { LogicalSource } from "../research-types.js";
 import type { RunArtifactStore } from "../../agent-runtime/artifact-store.js";
 import {
-	validateCornellNotesSnapshot,
-	validateCornellNoteArtifact,
-	type CornellNoteRecord,
-	type CornellNotesSnapshot,
-} from "../../cornell/contracts.js";
+	validateSourceNotesSnapshot,
+	validateSourceNoteArtifact,
+	type SourceNoteRecord,
+	type SourceNotesSnapshot,
+} from "../../notes/contracts.js";
 
-export interface CornellNotesMaterializeRequest {
+export interface SourceNotesMaterializeRequest {
 	runId: string;
 	sequence: number;
 	question: string;
 	goal: { title: string; description: string };
 	discoveryEnabled: boolean;
 	sources: LogicalSource[];
-	previousSnapshot?: CornellNotesSnapshot;
+	previousSnapshot?: SourceNotesSnapshot;
 	sourceBundleRefs: string[];
 	pipeline: { id: string; version: string; sha256: string };
 	workspaceDir: string;
@@ -33,11 +33,11 @@ export interface CornellNotesMaterializeRequest {
 	onAgentStageCompleted?: (usage: ResearchModelUsage) => void;
 }
 
-export interface CornellNotesMaterializer {
-	materialize(request: CornellNotesMaterializeRequest): Promise<CornellNotesMaterialization>;
+export interface SourceNotesMaterializer {
+	materialize(request: SourceNotesMaterializeRequest): Promise<SourceNotesMaterialization>;
 }
 
-export interface CornellNoteFailureRecord {
+export interface SourceNoteFailureRecord {
 	source_id: string;
 	title: string;
 	canonical_locator: string;
@@ -45,15 +45,15 @@ export interface CornellNoteFailureRecord {
 	message: string;
 }
 
-export interface CornellNotesMaterialization {
-	evidence: CornellNotesSnapshot;
-	failures: CornellNoteFailureRecord[];
+export interface SourceNotesMaterialization {
+	evidence: SourceNotesSnapshot;
+	failures: SourceNoteFailureRecord[];
 }
 
-export class RuntimeCornellNotesMaterializer implements CornellNotesMaterializer {
-	constructor(private readonly processor: CornellNoteProcessor) {}
+export class RuntimeSourceNotesMaterializer implements SourceNotesMaterializer {
+	constructor(private readonly processor: SourceNoteProcessor) {}
 
-	async materialize(request: CornellNotesMaterializeRequest): Promise<CornellNotesMaterialization> {
+	async materialize(request: SourceNotesMaterializeRequest): Promise<SourceNotesMaterialization> {
 		const documents = dedupeLogicalSources(request.sources);
 		const previous = request.previousSnapshot;
 		if (previous && previous.run_id !== request.runId) {
@@ -67,13 +67,13 @@ export class RuntimeCornellNotesMaterializer implements CornellNotesMaterializer
 		if (pipelineMatches) {
 			for (const document of documents) {
 				if (previousBySource.has(document.id)) continue;
-				const path = join(request.workspaceDir, cornellNoteArtifactPath(
+				const path = join(request.workspaceDir, noteArtifactPath(
 					request.sequence,
 					document.id,
 					document.revisionSha256,
 				));
 				if (!existsSync(path)) continue;
-				const note = validateCornellNoteArtifact(readObject(path));
+				const note = validateSourceNoteArtifact(readObject(path));
 				if (note.source_id !== document.id) {
 					throw new Error(`Cornell Note checkpoint '${path}' belongs to '${note.source_id}'`);
 				}
@@ -115,7 +115,7 @@ export class RuntimeCornellNotesMaterializer implements CornellNotesMaterializer
 				.sort((left, right) => left.note.source_id.localeCompare(right.note.source_id)),
 		};
 		return {
-			evidence: validateCornellNotesSnapshot({
+			evidence: validateSourceNotesSnapshot({
 				schema_version: 1,
 				snapshot_id: `snapshot:${hashJson(seed).slice(0, 24)}`,
 				...seed,
@@ -126,12 +126,12 @@ export class RuntimeCornellNotesMaterializer implements CornellNotesMaterializer
 	}
 }
 
-export function cornellNoteArtifactPath(sequence: number, sourceId: string, sourceRevisionSha256: string): string {
+export function noteArtifactPath(sequence: number, sourceId: string, sourceRevisionSha256: string): string {
 	const name = sourceId.trim().replace(/[^A-Za-z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 100) || "source";
-	return `artifacts/cornell-notes/sequence-${sequence}/${name}-${sourceRevisionSha256.slice(0, 12)}.json`;
+	return `artifacts/notes/sequence-${sequence}/${name}-${sourceRevisionSha256.slice(0, 12)}.json`;
 }
 
-function toFailureRecord(failure: CornellSourceFailure): CornellNoteFailureRecord {
+function toFailureRecord(failure: SourceNoteFailure): SourceNoteFailureRecord {
 	return {
 		source_id: failure.source.id,
 		title: failure.source.title,
@@ -155,8 +155,8 @@ export function dedupeLogicalSources(documents: readonly LogicalSource[]): Logic
 
 function toNoteRecord(
 	document: LogicalSource,
-	note: CornellNoteRecord["note"],
-): CornellNoteRecord {
+	note: SourceNoteRecord["note"],
+): SourceNoteRecord {
 	if (note.source_id !== document.id) throw new Error(`Cornell Note source_id '${note.source_id}' does not match '${document.id}'`);
 	return {
 		note,
@@ -181,7 +181,7 @@ function provenanceReference(document: LogicalSource): string {
 	return `provider:${providerIdentity(document)}:${safeRuntimeId(document.id)}`;
 }
 
-function sourceMembers(document: LogicalSource): CornellNoteRecord["members"] {
+function sourceMembers(document: LogicalSource): SourceNoteRecord["members"] {
 	return document.members.map((member) => ({
 		source_id: safeRuntimeId(member.sourceId),
 		provider_id: safeRuntimeId(member.providerId),

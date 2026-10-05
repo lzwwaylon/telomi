@@ -36,7 +36,7 @@ interface CueNote {
 	evidence?: unknown;
 }
 
-interface CornellNote {
+interface SourceNote {
 	source_id?: unknown;
 	sections?: Array<{ summary?: unknown; cue_notes?: CueNote[] }>;
 }
@@ -121,7 +121,7 @@ export function resolveCitationSourcePreview(
 	const exactNotes = noteRefs.length > 0 ? findReportNotes(runRoot, noteRefs) : undefined;
 	if (exactNotes === null || exactNotes?.some((exactNote) => exactNote.source_id !== sourceId
 		|| !exactNote.source_urls.some((url) => normalizeUrl(url) === reportUrl))) return null;
-	const note = exactNotes ? null : findCornellNote(runRoot, sourceId);
+	const note = exactNotes ? null : findSourceNote(runRoot, sourceId);
 	if (!exactNotes && !note) return null;
 
 	const prefix = `${member.path.replace(/\/+$/u, "")}/`;
@@ -208,7 +208,7 @@ export function resolveMessageCitationSourcePreview(
 	if (requestedNumber === undefined) return null;
 	const [ref] = citationRefs(citation);
 	if (!ref || citationRefs(citation).length !== 1) return null;
-	const cue = ref.startsWith("cornell:")
+	const cue = ref.startsWith("note:")
 		? resolveSavedNoteCue(goalDir, ref)
 		: resolveNoteReadingCue(goalDir, ref);
 	if (!cue) return null;
@@ -349,12 +349,12 @@ function strings(value: Record<string, unknown>, keys: readonly string[]): boole
 	return keys.every((key) => typeof value[key] === "string" && Boolean((value[key] as string).trim()));
 }
 
-function findCornellNote(runRoot: string, sourceId: string): CornellNote | null {
-	const root = join(runRoot, "artifacts", "cornell-notes");
+function findSourceNote(runRoot: string, sourceId: string): SourceNote | null {
+	const root = join(runRoot, "artifacts", "notes");
 	for (const sequence of sequenceDirectories(root)) {
 		// ponytail: linear scan is tiny for current runs; add an index only if Note counts make preview latency measurable.
 		for (const filename of safeDirectoryEntries(join(root, sequence)).filter((name) => name.endsWith(".json"))) {
-			const note = readJson<CornellNote>(join(root, sequence, filename));
+			const note = readJson<SourceNote>(join(root, sequence, filename));
 			if (note.source_id === sourceId) return note;
 		}
 	}

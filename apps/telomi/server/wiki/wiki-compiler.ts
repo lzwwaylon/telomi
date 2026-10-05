@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
-import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
+import { validateSourceNotesSnapshot } from "../notes/contracts.js";
 import { hashJson } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { toErrorMessage } from "../lib/values.js";
@@ -75,8 +75,8 @@ export class WikiCompiler {
  async compile(request: WikiCompilationRequest): Promise<WikiCompilationResult> {
   request.signal.throwIfAborted();
   const goal = requireWikiGoalContext(request.goalContext), topics = validateGoalTopicPlan(request.topicPlan);
-  const store = new RunArtifactStore(request.runDirectory), artifact = store.openFile(request.cornellNotesSnapshot);
-  const evidence = projectWikiEvidence(validateCornellNotesSnapshot(JSON.parse(readFileSync(artifact.absolutePath, 'utf8'))));
+  const store = new RunArtifactStore(request.runDirectory), artifact = store.openFile(request.notesSnapshot);
+  const evidence = projectWikiEvidence(validateSourceNotesSnapshot(JSON.parse(readFileSync(artifact.absolutePath, 'utf8'))));
   const base = join(request.goalDir, 'wiki', 'knowledge'), baseKnowledgeSha256 = hashWikiDirectory(base);
   const priorStatus = join(base, '.note-first-status.json');
   if (!request.rebuild && existsSync(priorStatus) && JSON.parse(readFileSync(priorStatus, 'utf8')).complete !== true) {
@@ -167,7 +167,7 @@ export class WikiCompiler {
    }
   };
   try {
-   writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-cornell-note', concurrency: 4,
+   writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-note', concurrency: 4,
     scheduling: 'dynamic-queue', cueDispositionOwner: 'merge-objects', conceptEvidence: 'accepted-objects-only',
     data: 'object-notes; unplaced-cues-at-object-merge; downstream-page-and-section-views', diagnosticOnly: false });
    request.onStarted?.(evidence.notes.length);

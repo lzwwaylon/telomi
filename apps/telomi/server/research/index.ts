@@ -15,7 +15,7 @@ export * from "./harness/prime-search.js";
 export * from "./documents/fastapi-parser.js";
 export * from "./workspace-adapter.js";
 export * from "./config.js";
-export * from "./cornell-note.js";
+export * from "./source-note.js";
 export * from "./note-agent.js";
 export * from "./runtime.js";
 export * from "./temporal-context.js";

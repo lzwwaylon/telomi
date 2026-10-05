@@ -14,7 +14,7 @@ import type { WikiReindexRequest, WikiReindexResult } from "../../server/wiki/wi
 
 const root = mkdtempSync(join(tmpdir(), "wiki-compilation-case-"));
 const env = { TELOMI_WIKI_COMPILATION_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "low" };
-const notes = { schema_version: 1, snapshot_id: "snapshot-1", run_id: "source-run", pipeline: { id: "cornell", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [], notes: [] };
+const notes = { schema_version: 1, snapshot_id: "snapshot-1", run_id: "source-run", pipeline: { id: "note", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [], notes: [] };
 const goalContext = { title: "Topic navigation", description: "Evidence-grounded methods", language: "en" as const };
 const topicPlan = { schema_version: 1 as const, goal_id: "goal", revision: "v1", status: "active" as const, topics: [{ id: "methods", title: "Methods", intent: "Reusable methods", questions: [], include: [], exclude: [] }] };
 const usage = { inputTokens: 10, outputTokens: 20, costUsd: 0, calls: 1 };
@@ -41,7 +41,7 @@ function request(id: string): WikiCompilationRequest {
 	const store = new RunArtifactStore(runDirectory);
 	const artifact = existsSync(join(runDirectory, "notes.json")) ? store.describeFile("notes.json") : store.publishFile(join(root, "notes.json"), "notes.json");
 	return { goalDir, runId: id, goalContext, topicPlan, runDirectory, controlDirectory: join(root, id, "control"), rebuild: true,
-		cornellNotesSnapshot: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength }, env, signal };
+		notesSnapshot: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength }, env, signal };
 }
 function trace(directory: string): string {
 	const path = join(directory, "sessions", "native.jsonl");
@@ -61,7 +61,7 @@ async function compile(input: WikiCompilationRequest): Promise<WikiCompilationRe
 	assert.equal(input.rebuild, true);
 	assert.equal(input.env?.TELOMI_WIKI_COMPILATION_MODEL, "test/root");
 	assert.equal(input.env?.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, "low");
-	assert.deepEqual(json(new RunArtifactStore(input.runDirectory).openFile(input.cornellNotesSnapshot).absolutePath), notes);
+	assert.deepEqual(json(new RunArtifactStore(input.runDirectory).openFile(input.notesSnapshot).absolutePath), notes);
 	assert.equal(readFileSync(join(input.goalDir, "wiki", "knowledge", "existing.md"), "utf8"), "Frozen existing page\n");
 	assert.equal(existsSync(join(input.goalDir, "wiki", "knowledge", "live.md")), false, "Candidate must not read live Goal Wiki");
 	write(join(input.runDirectory, "knowledge", "page.md"), "## Grounded details\n");

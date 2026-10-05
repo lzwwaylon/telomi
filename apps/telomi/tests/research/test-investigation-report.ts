@@ -21,7 +21,7 @@ const workspace = mkdtempSync(join(tmpdir(), "telomi-investigation-report-"));
 const goalId = "goal_publication";
 const goalDir = join(workspace, goalId);
 const deepRef = "deep-search:reader-1:cue-1";
-const cornellRef = `cornell:source-run:${"a".repeat(24)}:${"b".repeat(12)}`;
+const noteRef = `note:source-run:${"a".repeat(24)}:${"b".repeat(12)}`;
 const anchor = { source_run_id: "source-run", source_id: "source:paper", source_revision_sha256: sha256("source"),
 	source_path: "paper/content.md", start_line: 1, end_line: 1, content_sha256: sha256("Original evidence.\n"),
 	excerpt: "Original evidence." };
@@ -33,12 +33,12 @@ const citations = [
 		evidence: [] } },
 	{ ref: deepRef, cue: { ref: deepRef, section_title: "New reading", cue: "New detail", note: "Newly read finding",
 		evidence: [{ ...anchor, title: "New source", url: "https://example.com/new" }] } },
-	{ ref: cornellRef, cue: { ref: cornellRef, cue: "Saved detail", note: "Saved finding", source_id: "source:paper",
+	{ ref: noteRef, cue: { ref: noteRef, cue: "Saved detail", note: "Saved finding", source_id: "source:paper",
 		source_revision_sha256: anchor.source_revision_sha256, source_title: "Saved source", canonical_locator: "file:///local/paper.md",
 		evidence: [anchor] } },
 ];
-const seed = (id: string, answer = `Frozen Wiki <cite>C1</cite>. New detail <cite>${deepRef}</cite>. Saved detail <cite>${cornellRef}</cite>.`,
-	refs = ["C1", deepRef, cornellRef], frozen: unknown[] = citations) => {
+const seed = (id: string, answer = `Frozen Wiki <cite>C1</cite>. New detail <cite>${deepRef}</cite>. Saved detail <cite>${noteRef}</cite>.`,
+	refs = ["C1", deepRef, noteRef], frozen: unknown[] = citations) => {
 	const result: InvestigationResult = { id, question: "Write a report using all verified evidence", answer,
 		citation_refs: refs, gaps: ["An unverified limitation remains"], wiki_sha256: sha256("frozen Wiki") };
 	const runDir = join(serverRuntimeDirForGoalDir(goalDir), "research", "investigations", id);

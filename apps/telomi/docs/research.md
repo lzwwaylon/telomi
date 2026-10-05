@@ -20,7 +20,7 @@ Research Schedule or user-requested recovery
   -> incremental cross-provider Organizer (Prime Agent when needed)
   -> Runtime logical Source materialization
   -> one fresh Note Agent per logical Source
-  -> Cornell Note Snapshot
+  -> Source Note Snapshot
        -> Report Writer Root + Report Writer Section children
        -> asynchronous Wiki compilation
 ```
@@ -116,7 +116,7 @@ It handles only newly added and historically ungrouped Sources, which may join a
 
 ## 5. Cornell Note
 
-Each Logical Source starts a fresh Prime Agent, with a default maximum concurrency of four. Runtime first materializes a Cornell Source View from the immutable Source. The Agent sees only:
+Each Logical Source starts a fresh Prime Agent, with a default maximum concurrency of four. Runtime first materializes a Note Source View from the immutable Source. The Agent sees only:
 
 - UTF-8 body text and local image assets declared in the conversion manifest
 - The Source ID
@@ -125,14 +125,14 @@ Each Logical Source starts a fresh Prime Agent, with a default maximum concurren
 
 Only when an existing Logical Source gains members or its members change does Runtime additionally provide new or changed member paths as reading guidance. This explanation is not injected for a new Source or when nothing changed.
 
-Binary files such as original PDFs remain in the Source Artifact and are excluded from the Cornell Source View. Local images referenced by Markdown retain their original relative paths and can be viewed through IPython rich display, but Evidence may cite only body-text line numbers. Runtime rejects missing conversion output outright; the Agent cannot fall back to original files.
+Binary files such as original PDFs remain in the Source Artifact and are excluded from the Note Source View. Local images referenced by Markdown retain their original relative paths and can be viewed through IPython rich display, but Evidence may cite only body-text line numbers. Runtime rejects missing conversion output outright; the Agent cannot fall back to original files.
 
 The Agent sees no Ontology, Report Outline, other Sources, or global coverage. It submits top-level `sections`; Runtime adds the version and Source identity, and validates Topic and Discovery fields against the current context. Every Cue must cite a Source-relative path and exact line numbers. `sections` may be empty when there is no relevant content.
 
 Runtime validates files and line numbers and adds cited-content hashes. Unchanged Source revisions reuse existing Notes. A new Run Snapshot is written to:
 
 ```text
-artifacts/cornell-notes/snapshot-<sequence>.json
+artifacts/notes/snapshot-<sequence>.json
 ```
 
 See [Note Agent](note-agent.md) for the complete contract.

@@ -70,7 +70,7 @@ function workerPool(step: ActivityStep): { id: string; label: ActivityText; work
 		return { id: "wiki-maintainers", label: chrome("goals.activityStepGroups.wikiWorkers"), workers };
 	}
 	if (workers.length > 0 && workers.every((worker) => worker.agent.agentName === "note_agent")) {
-		return { id: "cornell-notes", label: chrome("goals.activityStepGroups.noteAgents"), workers };
+		return { id: "notes", label: chrome("goals.activityStepGroups.noteAgents"), workers };
 	}
 	return null;
 }

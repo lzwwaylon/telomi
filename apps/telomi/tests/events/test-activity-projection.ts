@@ -49,7 +49,7 @@ writeFileSync(join(runDir, "run-state.json"), JSON.stringify({
 	pins: {},
 	source_bundles: [],
 	search_execution_records: [],
-	cornell_note_snapshots: [],
+	note_snapshots: [],
 	writer_outputs: [],
 	accepted_chapters: [],
 	canonical_report: { relative_path: "report/final.md", sha256: "a".repeat(64), byte_length: 12 },
@@ -310,7 +310,7 @@ interruptedWikiJobs.start({
 	goal: "可继续的 Wiki 更新",
 	goalContext: { title: "Goal title", description: "Goal description" },
 	topicPlan: wikiTopicPlan,
-	cornellNotes: { relative_path: "artifacts/cornell-notes/evidence.json", sha256: "a".repeat(64), byte_length: 12 },
+	sourceNotes: { relative_path: "artifacts/notes/evidence.json", sha256: "a".repeat(64), byte_length: 12 },
 });
 interruptedWikiJobs.markInterrupted();
 appendRuntimeContext(interruptedRunDir, "research", {
@@ -343,7 +343,7 @@ for (let attempt = 0; attempt < 3; attempt += 1) {
 		goal: "用完续跑次数的 Wiki 更新",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan: wikiTopicPlan,
-		cornellNotes: { relative_path: "artifacts/cornell-notes/evidence.json", sha256: "b".repeat(64), byte_length: 12 },
+		sourceNotes: { relative_path: "artifacts/notes/evidence.json", sha256: "b".repeat(64), byte_length: 12 },
 	});
 	exhaustedWikiJobs.markInterrupted();
 }
@@ -405,7 +405,7 @@ wikiJobs.start({
 	goal: "独立 Wiki Activity",
 	goalContext: { title: "Goal title", description: "Goal description" },
 	topicPlan: wikiTopicPlan,
-	cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "c".repeat(64), byte_length: 12 },
+	sourceNotes: { relative_path: "artifacts/input/notes.json", sha256: "c".repeat(64), byte_length: 12 },
 });
 wikiJobs.markRunning(2, new Date("2026-07-31T10:01:10.000Z"));
 wikiJobs.recordBatch({
@@ -607,7 +607,7 @@ try {
 		goal: "失败的 Wiki Activity",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan: wikiTopicPlan,
-		cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "d".repeat(64), byte_length: 12 },
+		sourceNotes: { relative_path: "artifacts/input/notes.json", sha256: "d".repeat(64), byte_length: 12 },
 	});
 	const curatorTrace = [
 		"Wiki Compilation exited with code 1: /Users/maintainer/My Checkout/apps/telomi/server/wiki/wiki-compilation.ts:590",
@@ -647,7 +647,7 @@ try {
 		goal: "取消的 Wiki Activity",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan: wikiTopicPlan,
-		cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "e".repeat(64), byte_length: 12 },
+		sourceNotes: { relative_path: "artifacts/input/notes.json", sha256: "e".repeat(64), byte_length: 12 },
 	});
 	cancelledWikiJobs.settle("cancelled", { message: "Wiki Compilation cancelled: D:\\Projects\\telomi\\server\\wiki.ts:12:3" });
 	const cancelledWiki = service.getGoal(goalId).history.items

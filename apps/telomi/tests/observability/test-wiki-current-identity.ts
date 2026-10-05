@@ -26,7 +26,7 @@ jobs.start({
 		id: "identity", title: "Identity", intent: "Inspect current identity", questions: ["Which stage?"],
 		include: ["Identity"], exclude: ["Noise"],
 	}] },
-	cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "a".repeat(64), byte_length: 1 },
+	sourceNotes: { relative_path: "artifacts/input/notes.json", sha256: "a".repeat(64), byte_length: 1 },
 });
 const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 };
 jobs.recordBatch({ batchIndex: 0, totalBatches: 1, status: "succeeded", pageCount: 0, usage, reused: false });

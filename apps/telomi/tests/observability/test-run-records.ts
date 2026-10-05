@@ -124,7 +124,7 @@ const plannerNode = appendResearchNodeRecord(runDir, {
 	group_id: null,
 	depends_on: [],
 	input: { stage_id: "note-agent-1" },
-	output: { artifact_ref: "artifacts/cornell-notes/cornell-note-1.json" },
+	output: { artifact_ref: "artifacts/notes/note-1.json" },
 	time: {
 		started_at: "2026-07-29T00:00:00.000Z",
 		finished_at: "2026-07-29T00:00:01.000Z",

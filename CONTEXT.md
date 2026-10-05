@@ -104,12 +104,12 @@ _Avoid_: 工作区, 共享目录
 The current published Wiki Edition for one Goal, grounded in provenance-valid Cornell Evidence. It is a derived knowledge product rather than the authority for historical evidence; user preferences and user memory remain outside it.
 _Avoid_: Goal Knowledge Memory, User Memory, Published Artifact Store
 
-**Cornell Evidence Corpus**:
-The durable cross-Run collection of provenance-valid Cornell Notes from which Wiki Editions are curated. Historical Topic refs are revision-scoped editorial suggestions, not current routing authority.
+**Source Note Corpus**:
+The durable cross-Run collection of provenance-valid Source Notes, produced with the Cornell note-taking method, from which Wiki Editions are curated. Historical Topic refs are revision-scoped editorial suggestions, not current routing authority.
 _Avoid_: Wiki Edition, Topic Index, authoritative Topic assignment
 
 **Wiki Edition**:
-One immutable version of the Goal Wiki curated for one confirmed Goal Topic Plan revision from the Cornell Evidence Corpus and an optional previous Wiki Edition.
+One immutable version of the Goal Wiki curated for one confirmed Goal Topic Plan revision from the Source Note Corpus and an optional previous Wiki Edition.
 _Avoid_: permanent canonical page tree, Topic Projection, mutable Wiki
 
 **Wiki Compilation**:
@@ -121,7 +121,7 @@ Navigation-only classification of an existing Wiki Edition against a confirmed G
 _Avoid_: Wiki reconstruction, page rewriting, semantic relationship generation
 
 **Wiki Update**:
-One bounded execution that incorporates a validated Cornell Note Snapshot into a Goal Wiki and publishes its own result. It has an independent lifecycle even when a Research Run, Main Agent, schedule, or ingestion flow triggers it.
+One bounded execution that incorporates a validated Source Note Snapshot into a Goal Wiki and publishes its own result. It has an independent lifecycle even when a Research Run, Main Agent, schedule, or ingestion flow triggers it.
 _Avoid_: Research Stage, Wiki Page edit, background side effect
 
 **Wiki Update Request**:
@@ -336,7 +336,7 @@ _Avoid_: separate Deep Search Agent, global answer writer, relevance grader, Wik
 Deterministic lookup and resolution of saved Cue Notes with their evidence provenance; it locates existing evidence without performing a new Note Reading.
 _Avoid_: Note Agent execution, original Source reading, new evidence acquisition
 
-**Cornell Note Snapshot**:
+**Source Note Snapshot**:
 The immutable cumulative set of Runtime-validated Cornell Notes for one Run revision.
 _Avoid_: mutable note store, Source Bundle, final report
 

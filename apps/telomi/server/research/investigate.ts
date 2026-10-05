@@ -150,14 +150,14 @@ export async function executeInvestigation(input: {
 		const store = new RunArtifactStore(join(input.goalDir, "artifacts"));
 		const prior = store.readJson<InvestigationResult>(store.openFile(execution.result));
 		for (const ref of prior.citation_refs) {
-			if (ref.startsWith("deep-search:") || ref.startsWith("cornell:")) { previousRefs.add(ref); continue; }
+			if (ref.startsWith("deep-search:") || ref.startsWith("note:")) { previousRefs.add(ref); continue; }
 			if (/^C[1-9][0-9]*$/u.test(ref)) {
 				const citationsPath = join(serverRuntimeDirForGoalDir(input.goalDir), "research", "investigations", execution.execution_id, "citations.json");
 				const citations = existsSync(citationsPath) ? JSON.parse(readFileSync(citationsPath, "utf8")) as {
 					citations?: Array<{ ref: string; wiki?: { entry?: { id?: string } } }> } : {};
 				const entryId = citations.citations?.find((row) => row.ref === ref)?.wiki?.entry?.id?.replace(/^entry:/u, "");
 				const cue = entryId ? catalog.find((item) => ("wiki_entry_id" in item && item.wiki_entry_id === `entry:${entryId}`)
-					|| item.ref.startsWith("cornell:") && item.ref.split(":")[2] === entryId) : undefined;
+					|| item.ref.startsWith("note:") && item.ref.split(":")[2] === entryId) : undefined;
 				if (cue) previousRefs.add(cue.ref);
 				else unresolvedWikiRefs.push(`Historical ${execution.execution_id}/${ref} cannot be remapped to the current allowed Wiki evidence; search and verify it again.`);
 			}
@@ -169,7 +169,7 @@ export async function executeInvestigation(input: {
 		const cue = catalog.find((item) => item.ref === ref);
 		if (!cue) { recoveryGaps.push(`Prior evidence ${ref} is absent from the current allowed knowledge snapshot; verify it again.`); continue; }
 		try {
-			if (cue.ref.startsWith("cornell:")) {
+			if (cue.ref.startsWith("note:")) {
 				const original = resolveSavedNoteCue(input.goalDir, cue.ref);
 				if (!original) throw new Error("Prior Cornell Cue is unavailable");
 				previousCues.push({ ...cue, evidence: original.evidence });
@@ -275,7 +275,7 @@ export async function executeInvestigation(input: {
 					if (durable === ref && /^C[1-9][0-9]*$/u.test(ref)) {
 						await wikiAdapter.hydrateCitationRefs([ref], signal);
 						const citation = wikiAdapter.resolveCitationRef(ref);
-						const saved = catalog.find((cue) => cue.ref.startsWith("cornell:")
+						const saved = catalog.find((cue) => cue.ref.startsWith("note:")
 							&& cue.ref.split(":")[2] === citation.entry.id.replace(/^entry:/u, "")
 							|| "wiki_entry_id" in cue && cue.wiki_entry_id === citation.entry.id);
 						const original = saved ? saved.ref.startsWith("deep-search:")
@@ -358,7 +358,7 @@ export async function executeInvestigation(input: {
 		if (wikiRefs.length) await wikiAdapter.hydrateCitationRefs(wikiRefs, signal);
 		const citations = result.citation_refs.map((ref) => {
 			if (wikiRefs.includes(ref)) return { ref, wiki: wikiAdapter.resolveCitationRef(ref) };
-			const cue = ref.startsWith("cornell:")
+			const cue = ref.startsWith("note:")
 				? resolveSavedNoteCue(input.goalDir, ref)
 				: resolveNoteReadingCue(input.goalDir, ref);
 			if (!cue) throw new Error(`Prime cited unavailable Cue '${ref}'`);

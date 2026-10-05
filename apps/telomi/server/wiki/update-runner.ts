@@ -42,7 +42,7 @@ export interface WikiUpdateTarget {
 	runDirectory: string;
 	/** Run 的控制目录，可变的运行状态写在这里。 */
 	controlDirectory: string;
-	cornellNotes: WikiUpdateJob["cornell_notes"];
+	sourceNotes: WikiUpdateJob["notes"];
 	wikiUpdateId?: string;
 	sourceRunId?: string;
 	cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
@@ -87,7 +87,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 		goal: input.goal,
 		goalContext: input.goalContext,
 		topicPlan: input.topicPlan,
-		cornellNotes: input.cornellNotes,
+		sourceNotes: input.sourceNotes,
 		...(input.wikiUpdateId ? { wikiUpdateId: input.wikiUpdateId } : {}),
 		...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
 		...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
@@ -117,7 +117,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 				runId: input.runId,
 				runDirectory: input.runDirectory,
 				controlDirectory: input.controlDirectory,
-				cornellNotesSnapshot: input.cornellNotes,
+				notesSnapshot: input.sourceNotes,
 				...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
 				topicPlan: input.topicPlan,
 				...(input.rebuild ? { rebuild: true } : {}),
@@ -270,7 +270,7 @@ export function startWikiUpdateActivity(input: {
 	cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
 	sourceRunDirectory: string;
 	wikiUpdateId?: string;
-	cornellNotes: WikiUpdateJob["cornell_notes"];
+	sourceNotes: WikiUpdateJob["notes"];
 	parentActivityId?: string;
 	trigger: NonNullable<WikiUpdateJob["trigger"]>;
 	reason: string;
@@ -282,7 +282,7 @@ export function startWikiUpdateActivity(input: {
 	if (input.wikiUpdateId) {
 		const existing = new WikiUpdateJobStore(wikiUpdateRecordDir(input.workspaceDir, input.goalId, input.wikiUpdateId)).load();
 		if (existing) {
-			if (existing.goal_id !== input.goalId || existing.cornell_notes.sha256 !== input.cornellNotes.sha256
+			if (existing.goal_id !== input.goalId || existing.notes.sha256 !== input.sourceNotes.sha256
 				|| JSON.stringify(existing.topic_plan) !== JSON.stringify(input.topicPlan)
 				|| JSON.stringify(existing.goal_context) !== JSON.stringify(input.goalContext)
 				|| JSON.stringify(existing.cue_origins) !== JSON.stringify(input.cueOrigins)) {
@@ -302,7 +302,7 @@ export function startWikiUpdateActivity(input: {
 					&& job.topic_plan.revision === input.topicPlan.revision
 					&& job.goal_context.title === input.goalContext.title
 					&& job.goal_context.description === input.goalContext.description
-					&& job.cornell_notes.sha256 === input.cornellNotes.sha256
+					&& job.notes.sha256 === input.sourceNotes.sha256
 					? [{ ...entry, job }]
 					: [];
 			})
@@ -316,7 +316,7 @@ export function startWikiUpdateActivity(input: {
 			};
 		}
 		const failed = matches.find(({ job }) => job.status === "failed" && job.attempts < MAX_WIKI_UPDATE_ATTEMPTS
-			&& existsSync(join(wikiUpdateArtifactDir(input.goalDir, job.wiki_update_id ?? job.run_id), job.cornell_notes.relative_path)));
+			&& existsSync(join(wikiUpdateArtifactDir(input.goalDir, job.wiki_update_id ?? job.run_id), job.notes.relative_path)));
 		if (failed) {
 			const wikiUpdateId = failed.job.wiki_update_id ?? failed.runId;
 			return {
@@ -337,7 +337,7 @@ export function startWikiUpdateActivity(input: {
 					workspaceDir: input.workspaceDir,
 					runDirectory: wikiUpdateArtifactDir(input.goalDir, wikiUpdateId),
 					controlDirectory: failed.controlDirectory,
-					cornellNotes: failed.job.cornell_notes,
+					sourceNotes: failed.job.notes,
 					env: input.env,
 					signal: input.signal ?? new AbortController().signal,
 					...(input.dependencies ? { dependencies: input.dependencies } : {}),
@@ -350,9 +350,9 @@ export function startWikiUpdateActivity(input: {
 	const runDirectory = wikiUpdateArtifactDir(input.goalDir, wikiUpdateId);
 	mkdirSync(controlDirectory, { recursive: true });
 	mkdirSync(runDirectory, { recursive: true });
-	const source = new RunArtifactStore(input.sourceRunDirectory).openFile(input.cornellNotes);
+	const source = new RunArtifactStore(input.sourceRunDirectory).openFile(input.sourceNotes);
 	const store = new RunArtifactStore(runDirectory);
-	const copiedPath = "artifacts/input/cornell-notes.json";
+	const copiedPath = "artifacts/input/notes.json";
 	// A process may stop after copying frozen input but before creating its job record.
 	const copied = existsSync(join(runDirectory, copiedPath))
 		? store.openFile({ relative_path: copiedPath, sha256: source.sha256, byte_length: source.byteLength })
@@ -374,7 +374,7 @@ export function startWikiUpdateActivity(input: {
 		workspaceDir: input.workspaceDir,
 		runDirectory,
 		controlDirectory,
-		cornellNotes: {
+		sourceNotes: {
 			relative_path: copied.relativePath,
 			sha256: copied.sha256,
 			byte_length: copied.byteLength,
@@ -428,7 +428,7 @@ export async function resumeWikiUpdate(input: {
 		workspaceDir: input.workspaceDir,
 		runDirectory: wikiUpdateArtifactDir(input.goalDir, input.runId),
 		controlDirectory,
-		cornellNotes: job.cornell_notes,
+		sourceNotes: job.notes,
 		...(job.cue_origins ? { cueOrigins: job.cue_origins } : {}),
 		...(job.rebuild ? { rebuild: true } : {}),
 		env: input.env,

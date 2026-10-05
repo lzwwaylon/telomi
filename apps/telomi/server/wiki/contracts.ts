@@ -44,7 +44,7 @@ export interface WikiCompilationRequest {
 	goalContext: WikiGoalContext;
 	runDirectory: string;
 	controlDirectory: string;
-	cornellNotesSnapshot: RunArtifactRef;
+	notesSnapshot: RunArtifactRef;
 	/** Frozen investigation origins, retained for Case lineage rather than Agent instructions. */
 	cueOrigins?: WikiCueOrigin[];
 	/** Frozen Goal Topic Plan used to organize the resulting Wiki. */

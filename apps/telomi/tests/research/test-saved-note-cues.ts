@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import express from "express";
 
 import { sha256 } from "../../server/lib/hash.js";
 import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { listSavedNoteCues, rankSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
 import { MainWikiCitationSession } from "../../server/main-agent/wiki-citations.js";
 import { resolveMessageCitationSourcePreview } from "../../server/citations/preview.js";
+import { writeWikiMessageCitations } from "../../server/citations/wiki-message-store.js";
+import { createArtifactsRouter } from "../../server/media/artifacts-api.js";
+import type { GoalService } from "../../server/goals/service.js";
 
-const workspace = mkdtempSync(join(tmpdir(), "saved-cornell-cues-"));
+const workspace = mkdtempSync(join(tmpdir(), "saved-note-cues-"));
+let server: Server | undefined;
 try {
 	const goalId = "goal-test";
 	const goalDir = join(workspace, goalId);
@@ -20,7 +27,7 @@ try {
 	const source = join(sequence, "sources", "source-one");
 	const document = join(source, member, "document.md");
 	const knowledgeRoot = join(goalDir, "wiki", "knowledge");
-	const notesRoot = join(runRoot, "artifacts", "cornell-notes");
+	const notesRoot = join(runRoot, "artifacts", "notes");
 	mkdirSync(join(source, member), { recursive: true });
 	mkdirSync(knowledgeRoot, { recursive: true });
 	mkdirSync(notesRoot, { recursive: true });
@@ -48,8 +55,23 @@ try {
 	writeFileSync(join(notesRoot, "snapshot-1.json"), JSON.stringify(snapshot));
 	const entry = noteWikiEntries(snapshot as never)[0]!;
 	writeFileSync(join(knowledgeRoot, ".note-registry.json"), JSON.stringify({ schema_version: 2, entries: [entry] }));
+	const noteRef = `note:${runId}:${entry.id.slice(6)}:${entry.revisionSha256.slice(0, 12)}`;
+	writeWikiMessageCitations(goalDir, {
+		schemaVersion: 1, goalId, messageId: "current-note-preview", wikiRevision: "", knowledgeSha256: "",
+		citations: [{ number: 1, title: "Current Source Note", refs: [noteRef], provenance: noteRef }],
+	});
+	const app = express();
+	app.use(createArtifactsRouter(workspace, { getGoal: (id: string) => id === goalId ? { id: goalId } : undefined } as GoalService));
+	server = app.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	const address = server.address();
+	assert.ok(address && typeof address === "object");
+	const response = await fetch(`http://127.0.0.1:${address.port}/api/goals/${goalId}/artifacts/citations/preview?messageId=current-note-preview&number=1`);
+	assert.equal(response.status, 200, "the actual citation HTTP route resolves the current note: namespace");
+	assert.equal((await response.json()).clues[0]?.excerpts[0]?.text, sourceText.trim());
 	const [cue] = listSavedNoteCues(knowledgeRoot);
-	assert.equal(cue?.kind, "cornell");
+	assert.equal(cue?.kind, "note");
+	assert.equal(cue?.ref, noteRef);
 	assert.equal(rankSavedNoteCues([cue!, { ref: "irrelevant", cue: "Qwen training", note: "A separate TTS system" }],
 		"Gemini Hume voice design accent modeling scores", 2)[0]?.ref, cue!.ref);
 	assert.equal(resolveSavedNoteCue(goalDir, cue!.ref)?.evidence[0]?.excerpt, sourceText.trim());
@@ -65,5 +87,6 @@ try {
 	writeFileSync(document, "The score changed.\n");
 	assert.throws(() => resolveSavedNoteCue(goalDir, cue!.ref), /Evidence Source range changed/u);
 } finally {
+	if (server) await new Promise<void>((done, reject) => server!.close((error) => error ? reject(error) : done()));
 	rmSync(workspace, { recursive: true, force: true });
 }

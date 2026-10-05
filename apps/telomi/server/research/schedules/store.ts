@@ -311,7 +311,7 @@ export class ResearchScheduleStore {
 		reportPath?: string;
 		discoveredSources: number;
 		incrementalSources: number;
-		cornellNotes: number;
+		sourceNotes: number;
 		sources: ResearchScheduleSource[];
 		sourceGaps?: ResearchScheduleSource[];
 		now?: Date;
@@ -331,7 +331,7 @@ export class ResearchScheduleStore {
 				args.reportPath ?? null,
 				args.discoveredSources,
 				args.incrementalSources,
-				args.cornellNotes,
+				args.sourceNotes,
 				now,
 				args.runId,
 			);
@@ -724,7 +724,7 @@ export class ResearchScheduleStore {
 			...(row.error ? { error: String(row.error) } : {}),
 			discoveredSources: Number(row.discovered_sources),
 			incrementalSources: Number(row.incremental_sources),
-			cornellNotes: Number(row.note_count),
+			sourceNotes: Number(row.note_count),
 			...(row.started_at ? { startedAt: String(row.started_at) } : {}),
 			...(row.finished_at ? { finishedAt: String(row.finished_at) } : {}),
 			createdAt: String(row.created_at),

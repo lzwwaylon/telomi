@@ -4,14 +4,14 @@ import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import type { GoalTopicPlan } from "../goals/topic-plan/index.js";
 
 /** Semantic output from one complete logical Source. */
-export interface CornellEvidence {
+export interface SourceNoteEvidence {
 	source_path: string;
 	start_line: number;
 	end_line: number;
 	content_sha256: string;
 }
 
-export interface CornellNote {
+export interface SourceNote {
 	schema_version: 1;
 	source_id: string;
 	sections: Array<{
@@ -20,7 +20,7 @@ export interface CornellNote {
 		cue_notes: Array<{
 			cue: string;
 			note: string;
-			evidence: CornellEvidence[];
+			evidence: SourceNoteEvidence[];
 			topic_refs?: string[];
 			discovery?: {
 				finding: string;
@@ -29,7 +29,7 @@ export interface CornellNote {
 	}>;
 }
 
-export interface CornellNoteInput {
+export interface SourceNoteInput {
 	runId: string;
 	sequence: number;
 	question: string;
@@ -45,22 +45,22 @@ export interface CornellNoteInput {
 	onAgentStageCompleted?: (usage: ResearchModelUsage) => void;
 }
 
-export interface CornellSourceNote {
+export interface ProcessedSourceNote {
 	source: LogicalSource;
-	note: CornellNote;
+	note: SourceNote;
 	artifactRef: string;
 }
 
-export interface CornellSourceFailure {
+export interface SourceNoteFailure {
 	source: LogicalSource;
 	message: string;
 }
 
-export interface CornellNoteBatchResult {
-	notes: CornellSourceNote[];
-	failures: CornellSourceFailure[];
+export interface SourceNoteBatchResult {
+	notes: ProcessedSourceNote[];
+	failures: SourceNoteFailure[];
 }
 
-export interface CornellNoteProcessor {
-	process(input: CornellNoteInput): Promise<CornellNoteBatchResult>;
+export interface SourceNoteProcessor {
+	process(input: SourceNoteInput): Promise<SourceNoteBatchResult>;
 }

@@ -282,7 +282,7 @@ export class ResearchActivityProjection {
 			summary: run.error ? [{ text: run.error }] : run.status === "published"
 				? [
 					...chrome("activityChrome.research.scheduleSources", { count: run.incrementalSources }),
-					...chrome("activityChrome.research.scheduleNotes", { count: run.cornellNotes }),
+					...chrome("activityChrome.research.scheduleNotes", { count: run.sourceNotes }),
 				]
 				: chrome(SCHEDULE_RUN_STATUS_KEYS[run.status]),
 			lifecycle,
@@ -392,8 +392,8 @@ function researchSummary(state: RunStateV2, providerSteps: ActivityStep[]): Acti
 	const tail: ActivityMessage[] = [
 		...providerFallbackParts(providerSteps, state.status),
 		...degradedSearchParts(state),
-		...(state.cornell_note_failure_count
-			? chrome("activityChrome.research.sourceNoteFailures", { count: state.cornell_note_failure_count })
+		...(state.note_failure_count
+			? chrome("activityChrome.research.sourceNoteFailures", { count: state.note_failure_count })
 			: []),
 	];
 	if (state.status === "published") {

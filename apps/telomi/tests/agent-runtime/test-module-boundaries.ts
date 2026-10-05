@@ -4,7 +4,7 @@
  * The generic Agent Runtime keeps Worker, Sandbox, credential, structural validation and
  * Published Artifact management; it must not learn Research. Wiki and Media curate or
  * present products of a Research Run without depending on how a Run executes. The Cornell
- * Evidence Corpus contract is owned by `cornell/` because Research produces it and Wiki
+ * Evidence Corpus contract is owned by `notes/` because Research produces it and Wiki
  * curates Editions from it, so neither of them may own it.
  *
  * The check asserts real dependency direction, not file locations: moving an
@@ -26,11 +26,11 @@ const server = fileURLToPath(new URL("../../server/", import.meta.url));
 const ALLOWED_RESEARCH_EDGES = new Set(["evolution/browser-trigger.ts -> research/run-state.ts"]);
 
 const FORBIDDEN: Array<{ owner: string; targets: string[]; reason: string }> = [
-	{ owner: "agent-runtime", targets: ["research/", "wiki/", "goals/", "main-agent/", "evolution/", "cornell/", "providers/search-contracts.ts"], reason: "the generic Agent Runtime must not depend on a business module" },
+	{ owner: "agent-runtime", targets: ["research/", "wiki/", "goals/", "main-agent/", "evolution/", "notes/", "providers/search-contracts.ts"], reason: "the generic Agent Runtime must not depend on a business module" },
 	{ owner: "wiki", targets: ["research/"], reason: "a Wiki Update has a lifecycle independent of the Research Run that triggers it" },
 	{ owner: "media", targets: ["research/"], reason: "Media must not depend on Research" },
 	{ owner: "evolution", targets: ["research/"], reason: "Evolution consumes captured Cases, not the Research pipeline" },
-	{ owner: "cornell", targets: ["research/", "wiki/"], reason: "the Cornell Evidence Corpus contract must not depend on its producer or its curator" },
+	{ owner: "notes", targets: ["research/", "wiki/"], reason: "the Source Note Corpus contract must not depend on its producer or its curator" },
 ];
 
 const violations: string[] = [];

@@ -637,7 +637,7 @@ function collectWikiFiles(root: string): TraceFileRef[] {
 		|| relativePath === "artifacts/report-flow/executable-plan.json"
 		|| relativePath === "artifacts/report-flow/knowledge-url-registry.json"
 		|| /^artifacts\/report-flow\/writer\/(?:manifest\.json|sections\/[^/]+\.md)$/u.test(relativePath)
-		|| /^artifacts\/cornell-notes\/snapshot-(?:seed|\d+)\.json$/u.test(relativePath)
+		|| /^artifacts\/notes\/snapshot-(?:seed|\d+)\.json$/u.test(relativePath)
 		|| /^artifacts\/wiki-compilations\/[^/]+\/compilation\.json$/u.test(relativePath)
 		|| /^artifacts\/wiki-compilations\/[^/]+\/(?:knowledge|agent-update)\/.+\.md$/u.test(relativePath)
 		|| relativePath === "report/final.json"
@@ -939,7 +939,7 @@ function fileKind(path: string): string {
 	if (path === "artifacts/report-flow/knowledge-url-registry.json") return "knowledge_url_registry";
 	if (path === "artifacts/report-flow/writer/manifest.json") return "writer_chapter_manifest";
 	if (/^artifacts\/report-flow\/writer\/sections\/[^/]+\.md$/u.test(path)) return "writer_chapter";
-	if (/^artifacts\/cornell-notes\/snapshot-(?:seed|\d+)\.json$/u.test(path)) return "cornell_note_snapshot";
+	if (/^artifacts\/notes\/snapshot-(?:seed|\d+)\.json$/u.test(path)) return "note_snapshot";
 	if (/^artifacts\/wiki-compilations\/[^/]+\/compilation\.json$/u.test(path)) return "wiki_compilation";
 	if (path.includes("/agent-update/")) return "wiki_agent_update";
 	if (path.includes("/wiki-compilations/") && path.includes("/knowledge/")) return "wiki_final_snapshot";
