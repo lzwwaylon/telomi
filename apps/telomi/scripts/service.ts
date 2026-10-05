@@ -10,10 +10,8 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { applicationRoot } from "../server/config/data-dir.js";
-import { stopManagedBrowser, stopMemoryDatabase } from "../server/config/data-layout.js";
-import { managedBrowserPaths } from "./chrome-debug.js";
 import { installationBackupDir } from "../server/config/data-format.js";
-import { checkout, launchAgentPath, serviceLabel, UpgradeError, type Checkout } from "./upgrade.js";
+import { checkout, launchAgentPath, serviceLabel, stopRuntime, UpgradeError, type Checkout } from "./upgrade.js";
 
 export const JOBS = ["server", "auto-upgrade", "snapshot"] as const;
 export type Job = typeof JOBS[number];
@@ -169,12 +167,6 @@ function checkNode(node: string): string {
 	return version;
 }
 
-/** The managed browser and the memory database can outlive the server; stopping Telomi stops them too. */
-async function stopRuntime(inst: Checkout): Promise<void> {
-	await stopManagedBrowser(managedBrowserPaths(inst.dataDir));
-	stopMemoryDatabase(inst.env);
-}
-
 async function install(inst: Checkout, options: InstallOptions): Promise<void> {
 	if (process.platform !== "darwin") throw new UpgradeError("npm run service supports macOS (launchd) only");
 	const node = resolve(options.node);
@@ -307,9 +299,13 @@ export async function main(argv: string[], inst = checkout()): Promise<number> {
 	else if (command.action === "stop") await stop(inst);
 	else if (command.action === "start") start(inst);
 	else if (command.action === "restart") {
-		const restarted = launchctl("kickstart", "-k", target(labels(inst).server));
-		if (!restarted.ok) throw new UpgradeError(`the server job is not running (${restarted.output}); use npm run service -- start`);
-		console.log(`[service] restarted ${labels(inst).server}`);
+		const server = labels(inst).server;
+		const running = launchctl("print", target(server));
+		if (!running.ok) throw new UpgradeError(`the server job is not running (${running.output}); use npm run service -- start`);
+		bootout(server);
+		stopRuntime(inst);
+		bootstrap(server);
+		console.log(`[service] restarted ${server}`);
 	} else status(inst);
 	return 0;
 }

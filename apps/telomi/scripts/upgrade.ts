@@ -15,11 +15,9 @@ import { fileURLToPath } from "node:url";
 import { applicationRoot, resolveDataDir } from "../server/config/data-dir.js";
 import { dataFingerprint } from "../server/config/data-fingerprint.js";
 import { installationBackupDir, readDataFormat, upgradeMarkerPath } from "../server/config/data-format.js";
-import { stopManagedBrowser, stopMemoryDatabase } from "../server/config/data-layout.js";
 import { loadProjectEnvironment } from "../server/config/environment.js";
 import { rotateOutputLog } from "../server/config/output-log.js";
 import { runtimeControlRoot } from "../server/workspaces/server-runtime-paths.js";
-import { managedBrowserPaths } from "./chrome-debug.js";
 
 /** Snapshots kept per kind: one before every upgrade, and `--snapshot-only` ones (typically daily). */
 export const SNAPSHOT_LIMITS = { upgrade: 10, daily: 7 } as const;
@@ -46,7 +44,7 @@ export interface Checkout {
 	repoRoot: string;
 	dataDir: string;
 	baseUrl: string;
-	/** The checkout's settings, read the way the server reads them. Never passed to child processes. */
+	/** The checkout's settings, read the way the server reads them; also used by its Runtime shutdown. */
 	env: NodeJS.ProcessEnv;
 }
 
@@ -138,9 +136,9 @@ function git(repo: string, ...args: string[]): string {
 	return result.stdout.trim();
 }
 
-function run(command: string, args: string[], cwd: string): void {
+function run(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): void {
 	const started = Date.now();
-	const result = spawnSync(command, args, { cwd, stdio: "inherit" });
+	const result = spawnSync(command, args, { cwd, stdio: "inherit", env });
 	if (result.status !== 0) throw new UpgradeError(`${command} ${args.join(" ")} failed (exit ${result.status ?? result.signal})`);
 	log(`${command} ${args.join(" ")} finished in ${seconds(started)}`);
 }
@@ -308,18 +306,29 @@ async function stopService(install: Installation): Promise<void> {
 	}
 }
 
-async function stopAll(install: Installation): Promise<void> {
+/** Stop owned Runtime descendants through the same CLI used by development checkouts. */
+export function stopRuntime(install: Checkout): void {
+	run("python3", ["apps/telomi/scripts/worktree.py", "stop"], install.repoRoot, {
+		...process.env, ...install.env,
+		TELOMI_DATA_DIR: install.dataDir,
+		// Already resolved by checkout(); do not reread a different environment after stopping the server.
+		TELOMI_RUNTIME_STOP_RESOLVED_ENV: "1",
+		TELOMI_RUNTIME_STOP_ROOT: realpathSync(install.repoRoot),
+	});
+}
+
+export async function stopAll(install: Installation): Promise<void> {
 	// Set first: a supervisor that restarts the old server after the stop must find it refusing to start.
 	writeFileSync(install.marker, String(process.pid));
 	const hook = install.env.TELOMI_SERVICE_STOP?.trim();
 	// A stop hook fails for a service that is not loaded; whether the server still answers is what counts.
-	spawnSync(hook ? "/bin/sh" : "python3", hook ? ["-c", hook] : ["apps/telomi/scripts/worktree.py", "stop"], { cwd: install.repoRoot, stdio: "inherit" });
+	if (hook) spawnSync("/bin/sh", ["-c", hook], { cwd: install.repoRoot, stdio: "inherit" });
+	else stopRuntime(install);
 	if (!(await waitFor(async () => !(await responding(install)), STOP_TIMEOUT_MS))) {
 		throw new UpgradeError(`Telomi still answers on ${install.baseUrl}. It was started some other way, or a supervisor restarted it: `
 			+ "set TELOMI_SERVICE_STOP and TELOMI_SERVICE_START (see docs/upgrading.md)");
 	}
-	await stopManagedBrowser(managedBrowserPaths(install.dataDir));
-	stopMemoryDatabase(install.env);
+	if (hook) stopRuntime(install);
 }
 
 async function startService(install: Installation): Promise<void> {
@@ -359,8 +368,8 @@ function launch(install: Installation): { logPath: string; exited: () => boolean
 export function recoverAfterCrash(install: Installation, previous: string, snapshot: Snapshot | undefined): void {
 	if (git(install.repoRoot, "rev-parse", "HEAD") !== previous) {
 		const hook = install.env.TELOMI_SERVICE_STOP?.trim();
-		spawnSync(hook ? "/bin/sh" : "python3", hook ? ["-c", hook] : ["apps/telomi/scripts/worktree.py", "stop"], { cwd: install.repoRoot, stdio: "inherit" });
-		stopMemoryDatabase(install.env);
+		if (hook) spawnSync("/bin/sh", ["-c", hook], { cwd: install.repoRoot, stdio: "inherit" });
+		stopRuntime(install);
 		if (snapshot && dataFormatChanged(install, snapshot)) log(`restored the snapshot taken ${snapshot.createdAt}; the replaced data is kept at ${restoreSnapshot(install, snapshot)}`);
 		installCode(install, previous);
 	}
