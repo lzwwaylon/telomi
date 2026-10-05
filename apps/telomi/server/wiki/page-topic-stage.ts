@@ -105,7 +105,7 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
   for (let validationAttempt = 1; ; validationAttempt++) {
    for (let attempt = 1; ; attempt++) {
     request.signal.throwIfAborted();
-    const context = { systemPrompt: prompt.content, messages, tools: [] };
+    const context = { systemPrompt: prompt.content, messages: [...messages], tools: [] };
     const contextFile = `runtime/agent-context-attempt-${++responseAttempt}.json`;
     writeJsonAtomic(join(attemptRoot, contextFile), { ...context, validationAttempt, transportAttempt: attempt }); responseFiles.push(contextFile);
     response = await complete(model, context, {

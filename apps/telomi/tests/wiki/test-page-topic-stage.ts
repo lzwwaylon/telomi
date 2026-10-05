@@ -55,12 +55,14 @@ try {
  for (const [name, invalid, violation] of invalidReplies) { try {
   const req = request(`repair-${name}`); let attempts = 0;
   let originalUser: unknown;
+  let firstContext: Parameters<PageTopicCompletion>[1] | undefined;
   const repaired = await runPageTopicStage(req, async (resolved, context, options) => {
    assert.equal(`${resolved.provider}/${resolved.id}`, PAGE_TOPIC_MODEL);
    assert.equal(options?.reasoning, 'medium');
    assert.deepEqual(context.tools, []);
-   if (++attempts === 1) { originalUser = structuredClone(context.messages[0]); return invalid; }
+   if (++attempts === 1) { firstContext = context; originalUser = structuredClone(context.messages[0]); return invalid; }
    assert.equal(attempts, 2, 'one repair completion at most');
+   assert.deepEqual(firstContext!.messages, [originalUser], 'repair must not mutate a previous completion request');
    assert.deepEqual(context.messages[0], originalUser, 'repair preserves the entire original input');
    assert.deepEqual(context.messages.map(message => message.role), ['user', 'assistant', 'user']);
    assert.deepEqual(context.messages[1]!.content, invalid.content, 'repair receives the original visible reply');
