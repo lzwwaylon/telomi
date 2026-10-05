@@ -55,6 +55,7 @@ try {
  for (const literal of [
   '<S{id}>', '\\<S{id}\\>', '\\<speaker\\>', '&lt;speaker&gt;',
   '`<speaker>`', '`<script>alert(1)</script>`',
+  '`<user@example.org>`', '\\<user@example.org\\>', '`<ftp:files>`',
   '```xml\n<speaker>\n</speaker>\n```', '    <speaker>\n    </speaker>',
  ]) {
   markdown('Literal.md', `## Mechanism\n\n${literal}\n\nSupported notation [[N1]].`);
@@ -64,6 +65,10 @@ try {
  for (const html of ['<speaker>', '<em>text</em>', '<script>alert(1)</script>', '<!-- hidden -->', '<!DOCTYPE html>', '\\\\<speaker>', '<speaker\n name="label">', '> <speaker>', '- <speaker>']) {
   markdown('Html.md', `## Mechanism\n\n${html}\n\nSupported statement [[N1]].`);
   assert.throws(() => ws.validate({ ...draft, pages: [{ file: 'pages/Html.md' }] }, work), /HTML/u);
+ }
+ for (const link of ['<user@example.org>', '<mailto:user@example.org>', '<ftp:files>']) {
+  markdown('Link.md', `## Mechanism\n\n${link} [[N1]].`);
+  assert.throws(() => ws.validate({ ...draft, pages: [{ file: 'pages/Link.md' }] }, work), /no links allowed at body line 4, column 1/u);
  }
  markdown('Html.md', '## Mechanism\n\nUnsafe <speaker>. [[N1]]');
  assert.throws(() => ws.validate({ ...draft, pages: [{ file: 'pages/Html.md' }] }, work), error => {

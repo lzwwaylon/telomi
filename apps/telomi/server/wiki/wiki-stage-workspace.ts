@@ -29,9 +29,13 @@ export interface WikiStageWorkspace {
 }
 function fail(message: string): never { throw new Error(`Wiki compilation output: ${message}`); }
 const markdownParser = unified().use(remarkParse);
-function validateNoHtml(body: string, field: string): void {
+function validateMarkdownMarkup(body: string, field: string): void {
  const nodes: Nodes[] = [markdownParser.parse(body)];
  for (const node of nodes) {
+  if (node.type === 'link') {
+   const start = node.position!.start;
+   fail(`${field}: no links allowed at body line ${start.line}, column ${start.column}: ${JSON.stringify(node.url.slice(0, 120))}. Use escaped text or code for literal notation.`);
+  }
   if (node.type === 'html') {
    const start = node.position!.start;
    fail(`${field}: HTML is not allowed at body line ${start.line}, column ${start.column}: ${JSON.stringify(node.value.slice(0, 120))}. Use escaped text or code for literal notation.`);
@@ -319,7 +323,7 @@ export function createWikiStageWorkspace(input: WikiStageInput, inputRoot: strin
    const title = text(fields.title, `${path}.file(${file}).frontmatter.title`), description = text(fields.description, `${path}.file(${file}).frontmatter.description`);
    text(body, `${path}.file(${file}).body`);
    if (!/^##\s+\S/mu.test(body) || /^#\s|^---\s*$|^##\s+(?:Related|Evidence)\s*$/imu.test(body) || /(?:https?:\/\/|\]\(|^\s*\[[^\]]+\]:)/mu.test(body)) fail(`${path}.file(${file}).body: Markdown requires H2 sections and no links, HTML, Related or Evidence sections`);
-   validateNoHtml(body, `${path}.file(${file}).body`);
+   validateMarkdownMarkup(body, `${path}.file(${file}).body`);
    const markers = [...body.matchAll(/\[\[([^\]]+)\]\]/gu)];
    if (!markers.length || /\[\[|\]\]/u.test(body.replace(/\[\[([^\]]+)\]\]/gu, ''))) fail(`${path}.file(${file}).body: body must cite valid short Entry markers such as [[N1]]`);
    for (const match of markers) entry(match[1], `${path}.file(${file}).body`);
