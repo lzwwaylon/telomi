@@ -21,8 +21,6 @@ const ReadPageSchema = Type.Object({
 export function createGoalLlmWikiTools(options: {
 	goalDir: string;
 	knowledgeRoot?: string;
-	/** Only frozen historical consumers may request the retired graph tool. */
-	legacyGraphSearch?: boolean;
 }): AgentTool[] {
 	const local = new GoalWikiSearch(options.knowledgeRoot ?? `${options.goalDir}/wiki/knowledge`, { goalDir: options.goalDir });
 	const topics = async () => (await local.listTopics()).topics.map((topic, index) => ({ ...topic, topic_ref: `T${index + 1}` }));
@@ -80,19 +78,7 @@ export function createGoalLlmWikiTools(options: {
 			});
 		},
 	};
-	const GraphSearchSchema = Type.Omit(SearchSchema, ["topic_ref"]);
-	const wikiGraphSearch: AgentTool<typeof GraphSearchSchema> = {
-		name: "wiki_graph_search",
-		label: "wiki_graph_search",
-		description: "Find matching Wiki graph nodes and their direct neighbors for this Goal.",
-		parameters: GraphSearchSchema,
-		executionMode: "sequential",
-		execute: async (_id, input, signal) => {
-			signal?.throwIfAborted();
-			return toolResult(await local.graphSearch(input.query, input.top_k ?? 10));
-		},
-	};
-	return [wikiListTopics, wikiSearch, wikiReadPage, ...(options.legacyGraphSearch ? [wikiGraphSearch] : [])];
+	return [wikiListTopics, wikiSearch, wikiReadPage];
 }
 
 export function normalizeWikiPagePath(value: string): string {
@@ -119,7 +105,7 @@ export function normalizeWikiPagePath(value: string): string {
 export function wikiToolArguments(name: string, input: Record<string, unknown>): Record<string, unknown> {
 	if (name === "wiki_list_topics") return {};
 	if (name === "wiki_read_page") return { path: bridgeString(input.path, "Wiki Page ref") };
-	if (name !== "wiki_search" && name !== "wiki_graph_search") throw new Error(`Unsupported Wiki operation '${name}'`);
+	if (name !== "wiki_search") throw new Error(`Unsupported Wiki operation '${name}'`);
 	const topicRef = input.topic_ref === undefined ? undefined : bridgeString(input.topic_ref, "Wiki Topic ref");
 	if (topicRef !== undefined && !/^T[1-9][0-9]*$/u.test(topicRef)) throw new Error("Wiki topic_ref must be a T-number returned by wiki_list_topics");
 	if (topicRef !== undefined && name !== "wiki_search") throw new Error("Topic filters apply only to wiki_search");

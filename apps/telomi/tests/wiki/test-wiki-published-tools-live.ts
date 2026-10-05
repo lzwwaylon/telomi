@@ -15,14 +15,11 @@ assert.ok(hit, "published LLM Wiki page was not searchable");
 const page = await wiki.readPage(hit.path);
 assert.match(page.content, /checksum/iu);
 assert.match(page.content, /integrity error/iu);
-const graph = await wiki.graphSearch("Orchid Protocol", 5);
-assert.ok(graph.nodes.some((node) => node.id.includes("orchid-protocol")));
 console.log(JSON.stringify({
 	searchMode: search.mode,
 	hit: hit.path,
 	sources: hit.sources,
 	page: page.path,
-	graphNodes: graph.nodes.map((node) => node.id),
 }, null, 2));
 
 function requiredEnv(name: string): string {

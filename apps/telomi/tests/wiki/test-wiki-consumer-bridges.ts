@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +13,16 @@ import { createWikiReferenceAdapterFromRoot } from "../../server/research/pipeli
 import { startScheduleReviewBridge } from "../../server/research/schedules/reviewer.js";
 import { ResearchSourceRegistry } from "../../server/research/sources/registry.js";
 import { createGoalLlmWikiTools } from "../../server/wiki/tools.js";
+
+// Both installed Python Skills must expose only current operations, including during Replay.
+const skillRoot = fileURLToPath(new URL("../../agents/research/", import.meta.url));
+const python = spawnSync("python3", ["-c", "import wiki_report, schedule_review; assert not hasattr(wiki_report, 'graph_search'); assert not hasattr(schedule_review, 'wiki_graph_search')"], {
+	env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONPATH: [
+		join(skillRoot, "report-writer/skills/wiki-report/src"),
+		join(skillRoot, "schedule-reviewer/skills/schedule-review/src"),
+	].join(":") }, encoding: "utf8",
+});
+assert.equal(python.status, 0, python.stderr || "current Wiki Python Skill exports");
 
 const root = mkdtempSync(join(tmpdir(), "wiki-consumer-bridges-"));
 try {
@@ -121,18 +133,18 @@ try {
 	} finally {
 		await schedule.close();
 	}
-	const legacy = await startScheduleReviewBridge({ goalId: "goal_bridge", goalDir: root,
-		logPath: join(root, "historical-tools.jsonl"), signal, legacyGraphSearch: true,
-		answerTool: async (operation, args) => ({ operation, args, historical: true }) });
+	const replay = await startScheduleReviewBridge(Object.assign({ goalId: "goal_bridge", goalDir: root,
+		logPath: join(root, "historical-tools.jsonl"), signal,
+		answerTool: async (operation, args) => ({ operation, args, historical: true }) }, { legacyGraphSearch: true }));
 	try {
-		const response = await fetch(`${legacy.baseUrl}/v1/schedule-review`, {
-			method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${legacy.token}` },
+		const response = await fetch(`${replay.baseUrl}/v1/schedule-review`, {
+			method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${replay.token}` },
 			body: JSON.stringify({ operation: "wiki_graph_search", query: "speech", top_k: 5 }),
 		});
-		assert.equal(response.status, 200, "only an explicit historical bridge admits graph search");
-		assert.deepEqual(await response.json(), { operation: "wiki_graph_search", args: { query: "speech", top_k: 5 }, historical: true });
+		assert.equal(response.status, 422, "a frozen Replay answer and retired option cannot restore a retired Wiki operation");
+		assert.match(JSON.stringify(await response.json()), /Unsupported/u);
 	} finally {
-		await legacy.close();
+		await replay.close();
 	}
 	const historicalGoalDir = join(root, "goal_legacy");
 	const historicalKnowledge = join(historicalGoalDir, "wiki", "knowledge");

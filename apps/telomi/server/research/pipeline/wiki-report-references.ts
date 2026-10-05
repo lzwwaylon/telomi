@@ -122,22 +122,6 @@ function createWikiReferenceAdapter(
 		if (toolName === "wiki_search") {
 			return { ...record, results: Array.isArray(record.results) ? record.results.map(projectSummary) : [] };
 		}
-		if (toolName === "wiki_graph_search") {
-			return {
-				...record,
-				seeds: Array.isArray(record.seeds) ? record.seeds.map(projectSummary) : [],
-				nodes: Array.isArray(record.nodes) ? record.nodes.map(projectSummary) : [],
-				edges: Array.isArray(record.edges) ? record.edges.map((edge) => {
-					if (!edge || typeof edge !== "object" || Array.isArray(edge)) return edge;
-					const value = edge as Record<string, unknown>;
-					return {
-						...value,
-						...(typeof value.source === "string" ? { source: projectPageRef(value.source) } : {}),
-						...(typeof value.target === "string" ? { target: projectPageRef(value.target) } : {}),
-					};
-				}) : [],
-			};
-		}
 		const path = resolvePageRef(requestedRef!);
 		const page = pageByRef.get(requestedRef!)!;
 		const title = requireString(record.title, "Wiki Page title");

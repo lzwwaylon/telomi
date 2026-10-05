@@ -54,12 +54,6 @@ try {
 				links: ["concepts/alpha"], backlinks: [], missingLinks: [],
 			});
 		},
-	}, {
-		name: "wiki_graph_search", label: "wiki_graph_search", description: "graph", parameters: Query,
-		execute: async () => result({
-			nodes: [{ path: "wiki/concepts/alpha.md", id: "concepts/alpha", type: "concept" }],
-			edges: [{ source: "concepts/alpha", target: "entities/beta", weight: 1 }],
-		}),
 	}];
 
 	const adapter = createWikiReportReferenceAdapter(knowledge, tools);
@@ -77,11 +71,6 @@ try {
 	assert.equal(searchDetails.results[0]?.page_ref, "P2");
 	assert.equal("path" in searchDetails.results[0]!, false, "Agent-facing search results must not expose hash paths");
 	assert.doesNotMatch(JSON.stringify(searchDetails), /wiki\/(?:concepts|entities)\//u);
-
-	const graph = adapter.tools.find((tool) => tool.name === "wiki_graph_search")!;
-	const graphDetails = (await graph.execute("graph", { query: "Beta" })).details as Record<string, unknown>;
-	assert.deepEqual(graphDetails.edges, [{ source: "P1", target: "P2", weight: 1 }]);
-	assert.doesNotMatch(JSON.stringify(graphDetails), /concepts\/alpha|entities\/beta/u);
 
 	const read = adapter.tools.find((tool) => tool.name === "wiki_read_page")!;
 	const pageDetails = (await read.execute("read", { path: "P2" })).details as {

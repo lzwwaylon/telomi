@@ -820,9 +820,7 @@ export class NodeBacktestService {
 			for (const wikiTraceDirectory of wikiCaseTraceDirectories(value)) {
 				if (existsSync(join(sourceRunDirectory, wikiTraceDirectory))) {
 					// Wiki Compilation 的 Runtime 目录与 Worker Workspace 并列；按 Runtime 内的相对路径分类。
-					const kind = value.agentId === "wiki-compilation" ? wikiCompilationCaseTraceKind : basename(wikiTraceDirectory) === "curator-runtime"
-						? (relativePath: string) => wikiCaseTraceKind(`runtime/${relativePath}`)
-						: wikiCaseTraceKind;
+					const kind = wikiCompilationCaseTraceKind;
 					addDirectory("run", sourceRunDirectory, wikiTraceDirectory, kind);
 				}
 			}
@@ -2331,31 +2329,6 @@ function podcastCaseTraceKind(relativePath: string): string | undefined {
 	if (relativePath === "runtime/result.json") return "runtime_result";
 	if (relativePath.startsWith("agent-workspace/inputs/")) return "agent_input";
 	if (relativePath.startsWith("agent-workspace/work/") || relativePath.startsWith("agent-workspace/writer-output/")) return "agent_file_contract";
-	return undefined;
-}
-
-function wikiCaseTraceKind(relativePath: string): string | undefined {
-	if (/^(?:(?:entity|concept)\/)?[^/]+\.jsonl$/u.test(relativePath)) return "agent_trace";
-	if (relativePath === "runtime/sdk-events.jsonl") return "runtime_trace";
-	if (/^runtime\/(?:entity|concept)\/sdk-events\.jsonl$/u.test(relativePath)) return "runtime_trace";
-	if (/^runtime\/session-artifacts\/sub-[^/]+\/[^/]+\.jsonl$/u.test(relativePath)) return "related_agent_trace";
-	if (/^runtime\/(?:entity|concept)\/session-artifacts\/sub-[^/]+\/[^/]+\.jsonl$/u.test(relativePath)) return "related_agent_trace";
-	if (/^runtime\/session-artifacts\/sub-[^/]+\/rlm-subagent\.json$/u.test(relativePath)) return "child_metadata";
-	if (/^runtime\/(?:entity|concept)\/session-artifacts\/sub-[^/]+\/rlm-subagent\.json$/u.test(relativePath)) return "child_metadata";
-	if (relativePath === "runtime/system-prompt.md") return "system_prompt";
-	if (/^runtime\/(?:entity|concept)\/system-prompt\.md$/u.test(relativePath)) return "system_prompt";
-	if (relativePath === "runtime/user-prompt.md") return "user_prompt";
-	if (/^runtime\/(?:entity|concept)\/user-prompt\.md$/u.test(relativePath)) return "user_prompt";
-	if (relativePath === "runtime/result.json") return "runtime_result";
-	if (relativePath === "work/plan.json") return "agent_plan";
-	if (/^work\/assignments\/[^/]+\.json$/u.test(relativePath)) return "agent_assignment";
-	if (relativePath === "work/child-contract.md") return "agent_contract";
-	if (relativePath === "work/relation-assignment.json") return "relation_assignment";
-	if (relativePath === "work/relation-contract.md") return "relation_contract";
-	if (relativePath.startsWith("input/") || relativePath.startsWith("workspace/notes/")) return "agent_input";
-	if (/^(?:workspace\/)?work\/(?:entity|concept)\/result\.json$/u.test(relativePath)) return "worker_result";
-	if (/^work\/(?:results|groups)\/[^/]+\/result\.json$/u.test(relativePath)
-		|| relativePath === "work/relations/result.json") return "worker_result";
 	return undefined;
 }
 

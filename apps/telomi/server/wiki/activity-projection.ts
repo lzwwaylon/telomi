@@ -92,10 +92,10 @@ export class WikiActivityProjection {
 				agentActivities: [{
 					agentActivityId: `wiki-compilation:objects:${id}:${batch.batch_index}`,
 					agentName: "wiki_compilation",
-					summary: batch.status === "running" ? chrome("activityChrome.wiki.maintainerRunning")
-						: batch.status === "interrupted" ? chrome("activityChrome.wiki.maintainerInterrupted")
-							: batch.status === "failed" ? failureText("activityChrome.wiki.maintainerFailed", batch.message)
-								: batch.status === "cancelled" ? chrome("activityChrome.wiki.maintainerCancelled")
+					summary: batch.status === "running" ? chrome("activityChrome.wiki.compilationRunning")
+						: batch.status === "interrupted" ? chrome("activityChrome.wiki.compilationInterrupted")
+							: batch.status === "failed" ? failureText("activityChrome.wiki.compilationFailed", batch.message)
+								: batch.status === "cancelled" ? chrome("activityChrome.wiki.compilationCancelled")
 									: chrome("activityChrome.usage.modelCalls", { count: batch.usage.model_calls }),
 					lifecycle: batchLifecycle,
 					...(batchOutcome ? { outcome: batchOutcome } : {}),

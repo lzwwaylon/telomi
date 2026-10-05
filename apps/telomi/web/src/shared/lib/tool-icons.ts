@@ -58,7 +58,6 @@ const NATIVE_TOOL_DISPLAY_NAMES: Record<string, string> = {
 	workspace_read: "Workspace Read",
 	wiki_search: "搜索 Wiki",
 	wiki_read_page: "读取 Wiki 页面",
-	wiki_graph_search: "展开 Wiki 关系",
 	wiki_source_search: "搜索原始 Source",
 };
 

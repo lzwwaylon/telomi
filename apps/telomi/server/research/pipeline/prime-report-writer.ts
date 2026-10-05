@@ -663,7 +663,7 @@ function preserveWriterTrace(
 
 function reportWikiTools(tools: readonly AgentTool[]): Map<string, AgentTool> {
 	const selected = new Map(tools
-		.filter((tool) => ["wiki_list_topics", "wiki_search", "wiki_read_page", "wiki_graph_search"].includes(tool.name))
+		.filter((tool) => ["wiki_list_topics", "wiki_search", "wiki_read_page"].includes(tool.name))
 		.map((tool) => [tool.name, tool]));
 	for (const name of ["wiki_search", "wiki_read_page"]) {
 		if (!selected.has(name)) throw new Error(`Report Writer Root requires ${name}`);
@@ -747,8 +747,7 @@ async function startWikiBridge(
 		const operation = bridgeString(body.operation, "Wiki operation");
 		const toolName = operation === "list_topics" ? "wiki_list_topics"
 			: operation === "search" ? "wiki_search"
-			: operation === "read_page" ? "wiki_read_page"
-				: operation === "graph_search" ? "wiki_graph_search" : "";
+			: operation === "read_page" ? "wiki_read_page" : "";
 		const tool = tools.get(toolName);
 		if (!tool) throw new Error(`Unsupported Wiki operation '${operation}'`);
 		const args = wikiToolArguments(toolName, body);

@@ -38,8 +38,6 @@ try {
 	const searchA = toolsA.find((tool) => tool.name === "wiki_search")!;
 	const searchB = toolsB.find((tool) => tool.name === "wiki_search")!;
 	const readA = toolsA.find((tool) => tool.name === "wiki_read_page")!;
-	const graphA = createGoalLlmWikiTools({ goalDir: goalA, legacyGraphSearch: true })
-		.find((tool) => tool.name === "wiki_graph_search")!;
 	const listedA = (await listA.execute("topics-a", {})).details;
 	assert.deepEqual(listedA, { topics: [
 		{ topic_ref: "T1", title: "FireRedASR2S speech", intent: "Track speech recognition.",
@@ -93,10 +91,8 @@ try {
 	assert.doesNotMatch(text(await searchA.execute("2", { query: "Voxtral" })), /Voxtral/u);
 	assert.match(text(await searchB.execute("3", { query: "Voxtral" })), /wiki\/models\/voxtral\.md/u);
 	assert.match(text(await readA.execute("4", { path: "models/fireredasr2s.md" })), /Linked to/u);
-	assert.match(text(await graphA.execute("5", { query: "FireRedASR2S" })), /Automatic Speech Recognition/u);
 	assert.match(text(await searchA.execute("5a", { query: "语音识别技术" })), /wiki\/topics\/语音识别\.md/u, "full-text terms match with OR, so an extra term does not hide a page");
 	assert.match(text(await readA.execute("5b", { path: "topics/语音识别.md" })), /models\/fireredasr2s/u);
-	assert.match(text(await graphA.execute("5c", { query: "语音识别" })), /FireRedASR2S/u);
 	await assert.rejects(readA.execute("6", { path: "models/voxtral.md" }), /does not exist|ENOENT/u);
 	for (const unusual of ['C++ "unbalanced: (quote', "AND OR NOT", "*"]) {
 		await searchA.execute("6a", { query: unusual });
@@ -108,7 +104,7 @@ try {
 	}
 	const aborted = new AbortController();
 	aborted.abort();
-	for (const tool of [listA, searchA, readA, graphA]) {
+	for (const tool of [listA, searchA, readA]) {
 		await assert.rejects(tool.execute("aborted", tool.name === "wiki_read_page"
 			? { path: "models/fireredasr2s.md" }
 			: tool.name === "wiki_list_topics" ? {} : { query: "FireRedASR2S" }, aborted.signal), /abort/iu);

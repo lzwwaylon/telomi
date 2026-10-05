@@ -1,4 +1,4 @@
-/** Shared dynamic worker queue used by Cornell Notes and Wiki curation. */
+/** Shared dynamic worker queue used by Source Notes and Wiki compilation. */
 export async function mapConcurrentFairly<T, R>(
 	items: readonly T[],
 	concurrency: number,
