@@ -218,6 +218,42 @@ class WorktreeTest(unittest.TestCase):
                         service.kill()
                         service.wait()
 
+    def test_stop_reaps_partially_closed_memory_group_but_preserves_other_owners_and_ports(self):
+        port, other_port = wt.unused_ports(2)
+        (self.root / wt.APP / ".env.local").write_text(f"HINDSIGHT_URL=http://127.0.0.1:{port}/v1/default\n")
+        ready = self.root / "memory-ready"
+        code = ("import pathlib, signal, socket, subprocess, sys, time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "s=socket.socket(); s.bind(('127.0.0.1',int(sys.argv[-1]))); s.listen(); s.close(); "
+                "child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)']); "
+                "pathlib.Path(sys.argv[1]).write_text(str(child.pid)); time.sleep(60)")
+        for checkout, service_port, owned in ((self.main, port, False), (self.root, other_port, False), (self.root, port, True)):
+            with self.subTest(owned=owned, service_port=service_port):
+                ready.unlink(missing_ok=True)
+                process = subprocess.Popen([sys.executable, "-c", code, str(ready),
+                                            str(checkout / wt.HINDSIGHT / "telomi_configuration.py"), "--port", str(service_port)], start_new_session=True)
+                def cleanup(process=process):
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait(timeout=5)
+                self.addCleanup(cleanup)
+                deadline = time.monotonic() + 5
+                while not ready.exists():
+                    self.assertIsNone(process.poll())
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(.02)
+                self.assertNotEqual(subprocess.run(["lsof", "-t", f"-iTCP:{service_port}", "-sTCP:LISTEN"], capture_output=True).returncode, 0)
+                owner = {"pid": process.pid, "started": wt.process_stamp(process.pid)}
+                wt.stop_processes(self.root, self.state, self.identity)
+                if owned:
+                    self.assertEqual(process.wait(timeout=5), -signal.SIGKILL)
+                    self.assertFalse(wt.group_alive(owner), "both the resistant leader and its child exited")
+                else:
+                    self.assertIsNone(process.poll(), "a foreign checkout or another port remains untouched")
+                cleanup()
+
     def test_installed_stop_respects_resolved_memory_endpoint_and_inspection_failures(self):
         _, _, state, identity = wt.context(self.main)
         # Parent configuration already resolved by the supervisor outranks a different dotenv URL.
@@ -239,7 +275,7 @@ class WorktreeTest(unittest.TestCase):
         with patch.dict(os.environ, {**env, "HINDSIGHT_URL": ""}), patch.object(wt.subprocess, "run") as run:
             run.return_value = subprocess.CompletedProcess([], 1, "", "")
             wt.stop_processes(self.main, state, identity)
-            self.assertIn("-iTCP:18888", run.call_args.args[0])
+            self.assertTrue(any("-iTCP:18888" in call.args[0] for call in run.call_args_list))
         with patch.dict(os.environ, {**env, "HINDSIGHT_URL": "http://127.0.0.1:18888/v1/default"}), patch.object(wt.subprocess, "run") as run:
             run.return_value = subprocess.CompletedProcess([], 1, "", "permission denied")
             with self.assertRaisesRegex(RuntimeError, "Could not inspect"):
