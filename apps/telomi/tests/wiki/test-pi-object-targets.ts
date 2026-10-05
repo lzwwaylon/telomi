@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWikiStageWorkspace } from '../../server/wiki/wiki-stage-workspace.js';
-import { observePiMergeRead, piObjectMergePlanUserContext, validatePiObjectMergePlanFiles, validatePiObjectMergeFiles } from '../../server/wiki/pi-object-stage.js';
-import { validateTargetWriter } from '../../server/wiki/pi-object-targets.js';
+import { observePiMergeRead, piObjectMergeUserContext, piObjectMergePlanUserContext, validatePiObjectMergePlanFiles, validatePiObjectMergeFiles } from '../../server/wiki/pi-object-stage.js';
+import { targetWriterContext, validateTargetWriter } from '../../server/wiki/pi-object-targets.js';
+import { acceptPiFiles } from '../../server/wiki/pi-file-stage.js';
+import { renderAgentPrompt } from '../../server/agent-runtime/prompt-registry.js';
 import { wikiStageOutputHash } from '../../server/wiki/wiki-stage.js';
 import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
 
@@ -58,5 +60,42 @@ try {
  writeFileSync(ledger, JSON.stringify({ facts }));
  writeFileSync(article, '---\ntitle: "Model A"\ndescription: "Combined record"\n---\n\n## Record\nAccording to P1, old value 30; requires 40 GB [[N1]][[N2]].\n');
  assert.throws(() => validateTargetWriter(input, work, validatePiObjectMergeFiles(input, inputRoot, work, reads)), /temporary task references/);
+ // A valid ledger in the article directory must receive precise repair feedback, never silent acceptance.
+ const validArticle = '---\ntitle: "Model A"\ndescription: "Combined record"\n---\n\n## Record\nOld value 30; requires 40 GB [[N1]][[N2]].\n';
+ const misplacedLedger = join(work, 'pages/facts.json');
+ const errors: string[] = [];
+ const prompts: string[] = [];
+ const repaired = await acceptPiFiles(async (prompt, repair) => {
+  prompts.push(prompt);
+  if (!repair) {
+   rmSync(ledger, { force: true });
+   writeFileSync(misplacedLedger, JSON.stringify({ facts }));
+   writeFileSync(article, validArticle.replace('Old value', 'According to P1, old value'));
+  } else {
+   assert.match(prompt, /\/work\/facts\.json/);
+   assert.match(prompt, /temporary task references/);
+   assert.doesNotMatch(prompt, new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+   assert.ok(!existsSync(ledger), 'Runtime must not silently relocate the misplaced ledger');
+   assert.deepEqual(JSON.parse(readFileSync(misplacedLedger, 'utf8')), { facts }, 'repair retains the valid source inventory');
+   copyFileSync(misplacedLedger, ledger); // Scripted Agent follows the feedback; Runtime never copies output.
+   writeFileSync(article, validArticle);
+  }
+ }, () => validateTargetWriter(input, work, validatePiObjectMergeFiles(input, inputRoot, work, reads)),
+ piObjectMergeUserContext(input) + '\n' + targetWriterContext(input), (_turn, error) => errors.push(error), 3);
+ assert.equal(prompts.length, 2, 'both independent path and prose violations arrive in the first repair');
+ assert.match(errors[0]!, /^\/work\/facts\.json:/);
+ assert.ok(repaired.kind === 'object-target-pages' && repaired.facts.length === facts.length);
+ for (const contextInput of [input, { ...input, requiredPages: [], pages: input.pages.map(page => ({ ...page, previous: false })) }]) {
+  const context = piObjectMergeUserContext(contextInput) + '\n' + targetWriterContext(contextInput);
+  for (const path of ['/work/facts.json', '/work/result.json', '/work/pages']) assert.ok(context.includes(path), `User context must state ${path}`);
+ }
+ const system = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'write-object-target-pi').content;
+ for (const path of ['/work/facts.json', '/work/result.json', '/work/pages/O1.md']) assert.ok(system.includes(path), `System context must agree on ${path}`);
+ writeFileSync(ledger, JSON.stringify({ facts: [] }));
+ assert.throws(() => validateTargetWriter(input, work, validatePiObjectMergeFiles(input, inputRoot, work, reads)), /source sections\/Cues missing/, 'empty inventory still fails the unchanged coverage contract');
+ rmSync(ledger);
+ writeFileSync(manifest, JSON.stringify({ pages: [], retained_refs: ['P1', 'P2'], discarded_refs: [], deferred_entries: [] }));
+ const veto = validateTargetWriter(input, work, validatePiObjectMergeFiles(input, inputRoot, work, reads));
+ assert.ok(veto.kind === 'object-target-pages' && veto.facts.length === 0, 'a supported veto still needs complete reading but no ledger');
  console.log('Object target contracts preserve canonical identity, inventory source facts, bind ledger bytes and reject missing source records');
 } finally { rmSync(root, { recursive: true, force: true }); }

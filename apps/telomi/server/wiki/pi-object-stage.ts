@@ -10,6 +10,7 @@ import { targetWriterContext, validateTargetWriter } from './pi-object-targets.j
 import { runPiFileStage } from './pi-file-stage.js';
 
 export const PI_OBJECT_MODEL = 'openai-codex/gpt-6-luna';
+export const PI_OBJECT_NOTE_MODEL = 'openai-codex/gpt-5.6-terra';
 export const PI_OBJECT_PLAN_MODEL = 'openai-codex/gpt-5.6-terra';
 export { acceptPiFiles as acceptPiObjectFiles } from './pi-file-stage.js';
 
@@ -31,7 +32,7 @@ export function piObjectMergeUserContext(input: WikiStageInput): string {
   throw new Error('Pi target writer expects 1 to 4 incoming pages and no unplaced Cues');
  const catalog = input.pages.map((row, index) =>
   `P${index + 1} | ${row.role === 'context' ? 'context' : row.previous ? 'existing' : 'incoming'} | ${row.page.kind} | ${row.page.title} | ${row.page.description} | wiki/indexes/P${index + 1}.json | wiki/pages/P${index + 1}.md`).join('\n');
- return `Output language: ${input.language}\nGoal: ${input.goal.title}\n${input.goal.description}\n\n## Complete current page catalog\n${catalog}\n\nRead each incoming page, compare it with this complete existing catalog, and read any existing pages needed to decide its destination. Existing-page reads have no count limit.\n\n## File access\nOpen the listed P index and page paths under /work. Each page index provides file, sections and cue_files. Index file paths are relative to /work/wiki. S references identify sections of that page: start_line/end_line are inclusive native read coordinates in its file, and entry_refs lists its N citations. N references identify Cues: a non-null cue_files value is an available detail file; null means this stage supplies only the page's inline citation, so use that page's text. Read complete assigned page files before writing; section ranges locate passages and do not replace complete-page reads. All input files under /work/wiki are read-only; output goes under /work/pages and /work/result.json.\n${input.instructions}`;
+ return `Output language: ${input.language}\nGoal: ${input.goal.title}\n${input.goal.description}\n\n## Complete current page catalog\n${catalog}\n\nRead each incoming page, compare it with this complete existing catalog, and read any existing pages needed to decide its destination. Existing-page reads have no count limit.\n\n## File access\nOpen the listed P index and page paths under /work. Each page index provides file, sections and cue_files. Index file paths are relative to /work/wiki. S references identify sections of that page: start_line/end_line are inclusive native read coordinates in its file, and entry_refs lists its N citations. N references identify Cues: a non-null cue_files value is an available detail file; null means this stage supplies only the page's inline citation, so use that page's text. Read complete assigned page files before writing; section ranges locate passages and do not replace complete-page reads. All input files under /work/wiki are read-only. Article Markdown goes under /work/pages; its manifest is /work/result.json.\n${input.instructions}`;
 }
 
 /** Global object planning sees the entire catalog and may expand uncertain bodies. */
@@ -188,7 +189,7 @@ async function runPiObjectFileStage(request: WikiStageRequest, mode: 'default' |
   : merging ? piObjectMergeUserContext(request.input) : piObjectUserContext(request.input, join(request.workRoot, 'input-check'));
  const mergeReads = new Map<string, Set<number>>();
  return runPiFileStage(request, {
-  modelId: mergePlanning ? PI_OBJECT_PLAN_MODEL : PI_OBJECT_MODEL,
+  modelId: mergePlanning ? PI_OBJECT_PLAN_MODEL : !merging && !residual ? PI_OBJECT_NOTE_MODEL : PI_OBJECT_MODEL,
   promptVariant: mergePlanning ? 'plan-object-targets-pi' : targetWriting ? 'write-object-target-pi'
    : residual ? 'resolve-object-cues-pi' : 'objects-pi',
   user, role: 'wiki.object_builder',

@@ -22,7 +22,12 @@ const signal = new AbortController().signal;
 const executionMetadata: Record<string, string> = {
 	"workspace-capture.json": JSON.stringify({ schemaVersion: 1, sessionId: "fixture-session", role: "root", applicability: "not-applicable", reason: "stateless-no-file-tools" }),
 	"response.json": JSON.stringify({ role: "assistant", content: [{ type: "text", text: "{}" }], stopReason: "stop" }),
-	"failure.json": JSON.stringify({ executionMode: "single-completion", error: "injected classification failure" }),
+	"response-attempt-1.json": JSON.stringify({ role: "assistant", content: [{ type: "text", text: "{} }" }], stopReason: "stop" }),
+	"response-attempt-2.json": JSON.stringify({ role: "assistant", content: [{ type: "text", text: "{}" }], stopReason: "stop" }),
+	"agent-context-attempt-1.json": JSON.stringify({ messages: [{ role: "user", content: "Original classification input" }], tools: [], validationAttempt: 1, transportAttempt: 1 }),
+	"agent-context-attempt-2.json": JSON.stringify({ messages: [{ role: "user", content: "Original classification input" }, { role: "assistant", content: [{ type: "text", text: "{} }" }] }, { role: "user", content: "Exact validation feedback" }], tools: [], validationAttempt: 2, transportAttempt: 1 }),
+	"validation-errors.jsonl": `${JSON.stringify({ validationAttempt: 1, responseAttempt: 1, error: "Unexpected trailing JSON character" })}\n`,
+	"failure.json": JSON.stringify({ executionMode: "bounded-validation-completion", error: "injected classification failure" }),
 	"effective-system-prompt.md": "Full effective system prompt with SDK and stage instructions.\n",
 	"tool-definitions.json": JSON.stringify([{ name: "ipython", description: "Execute Python" }]),
 	"mounted-skills.json": JSON.stringify([{ name: "wiki", description: "Read Wiki pages" }]),
@@ -133,8 +138,8 @@ try {
 	await runWikiReindexNodeEvaluation({ knowledgeRoot: join(observedRequest.goalDir, "wiki", "knowledge"), topicPlan, goalContext, env, signal, workRoot: join(root, "reindex-work") },
 		{ recordDirectory: reindexRecord, runId: "reindex", execute: reindex });
 	const reindexCase = cases(reindexRecord)[0]!;
-	assert.equal(reindexCase.value.request.actualModel, "openai-codex/gpt-6-luna");
-	assert.deepEqual(reindexCase.value.request.modelPolicy?.preferred, ["openai-codex/gpt-6-luna"]);
+	assert.equal(reindexCase.value.request.actualModel, "openai-codex/gpt-5.6-terra");
+	assert.deepEqual(reindexCase.value.request.modelPolicy?.preferred, ["openai-codex/gpt-5.6-terra"]);
 	assert.equal(readWikiCompilationCaseInput(join(dirname(reindexCase.path), "input")).request.operation, "reindex");
 	assert.equal(existsSync(join(dirname(reindexCase.path), "input", "evidence.json")), false);
 	await recipe.replay(replayInput(reindexCase, join(root, "reindex-candidate")));
@@ -198,6 +203,10 @@ try {
 		assert.equal(captured.status, kind === "cancelled" ? "cancelled" : "failed");
 		assert.ok(captured.observed.terminalWorkspace);
 		assert.ok(captured.observed.trace);
+		const capturedTrace = join(req.controlDirectory, captured.observed.traceDirectories![0]!.ref);
+		for (const [name, content] of Object.entries(executionMetadata)) {
+			assert.equal(readFileSync(join(capturedTrace, "stages", "runtime", name), "utf8"), content, `Failed Case retains ${name}`);
+		}
 		assert.equal(captured.observed.output, undefined);
 		if (kind === "partial") assert.ok(existsSync(join(dirname(cases(req.controlDirectory)[0]!.path), "terminal-workspace", "terminal-knowledge", "page.md")), "partial knowledge remains terminal evidence, never an Observed Baseline");
 	}
