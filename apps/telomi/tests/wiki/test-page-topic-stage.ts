@@ -11,7 +11,7 @@ import { wikiPageSections } from '../../server/wiki/wiki-page-contract.js';
 const root = mkdtempSync(join(tmpdir(), 'page-topic-stage-'));
 const canonical = join(root, 'canonical');
 mkdirSync(canonical);
-const model = { id: 'gpt-6-luna', name: 'Luna', api: 'openai-codex-responses', provider: 'openai-codex', baseUrl: 'https://chatgpt.com/backend-api', reasoning: true,
+const model = { id: 'gpt-5.6-terra', name: 'Terra', api: 'openai-codex-responses', provider: 'openai-codex', baseUrl: 'https://chatgpt.com/backend-api', reasoning: true,
  input: ['text'], cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0 }, contextWindow: 272000, maxTokens: 128000 };
 writeFileSync(join(canonical, 'auth.json'), JSON.stringify({ 'openai-codex': { type: 'api_key', key: 'fake-test-key-never-sent' } }));
 writeFileSync(join(canonical, 'models.json'), '{"providers":{}}');
@@ -26,7 +26,7 @@ const input: WikiStageInput = { stage: 'page-topics', key: 'demo', language: 'en
  topics: [{ id: 'topic:water', title: 'Water use', intent: 'Water conservation', questions: [], include: ['Irrigation'], exclude: ['Electricity'] }],
 };
 const output = { sections: [{ section_ref: 'S1', matches: [{ topic_ref: 'T1', reason: 'The section describes water conservation.' }] }, { section_ref: 'S2', matches: [] }] };
-const response = (text = JSON.stringify(output)): Awaited<ReturnType<PageTopicCompletion>> => ({ role: 'assistant', api: 'openai-codex-responses', provider: 'openai-codex', model: 'gpt-6-luna',
+const response = (text = JSON.stringify(output)): Awaited<ReturnType<PageTopicCompletion>> => ({ role: 'assistant', api: 'openai-codex-responses', provider: 'openai-codex', model: 'gpt-5.6-terra',
  content: [{ type: 'text', text }], stopReason: 'stop', timestamp: Date.now(),
  usage: { input: 100, cacheRead: 40, cacheWrite: 0, output: 30, totalTokens: 170, cost: { input: 0.01, cacheRead: 0.001, cacheWrite: 0, output: 0.002, total: 0.013 } } });
 const request = (name: string): WikiStageRequest => ({ input, env, workRoot: join(root, name), signal: new AbortController().signal });

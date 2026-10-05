@@ -10,6 +10,7 @@ import { targetWriterContext, validateTargetWriter } from './pi-object-targets.j
 import { runPiFileStage } from './pi-file-stage.js';
 
 export const PI_OBJECT_MODEL = 'openai-codex/gpt-6-luna';
+export const PI_OBJECT_NOTE_MODEL = 'openai-codex/gpt-5.6-terra';
 export const PI_OBJECT_PLAN_MODEL = 'openai-codex/gpt-5.6-terra';
 export { acceptPiFiles as acceptPiObjectFiles } from './pi-file-stage.js';
 
@@ -188,7 +189,7 @@ async function runPiObjectFileStage(request: WikiStageRequest, mode: 'default' |
   : merging ? piObjectMergeUserContext(request.input) : piObjectUserContext(request.input, join(request.workRoot, 'input-check'));
  const mergeReads = new Map<string, Set<number>>();
  return runPiFileStage(request, {
-  modelId: mergePlanning ? PI_OBJECT_PLAN_MODEL : PI_OBJECT_MODEL,
+  modelId: mergePlanning ? PI_OBJECT_PLAN_MODEL : !merging && !residual ? PI_OBJECT_NOTE_MODEL : PI_OBJECT_MODEL,
   promptVariant: mergePlanning ? 'plan-object-targets-pi' : targetWriting ? 'write-object-target-pi'
    : residual ? 'resolve-object-cues-pi' : 'objects-pi',
   user, role: 'wiki.object_builder',

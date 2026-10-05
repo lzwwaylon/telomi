@@ -16,7 +16,7 @@ export type PageTopicCompletion = (...args: Parameters<typeof completeRegistryMo
  Extract<Parameters<import('prime-agent').SessionManager['appendMessage']>[0], { role: 'assistant' }>
 >;
 
-export const PAGE_TOPIC_MODEL = 'openai-codex/gpt-6-luna';
+export const PAGE_TOPIC_MODEL = 'openai-codex/gpt-5.6-terra';
 export const PAGE_TOPIC_THINKING = 'medium';
 const thinking = PAGE_TOPIC_THINKING;
 const executionMode = 'single-completion';
@@ -73,7 +73,8 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
   const { modelRegistry } = createPrimeModelRegistry(prime, agentDirectory, {
    ...request.env, [PRIME_CREDENTIAL_SOURCE_ENV]: primeAgentDir(request.env),
   });
-  const model = modelRegistry.find('openai-codex', 'gpt-6-luna');
+  const [provider, modelId] = PAGE_TOPIC_MODEL.split('/');
+  const model = modelRegistry.find(provider!, modelId!);
   if (!model) throw new Error(`Unknown Page Topic model ${PAGE_TOPIC_MODEL}`);
   const session = prime.SessionManager.create(work, sessions);
   session.appendModelChange(model.provider, model.id);

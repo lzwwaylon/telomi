@@ -129,8 +129,8 @@ try {
 	await runWikiReindexNodeEvaluation({ knowledgeRoot: join(observedRequest.goalDir, "wiki", "knowledge"), topicPlan, goalContext, env, signal, workRoot: join(root, "reindex-work") },
 		{ recordDirectory: reindexRecord, runId: "reindex", execute: reindex });
 	const reindexCase = cases(reindexRecord)[0]!;
-	assert.equal(reindexCase.value.request.actualModel, "openai-codex/gpt-6-luna");
-	assert.deepEqual(reindexCase.value.request.modelPolicy?.preferred, ["openai-codex/gpt-6-luna"]);
+	assert.equal(reindexCase.value.request.actualModel, "openai-codex/gpt-5.6-terra");
+	assert.deepEqual(reindexCase.value.request.modelPolicy?.preferred, ["openai-codex/gpt-5.6-terra"]);
 	assert.equal(readWikiCompilationCaseInput(join(dirname(reindexCase.path), "input")).request.operation, "reindex");
 	assert.equal(existsSync(join(dirname(reindexCase.path), "input", "evidence.json")), false);
 	await recipe.replay(replayInput(reindexCase, join(root, "reindex-candidate")));
