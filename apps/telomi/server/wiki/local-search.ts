@@ -201,32 +201,6 @@ export class GoalWikiSearch {
 		};
 	}
 
-	/** Full-text seeds and their direct graph neighbors. */
-	async graphSearch(query: string, topK = 10) {
-		const graph = await this.runtime.buildGraph();
-		const { table } = await this.searchTable(graph.nodes, await this.embeddingRuntime());
-		const rows = table && query.trim()
-			? await table.query().fullTextSearch(new lancedb.MatchQuery(query, "search_text"))
-				.select(["page_id"]).limit(SEARCH_CANDIDATE_CHUNKS).toArray() as Array<{ page_id: string }>
-			: [];
-		const byId = new Map(graph.nodes.map((node) => [node.id, node]));
-		const seeds = [...new Set(rows.map((row) => row.page_id))]
-			.flatMap((id) => byId.get(id) ?? [])
-			.slice(0, Math.max(1, Math.min(20, topK)));
-		const ids = new Set(seeds.map((node) => node.id));
-		const edges = graph.edges.filter((edge) => ids.has(edge.source) || ids.has(edge.target));
-		for (const edge of edges) {
-			ids.add(edge.source);
-			ids.add(edge.target);
-		}
-		return {
-			query,
-			seeds: seeds.map(summary),
-			nodes: graph.nodes.filter((node) => ids.has(node.id)).map(summary),
-			edges,
-		};
-	}
-
 	/** Brings the Goal's index up to the published Wiki, embedding only pages whose content hash changed. */
 	async refreshEmbeddings(signal?: AbortSignal, onProgress?: (added: number) => void, superseded?: () => boolean): Promise<void> {
 		const goalDir = this.publishedGoalDir();
@@ -568,16 +542,4 @@ async function withIndexLock(path: string, action: () => Promise<void>): Promise
 
 function sqlString(value: string): string {
 	return `'${value.replaceAll("'", "''")}'`;
-}
-
-function summary(node: WikiNode) {
-	return {
-		id: node.id,
-		label: node.title,
-		type: node.type,
-		path: `wiki/${node.id}.md`,
-		outgoingLinks: node.links.map((id) => `wiki/${id}.md`),
-		backlinks: node.backlinks.map((id) => `wiki/${id}.md`),
-		linkCount: node.links.length + node.backlinks.length,
-	};
 }

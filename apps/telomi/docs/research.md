@@ -184,7 +184,7 @@ These concept sessions expose only read-only page material and SRT-bound `read`,
 
 Wiki updates run in the background independently of the Report flow. Backend startup marks an unfinished job as interrupted; the user can resume it through the existing Activity action, with at most three resumes. Accepted stage checkpoints are reused only when their frozen inputs, implementation, output files and reading receipts still match. Failed attempts retain their usage and native sessions. Partial Wiki compilation candidates remain inspectable and cannot replace the published Edition. Publication verifies the frozen base under the Goal publication lock and atomically replaces it.
 
-Historical shard/curator Updates cannot resume execution. Their published Editions, captured Cases and Traces remain readable; they cannot be relabeled as Wiki compilation inputs.
+Only current-generation Wiki compilation Jobs and Cases are supported. Retired execution controls and captures are removed rather than relabeled. Published knowledge retains its verified Source and Note provenance.
 
 ## Runtime and Agent Boundary
 

@@ -29,7 +29,6 @@ import {
   Code2,
   FilePlus2,
   FileSearch,
-  Network,
 } from 'lucide-react'
 import { DocumentIcon as FileText, SearchIcon as Search, BookIcon as BookOpenText, CopyIcon as Copy, PencilIcon as Pencil } from '@/shared/ui/icons'
 import { cn } from '@/shared/lib/utils'
@@ -468,8 +467,6 @@ export function ActivityStatusIcon({
             return <Search className={iconCls} />
           case 'wiki_read_page':
             return <BookOpenText className={iconCls} />
-          case 'wiki_graph_search':
-            return <Network className={iconCls} />
           case 'generate_report':
             return <FileText className={iconCls} />
           case 'research':

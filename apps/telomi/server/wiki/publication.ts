@@ -67,7 +67,7 @@ export async function publishCompilation(input: {
 			changedPaths,
 		};
 	});
-	// The index follows each finished publication, never the Curator's intermediate drafts; search keeps
+	// The index follows each finished publication, never Wiki Compilation's intermediate drafts; search keeps
 	// serving unchanged pages while it refreshes.
 	void scheduleWikiIndexRefresh(input.goalDir, { immediate: true });
 	return publication;

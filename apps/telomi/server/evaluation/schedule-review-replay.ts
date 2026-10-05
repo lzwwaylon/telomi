@@ -241,7 +241,6 @@ export function createScheduleReviewerReplayRecipe(options: {
 				signal: input.signal,
 				root,
 				answerTool: frozenScheduleReviewAnswer(interactions),
-				legacyGraphSearch: interactions.some(item => item.kind === "tool" && item.name === "wiki_graph_search"),
 				env: { ...process.env, TELOMI_PRIME_AGENT_ROOT_MODEL: request.models.root, TELOMI_SCHEDULE_REVIEW_THINKING_LEVEL: request.models.thinking },
 			}, {
 				...(options.execute ? { execute: options.execute } : {}),

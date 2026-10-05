@@ -48,8 +48,6 @@ export interface ScheduleReviewerInput {
 	 * reproduces exactly what the Reviewer saw and needs no live memory or Wiki service.
 	 */
 	answerTool?: ScheduleReviewToolAnswer;
-	/** Frozen historical Cases may expose their recorded retired graph operation. */
-	legacyGraphSearch?: boolean;
 }
 
 /** Answers one bridged read, after Runtime has normalized its arguments. */
@@ -128,7 +126,6 @@ async function executeRunPrimeScheduleReviewer(input: ScheduleReviewerInput): Pr
 		logPath: scheduleReviewToolLog(root),
 		signal: input.signal,
 		...(input.answerTool ? { answerTool: input.answerTool } : {}),
-		...(input.legacyGraphSearch ? { legacyGraphSearch: true } : {}),
 	});
 	let reads = 0;
 	try {
@@ -181,9 +178,8 @@ export async function startScheduleReviewBridge(input: {
 	logPath: string;
 	signal: AbortSignal;
 	answerTool?: ScheduleReviewToolAnswer;
-	legacyGraphSearch?: boolean;
 }) {
-	const wikiNames = new Set(createGoalLlmWikiTools({ goalDir: input.goalDir, legacyGraphSearch: input.legacyGraphSearch }).map((tool) => tool.name));
+	const wikiNames = new Set(createGoalLlmWikiTools({ goalDir: input.goalDir }).map((tool) => tool.name));
 	let answer = input.answerTool;
 	if (!answer) {
 		const knowledgeRoot = join(dirname(input.logPath), "wiki");

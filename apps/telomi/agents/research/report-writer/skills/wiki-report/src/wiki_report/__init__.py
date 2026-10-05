@@ -25,11 +25,6 @@ async def read_page(path: str) -> dict[str, Any]:
     return await _async_call("read_page", {"path": path})
 
 
-async def graph_search(query: str, top_k: int = 10) -> dict[str, Any]:
-    """Compatibility for recorded historical executions; current Wiki callers use search."""
-    return await _async_call("graph_search", {"query": query, "top_k": top_k})
-
-
 async def _async_call(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
     return await asyncio.to_thread(_call, operation, arguments)
 

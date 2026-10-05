@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
+import { findLogicalSourceInRun, findLogicalSourceMember, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 import { loadReportNoteWorkspace, type NoteWorkspaceItem } from "../research/notes/workspace.js";
 import { readWikiMessageCitations } from "./wiki-message-store.js";
 import { readJson } from "../lib/fs.js";
@@ -13,9 +13,8 @@ interface CitationRecord {
 	title?: unknown;
 	url?: unknown;
 	evidenceId?: unknown;
-	/** Current records list every ref cited under one Source number; older reports hold one `ref` and one `wiki`. */
+	/** Every ref cited under one Source number in the current compiled citation record. */
 	refs?: unknown;
-	ref?: unknown;
 	wiki?: unknown;
 	/** Verified Cue and original Source excerpts frozen by investigation publication. */
 	cue?: unknown;
@@ -101,7 +100,7 @@ export function resolveCitationSourcePreview(
 	const citation = report.citations?.find((item) =>
 		(requestedNumber === undefined || item.number === requestedNumber)
 		&& (reportUrl ? typeof item.url === "string" && normalizeUrl(item.url) === reportUrl : !item.url));
-	if (!citation) return null;
+	if (!citation || !isCurrentCitationRecord(citation)) return null;
 	if (citation.cue !== undefined) return frozenCuePreview(citation);
 	const wiki = wikiCitationPreview(citation, reportUrl ?? "");
 	if (wiki) return wiki;
@@ -124,7 +123,6 @@ export function resolveCitationSourcePreview(
 	const note = exactNotes ? null : findSourceNote(runRoot, sourceId);
 	if (!exactNotes && !note) return null;
 
-	const prefix = `${member.path.replace(/\/+$/u, "")}/`;
 	const matched = (exactNotes
 		? exactNotes.flatMap((exactNote) => exactNote.evidence.map((anchor) => ({
 			anchor: anchor as EvidenceAnchor,
@@ -139,7 +137,7 @@ export function resolveCitationSourcePreview(
 			cue: typeof cue.cue === "string" ? cue.cue : "原文证据",
 			note: typeof cue.note === "string" ? cue.note : "",
 			})) : [])))
-		.filter(({ anchor }) => typeof anchor.source_path === "string" && anchor.source_path.startsWith(prefix));
+		.filter(({ anchor }) => typeof anchor.source_path === "string" && (exactNotes !== undefined || findLogicalSourceMember(found.source, anchor.source_path)?.path === member.path));
 
 	const clues = new Map<string, {
 		cue: string;
@@ -154,6 +152,9 @@ export function resolveCitationSourcePreview(
 			clues.set(item.key, clue);
 		}
 		const sourcePath = typeof item.anchor.source_path === "string" ? item.anchor.source_path : "";
+		const anchorMember = findLogicalSourceMember(found.source, sourcePath);
+		if (!anchorMember || typeof anchorMember.path !== "string" || typeof anchorMember.source_id !== "string") return null;
+		const anchorPrefix = `${anchorMember.path.replace(/\/+$/u, "")}/`;
 		const startLine = positiveInteger(item.anchor.start_line);
 		const endLine = positiveInteger(item.anchor.end_line);
 		if (!startLine || !endLine || endLine < startLine) continue;
@@ -165,7 +166,13 @@ export function resolveCitationSourcePreview(
 		}]);
 		if (!excerpt) continue;
 		if (excerpt.content) clue.excerpts.push({
-			path: sourcePath.slice(prefix.length),
+			path: sourcePath.slice(anchorPrefix.length),
+			...(anchorMember.source_id !== member.source_id ? {
+				sourceId: anchorMember.source_id,
+				...(typeof anchorMember.title === "string" ? { sourceTitle: anchorMember.title } : {}),
+				...(typeof anchorMember.canonical_locator === "string" && normalizeUrl(anchorMember.canonical_locator)
+					? { sourceUrl: anchorMember.canonical_locator } : {}),
+			} : {}),
 			startLine,
 			endLine,
 			text: excerpt.content,
@@ -203,7 +210,7 @@ export function resolveMessageCitationSourcePreview(
 	const citation = record?.citations.find((item) =>
 		(requestedNumber === undefined || item.number === requestedNumber)
 		&& (url ? typeof item.url === "string" && normalizeUrl(item.url) === url : !item.url));
-	if (!citation) return null;
+	if (!citation || !isCurrentCitationRecord(citation)) return null;
 	if (url) return wikiCitationPreview(citation, url);
 	if (requestedNumber === undefined) return null;
 	const [ref] = citationRefs(citation);
@@ -274,14 +281,22 @@ function frozenCuePreview(citation: CitationRecord): CitationSourcePreview | nul
 	};
 }
 
+const CITATION_FIELDS = new Set(["number", "title", "url", "evidenceId", "provenance", "refs", "wiki", "cue"]);
+
+function isCurrentCitationRecord(citation: CitationRecord): boolean {
+	return Object.keys(citation).every((field) => CITATION_FIELDS.has(field))
+		&& (citation.refs === undefined || (Array.isArray(citation.refs) && citation.refs.every((ref) => typeof ref === "string")))
+		&& (citation.wiki === undefined || Array.isArray(citation.wiki));
+}
+
 function citationRefs(citation: CitationRecord): string[] {
-	return (Array.isArray(citation.refs) ? citation.refs : [citation.ref])
+	return (Array.isArray(citation.refs) ? citation.refs : [])
 		.filter((ref): ref is string => typeof ref === "string");
 }
 
 /** Every cited Wiki Evidence of one Source number becomes one clue carrying its own Page. */
 function wikiCitationPreview(citation: { wiki?: unknown }, reportUrl: string): CitationSourcePreview | null {
-	const values = Array.isArray(citation.wiki) ? citation.wiki : [citation.wiki];
+	const values = Array.isArray(citation.wiki) ? citation.wiki : [];
 	const cited = values.flatMap((value) => {
 		if (!value || typeof value !== "object" || Array.isArray(value)) return [];
 		const record = value as Record<string, unknown>;

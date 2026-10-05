@@ -19,7 +19,7 @@ try {
 	mkdirSync(reportRoot, { recursive: true });
 	writeFileSync(join(reportRoot, "final.md"), "# Report\n");
 	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({
-		citations: [{ number: 1, title: "Paper", url: "https://example.com/paper", evidenceId: "source:group", ref: "N1" }],
+		citations: [{ number: 1, title: "Paper", url: "https://example.com/paper", evidenceId: "source:group", refs: ["N1"] }],
 	}));
 	writeFileSync(join(root, "artifacts", "find-out-sources", "sequence-1", "manifest.json"), JSON.stringify({
 		sources: [{
@@ -97,8 +97,8 @@ try {
 	// Sources whose figures never reached the Agent view (no parser manifest) resolve through the Run's Source Bundle.
 	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({
 		citations: [
-			{ number: 1, title: "Paper", url: "https://example.com/paper", evidenceId: "source:group", ref: "N1" },
-			{ number: 2, title: "Bundle", url: "https://example.com/bundle", evidenceId: "source:bundle", ref: "N3" },
+			{ number: 1, title: "Paper", url: "https://example.com/paper", evidenceId: "source:group", refs: ["N1"] },
+			{ number: 2, title: "Bundle", url: "https://example.com/bundle", evidenceId: "source:bundle", refs: ["N3"] },
 		],
 	}));
 	const bundleMember = join(root, "artifacts", "find-out-sources", "sequence-1", "sources", "source-bundle", "members", "arxiv", "b");
@@ -150,8 +150,8 @@ try {
 			number: 2,
 			title: "Wiki paper",
 			url: "https://example.com/wiki-paper",
-			ref: "C7",
-			wiki: {
+			refs: ["C7"],
+			wiki: [{
 				ref: "C7",
 				page: { ref: "P3", path: "wiki/entities/paper.md", title: "Paper page", type: "entity", content: "## Findings\n\nComplete Wiki Page content." },
 				entry: {
@@ -171,10 +171,10 @@ try {
 					source: { id: "source:limits", title: "Limits paper", url: "https://example.com/limits" },
 					anchors: [{ path: "limits.md", startLine: 8, endLine: 9, format: "markdown", content: "Second source excerpt.", assets: [] }],
 				}],
-			},
+			}],
 		}],
 	}));
-	// Reports published before Source-level numbering hold one `ref` and one `wiki` object per number.
+	// Current compiled citations preserve every frozen Wiki Evidence in an array.
 	const wikiPreview = resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/wiki-paper", 2);
 	assert.deepEqual(wikiPreview?.clues, [{
 		page: { ref: "P3", path: "wiki/entities/paper.md", title: "Paper page", type: "entity", content: "## Findings\n\nComplete Wiki Page content." },
@@ -183,6 +183,16 @@ try {
 		excerpts: [{ path: "paper.md", startLine: 4, endLine: 6, text: "Frozen source excerpt." }],
 		assets: [{ sourceId: "source:paper", path: "assets/wiki.png", alt: "Wiki architecture" }],
 	}]);
+	const currentWikiRecord = JSON.parse(readFileSync(join(reportRoot, "final.json"), "utf8"));
+	const currentWikiCitation = currentWikiRecord.citations[0];
+	for (const oldShape of [
+		{ ...currentWikiCitation, refs: undefined, ref: "C7" },
+		{ ...currentWikiCitation, wiki: currentWikiCitation.wiki[0] },
+	]) {
+		writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [oldShape] }));
+		assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/wiki-paper", 2), null,
+			"retired outer scalar shapes must not reinterpret or broaden the cited evidence");
+	}
 	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({
 		citations: [{ number: 1, title: "Paper", url: "https://example.com/paper", provenance: "provider:test:source:group" }],
 	}));

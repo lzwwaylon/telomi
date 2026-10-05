@@ -67,7 +67,7 @@ function activityPhase(step: ActivityStep): { id: string; label: ActivityText } 
 function workerPool(step: ActivityStep): { id: string; label: ActivityText; workers: ActivityWorker[] } | null {
 	const workers = activityWorkers(step);
 	if (step.stepId.startsWith("wiki-objects:") && workers.length > 0) {
-		return { id: "wiki-maintainers", label: chrome("goals.activityStepGroups.wikiWorkers"), workers };
+		return { id: "wiki-compilation-objects", label: chrome("goals.activityStepGroups.wikiWorkers"), workers };
 	}
 	if (workers.length > 0 && workers.every((worker) => worker.agent.agentName === "note_agent")) {
 		return { id: "notes", label: chrome("goals.activityStepGroups.noteAgents"), workers };
