@@ -19,12 +19,12 @@ const taskSettings = {
 		noteAgent: "deepseek/deepseek-v4-pro",
 		primeRoot: "openai-codex/gpt-5.6-sol",
 		primeChild: "openai-codex/gpt-5.6-luna",
-		wikiCurator: "openai-codex/gpt-5.6-terra",
+		wikiCompilation: "openai-codex/gpt-5.6-terra",
 	},
 };
 assert.equal(researchConfigFromEnv({}, taskSettings).noteAgentModel, "deepseek/deepseek-v4-pro");
 assert.equal(resolveLLMConfig({
-	taskModelRole: "wikiCurator",
+	taskModelRole: "wikiCompilation",
 	settingsOverride: taskSettings,
 }).model, "openai-codex/gpt-5.6-terra");
 assert.deepEqual(resolvePrimeAgentModels({}, taskSettings), {

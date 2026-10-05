@@ -312,8 +312,8 @@ for (const ref of [shardTrace, curatorTrace]) {
 	writeFileSync(childTrace, `${JSON.stringify({ type: "message", message: { role: "assistant", content: "child" } })}\n`);
 }
 for (const value of [
-	{ caseId: "wiki-shard-case", runId: `${wikiUpdateId}-wiki-shard-1`, agentId: "wiki-shard-builder" },
-	{ caseId: "wiki-curator-case", runId: `${wikiUpdateId}-wiki-curator-batch-001`, agentId: "wiki-curator" },
+	{ caseId: "wiki-object-stage-case", runId: `${wikiUpdateId}-wiki-objects-1`, agentId: "wiki-compilation" },
+	{ caseId: "wiki-compilation-case", runId: `${wikiUpdateId}-wiki-compilation-batch-001`, agentId: "wiki-compilation" },
 ]) {
 	const path = join(wikiUpdateDir, "node-evaluation", "cases", value.caseId, "manifest.json");
 	mkdirSync(dirname(path), { recursive: true });
@@ -470,7 +470,7 @@ assert.throws(() => resolveTraceFile({
 }), /Invalid Trace file ref/u);
 
 // The Wiki Run pins its Curator model at the start; the Trace reads that pin when no Case names a model.
-writeFileSync(join(wikiUpdateDir, "wiki-model-selection.json"), JSON.stringify({ TELOMI_WIKI_CURATOR_MODEL: "telomi-test/wiki-1", TELOMI_PRIME_AGENT_CHILD_MODEL: "telomi-test/child-1", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" }));
+writeFileSync(join(wikiUpdateDir, "wiki-model-selection.json"), JSON.stringify({ TELOMI_WIKI_COMPILATION_MODEL: "telomi-test/wiki-1", TELOMI_PRIME_AGENT_CHILD_MODEL: "telomi-test/child-1", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "low" }));
 const wiki = readTraceRun({ workspaceDir, goalId, kind: "wiki", runId: wikiUpdateId });
 assert.equal(wiki.status, "succeeded");
 assert.equal(wiki.model, "telomi-test/wiki-1");

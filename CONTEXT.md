@@ -114,7 +114,7 @@ _Avoid_: permanent canonical page tree, Topic Projection, mutable Wiki
 
 **Wiki Compilation**:
 The knowledge-construction module that derives object and concept pages from Cornell Notes and a previous Wiki Edition, retaining supporting evidence and classifying pages into the confirmed Goal Topic Plan.
-_Avoid_: Wiki Curator, Source Organizer, Topic Projection Agent
+_Avoid_: Source Organizer, Topic Projection Agent
 
 **Wiki Topic Reindex**:
 Navigation-only classification of an existing Wiki Edition against a confirmed Goal Topic Plan, preserving page content, evidence and knowledge identities.

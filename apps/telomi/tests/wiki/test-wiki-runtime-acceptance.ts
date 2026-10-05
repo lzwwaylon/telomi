@@ -38,7 +38,7 @@ try {
   let attemptRoot = "";
   const request = { input: { ...input, instructions: scenario }, workRoot, env: { ...process.env, PRIME_AGENT_CODING_AGENT_DIR: auth,
    PRIME_AGENT_MODULE: new URL("./fixtures/prime-wiki-output-session.ts", import.meta.url).href,
-   TELOMI_WIKI_CURATOR_MODEL: "wiki-fixture/fixture" },
+   TELOMI_WIKI_COMPILATION_MODEL: "wiki-fixture/fixture" },
    signal: new AbortController().signal, onAttemptStarted: (path: string) => { attemptRoot = path; } };
   if (success) await runWikiStageKind(request);
   else await assert.rejects(runWikiStageKind(request), error => {
@@ -80,7 +80,7 @@ try {
   await assert.rejects(runWikiStageKind({ input: { ...base, instructions: scenario }, workRoot,
    env: { ...process.env, PRIME_AGENT_CODING_AGENT_DIR: auth,
     PRIME_AGENT_MODULE: new URL("./fixtures/prime-wiki-output-session.ts", import.meta.url).href,
-    TELOMI_WIKI_CURATOR_MODEL: "wiki-fixture/fixture" }, signal: new AbortController().signal,
+    TELOMI_WIKI_COMPILATION_MODEL: "wiki-fixture/fixture" }, signal: new AbortController().signal,
    onAttemptStarted: path => { attemptRoot = path; } }), error => {
     assert.ok(error instanceof Error);
     if (scenario === "receipt-error") {

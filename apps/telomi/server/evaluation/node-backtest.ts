@@ -819,7 +819,7 @@ export class NodeBacktestService {
 			}
 			for (const wikiTraceDirectory of wikiCaseTraceDirectories(value)) {
 				if (existsSync(join(sourceRunDirectory, wikiTraceDirectory))) {
-					// Wiki Curator 的 Runtime 目录与 Worker Workspace 并列；按 Runtime 内的相对路径分类。
+					// Wiki Compilation 的 Runtime 目录与 Worker Workspace 并列；按 Runtime 内的相对路径分类。
 					const kind = value.agentId === "wiki-compilation" ? wikiCompilationCaseTraceKind : basename(wikiTraceDirectory) === "curator-runtime"
 						? (relativePath: string) => wikiCaseTraceKind(`runtime/${relativePath}`)
 						: wikiCaseTraceKind;

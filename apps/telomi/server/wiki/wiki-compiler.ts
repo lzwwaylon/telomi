@@ -85,7 +85,7 @@ export class WikiCompiler {
   const previous: PreviousWikiEdition = request.rebuild ? { pages: [], entries: [], files: new Map(), relations: [] } : await readPreviousWikiEdition(base);
   const env = pinWikiModelSelection(request.controlDirectory, request.env ?? process.env);
   const compilationId = `wiki-compilation-${hashJson({ notes: artifact.sha256, baseKnowledgeSha256, goal, topics, rebuild: request.rebuild === true,
-   model: env.TELOMI_WIKI_CURATOR_MODEL, thinking: env.TELOMI_WIKI_CURATOR_THINKING_LEVEL, contract: 3, implementation: codeIdentity() }).slice(0, 24)}`;
+   model: env.TELOMI_WIKI_COMPILATION_MODEL, thinking: env.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, contract: 3, implementation: codeIdentity() }).slice(0, 24)}`;
   const workRoot = join(request.controlDirectory, 'wiki-compilation', compilationId);
   mkdirSync(workRoot, { recursive: true });
   const record = join(workRoot, 'result.json');

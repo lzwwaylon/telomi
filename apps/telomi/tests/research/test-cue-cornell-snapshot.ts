@@ -105,7 +105,7 @@ try {
 		goalContext: { title: "Reference protocols", description: "Compare reference protocol requirements" },
 		topicPlan: { schema_version: 1, goal_id: "goal", revision: "topics-v1", status: "active", topics: [{ id: "references",
 			title: "References", intent: "Reference protocol requirements", questions: [], include: [], exclude: [] }] },
-		env: { TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" },
+		env: { TELOMI_WIKI_COMPILATION_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "low" },
 		signal: new AbortController().signal });
 	assert.equal(compiled.publicationReady, true);
 	assert.equal(seenObjects.length, 2);

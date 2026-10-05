@@ -3,6 +3,6 @@ export const TASK_MODEL_ROLE_LABELS = {
 	noteAgent: "Note Agent",
 	primeRoot: "Prime Root",
 	primeChild: "Prime Child",
-	wikiCurator: "Wiki Compilation",
+	wikiCompilation: "Wiki Compilation",
 	browserEvolution: "Browser Evolution",
 } as const;

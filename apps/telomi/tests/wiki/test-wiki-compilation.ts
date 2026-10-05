@@ -17,7 +17,7 @@ import { wikiPageEntryIds, type WikiPagesResult } from "../../server/wiki/wiki-p
 const root = mkdtempSync(join(tmpdir(), "wiki-compilation-"));
 const failureUsage = { inputTokens: 7, outputTokens: 3, costUsd: 0.04, calls: 2 };
 const usage = { inputTokens: 10, outputTokens: 5, costUsd: 0, calls: 1 };
-const env = { TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" };
+const env = { TELOMI_WIKI_COMPILATION_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "low" };
 const plan: GoalTopicPlan = { schema_version: 1, goal_id: "goal", revision: "v1", status: "active", topics: ["training", "evaluation"].map(id => ({ id, title: id, intent: `Understand ${id}`, questions: [], include: [], exclude: [] })) };
 function evidence(count: number, offset = 0): CornellNotesSnapshot {
  return { schema_version: 1, snapshot_id: "snapshot", run_id: "source-run", pipeline: { id: "cornell", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [],

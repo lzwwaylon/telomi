@@ -235,7 +235,7 @@ Prime Search, Report Writer and Podcast Writer all use the Prime SDK's native `w
 
 ## Models and Thinking Levels
 
-Environment and Goal settings can override models, so the model selected at runtime is not a documentation contract. Defaults are defined in `TASK_MODEL_ROLE_INFO` in `server/config/settings.ts` for `primeRoot`, `primeChild`, `noteAgent`, and `wikiCurator`; Note Agent exposes its configuration through `server/research/config.ts`.
+Environment and Goal settings can override models, so the model selected at runtime is not a documentation contract. Defaults are defined in `TASK_MODEL_ROLE_INFO` in `server/config/settings.ts` for `primeRoot`, `primeChild`, `noteAgent`, and `wikiCompilation`; Note Agent exposes its configuration through `server/research/config.ts`.
 
 The intent behind thinking levels is not evident from code: Prime Search Root and the Organizer use medium, Report Writer Root and Report Writer Section children share Prime high, and the Prime Wiki compilation fallback uses medium. The Wiki compilation Pi concept stages pin Terra and medium independently of the Prime Wiki fallback model defaults. The authoritative values for a particular run are in `research-harness-snapshot.json`, its Node Trace, and evaluation artifacts.
 

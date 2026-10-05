@@ -26,16 +26,16 @@ const RECIPE = { id: "wiki-compilation", version: 1 };
 interface FrozenWikiModels { root: string; child: string; thinking: ThinkingLevel }
 
 function wikiModels(env: NodeJS.ProcessEnv): FrozenWikiModels {
-	const root = resolveLLMConfig({ envVarName: TASK_MODEL_ROLE_INFO.wikiCurator.modelEnvVar,
-		taskModelRole: "wikiCurator", envOverride: env });
+	const root = resolveLLMConfig({ envVarName: TASK_MODEL_ROLE_INFO.wikiCompilation.modelEnvVar,
+		taskModelRole: "wikiCompilation", envOverride: env });
 	if (!root.model) throw new Error("Wiki evaluation requires a configured Root model");
 	return { root: root.model, child: resolvePrimeModel("primeChild", env).selector,
-		thinking: resolveStageThinkingLevel("wikiCurator", "maintenance", env).thinkingLevel };
+		thinking: resolveStageThinkingLevel("wikiCompilation", "maintenance", env).thinkingLevel };
 }
 
 function frozenWikiEnv(models: FrozenWikiModels): NodeJS.ProcessEnv {
-	return { ...process.env, TELOMI_WIKI_CURATOR_MODEL: models.root,
-		TELOMI_PRIME_AGENT_CHILD_MODEL: models.child, TELOMI_WIKI_CURATOR_THINKING_LEVEL: models.thinking };
+	return { ...process.env, TELOMI_WIKI_COMPILATION_MODEL: models.root,
+		TELOMI_PRIME_AGENT_CHILD_MODEL: models.child, TELOMI_WIKI_COMPILATION_THINKING_LEVEL: models.thinking };
 }
 interface FrozenRequest {
 	schema_version: 1;

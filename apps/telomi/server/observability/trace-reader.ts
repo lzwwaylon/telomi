@@ -817,7 +817,7 @@ function readTaskHistory(
 function pinnedWikiModel(wikiRunDir: string): string | undefined {
 	const path = join(wikiRunDir, "wiki-model-selection.json");
 	if (!existsSync(path)) return undefined;
-	try { return text(record(JSON.parse(readFileSync(path, "utf-8")))?.TELOMI_WIKI_CURATOR_MODEL); }
+	try { return text(record(JSON.parse(readFileSync(path, "utf-8")))?.TELOMI_WIKI_COMPILATION_MODEL); }
 	catch { return undefined; }
 }
 

@@ -610,13 +610,13 @@ try {
 		cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "d".repeat(64), byte_length: 12 },
 	});
 	const curatorTrace = [
-		"Wiki Compilation exited with code 1: /Users/maintainer/My Checkout/apps/telomi/server/wiki/wiki-curator.ts:590",
-		"\treturn new Error(`[wiki-curator:worksets] file '${file}', field '${field}': ${issue}`);",
+		"Wiki Compilation exited with code 1: /Users/maintainer/My Checkout/apps/telomi/server/wiki/wiki-compilation.ts:590",
+		"\treturn new Error(`[wiki-compilation:worksets] file '${file}', field '${field}': ${issue}`);",
 		"\t       ^",
 		"",
-		"Error: [wiki-curator:worksets] file 'state/groups/ws-concept-2ea7.json': contains unknown Goal Topic",
-		"    at curatorResultViolation (C:\\Users\\maintainer\\checkout\\server\\wiki\\wiki-curator.ts:590:9)",
-		"    at validateGroupResult (/srv/telomi/server/wiki/wiki-curator.ts:566:27)",
+		"Error: [wiki-compilation:worksets] file 'state/groups/ws-concept-2ea7.json': contains unknown Goal Topic",
+		"    at compilationResultViolation (C:\\Users\\maintainer\\checkout\\server\\wiki\\wiki-compilation.ts:590:9)",
+		"    at validateGroupResult (/srv/telomi/server/wiki/wiki-compilation.ts:566:27)",
 		"",
 		"Node.js v24.20.0",
 	].join("\n");

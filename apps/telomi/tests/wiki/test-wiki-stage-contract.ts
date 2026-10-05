@@ -177,7 +177,7 @@ try {
    cornellNotesSnapshot: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
    goalContext: { title: 'Methods', description: 'Understand methods' },
    topicPlan: { schema_version: 1, goal_id: 'goal', revision: 'v1', status: 'active', topics: [topic] },
-   env: { TELOMI_WIKI_CURATOR_MODEL: 'test/root', TELOMI_PRIME_AGENT_CHILD_MODEL: 'test/child', TELOMI_WIKI_CURATOR_THINKING_LEVEL: 'low' }, signal: new AbortController().signal };
+   env: { TELOMI_WIKI_COMPILATION_MODEL: 'test/root', TELOMI_PRIME_AGENT_CHILD_MODEL: 'test/child', TELOMI_WIKI_COMPILATION_THINKING_LEVEL: 'low' }, signal: new AbortController().signal };
  };
  const proposals: string[] = [];
  const compiler = new WikiCompiler({ runStage: async ({ input: stage, workRoot }) => {
