@@ -158,7 +158,7 @@ partial.jobs.settle("partial", {
 	failedBatches: [{
 		batch_index: 0,
 		source_ids: ["source_a", "source_b"],
-		message: "Wiki Curator rejected the Workset",
+		message: "Wiki Compilation rejected the Workset",
 		usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0, model_calls: 1 },
 	}],
 	now: new Date("2026-09-16T12:11:00.000Z"),
@@ -245,16 +245,16 @@ const step = (id: string, activity: AgentActivity): ActivityStep => ({
 });
 const groups = groupActivitySteps([
 	step("note:a", agent("cornell:a", "note_agent")),
-	step("wiki-batch:1", agent("wiki:1", "wiki_maintainer")),
+	step("wiki-objects:1", agent("wiki:1", "wiki_compilation")),
 ]);
 const pools = groups.flatMap((group) => group.entries.flatMap((entry) => entry.kind === "worker-pool" ? [entry] : []));
 assert.equal(pools.length, 2);
 await en();
-assert.deepEqual(groups.map((group) => render(group.label)), ["Execution phase", "SHARD organization"]);
+assert.deepEqual(groups.map((group) => render(group.label)), ["Execution phase", "Object construction"]);
 assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki workers"]);
 assert.equal(render(pools[0]!.workers[0]!.title), "Note Agent 1 · source_a");
 await zh();
-assert.deepEqual(groups.map((group) => render(group.label)), ["执行阶段", "SHARD 整理"]);
+assert.deepEqual(groups.map((group) => render(group.label)), ["执行阶段", "对象构建"]);
 assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki Worker"]);
 
 // A failed Stage says why on the Stage itself; a Provider's HTTP error reads as its status and its

@@ -320,7 +320,7 @@ for (const value of [
 	writeFileSync(path, `${JSON.stringify({ ...value, capturedAt: "2026-08-07T07:05:00.000Z" })}\n`);
 }
 writeFileSync(join(wikiUpdateDir, "wiki-update-job.json"), `${JSON.stringify({
-	schema_version: 1,
+	schema_version: 1, compiler: "wiki-compilation",
 	status: "succeeded",
 	goal_id: goalId,
 	run_id: wikiUpdateId,
@@ -344,7 +344,7 @@ writeFileSync(join(wikiUpdateDir, "wiki-update-job.json"), `${JSON.stringify({
 			finished_at: "2026-08-07T07:05:00.000Z", page_count: 2, reused: false,
 			usage: { input_tokens: 10, output_tokens: 2, cost_usd: 0.01, model_calls: 1 }, trace_ref: shardTrace }],
 		stages: [
-			{ kind: "curation", stage_index: 0, total_stages: 1, status: "succeeded",
+			{ kind: "merge-objects", stage_index: 0, total_stages: 1, status: "succeeded",
 				started_at: "2026-08-07T07:05:00.000Z", finished_at: "2026-08-07T07:05:59.000Z", page_count: 3,
 				usage: { input_tokens: 20, output_tokens: 4, cost_usd: 0.02, model_calls: 2 }, trace_ref: curatorTrace },
 			{ kind: "publication", stage_index: 0, total_stages: 1, status: "succeeded",
@@ -486,9 +486,9 @@ assert.deepEqual(wiki.usage, {
 	incompleteExecutions: 0,
 });
 assert.equal(wiki.nodes[0]?.traceRef, `runtime/${shardTrace}`);
-assert.equal(wiki.nodes[0]?.caseRef?.caseId, "wiki-shard-case");
+assert.equal(wiki.nodes[0]?.caseRef, undefined, "compilation stages cannot borrow retired per-stage Cases");
 assert.equal(wiki.nodes[1]?.traceRef, `runtime/${curatorTrace}`);
-assert.equal(wiki.nodes[1]?.caseRef?.caseId, "wiki-curator-case");
+assert.equal(wiki.nodes[1]?.caseRef, undefined);
 const wikiChildTraces = wiki.files.filter((file) => file.kind === "related_agent_trace");
 assert.equal(wikiChildTraces.length, 2);
 assert.ok(wikiChildTraces.some((file) => file.ref === `runtime/${dirname(shardTrace)}/session-artifacts/sub-fixture/child.jsonl`));

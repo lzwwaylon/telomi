@@ -50,9 +50,9 @@ assert.equal(activityText(cornellPool.label), "Note Agent", "the pool label is a
 assert.deepEqual(cornellPool.workers.map((worker) => worker.agent.agentActivityId), ["cornell:a", "cornell:b", "cornell:c"]);
 
 const wiki = groupActivitySteps([
-	step("wiki-batch:1", agent("wiki:1", "wiki_maintainer")),
-	step("wiki-batch:2", agent("wiki:2", "wiki_maintainer")),
-	step("wiki-stage:curation:1", agent("curator", "wiki_curator")),
+	step("wiki-objects:1", agent("wiki:1", "wiki_compilation")),
+	step("wiki-objects:2", agent("wiki:2", "wiki_compilation")),
+	step("wiki-stage:merge-objects:1", agent("curator", "wiki_compilation")),
 ]);
 
 assert.equal(wiki.length, 2);

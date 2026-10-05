@@ -1,3 +1,4 @@
+import type { WikiStageKind } from "./wiki-stage-contract.js";
 import { inferOutputLanguage, type ResolvedOutputLanguage } from "../../shared/languages.js";
 import type { PublishedArtifactDirectoryRef, RunArtifactRef } from "../agent-runtime/artifact-store.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
@@ -75,7 +76,7 @@ export interface WikiCompilationBatchFailure {
 }
 
 export interface WikiCompilationStageProgress {
-	kind: "curation";
+	kind: WikiStageKind;
 	stageIndex: number;
 	totalStages: number;
 	status: "running" | "succeeded" | "failed";

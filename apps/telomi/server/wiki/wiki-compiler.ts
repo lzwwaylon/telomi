@@ -151,9 +151,9 @@ export class WikiCompiler {
     throw error;
    }
   };
-  let curationStages = 2;
+  let compilationStages = 2;
   const globalStage = async (input: WikiStageInput, index: number) => {
-   const progress = { kind: 'curation' as const, stageIndex: index, totalStages: curationStages, pageCount: 0, usage: zero(),
+   const progress = { kind: input.stage, stageIndex: index, totalStages: compilationStages, pageCount: 0, usage: zero(),
     traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
    request.onStageProgress?.({ ...progress, status: 'running' });
    try {
@@ -235,7 +235,7 @@ export class WikiCompiler {
    const assigned = new Set(conceptPlan.jobs.flatMap(job => job.pageRefs));
    assertPartition([...assigned, ...conceptPlan.objectOnly.map(row => row.pageRef)], planInput.requiredPages, 'concept object disposition');
    writeJsonAtomic(join(workRoot, 'concept-object-disposition.json'), { jobs: conceptPlan.jobs, objectOnly: conceptPlan.objectOnly });
-   curationStages += conceptPlan.jobs.length;
+   compilationStages += conceptPlan.jobs.length;
    const conceptResults = await mapConcurrentFairly(conceptPlan.jobs, 4, async (job, index) => {
     const input = make('concepts', `concepts/${hashJson(job).slice(0, 24)}`, { entries: usable, pages: planInput.pages,
      requiredPages: job.pageRefs, conceptTask: { question: job.question, scope: job.scope, targetRef: job.targetRef } });
@@ -265,12 +265,12 @@ export class WikiCompiler {
      conceptMembers[index] = { ...conceptMembers[index]!, page };
     } else conceptMembers.push({ ref: `${row.input.key}:${page.id}`, page, previous: false, role: 'member' });
    }
-   let concepts = conceptMembers.map(row => row.page), nextCurationStage = 2 + conceptPlan.jobs.length;
+   let concepts = conceptMembers.map(row => row.page), nextCompilationStage = 2 + conceptPlan.jobs.length;
    if (conceptMembers.length) {
-    curationStages++;
+    compilationStages++;
     const auditInput = make('audit-concepts', 'audit-concepts', { entries: usable, pages: [...conceptMembers, ...objectRefs],
      requiredPages: conceptMembers.map(row => row.ref) });
-    const audit = expect(await globalStage(auditInput, nextCurationStage++), 'concept-audit');
+    const audit = expect(await globalStage(auditInput, nextCompilationStage++), 'concept-audit');
     assertPartition(audit.reviewedPages.map(row => row.pageRef), auditInput.requiredPages, 'concept catalog review');
     const members = new Map(conceptMembers.map(row => [row.ref, row]));
     const consumed = new Set<string>();
@@ -288,12 +288,12 @@ export class WikiCompiler {
      consumed.add(row.ref);
     }
     concepts = conceptMembers.filter(row => !consumed.has(row.ref)).map(row => row.page);
-    curationStages += audit.conflictGroups.length;
+    compilationStages += audit.conflictGroups.length;
     for (const group of audit.conflictGroups) {
      const selected = group.pageRefs.map(ref => members.get(ref)!);
      const input = make('merge-concepts', `merge-concepts/${hashJson(group).slice(0, 24)}`, { entries: usable,
       pages: [...selected, ...objectRefs], instructions: group.reason });
-     const merged = expect(await globalStage(input, nextCurationStage++), 'pages').value;
+     const merged = expect(await globalStage(input, nextCompilationStage++), 'pages').value;
      if (merged.discarded_refs.length || merged.deferred_entries.length) throw new Error('Concept conflict merge cannot discard members or evidence');
      concepts.push(...materialize(input, merged));
     }
@@ -308,9 +308,9 @@ export class WikiCompiler {
     throw new Error('Historical concept citations must survive final integration');
    }
    const pages = [...objects, ...concepts];
-   curationStages += topics.topics.length ? pages.length : 0;
+   compilationStages += topics.topics.length ? pages.length : 0;
    const sections = sectionEvidence(pages), knowledgeHash = hashJson({ pages, entries });
-   const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, nextCurationStage + ordinal), pages, sections, topics, knowledgeHash,
+   const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, nextCompilationStage + ordinal), pages, sections, topics, knowledgeHash,
     onFailure: (index, id, error) => fail(evidence.notes.length + conceptPlan.jobs.length + index, [id], error), signal: request.signal });
    const refs = cited(pages);
    if ([...finalDiscards.keys()].some(id => refs.has(id))) throw new Error('Finally discarded Cue reappeared in knowledge');

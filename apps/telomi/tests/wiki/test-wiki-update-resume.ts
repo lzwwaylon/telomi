@@ -438,12 +438,12 @@ async function testRetiredCompilerResume(): Promise<void> {
 		const path = join(controlDirectory, WIKI_UPDATE_JOB_FILE);
 		const bytes = JSON.stringify(job);
 		writeFileSync(path, bytes);
-		assert.equal(canResumeWikiUpdateJob(jobs.load()!), false);
+		assert.throws(() => jobs.load(), /schema validation/u);
 		const dependencies = { compile: async () => { assert.fail("retired compiler must not execute"); } };
-		await assert.rejects(resumeWikiUpdate({ workspaceDir, goalId, goalDir, runId, env: {}, dependencies }), /Legacy Wiki Shard updates cannot resume/u);
+		await assert.rejects(resumeWikiUpdate({ workspaceDir, goalId, goalDir, runId, env: {}, dependencies }), /schema validation/u);
 		await assert.rejects(executeWikiUpdate({ ...input, workspaceDir, goalDir, controlDirectory,
-			runDirectory: wikiUpdateArtifactDir(goalDir, runId), env: {}, signal: new AbortController().signal, dependencies }), /Legacy Wiki Shard updates cannot resume/u);
-		assert.throws(() => jobs.start(input), /Legacy Wiki Shard updates cannot resume/u);
+			runDirectory: wikiUpdateArtifactDir(goalDir, runId), env: {}, signal: new AbortController().signal, dependencies }), /schema validation/u);
+		assert.throws(() => jobs.start(input), /schema validation/u);
 		assert.equal(readFileSync(path, "utf8"), bytes, "rejecting legacy resume preserves all recorded bytes");
 	}
 }

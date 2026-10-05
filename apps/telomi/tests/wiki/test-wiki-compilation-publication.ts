@@ -48,7 +48,7 @@ try {
   dependencies: { compile: async request => {
    request.onStarted?.(1);
    request.onBatchProgress?.({ batchIndex: 0, totalBatches: 1, status: "succeeded", pageCount: 1, usage, reused: false });
-   request.onStageProgress?.({ kind: "curation", stageIndex: 0, totalStages: 1, status: "succeeded", pageCount: 7, usage });
+   request.onStageProgress?.({ kind: "merge-objects", stageIndex: 0, totalStages: 1, status: "succeeded", pageCount: 7, usage });
    return complete;
   } } });
  assert.equal(resumed.status, "succeeded");

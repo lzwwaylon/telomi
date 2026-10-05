@@ -86,7 +86,7 @@ The status endpoint returns the currently registered Recipes:
 ```json
 {
   "recipes": [
-    "cornell-note@3",
+    "note-agent@3",
     "evolution@2",
     "main-agent@1",
     "prime-search@4",
@@ -125,7 +125,7 @@ curl --fail --silent \
       "promptMode": "candidate"
     },
     "repetitions": 2,
-    "rubricId": "cornell-note-v1"
+    "rubricId": "note-agent-v1"
   }'
 ```
 
@@ -199,7 +199,7 @@ Replay invokes the production `WikiCompiler.compile()` or `.reindex()` in an iso
 
 Capture remains fail-open for product results. Candidate Evidence is fail-closed. Failed, cancelled and partially failed executions retain a Recovery Case with sanitized stage inputs, outputs, native sessions and terminal error. Credentials and SDK environment directories are excluded. Successful artifacts contain the Knowledge directory, metrics and evaluation rubric. Direct Topic matches and related-page navigation must be assessed separately.
 
-Historical `wiki-shard-builder` and `wiki-curator` Cases remain readable as captured evidence, but their retired Recipes no longer execute. They and private `wiki-compilation-diagnostic` Cases do not have this formal boundary and are rejected by this Recipe. They cannot be relabeled or supplemented from live state. Capture the first semantic Case through a real Wiki Update or Topic reindex, then export and replay it through Operations before claiming Attestation.
+Only the current registered Recipe and captured formal boundary are admitted. Cases from other Recipes cannot be relabeled or supplemented from live state. Capture the first semantic Case through a real Wiki Update or Topic reindex, then export and replay it through Operations before claiming Attestation.
 
 ### Podcast Writer
 

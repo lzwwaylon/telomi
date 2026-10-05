@@ -552,7 +552,7 @@ test("a connection row counts every model it serves and names its users as the m
     { capability: "chat", consumer: "wikiCurator", connection: "telomi-test", model: "small-1" },
     { capability: "embedding", consumer: "memory", connection: "telomi-test", model: "embed-1" },
   ] }} />);
-  for (const label of [i18next.t("settings.board.default"), "Wiki Curator", i18next.t("settings.embedding.memory")]) assert.ok(chat.includes(label), label);
+  for (const label of [i18next.t("settings.board.default"), "Wiki Compilation", i18next.t("settings.embedding.memory")]) assert.ok(chat.includes(label), label);
   assert.doesNotMatch(chat, /wikiCurator|· memory/);
 });
 

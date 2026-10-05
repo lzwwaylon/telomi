@@ -1,3 +1,4 @@
+import { WIKI_STAGE_KINDS, type WikiStageKind } from "./wiki-stage-contract.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -47,7 +48,7 @@ export const WikiCueOriginSchema = Type.Object({
 
 export const WikiUpdateJobSchema = Type.Object({
 	schema_version: Type.Literal(1),
-	compiler: Type.Optional(Type.Union([Type.Literal("wiki-compilation"), Type.Literal("shards")])),
+	compiler: Type.Literal("wiki-compilation"),
 	status: Type.Union([
 		Type.Literal("queued"),
 		Type.Literal("running"),
@@ -117,7 +118,7 @@ export const WikiUpdateJobSchema = Type.Object({
 		}, { additionalProperties: false })),
 		stages: Type.Optional(Type.Array(Type.Object({
 			kind: Type.Union([
-				Type.Literal("curation"),
+				...WIKI_STAGE_KINDS.map((kind) => Type.Literal(kind)),
 				Type.Literal("publication"),
 			]),
 			stage_index: Type.Integer({ minimum: 0 }),
@@ -182,9 +183,6 @@ export class WikiUpdateJobStore {
 	}): WikiUpdateJob {
 		const now = (input.now ?? new Date()).toISOString();
 		const previous = this.load();
-		if (previous && previous.compiler !== "wiki-compilation") {
-			throw new Error("Legacy Wiki Shard updates cannot resume. Start a new Wiki Update.");
-		}
 		const job: WikiUpdateJob = {
 			schema_version: 1,
 			compiler: input.compiler ?? "wiki-compilation",
@@ -290,7 +288,7 @@ export class WikiUpdateJobStore {
 	}
 
 	recordStage(input: {
-		kind: "curation" | "publication";
+		kind: WikiStageKind | "publication";
 		stageIndex: number;
 		totalStages: number;
 		status: "running" | "succeeded" | "failed";
@@ -449,8 +447,8 @@ function finalizeRunningBatches(
 	};
 }
 
-function stageOrder(kind: "curation" | "publication"): number {
-	return kind === "curation" ? 0 : 1;
+function stageOrder(kind: WikiStageKind | "publication"): number {
+	return kind === "publication" ? 1 : 0;
 }
 
 export function canResumeWikiUpdateJob(job: WikiUpdateJob): boolean {

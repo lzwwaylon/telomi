@@ -77,10 +77,6 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 	onSettled?: (status: WikiUpdateJob["status"], message?: string) => void;
 }): Promise<WikiUpdateExecution> {
 	const jobs = new WikiUpdateJobStore(input.controlDirectory);
-	const previousJob = jobs.load();
-	if (previousJob && previousJob.compiler !== "wiki-compilation") {
-		throw new Error("Legacy Wiki Shard updates cannot resume. Start a new Wiki Update.");
-	}
 	let publicationStarted = false;
 	let publicationPageCount = 0;
 	let compilation: WikiCompilationResult | undefined;
@@ -417,9 +413,6 @@ export async function resumeWikiUpdate(input: {
 	const controlDirectory = wikiUpdateRecordDir(input.workspaceDir, input.goalId, input.runId);
 	const job = new WikiUpdateJobStore(controlDirectory).load();
 	if (!job) throw new Error("Unknown Wiki update");
-	if (job.compiler !== "wiki-compilation") {
-		throw new Error("Legacy Wiki Shard updates cannot resume. Start a new Wiki Update.");
-	}
 	if (!canResumeWikiUpdateJob(job)) {
 		throw new Error(job.status === "interrupted"
 			? `Wiki update reached the resume attempt limit of ${MAX_WIKI_UPDATE_ATTEMPTS}`

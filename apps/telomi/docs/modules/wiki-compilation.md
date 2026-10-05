@@ -1,6 +1,6 @@
 # Wiki Compilation
 
-New Wiki Updates use `WikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; compilation and publication share one Goal execution turn, and publication remains under the existing Goal Workspace publication lock. Historical shard/curator Updates cannot resume execution. Existing published Editions, Cases and Traces remain readable.
+New Wiki Updates use `WikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; compilation and publication share one Goal execution turn, and publication remains under the existing Goal Workspace publication lock. Current execution records require the Wiki Compilation compiler and carry each compilation stage identity.
 
 ## Construction and input views
 
@@ -63,11 +63,10 @@ Topic-filtered search uses page membership projected from the section index. It 
 
 The formal `wiki-compilation@1` recipe captures complete construction or navigation-only inputs and replays the production implementation. It preserves Notes where applicable, Goal, Topic Plan, previous Edition, models, artifacts and native sessions. Each file-capable stage captures its logical business Workspace before the first native Agent turn, under that attempt Runtime’s `logical-workspaces/root` tree and `root.json` metadata. The metadata binds the exact native Session, stage, guest working directory and read/write mounts. Repair turns retain this initial capture; a fresh attempt has a separate Session and capture. Native RLM children capture their own first-turn view under `logical-workspaces/child/<child-id>`, with their native Session identity. Runtime libraries and transient kernel state are omitted; library paths are declared separately. Case files and Replay refs preserve all captured business assets, including binary and hidden files, while staged credentials and SDK trees remain excluded. Stateless Page Topic Sessions instead record `workspace-capture.json` with their native Session identity and `not-applicable` / `stateless-no-file-tools`, without claiming a filesystem snapshot. Historical Cases without this evidence remain unchanged.
 
-Legacy shard/curator Cases and private compilation diagnostics cannot be substituted for this boundary. See [Node Evaluation](../node-agent-backtest.md) and [Attestation](../development/attestation.md).
+Cases from other Recipes cannot be substituted for this boundary. See [Node Evaluation](../node-agent-backtest.md) and [Attestation](../development/attestation.md).
 
 Tests cover complete-Note queues, Cue ownership, stage contracts, actual SRT Skill loading, full-text delivery, relation-free construction, failed publication, retry, history, navigation and legacy relationship reading. Deterministic tests do not establish factual correctness or superior Topic selection.
 
-Historical shard/curator Cases retain their captured evidence for inspection, but their retired Replay recipes are not executable.
 
 ## Investigation inputs
 

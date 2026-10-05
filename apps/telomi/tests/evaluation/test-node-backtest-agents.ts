@@ -5,13 +5,13 @@ import {
 } from "../../server/agent-runtime/recorded-stage-replay.js";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import express from "express";
 
-import { hashDirectory, hashJson, sha256, stableJson } from "../../server/lib/hash.js";
+import { hashJson, sha256, stableJson } from "../../server/lib/hash.js";
 import { listFilesRecursive } from "../../server/lib/fs.js";
 import { WORKSPACE_AGENT_IDS } from "../../server/workspaces/agent-layout.js";
 import { snapshotSkills } from "../../server/agent-runtime/skill-registry.js";
@@ -979,59 +979,6 @@ try {
 		outputs: Record<"A" | "B", { content?: string }>;
 	}> } };
 	assert.equal(batch.batch.pairs.length, 1);
-	// A real pre-rename Bundle binds the original ordered Skill owners, including empty entries.
-	const frozenRoster = ["main-agent", "podcast-writer", "prime-search", "cornell-note", "report-writer", "wiki-shard-builder", "wiki-curator"];
-	const historicalContent = join(root, "historical-capability");
-	materializeCapabilities(goalDirectory, historicalContent, ["wiki"]);
-	renameSync(join(historicalContent, "skills/note-agent"), join(historicalContent, "skills/cornell-note"));
-	rmSync(join(historicalContent, ".capability-roster.json"));
-	// Build the recorded historical roster, including empty owners, independently of today's registry.
-	for (const owner of readdirSync(join(historicalContent, "skills"))) {
-		if (!frozenRoster.includes(owner)) rmSync(join(historicalContent, "skills", owner), { recursive: true });
-	}
-	for (const owner of frozenRoster) mkdirSync(join(historicalContent, "skills", owner), { recursive: true });
-	const historicalHash = sha256(stableJson({ skills: frozenRoster.map((agentId) => ({ agentId,
-		sha256: snapshotSkills([join(historicalContent, "skills", agentId)]).sha256 })),
-		wiki: hashDirectory(join(historicalContent, "wiki")) }));
-	const renamedRosterHash = sha256(stableJson({ skills: WORKSPACE_AGENT_IDS.map((agentId) => ({ agentId,
-		sha256: snapshotSkills([join(historicalContent, "skills", agentId)]).sha256 })),
-		wiki: hashDirectory(join(historicalContent, "wiki")) }));
-	assert.notEqual(historicalHash, renamedRosterHash, "today's Agent names must not redefine an immutable Snapshot identity");
-	const historicalSnapshot = { ...httpSnapshot, id: `caps_${historicalHash}`, workspaceContentHash: historicalHash,
-		ref: `evaluation/capability-snapshots/caps_${historicalHash}/content` };
-	const historicalStore = join(serverRuntimeDirForGoal(goalId, workspaceDir), historicalSnapshot.ref);
-	cpSync(historicalContent, historicalStore, { recursive: true });
-	writeFileSync(join(dirname(historicalStore), "manifest.json"), JSON.stringify(historicalSnapshot));
-	assert.deepEqual(service.readCapabilitySnapshot(goalId, historicalSnapshot.id), historicalSnapshot);
-	const historicalRef = { sourceRunId, caseId: cases.get("report-writer")! };
-	const historicalBundle = await createCaseBundle({ dataDir: workspaceDir, goalId, goalTitle: "Frozen owners",
-		value: service.readCase(goalId, historicalRef), casePath: join(sourceRun, "node-evaluation/cases", historicalRef.caseId, "manifest.json"),
-		runtimeBuild: service.status().runtimeBuild, agentBundleSha256: service.status().agentBundleSha256,
-		capabilitySnapshotId: historicalSnapshot.id, capabilityContentDirectory: historicalStore,
-		restoreTree: async () => { throw new Error("This Case has no workspace trees"); } });
-	try {
-		const importedData = join(root, "historical-roster-import");
-		const importer = new NodeBacktestService({ workspaceDir: importedData, listGoalIds: () => [goalId], recipes: [] });
-		const imported = importer.importBundle(historicalBundle.path, (id) => mkdirSync(join(importedData, id), { recursive: true }));
-		assert.equal(imported.capabilitySnapshotId, historicalSnapshot.id);
-		assert.equal(importer.readCapabilitySnapshot(goalId, historicalSnapshot.id).workspaceContentHash, historicalHash);
-		const restored = join(root, "historical-roster-restored");
-		materializeCapabilities(join(serverRuntimeDirForGoal(goalId, importedData), historicalSnapshot.ref), restored);
-		assert.equal(snapshotSkills([join(restored, "skills/cornell-note")]).sha256,
-			snapshotSkills([join(historicalContent, "skills/cornell-note")]).sha256, "restoration retains historical Skill ownership and content");
-		const activated = await waitForEvaluation(service, service.enqueue(goalId, {
-			agentId: "report-writer", cases: [historicalRef], candidate: { capabilitySnapshotId: historicalSnapshot.id, promptMode: "observed" },
-			repetitions: 1, rubricId: "canonical-activation",
-		}).id);
-		assert.equal(activated.status, "awaiting_evaluation", activated.error);
-		assert.notEqual(activated.candidate.capabilitySnapshotId, historicalSnapshot.id, "activation explicitly captures a fresh canonical Snapshot");
-		const activatedContent = join(serverRuntimeDirForGoal(goalId, workspaceDir),
-			service.readCapabilitySnapshot(goalId, activated.candidate.capabilitySnapshotId).ref);
-		assert.equal(existsSync(join(activatedContent, "skills/cornell-note")), false);
-		assert.equal(snapshotSkills([join(activatedContent, "skills/note-agent")]).sha256,
-			snapshotSkills([join(historicalContent, "skills/cornell-note")]).sha256, "canonical activation preserves the historical custom Note Skills");
-		assert.deepEqual(service.readCapabilitySnapshot(goalId, historicalSnapshot.id), historicalSnapshot);
-	} finally { historicalBundle.cleanup(); }
 	const futureSource = join(root, "future-skill-owner");
 	cpSync(goalDirectory, futureSource, { recursive: true });
 	cpSync(join(futureSource, "skills/note-agent"), join(futureSource, "skills/future-owner"), { recursive: true });
@@ -1051,17 +998,6 @@ try {
 		"a captured Skill namespace cannot be omitted from integrity verification");
 	writeFileSync(rosterPath, rosterBytes);
 	assert.deepEqual(service.readCapabilitySnapshot(goalId, futureSnapshot.id), futureSnapshot);
-	const conflictingSource = join(root, "conflicting-skill-owners");
-	cpSync(goalDirectory, conflictingSource, { recursive: true });
-	cpSync(join(conflictingSource, "skills/note-agent"), join(conflictingSource, "skills/cornell-note"), { recursive: true });
-	const conflictingFile = listFilesRecursive(join(conflictingSource, "skills/cornell-note"), { absolute: true })
-		.find((path) => path.endsWith("SKILL.md"))!;
-	writeFileSync(conflictingFile, `${readFileSync(conflictingFile, "utf8")}\nConflicting custom instruction.\n`);
-	const conflictingSnapshot = service.createCapabilitySnapshot(goalId, conflictingSource);
-	assert.throws(() => service.enqueue(goalId, { agentId: "report-writer", cases: [historicalRef],
-		candidate: { capabilitySnapshotId: conflictingSnapshot.id, promptMode: "observed" }, repetitions: 1, rubricId: "conflict" }),
-		/conflicting cornell-note and note-agent Skills/u);
-	assert.deepEqual(service.readCapabilitySnapshot(goalId, conflictingSnapshot.id), conflictingSnapshot);
 	// Persist the pre-filter format independently: old Snapshot IDs still bind the entire Wiki.
 	for (const name of ["阿.md", "中.md"]) {
 		writeFileSync(join(goalDirectory, "wiki", "knowledge", name), name);

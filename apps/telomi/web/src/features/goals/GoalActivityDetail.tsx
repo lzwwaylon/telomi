@@ -787,7 +787,7 @@ function agentLabel(role: string): string {
 		prime_search: "Prime Search",
 		note_agent: "Note Agent",
 		report_writer: "Report Writer",
-		wiki_maintainer: "Wiki Curator",
+		wiki_compilation: "Wiki Compilation",
 		research: "Research",
 	};
 	return labels[role] ?? humanizeAgentName(role);
