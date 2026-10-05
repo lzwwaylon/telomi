@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, posix } from "node:path";
 
 import { sha256 } from "../../lib/hash.js";
-import type { CornellNoteRecord, CornellNotesSnapshot } from "../../cornell/contracts.js";
+import type { SourceNoteRecord, SourceNotesSnapshot } from "../../notes/contracts.js";
 import { createAgentEvidenceHandles, requireAgentEvidenceHandle } from "./evidence-handles.js";
 import type {
 	PublishedArtifactDirectoryRef,
@@ -25,26 +25,26 @@ interface KnowledgeSource {
 
 export interface ReportKnowledgeManifest {
 	schema_version: 1;
-	input: { wiki_sha256: string; cornell_notes_sha256: string; base_sha256?: string };
+	input: { wiki_sha256: string; notes_sha256: string; base_sha256?: string };
 	counts: { wiki_files: number; evidence_notes: number; sources: number };
 	evidence_aliases: Record<string, string>;
 	wiki_refs: { evidence: number; sources: number; raw_sources: number; dangling: string[] };
-	cornell_notes_refs: { sources: number; dangling: string[] };
+	notes_refs: { sources: number; dangling: string[] };
 	files: string[];
 }
 
 export function materializeNotesReportView(input: {
 	targetStore: RunArtifactStore;
-	evidence: CornellNotesSnapshot;
-	cornellNotesArtifact: PublishedArtifactRef;
+	evidence: SourceNotesSnapshot;
+	notesArtifact: PublishedArtifactRef;
 	targetRelativePath: string;
 }): PublishedArtifactDirectoryRef {
 	if (existsSync(join(input.targetStore.root, input.targetRelativePath))) {
 		const existing = input.targetStore.describeDirectory(input.targetRelativePath);
 		const index = JSON.parse(readFileSync(join(existing.absolutePath, "index.json"), "utf-8")) as {
-			cornell_notes_sha256?: unknown;
+			notes_sha256?: unknown;
 		};
-		if (index.cornell_notes_sha256 !== input.cornellNotesArtifact.sha256) {
+		if (index.notes_sha256 !== input.notesArtifact.sha256) {
 			throw new Error("Existing Notes snapshot has different immutable Evidence");
 		}
 		return existing;
@@ -68,7 +68,7 @@ export function materializeNotesReportView(input: {
 		});
 		writeFileSync(join(temporary, "index.json"), `${JSON.stringify({
 				schema_version: 1,
-				cornell_notes_sha256: input.cornellNotesArtifact.sha256,
+				notes_sha256: input.notesArtifact.sha256,
 				notes,
 		}, null, 2)}\n`);
 		return input.targetStore.publishDirectory(temporary, input.targetRelativePath);
@@ -81,8 +81,8 @@ export function materializeReportKnowledgeView(input: {
 	targetStore: RunArtifactStore;
 	sourceStore: RunArtifactStore;
 	wiki: PublishedArtifactDirectoryRef;
-	evidence: CornellNotesSnapshot;
-	cornellNotesArtifact: PublishedArtifactRef;
+	evidence: SourceNotesSnapshot;
+	notesArtifact: PublishedArtifactRef;
 	targetRelativePath: string;
 	baseView?: PublishedArtifactDirectoryRef;
 }): PublishedArtifactDirectoryRef {
@@ -90,7 +90,7 @@ export function materializeReportKnowledgeView(input: {
 		const existing = input.targetStore.describeDirectory(input.targetRelativePath);
 		const manifest = JSON.parse(readFileSync(join(existing.absolutePath, "manifest.json"), "utf-8")) as ReportKnowledgeManifest;
 		if (manifest.input.wiki_sha256 !== input.wiki.sha256
-			|| manifest.input.cornell_notes_sha256 !== input.cornellNotesArtifact.sha256
+			|| manifest.input.notes_sha256 !== input.notesArtifact.sha256
 			|| manifest.input.base_sha256 !== input.baseView?.sha256) {
 			throw new Error("Existing layered knowledge snapshot has different immutable inputs");
 		}
@@ -171,7 +171,7 @@ export function materializeReportKnowledgeView(input: {
 			evidenceTargets,
 			sourceById,
 			wikiSha256: input.wiki.sha256,
-			cornellNotesSha256: input.cornellNotesArtifact.sha256,
+			notesSha256: input.notesArtifact.sha256,
 			baseSha256: input.baseView?.sha256,
 		});
 		writeFileSync(join(temporary, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -296,7 +296,7 @@ function projectWikiMarkdown(
 }
 
 function renderNote(
-	record: CornellNoteRecord,
+	record: SourceNoteRecord,
 	source: KnowledgeSource,
 ): string {
 	const sourcePath = `../../${sourceProjectionPath(source)}`;
@@ -342,7 +342,7 @@ function validateProjectedView(input: {
 	evidenceTargets: ReadonlyMap<string, string>;
 	sourceById: ReadonlyMap<string, KnowledgeSource>;
 	wikiSha256: string;
-	cornellNotesSha256: string;
+	notesSha256: string;
 	baseSha256?: string;
 }): ReportKnowledgeManifest {
 	let evidenceRefs = 0;
@@ -373,7 +373,7 @@ function validateProjectedView(input: {
 	const files = [...listFilesRecursive(input.root), "index.md", "manifest.json"].sort();
 	return {
 		schema_version: 1,
-		input: { wiki_sha256: input.wikiSha256, cornell_notes_sha256: input.cornellNotesSha256,
+		input: { wiki_sha256: input.wikiSha256, notes_sha256: input.notesSha256,
 			...(input.baseSha256 ? { base_sha256: input.baseSha256 } : {}) },
 		counts: {
 			wiki_files: input.wikiFiles.length,
@@ -384,7 +384,7 @@ function validateProjectedView(input: {
 			.filter(([alias, canonical]) => alias !== canonical)
 			.sort(([left], [right]) => left.localeCompare(right))),
 		wiki_refs: { evidence: evidenceRefs, sources: sourceRefs, raw_sources: rawRefs, dangling: [] },
-		cornell_notes_refs: { sources: countDirectories(join(input.root, "evidence")), dangling: [] },
+		notes_refs: { sources: countDirectories(join(input.root, "evidence")), dangling: [] },
 		files,
 	};
 }

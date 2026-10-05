@@ -110,7 +110,7 @@ try {
 	});
 	const citationRegistry = buildKnowledgeCitationRegistry({
 		knowledgeSnapshot: knowledge,
-		cornellNotes: {
+		sourceNotes: {
 			schema_version: 1, snapshot_id: "snapshot:test", run_id: "run-test",
 			pipeline: { id: "pipeline", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [], notes: [],
 		},
@@ -128,7 +128,7 @@ try {
 		plan: { title: "Beta report", sections: [{
 			section_id: "section-001", title: "Finding", claims: [],
 		}] },
-		cornellNotes: {
+		sourceNotes: {
 			schema_version: 1, snapshot_id: "snapshot:test", run_id: "run-test",
 			pipeline: { id: "pipeline", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [], notes: [],
 		},
@@ -140,7 +140,7 @@ try {
 	assert.deepEqual(compiled.citations[0]?.wiki, [citation]);
 	const noteCompiled = compileCanonicalMarkdown({
 		plan: { title: "Note report", sections: [{ section_id: "section-001", title: "Finding", claims: [] }] },
-		cornellNotes: {
+		sourceNotes: {
 			schema_version: 1, snapshot_id: "snapshot:test", run_id: "run-test",
 			pipeline: { id: "pipeline", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [], notes: [],
 		},

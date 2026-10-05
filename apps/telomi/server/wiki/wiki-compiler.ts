@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
-import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
+import { validateSourceNotesSnapshot } from "../notes/contracts.js";
 import { hashJson } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { toErrorMessage } from "../lib/values.js";
@@ -75,8 +75,8 @@ export class WikiCompiler {
  async compile(request: WikiCompilationRequest): Promise<WikiCompilationResult> {
   request.signal.throwIfAborted();
   const goal = requireWikiGoalContext(request.goalContext), topics = validateGoalTopicPlan(request.topicPlan);
-  const store = new RunArtifactStore(request.runDirectory), artifact = store.openFile(request.cornellNotesSnapshot);
-  const evidence = projectWikiEvidence(validateCornellNotesSnapshot(JSON.parse(readFileSync(artifact.absolutePath, 'utf8'))));
+  const store = new RunArtifactStore(request.runDirectory), artifact = store.openFile(request.notesSnapshot);
+  const evidence = projectWikiEvidence(validateSourceNotesSnapshot(JSON.parse(readFileSync(artifact.absolutePath, 'utf8'))));
   const base = join(request.goalDir, 'wiki', 'knowledge'), baseKnowledgeSha256 = hashWikiDirectory(base);
   const priorStatus = join(base, '.note-first-status.json');
   if (!request.rebuild && existsSync(priorStatus) && JSON.parse(readFileSync(priorStatus, 'utf8')).complete !== true) {
@@ -85,7 +85,7 @@ export class WikiCompiler {
   const previous: PreviousWikiEdition = request.rebuild ? { pages: [], entries: [], files: new Map(), relations: [] } : await readPreviousWikiEdition(base);
   const env = pinWikiModelSelection(request.controlDirectory, request.env ?? process.env);
   const compilationId = `wiki-compilation-${hashJson({ notes: artifact.sha256, baseKnowledgeSha256, goal, topics, rebuild: request.rebuild === true,
-   model: env.TELOMI_WIKI_CURATOR_MODEL, thinking: env.TELOMI_WIKI_CURATOR_THINKING_LEVEL, contract: 3, implementation: codeIdentity() }).slice(0, 24)}`;
+   model: env.TELOMI_WIKI_COMPILATION_MODEL, thinking: env.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, contract: 3, implementation: codeIdentity() }).slice(0, 24)}`;
   const workRoot = join(request.controlDirectory, 'wiki-compilation', compilationId);
   mkdirSync(workRoot, { recursive: true });
   const record = join(workRoot, 'result.json');
@@ -151,9 +151,9 @@ export class WikiCompiler {
     throw error;
    }
   };
-  let curationStages = 2;
+  let compilationStages = 2;
   const globalStage = async (input: WikiStageInput, index: number) => {
-   const progress = { kind: 'curation' as const, stageIndex: index, totalStages: curationStages, pageCount: 0, usage: zero(),
+   const progress = { kind: input.stage, stageIndex: index, totalStages: compilationStages, pageCount: 0, usage: zero(),
     traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
    request.onStageProgress?.({ ...progress, status: 'running' });
    try {
@@ -167,7 +167,7 @@ export class WikiCompiler {
    }
   };
   try {
-   writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-cornell-note', concurrency: 4,
+   writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-note', concurrency: 4,
     scheduling: 'dynamic-queue', cueDispositionOwner: 'merge-objects', conceptEvidence: 'accepted-objects-only',
     data: 'object-notes; unplaced-cues-at-object-merge; downstream-page-and-section-views', diagnosticOnly: false });
    request.onStarted?.(evidence.notes.length);
@@ -235,7 +235,7 @@ export class WikiCompiler {
    const assigned = new Set(conceptPlan.jobs.flatMap(job => job.pageRefs));
    assertPartition([...assigned, ...conceptPlan.objectOnly.map(row => row.pageRef)], planInput.requiredPages, 'concept object disposition');
    writeJsonAtomic(join(workRoot, 'concept-object-disposition.json'), { jobs: conceptPlan.jobs, objectOnly: conceptPlan.objectOnly });
-   curationStages += conceptPlan.jobs.length;
+   compilationStages += conceptPlan.jobs.length;
    const conceptResults = await mapConcurrentFairly(conceptPlan.jobs, 4, async (job, index) => {
     const input = make('concepts', `concepts/${hashJson(job).slice(0, 24)}`, { entries: usable, pages: planInput.pages,
      requiredPages: job.pageRefs, conceptTask: { question: job.question, scope: job.scope, targetRef: job.targetRef } });
@@ -265,12 +265,12 @@ export class WikiCompiler {
      conceptMembers[index] = { ...conceptMembers[index]!, page };
     } else conceptMembers.push({ ref: `${row.input.key}:${page.id}`, page, previous: false, role: 'member' });
    }
-   let concepts = conceptMembers.map(row => row.page), nextCurationStage = 2 + conceptPlan.jobs.length;
+   let concepts = conceptMembers.map(row => row.page), nextCompilationStage = 2 + conceptPlan.jobs.length;
    if (conceptMembers.length) {
-    curationStages++;
+    compilationStages++;
     const auditInput = make('audit-concepts', 'audit-concepts', { entries: usable, pages: [...conceptMembers, ...objectRefs],
      requiredPages: conceptMembers.map(row => row.ref) });
-    const audit = expect(await globalStage(auditInput, nextCurationStage++), 'concept-audit');
+    const audit = expect(await globalStage(auditInput, nextCompilationStage++), 'concept-audit');
     assertPartition(audit.reviewedPages.map(row => row.pageRef), auditInput.requiredPages, 'concept catalog review');
     const members = new Map(conceptMembers.map(row => [row.ref, row]));
     const consumed = new Set<string>();
@@ -288,12 +288,12 @@ export class WikiCompiler {
      consumed.add(row.ref);
     }
     concepts = conceptMembers.filter(row => !consumed.has(row.ref)).map(row => row.page);
-    curationStages += audit.conflictGroups.length;
+    compilationStages += audit.conflictGroups.length;
     for (const group of audit.conflictGroups) {
      const selected = group.pageRefs.map(ref => members.get(ref)!);
      const input = make('merge-concepts', `merge-concepts/${hashJson(group).slice(0, 24)}`, { entries: usable,
       pages: [...selected, ...objectRefs], instructions: group.reason });
-     const merged = expect(await globalStage(input, nextCurationStage++), 'pages').value;
+     const merged = expect(await globalStage(input, nextCompilationStage++), 'pages').value;
      if (merged.discarded_refs.length || merged.deferred_entries.length) throw new Error('Concept conflict merge cannot discard members or evidence');
      concepts.push(...materialize(input, merged));
     }
@@ -308,9 +308,9 @@ export class WikiCompiler {
     throw new Error('Historical concept citations must survive final integration');
    }
    const pages = [...objects, ...concepts];
-   curationStages += topics.topics.length ? pages.length : 0;
+   compilationStages += topics.topics.length ? pages.length : 0;
    const sections = sectionEvidence(pages), knowledgeHash = hashJson({ pages, entries });
-   const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, nextCurationStage + ordinal), pages, sections, topics, knowledgeHash,
+   const indexed = await this.index({ make, run: (input, ordinal) => globalStage(input, nextCompilationStage + ordinal), pages, sections, topics, knowledgeHash,
     onFailure: (index, id, error) => fail(evidence.notes.length + conceptPlan.jobs.length + index, [id], error), signal: request.signal });
    const refs = cited(pages);
    if ([...finalDiscards.keys()].some(id => refs.has(id))) throw new Error('Finally discarded Cue reappeared in knowledge');

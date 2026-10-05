@@ -28,10 +28,10 @@ try {
   const goalDir = join(workspaceDir, goalId);
   const sourceRunDirectory = join(goalDir, 'wiki/runs', runId);
   const note = new RunArtifactStore(sourceRunDirectory).publishText('{}', 'notes.json');
-  const cornellNotes = { relative_path: note.relativePath, sha256: note.sha256, byte_length: note.byteLength };
+  const sourceNotes = { relative_path: note.relativePath, sha256: note.sha256, byte_length: note.byteLength };
   const sourceControl = join(serverRuntimeDirForGoal(goalId, workspaceDir), 'runs', runId);
   mkdirSync(sourceControl, { recursive: true });
-  writeFileSync(join(sourceControl, 'run-state.json'), JSON.stringify({ goal_id: goalId, run_id: runId, question: 'Conditions', cornell_note_snapshots: [cornellNotes] }));
+  writeFileSync(join(sourceControl, 'run-state.json'), JSON.stringify({ goal_id: goalId, run_id: runId, question: 'Conditions', note_snapshots: [sourceNotes] }));
   const store = new GoalTopicPlanStore(goalId, workspaceDir);
   const proposal = store.proposePatch({ source: 'main_agent', patch: { schema_version: 1, base_revision: null, summary: 'Test', operations: [{ op: 'add', topic: { id: 'methods', title: 'Methods', intent: 'Understand conditions', questions: [], include: [], exclude: [] } }] } });
   store.activate(proposal.proposal_id);

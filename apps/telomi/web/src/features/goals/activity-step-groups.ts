@@ -58,19 +58,19 @@ export function groupActivitySteps(steps: ActivityStep[], currentRound?: number)
 }
 
 function activityPhase(step: ActivityStep): { id: string; label: ActivityText } {
-	if (step.stepId.startsWith("wiki-batch:")) return { id: "shards", label: chrome("goals.activityStepGroups.shardOrganization") };
-	if (step.stepId.startsWith("wiki-stage:curation:")) return { id: "curation", label: chrome("goals.activityStepGroups.wikiCurator") };
+	if (step.stepId.startsWith("wiki-objects:")) return { id: "objects", label: chrome("goals.activityStepGroups.objectConstruction") };
 	if (step.stepId.startsWith("wiki-stage:publication:")) return { id: "publication", label: chrome("goals.activityStepGroups.publication") };
+	if (step.stepId.startsWith("wiki-stage:")) return { id: "compilation", label: chrome("goals.activityStepGroups.wikiCompilation") };
 	return { id: "execution", label: chrome("goals.activityStepGroups.executionPhase") };
 }
 
 function workerPool(step: ActivityStep): { id: string; label: ActivityText; workers: ActivityWorker[] } | null {
 	const workers = activityWorkers(step);
-	if (step.stepId.startsWith("wiki-batch:") && workers.length > 0) {
+	if (step.stepId.startsWith("wiki-objects:") && workers.length > 0) {
 		return { id: "wiki-maintainers", label: chrome("goals.activityStepGroups.wikiWorkers"), workers };
 	}
 	if (workers.length > 0 && workers.every((worker) => worker.agent.agentName === "note_agent")) {
-		return { id: "cornell-notes", label: chrome("goals.activityStepGroups.noteAgents"), workers };
+		return { id: "notes", label: chrome("goals.activityStepGroups.noteAgents"), workers };
 	}
 	return null;
 }

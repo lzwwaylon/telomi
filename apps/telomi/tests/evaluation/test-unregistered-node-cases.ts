@@ -27,7 +27,7 @@ try {
 	const native = service(workspaceDir);
 	const importedWorkspace = join(root, "imported");
 	const imported = service(importedWorkspace);
-	for (const agentId of ["wiki-shard-builder", "wiki-curator"]) {
+	for (const agentId of ["unregistered-agent"]) {
 		const sourceRunId = `history-${agentId}`, caseId = `case-${agentId}`;
 		const caseDirectory = join(serverRuntimeDirForGoal(goalId, workspaceDir), "wiki-updates", sourceRunId,
 			"node-evaluation", "cases", caseId);
@@ -61,21 +61,20 @@ try {
 		const manifestBytes = `${JSON.stringify(value, null, 2)}\n`;
 		writeFileSync(manifest, manifestBytes);
 		const ref = { sourceRunId, caseId };
-		assert.deepEqual(native.listCases(goalId, agentId).map(item => item.ref), [ref],
-			"a retired recipe does not hide its historical Cases");
+		assert.deepEqual(native.listCases(goalId, agentId), [], "unregistered recipes are not current Case sources");
 		assert.deepEqual(native.readCase(goalId, ref), value);
 		const traceFile = native.listCaseFiles(goalId, ref).find(file => file.kind === "agent_trace");
 		assert.ok(traceFile);
 		assert.match(readFileSync(native.caseFile(goalId, ref, traceFile.ref), "utf8"), /Historical trace/u);
 		assert.throws(() => native.enqueue(goalId, { agentId, cases: [ref], candidate: {}, repetitions: 1,
-			rubricId: "historical-wiki" }), /retired and unsupported/u,
+			rubricId: "historical-wiki" }), /Unknown Workspace Agent/u,
 			"an old Case cannot be redirected into current Wiki Compilation");
 		const bundle = await native.exportCaseBundle(goalId, "History", ref);
 		try {
 			assert.equal(bundle.manifest.agent_id, agentId);
 			assert.ok(bundle.manifest.files.some(file => file.path === "case/agent-trace.jsonl"));
 			imported.importBundle(bundle.path, id => mkdirSync(join(importedWorkspace, id), { recursive: true }));
-			assert.deepEqual(imported.listCases(goalId, agentId).map(item => item.ref), [ref]);
+			assert.deepEqual(imported.listCases(goalId, agentId), []);
 			assert.deepEqual(imported.readCase(goalId, ref), value, "Bundle import preserves old recipe and evidence");
 		} finally {
 			bundle.cleanup();
@@ -94,19 +93,10 @@ try {
 		writeFileSync(replayManifest, replayBytes);
 		assert.equal(native.read(goalId, replayId)?.status, "completed", "existing Replay status remains readable");
 		assert.equal(readFileSync(replayManifest, "utf8"), replayBytes);
-		for (const status of ["queued", "running"] as const) {
-			const interruptedReplay = { ...replay, status }, bytes = JSON.stringify(interruptedReplay);
-			writeFileSync(replayManifest, bytes);
-			native.start();
-			assert.equal(native.status().queued, 0, "a retired historical Replay is not requeued into a new execution");
-			assert.equal(native.status().active, 0);
-			assert.equal(native.read(goalId, replayId)?.status, status);
-			assert.equal(readFileSync(replayManifest, "utf8"), bytes, "startup preserves interrupted historical Replay records");
-			native.stop();
-		}
+
 	}
 	assert.deepEqual(native.status().recipes, [], "history does not add an executable Recipe");
-	console.log("Retired Wiki Cases remain listable, readable and exportable; Replay execution is unsupported");
+	console.log("Unregistered recipes are not admitted to current Case listing or execution");
 } finally {
 	rmSync(root, { recursive: true, force: true });
 }

@@ -61,6 +61,9 @@ await new Promise<void>((resolve) => server.once("listening", resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 interface ConfigResponse {
+	taskModels: Record<string, string>;
+	stageThinkingLevels: Record<string, string>;
+	taskModelRoles: Array<{ id: string; modelEnvVar: string; stages: Record<string, { envVar: string }> }>;
 	consumers: Array<{
 		id: string;
 		effectiveModel: string;
@@ -116,6 +119,7 @@ function roleConsumer(config: ConfigResponse, id: string) {
 }
 
 try {
+	assert.equal(roleConsumer(await readConfig(), "wikiCompilation").source, "unset", "the real settings API must expose the current Wiki Compilation role");
 	// Nothing is configured yet: no role runs on a model nobody chose.
 	assert.throws(() => pinRunModelSelection({}), /Note Agent requires a configured provider\/model/u);
 	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
@@ -124,6 +128,20 @@ try {
 
 	await applyDefault("small-1");
 	const applied = await readConfig();
+	const wikiRole = applied.taskModelRoles.find((role) => role.id === "wikiCompilation");
+	assert.ok(wikiRole);
+	assert.equal(wikiRole.modelEnvVar, "TELOMI_WIKI_COMPILATION_MODEL");
+	assert.equal(wikiRole.stages.maintenance?.envVar, "TELOMI_WIKI_COMPILATION_THINKING_LEVEL");
+	assert.equal((await patchConfig({ taskModels: { wikiCompilation: "telomi-test/large-1" },
+		stageThinkingLevels: { "wikiCompilation.maintenance": "high" } })).status, 200);
+	const selectedWiki = await readConfig();
+	assert.equal(selectedWiki.taskModels.wikiCompilation, "telomi-test/large-1");
+	assert.equal(selectedWiki.stageThinkingLevels["wikiCompilation.maintenance"], "high");
+	assert.equal(roleConsumer(selectedWiki, "wikiCompilation").effectiveModel, "telomi-test/large-1");
+	assert.equal(roleConsumer(selectedWiki, "wikiCompilation").stages[0]?.thinkingLevel, "high");
+	assert.equal((await patchConfig({ taskModels: { unsupportedWikiRole: "telomi-test/small-1" } })).status, 400,
+		"unregistered configuration names cannot be accepted as role aliases");
+	assert.equal((await patchConfig({ taskModels: {}, stageThinkingLevels: {} })).status, 200);
 	for (const role of ["noteAgent", "primeRoot", "primeChild"]) {
 		const consumer = roleConsumer(applied, role);
 		assert.equal(consumer.effectiveModel, "telomi-test/small-1", `${role} inherits the applied default`);
@@ -140,7 +158,7 @@ try {
 		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.scheduleReview", "primeRoot.reportWriter"]);
 
 	assert.deepEqual(roleConsumer(applied, "primeChild").stages.map((stage) => stage.key),
-		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.reportWriter", "wikiCurator.maintenance"]);
+		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.reportWriter", "wikiCompilation.maintenance"]);
 
 	// A Stage the user chose a depth for keeps it, and restoring inheritance follows the default again.
 	assert.equal((await patchConfig({ stageThinkingLevels: { "primeRoot.reportWriter": "xhigh" } })).status, 200);

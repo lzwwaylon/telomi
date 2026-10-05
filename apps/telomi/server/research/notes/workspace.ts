@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { CornellNote } from "../cornell-note.js";
+import type { SourceNote } from "../source-note.js";
 
 export interface NoteWorkspaceItem {
 	ref: string;
@@ -276,7 +276,7 @@ export function loadReportNoteWorkspace(root: string): NoteWorkspace {
 		if (record.metadata_path.startsWith("/") || record.metadata_path.split(/[\\/]/u).includes("..")) {
 			throw new Error(`Notes Note index entry ${sourceIndex} has an unsafe metadata_path`);
 		}
-		const note = JSON.parse(readFileSync(join(root, record.metadata_path), "utf-8")) as CornellNote;
+		const note = JSON.parse(readFileSync(join(root, record.metadata_path), "utf-8")) as SourceNote;
 		if (note.schema_version !== 1 || note.source_id !== record.source_id || !Array.isArray(note.sections)) {
 			throw new Error(`Notes Cornell Note '${record.source_id}' is invalid`);
 		}

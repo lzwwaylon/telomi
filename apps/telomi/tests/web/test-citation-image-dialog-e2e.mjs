@@ -86,17 +86,26 @@ const browserCheck = String.raw`
     root.render(React.createElement(Dialog, { open: true },
       React.createElement(DialogContent, { showCloseButton: false, 'aria-describedby': undefined },
         React.createElement(DialogTitle, null, 'Report'),
-        React.createElement(PiCiteChip, {
-          goalId: 'goal-image-dialog-e2e',
-          artifactName: 'wiki/runs/test/report/final.md',
-          dataList: [{ kind: 'url', target: 'https://example.com/source', index: 1 }],
-          indices: [1],
-        }))));
+        React.createElement('div', { style: { height: 400, overflowY: 'auto' } },
+          React.createElement('div', { 'data-citation-boundary': '' },
+            React.createElement(PiCiteChip, {
+              goalId: 'goal-image-dialog-e2e',
+              artifactName: 'wiki/runs/test/report/final.md',
+              dataList: [{ kind: 'url', target: 'https://example.com/source', index: 1 }],
+              indices: [1],
+            }))))));
     await waitFor(() => document.querySelector('[data-slot="dialog-content"] button'), 'citation trigger');
     const trigger = document.querySelector('[data-slot="dialog-content"] button');
     await reopen(trigger);
     await waitFor(() => document.querySelector('button[aria-label="下一条线索"]'), 'clue pager');
     await waitFor(() => document.querySelector('[data-testid="wiki-citation-page"]'), 'Wiki Page preview');
+    const initialScroller = document.querySelector('[data-testid="citation-clue-scroll"]');
+    await waitFor(() => initialScroller?.getBoundingClientRect().height >= 100, 'readable Source preview height in a short report');
+    const popoverRect = document.querySelector('.inline-citation-popover').getBoundingClientRect();
+    const columnRect = trigger.closest('[data-citation-boundary]').getBoundingClientRect();
+    if (popoverRect.left < columnRect.left || popoverRect.right > columnRect.right) {
+      throw new Error('citation preview escaped the report content column');
+    }
     const wikiPageText = document.querySelector('[data-testid="wiki-citation-page"]')?.textContent || '';
     if (!wikiPageText.includes('Evidence image Wiki Page') || !wikiPageText.includes('The full Page remains visible')) {
       throw new Error('Wiki Page title or content did not render completely');
@@ -140,6 +149,8 @@ const browserCheck = String.raw`
     if (underlyingEscapes !== 0) throw new Error('Escape leaked through to the underlying report dialog');
     if (location.href !== originalUrl) throw new Error('image preview navigated away from the report');
     return JSON.stringify({
+      shortReportPreviewReadable: true,
+      stayedInContentColumn: true,
       cluePagingStable: true,
       wheelScrollsInsideDialog: true,
       wikiPageRendered: true,

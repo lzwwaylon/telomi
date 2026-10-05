@@ -126,18 +126,18 @@ if (mode === "ok") {
 	// output. The Activity a user reads renders this text, so the reason survives and the frame
 	// around it, which names files on the machine that ran it, does not.
 	const crashDump = [
-		"/Users/someone/checkout/apps/telomi/server/wiki/wiki-curator.ts:554",
-		"                return new Error(`[wiki-curator:worksets] ${issue}`);",
+		"/Users/someone/checkout/apps/telomi/server/wiki/wiki-compilation.ts:554",
+		"                return new Error(`[wiki-compilation:worksets] ${issue}`);",
 		"                       ^",
-		"Error: [wiki-curator:worksets] field 'pages[0].topic_refs': contains unknown Goal Topic 'topic_c51016fb'",
-		"    at curatorResultViolation (/Users/someone/checkout/apps/telomi/server/wiki/wiki-curator.ts:554:9)",
-		"    at async <anonymous> (/Users/someone/checkout/apps/telomi/server/wiki/prime-wiki-curator-worker.ts:115:2)",
+		"Error: [wiki-compilation:worksets] field 'pages[0].topic_refs': contains unknown Goal Topic 'topic_c51016fb'",
+		"    at compilationResultViolation (/Users/someone/checkout/apps/telomi/server/wiki/wiki-compilation.ts:554:9)",
+		"    at async <anonymous> (/Users/someone/checkout/apps/telomi/server/wiki/prime-wiki-compilation-worker.ts:115:2)",
 		"",
 		"Node.js v24.20.0",
 	].join("\n");
 	assert.equal(
 		workerFailureReason(crashDump),
-		"Error: [wiki-curator:worksets] field 'pages[0].topic_refs': contains unknown Goal Topic 'topic_c51016fb'",
+		"Error: [wiki-compilation:worksets] field 'pages[0].topic_refs': contains unknown Goal Topic 'topic_c51016fb'",
 	);
 	assert.equal(workerFailureReason(crashDump).includes("/Users/"), false, "host paths must not reach the Activity");
 	// Output that is not a Node crash dump has no frame to strip and passes through whole.

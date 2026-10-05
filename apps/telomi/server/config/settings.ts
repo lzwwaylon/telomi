@@ -14,7 +14,7 @@ export const TASK_MODEL_ROLES = [
 	"noteAgent",
 	"primeRoot",
 	"primeChild",
-	"wikiCurator",
+	"wikiCompilation",
 	"browserEvolution",
 ] as const;
 export type TaskModelRole = (typeof TASK_MODEL_ROLES)[number];
@@ -94,11 +94,11 @@ export const TASK_MODEL_ROLE_INFO = {
 		modelEnvVar: "TELOMI_PRIME_AGENT_CHILD_MODEL",
 		stages: {},
 	},
-	wikiCurator: {
-		label: TASK_MODEL_ROLE_LABELS.wikiCurator,
+	wikiCompilation: {
+		label: TASK_MODEL_ROLE_LABELS.wikiCompilation,
 		description: "Wiki Root 维护；RLM child 使用共享 Prime Child 模型",
-		modelEnvVar: "TELOMI_WIKI_CURATOR_MODEL",
-		stages: { maintenance: { usesRlmChild: true, label: "Wiki 维护", envVar: "TELOMI_WIKI_CURATOR_THINKING_LEVEL" } },
+		modelEnvVar: "TELOMI_WIKI_COMPILATION_MODEL",
+		stages: { maintenance: { usesRlmChild: true, label: "Wiki 维护", envVar: "TELOMI_WIKI_COMPILATION_THINKING_LEVEL" } },
 	},
 	browserEvolution: {
 		label: TASK_MODEL_ROLE_LABELS.browserEvolution,

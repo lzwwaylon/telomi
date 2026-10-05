@@ -49,7 +49,7 @@ writeFileSync(join(runDir, "run-state.json"), JSON.stringify({
 	pins: {},
 	source_bundles: [],
 	search_execution_records: [],
-	cornell_note_snapshots: [],
+	note_snapshots: [],
 	writer_outputs: [],
 	accepted_chapters: [],
 	canonical_report: { relative_path: "report/final.md", sha256: "a".repeat(64), byte_length: 12 },
@@ -310,7 +310,7 @@ interruptedWikiJobs.start({
 	goal: "可继续的 Wiki 更新",
 	goalContext: { title: "Goal title", description: "Goal description" },
 	topicPlan: wikiTopicPlan,
-	cornellNotes: { relative_path: "artifacts/cornell-notes/evidence.json", sha256: "a".repeat(64), byte_length: 12 },
+	sourceNotes: { relative_path: "artifacts/notes/evidence.json", sha256: "a".repeat(64), byte_length: 12 },
 });
 interruptedWikiJobs.markInterrupted();
 appendRuntimeContext(interruptedRunDir, "research", {
@@ -343,7 +343,7 @@ for (let attempt = 0; attempt < 3; attempt += 1) {
 		goal: "用完续跑次数的 Wiki 更新",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan: wikiTopicPlan,
-		cornellNotes: { relative_path: "artifacts/cornell-notes/evidence.json", sha256: "b".repeat(64), byte_length: 12 },
+		sourceNotes: { relative_path: "artifacts/notes/evidence.json", sha256: "b".repeat(64), byte_length: 12 },
 	});
 	exhaustedWikiJobs.markInterrupted();
 }
@@ -405,7 +405,7 @@ wikiJobs.start({
 	goal: "独立 Wiki Activity",
 	goalContext: { title: "Goal title", description: "Goal description" },
 	topicPlan: wikiTopicPlan,
-	cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "c".repeat(64), byte_length: 12 },
+	sourceNotes: { relative_path: "artifacts/input/notes.json", sha256: "c".repeat(64), byte_length: 12 },
 });
 wikiJobs.markRunning(2, new Date("2026-07-31T10:01:10.000Z"));
 wikiJobs.recordBatch({
@@ -436,7 +436,7 @@ wikiJobs.recordBatch({
 	now: new Date("2026-07-31T10:01:30.000Z"),
 });
 	wikiJobs.recordStage({
-		kind: "curation",
+		kind: "merge-objects",
 		stageIndex: 0,
 		totalStages: 2,
 	status: "running",
@@ -551,24 +551,24 @@ try {
 	assert.equal(wikiActivity.progress?.total, 2);
 	assert.equal(text(wikiActivity.progress?.label), "Wiki 批次");
 	assert.equal(wikiActivity.steps.length, 3);
-	assert.equal(wikiActivity.steps.find((step) => step.stepId === "wiki-stage:curation:0")
-		?.agentActivities[0]?.agentName, "wiki_curator");
-	assert.deepEqual(wikiActivity.steps.find((step) => step.stepId === "wiki-stage:curation:0")
-		?.dependsOnStepIds, ["wiki-batch:1"]);
-	const wikiOutputRef = wikiActivity.steps.find((step) => step.stepId === "wiki-batch:2")
+	assert.equal(wikiActivity.steps.find((step) => step.stepId === "wiki-stage:merge-objects:0")
+		?.agentActivities[0]?.agentName, "wiki_compilation");
+	assert.deepEqual(wikiActivity.steps.find((step) => step.stepId === "wiki-stage:merge-objects:0")
+		?.dependsOnStepIds, ["wiki-objects:1"]);
+	const wikiOutputRef = wikiActivity.steps.find((step) => step.stepId === "wiki-objects:2")
 		?.agentActivities[0]?.outputRef;
-	assert.ok(wikiOutputRef, "a running Wiki Curator must expose replay output");
+	assert.ok(wikiOutputRef, "a running Wiki Compilation must expose replay output");
 	assert.match(JSON.stringify(service.readOutput(goalId, wikiOutputRef)), /正在合并 Wiki 实体页面/u);
 	wikiJobs.recordBatch({
 		batchIndex: 1, totalBatches: 2, status: "succeeded", pageCount: 11,
 		usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.01, calls: 1 }, reused: false,
 	});
 	wikiJobs.recordStage({
-		kind: "curation", stageIndex: 0, totalStages: 2, status: "succeeded", pageCount: 4,
+		kind: "merge-objects", stageIndex: 0, totalStages: 2, status: "succeeded", pageCount: 4,
 		usage: { inputTokens: 20, outputTokens: 10, costUsd: 0.02, calls: 2 },
 	});
 	wikiJobs.recordStage({
-		kind: "curation", stageIndex: 1, totalStages: 2, status: "succeeded", pageCount: 6,
+		kind: "merge-objects", stageIndex: 1, totalStages: 2, status: "succeeded", pageCount: 6,
 		usage: { inputTokens: 20, outputTokens: 10, costUsd: 0.02, calls: 2 },
 	});
 	wikiJobs.recordStage({
@@ -579,10 +579,10 @@ try {
 	const publishedWiki = service.getGoal(goalId).history.items
 		.find((item) => item.activityId === `wiki-update:${wikiUpdateId}`);
 	assert.equal(text(publishedWiki?.summary), "Goal Wiki 已更新 · 6 个页面 · 6 次模型调用");
-	assert.deepEqual(publishedWiki?.steps.find((step) => step.stepId === "wiki-stage:curation:1")
-		?.dependsOnStepIds, ["wiki-batch:2", "wiki-stage:curation:0"]);
+	assert.deepEqual(publishedWiki?.steps.find((step) => step.stepId === "wiki-stage:merge-objects:1")
+		?.dependsOnStepIds, ["wiki-objects:2", "wiki-stage:merge-objects:0"]);
 	assert.deepEqual(publishedWiki?.steps.find((step) => step.stepId === "wiki-stage:publication:0")
-		?.dependsOnStepIds, ["wiki-stage:curation:0", "wiki-stage:curation:1"]);
+		?.dependsOnStepIds, ["wiki-stage:merge-objects:0", "wiki-stage:merge-objects:1"]);
 	const retiredId = "wiki_retired_checkpoint";
 	const retiredControl = wikiUpdateRecordDir(workspaceDir, goalId, retiredId);
 	mkdirSync(retiredControl, { recursive: true });
@@ -590,13 +590,9 @@ try {
 	const retiredBytes = JSON.stringify({ ...wikiJobs.load(), compiler: "shards", run_id: retiredId,
 		wiki_update_id: retiredId, status: "interrupted", progress: undefined });
 	writeFileSync(retiredPath, retiredBytes);
-	const retiredWiki = service.getGoal(goalId).liveActivities.find((item) => item.activityId === `wiki-update:${retiredId}`);
-	assert.ok(retiredWiki, "retired Wiki execution remains readable");
-	assert.equal(text(retiredWiki.summary), "此 Wiki 更新使用的旧流程已停用，请发起新的 Wiki 更新。");
-	assert.equal(retiredWiki.waiting?.actions[0]?.enabled, false);
-	assert.equal(text(retiredWiki.waiting?.actions[0]?.disabledReason), "此 Wiki 更新使用的旧流程已停用，请发起新的 Wiki 更新。");
-	assert.equal(retiredWiki.attention, undefined, "retired execution must not prompt an unavailable continuation");
-	assert.equal(readFileSync(retiredPath, "utf8"), retiredBytes, "projection must not migrate historical records");
+	assert.ok(!service.getGoal(goalId).liveActivities.some((item) => item.activityId === `wiki-update:${retiredId}`),
+		"unsupported old compiler records are excluded from current Activity");
+	assert.equal(readFileSync(retiredPath, "utf8"), retiredBytes);
 	// 首页活动卡片直接渲染 Activity 摘要：Runtime 的 stack trace、宿主机绝对路径和行号不能出现在里面。
 	const failedWikiId = "wiki_activity_failed";
 	const failedWikiControl = wikiUpdateRecordDir(workspaceDir, goalId, failedWikiId);
@@ -611,29 +607,29 @@ try {
 		goal: "失败的 Wiki Activity",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan: wikiTopicPlan,
-		cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "d".repeat(64), byte_length: 12 },
+		sourceNotes: { relative_path: "artifacts/input/notes.json", sha256: "d".repeat(64), byte_length: 12 },
 	});
 	const curatorTrace = [
-		"Wiki Curator exited with code 1: /Users/maintainer/My Checkout/apps/telomi/server/wiki/wiki-curator.ts:590",
-		"\treturn new Error(`[wiki-curator:worksets] file '${file}', field '${field}': ${issue}`);",
+		"Wiki Compilation exited with code 1: /Users/maintainer/My Checkout/apps/telomi/server/wiki/wiki-compilation.ts:590",
+		"\treturn new Error(`[wiki-compilation:worksets] file '${file}', field '${field}': ${issue}`);",
 		"\t       ^",
 		"",
-		"Error: [wiki-curator:worksets] file 'state/groups/ws-concept-2ea7.json': contains unknown Goal Topic",
-		"    at curatorResultViolation (C:\\Users\\maintainer\\checkout\\server\\wiki\\wiki-curator.ts:590:9)",
-		"    at validateGroupResult (/srv/telomi/server/wiki/wiki-curator.ts:566:27)",
+		"Error: [wiki-compilation:worksets] file 'state/groups/ws-concept-2ea7.json': contains unknown Goal Topic",
+		"    at compilationResultViolation (C:\\Users\\maintainer\\checkout\\server\\wiki\\wiki-compilation.ts:590:9)",
+		"    at validateGroupResult (/srv/telomi/server/wiki/wiki-compilation.ts:566:27)",
 		"",
 		"Node.js v24.20.0",
 	].join("\n");
 	failedWikiJobs.recordStage({
-		kind: "curation", stageIndex: 0, totalStages: 1, status: "failed", pageCount: 0,
+		kind: "merge-objects", stageIndex: 0, totalStages: 1, status: "failed", pageCount: 0,
 		usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.01, calls: 1 }, message: curatorTrace,
 	});
 	failedWikiJobs.settle("failed", { message: curatorTrace });
 	const failedWiki = service.getGoal(goalId).history.items
 		.find((item) => item.activityId === `wiki-update:${failedWikiId}`);
-	assert.equal(text(failedWiki?.summary), "Wiki 更新失败：Wiki Curator 未完成，原因见 Activity 详情");
+	assert.equal(text(failedWiki?.summary), "Wiki 更新失败：Wiki Compilation 未完成，原因见 Activity 详情");
 	assert.ok(
-		text(failedWiki?.steps.find((step) => step.stepId === "wiki-stage:curation:0")?.summary).includes(curatorTrace),
+		text(failedWiki?.steps.find((step) => step.stepId === "wiki-stage:merge-objects:0")?.summary).includes(curatorTrace),
 		"the Activity Step keeps the full runtime text for Activity detail and Node Trace",
 	);
 
@@ -651,9 +647,9 @@ try {
 		goal: "取消的 Wiki Activity",
 		goalContext: { title: "Goal title", description: "Goal description" },
 		topicPlan: wikiTopicPlan,
-		cornellNotes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "e".repeat(64), byte_length: 12 },
+		sourceNotes: { relative_path: "artifacts/input/notes.json", sha256: "e".repeat(64), byte_length: 12 },
 	});
-	cancelledWikiJobs.settle("cancelled", { message: "Wiki Curator cancelled: D:\\Projects\\telomi\\server\\wiki.ts:12:3" });
+	cancelledWikiJobs.settle("cancelled", { message: "Wiki Compilation cancelled: D:\\Projects\\telomi\\server\\wiki.ts:12:3" });
 	const cancelledWiki = service.getGoal(goalId).history.items
 		.find((item) => item.activityId === `wiki-update:${cancelledWikiId}`);
 	assert.equal(text(cancelledWiki?.summary), "Wiki 更新已取消");

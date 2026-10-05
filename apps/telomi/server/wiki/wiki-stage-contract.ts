@@ -3,7 +3,8 @@ import type { GoalTopicPlan, WikiGoalContext } from './contracts.js';
 import type { WikiPageContent, WikiPagesResult, WikiPageSection } from './wiki-page-contract.js';
 import type { WikiNoteEntry } from './wiki-edition.js';
 
-export type WikiStageKind = 'objects' | 'merge-objects' | 'plan-concepts' | 'concepts' | 'audit-concepts' | 'merge-concepts' | 'plan-topics' | 'topic' | 'page-topics';
+export const WIKI_STAGE_KINDS = ['objects', 'merge-objects', 'plan-concepts', 'concepts', 'audit-concepts', 'merge-concepts', 'plan-topics', 'topic', 'page-topics'] as const;
+export type WikiStageKind = typeof WIKI_STAGE_KINDS[number];
 export interface WikiStagePageInput {
  ref: string;
  page: WikiPageContent;

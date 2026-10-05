@@ -22,7 +22,7 @@ import { readAgentNodeUsage, sealInterruptedAgentExecutions } from "../observabi
 export const TERMINAL_RUN_STATUSES = ["published", "skipped", "failed", "cancelled"] as const;
 
 export const RUN_WORKFLOW_ID = "research-run";
-export const RUN_WORKFLOW_VERSION = 26;
+export const RUN_WORKFLOW_VERSION = 27;
 
 export const RunStatusSchema = Type.Union([
 	Type.Literal("initialized"),
@@ -80,7 +80,7 @@ const ReportFlowCheckpointSchema = Type.Object({
 	task: Type.Optional(ArtifactRefSchema),
 	outline: ArtifactRefSchema,
 	execution_plan: ArtifactRefSchema,
-	cornell_notes_snapshot: Type.Optional(ArtifactRefSchema),
+	notes_snapshot: Type.Optional(ArtifactRefSchema),
 	knowledge_input: Type.Optional(Type.Object({
 		mode: Type.Union([Type.Literal("wiki"), Type.Literal("notes")]),
 		ref: NonEmptyString,
@@ -119,9 +119,9 @@ export const RunStateSchema = Type.Object({
 		operations_failed: Type.Integer({ minimum: 0 }),
 		failed_operations: Type.Array(NonEmptyString),
 	}, { additionalProperties: false }))),
-	cornell_note_snapshots: Type.Array(ArtifactRefSchema),
-	cornell_note_failure_manifests: Type.Optional(Type.Array(ArtifactRefSchema)),
-	cornell_note_failure_count: Type.Optional(Type.Integer({ minimum: 0 })),
+	note_snapshots: Type.Array(ArtifactRefSchema),
+	note_failure_manifests: Type.Optional(Type.Array(ArtifactRefSchema)),
+	note_failure_count: Type.Optional(Type.Integer({ minimum: 0 })),
 	report_flow: Type.Optional(ReportFlowCheckpointSchema),
 	writer_outputs: Type.Array(WriterOutputCheckpointSchema),
 	accepted_chapters: Type.Array(AcceptedChapterSchema),
@@ -214,9 +214,9 @@ export class RunStateStore {
 			...(input.topicPlan ? { topic_plan: input.topicPlan } : {}),
 			source_bundles: [],
 			search_execution_records: [],
-			cornell_note_snapshots: [],
-			cornell_note_failure_manifests: [],
-			cornell_note_failure_count: 0,
+			note_snapshots: [],
+			note_failure_manifests: [],
+			note_failure_count: 0,
 			writer_outputs: [],
 			accepted_chapters: [],
 			usage: {

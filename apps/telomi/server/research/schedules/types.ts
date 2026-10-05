@@ -33,7 +33,7 @@ export interface ResearchScheduleRun {
 	error?: string;
 	discoveredSources: number;
 	incrementalSources: number;
-	cornellNotes: number;
+	sourceNotes: number;
 	startedAt?: string;
 	finishedAt?: string;
 	createdAt: string;

@@ -2,7 +2,7 @@
 
 ## Interface
 
-Historical checkpoints from the same supported workflow may retain an earlier name for the same report input. Runtime normalizes that recorded name only when reading, preserving pinned artifact references and persisted bytes. New checkpoints use the current strict contract; unsupported workflow versions and unknown input modes remain errors rather than being treated as inactive history.
+Research Run checkpoints use the current strict workflow and report-input contract. Unsupported workflow versions and unknown input modes are errors.
 
 Full Research Runs start through the Research execution interface for scheduled occurrences or user-requested recovery. A Run carries a search question and report brief; an optional note focus reaches only the Note Agent stage, never Search or the Wiki. `ResearchRuntime.run()` pins the content-version context and executes the production path through `Run.run()`.
 
@@ -15,7 +15,7 @@ Both Note Agent reading modes compose the same registered evidence-reading-quali
 
 Investigation task context is a read-only `inputs/context.md` file staged for Prime, external Search Root, the Note Agent and the answer Writer. It carries Main's relevant user background, preferences and reading priorities without becoming Source evidence or entering the Wiki. Main selects what belongs in the brief. A continued thread inherits its latest saved context when the field is omitted; a supplied complete brief replaces it, and an empty string clears it. Each execution retains its own context for recovery and Replay. Source reading in full Research Runs uses the same file for that Run's note focus.
 
-The Note Agent has one registered bundle, `research/note-agent`, and two reading modes: source reading and question reading. Cornell names identify the evidence format, not the Agent. Saved Note retrieval and the Wiki/Note overview lookup are deterministic tools, not extra Agents. The Python reading callable is `read_sources`. Report Writer uses one bundle with Wiki, Notes and answer variants.
+The Note Agent has one registered bundle, `research/note-agent`, and two reading modes: source reading and question reading. Source Notes retain the Cornell note-taking method while technical contracts use the current Note names. Saved Note retrieval and the Wiki/Note overview lookup are deterministic tools, not extra Agents. The Python reading callable is `read_sources`. Report Writer uses one bundle with Wiki, Notes and answer variants.
 
 ## Agent responsibilities
 

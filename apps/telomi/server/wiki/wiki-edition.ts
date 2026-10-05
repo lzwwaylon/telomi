@@ -35,7 +35,7 @@ export async function readPreviousWikiEdition(root: string): Promise<PreviousWik
   const { fields, body } = splitFrontmatter(content);
   if (fields?.type !== "entity" && fields?.type !== "concept") continue;
   const id = typeof fields.page_id === "string" ? fields.page_id : `${fields.type}:${hashJson(relative(root, path)).slice(0, 16)}`;
-  const footnotes = new Map([...body.matchAll(/^\[\^(\d+)\]:.*Cornell Entry `?(entry:[a-f0-9]{24})`?/gmu)].map(match => [match[1]!, match[2]!]));
+  const footnotes = new Map([...body.matchAll(/^\[\^(\d+)\]:.*Note Entry `?(entry:[a-f0-9]{24})`?/gmu)].map(match => [match[1]!, match[2]!]));
   const converted = body.replace(/^\s*#\s+.*\n+/u, "").replace(/\n## (?:Related|Evidence)\s*\n[\s\S]*$/u, "")
    .replace(/\[\^(\d+)\]/gu, (_match, index: string) => { const ref = footnotes.get(index); if (!ref) throw new Error("Previous Wiki has an unresolved footnote"); return `[[${ref}]]`; });
   const parsed: WikiPageContent = { id, kind: fields.type, title: String(fields.title), description: String(fields.description ?? ""), body: converted };
@@ -43,7 +43,7 @@ export async function readPreviousWikiEdition(root: string): Promise<PreviousWik
   if (hashJson({ ...page, body: page.body.trim() }) !== hashJson({ ...parsed, body: parsed.body.trim() })) {
    throw new Error(`Previous Wiki page manifest differs from published Markdown: ${id}`);
   }
-  if (wikiPageEntryIds(page.body).some(ref => !previous.entries.some(entry => entry.id === ref))) throw new Error("Previous Wiki references an unknown Cornell Entry");
+  if (wikiPageEntryIds(page.body).some(ref => !previous.entries.some(entry => entry.id === ref))) throw new Error("Previous Wiki references an unknown Note Entry");
   if (previous.files.has(id)) throw new Error(`Previous Wiki duplicates Page identity ${id}`);
   previous.pages.push(page);
   previous.files.set(id, { path: relative(root, path), content });
@@ -97,7 +97,7 @@ export function writeWikiEdition(root: string, pages: WikiPageContent[], entries
    ...ids.map((id, i) => { const entry = byId.get(id)!;
     const sources = [...new Map([[entry.canonicalLocator, entry.sourceTitle] as const, ...entry.members.map(member => [member.canonical_locator, member.title] as const),
      ...entry.anchors.flatMap(anchor => anchor.canonicalLocator && anchor.sourceTitle ? [[anchor.canonicalLocator, anchor.sourceTitle] as const] : [])]).entries()];
-    return `[^${i + 1}]: ${sources.map(([url, title]) => `[${title}](${url})`).join("; ")}; Cornell Entry \`${id}\`; ${entry.anchors.map(anchor => `${anchor.path}:${anchor.startLine}-${anchor.endLine} (${anchor.sha256.slice(0, 12)})`).join("; ")}`;
+    return `[^${i + 1}]: ${sources.map(([url, title]) => `[${title}](${url})`).join("; ")}; Note Entry \`${id}\`; ${entry.anchors.map(anchor => `${anchor.path}:${anchor.startLine}-${anchor.endLine} (${anchor.sha256.slice(0, 12)})`).join("; ")}`;
    }), ""].join("\n"));
  }
  writeJsonAtomic(join(root, ".note-registry.json"), { schema_version: 2, entries });

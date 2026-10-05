@@ -224,7 +224,7 @@ for (const [path, content] of Object.entries({
 	"artifacts/report-flow/knowledge-url-registry.json": "{}",
 	"artifacts/report-flow/writer/manifest.json": "{}",
 	"artifacts/report-flow/writer/sections/section-001.md": "Writer chapter",
-	"artifacts/cornell-notes/snapshot-seed.json": "{}",
+	"artifacts/notes/snapshot-seed.json": "{}",
 	"artifacts/accepted-chapters/section-001.md": "# Chapter",
 	"artifacts/wiki-compilations/wiki-test/compilation.json": "{}",
 	"artifacts/wiki-compilations/wiki-test/knowledge/topics/final.md": "# Final",
@@ -312,15 +312,15 @@ for (const ref of [shardTrace, curatorTrace]) {
 	writeFileSync(childTrace, `${JSON.stringify({ type: "message", message: { role: "assistant", content: "child" } })}\n`);
 }
 for (const value of [
-	{ caseId: "wiki-shard-case", runId: `${wikiUpdateId}-wiki-shard-1`, agentId: "wiki-shard-builder" },
-	{ caseId: "wiki-curator-case", runId: `${wikiUpdateId}-wiki-curator-batch-001`, agentId: "wiki-curator" },
+	{ caseId: "wiki-object-stage-case", runId: `${wikiUpdateId}-wiki-objects-1`, agentId: "wiki-compilation" },
+	{ caseId: "wiki-compilation-case", runId: `${wikiUpdateId}-wiki-compilation-batch-001`, agentId: "wiki-compilation" },
 ]) {
 	const path = join(wikiUpdateDir, "node-evaluation", "cases", value.caseId, "manifest.json");
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, `${JSON.stringify({ ...value, capturedAt: "2026-08-07T07:05:00.000Z" })}\n`);
 }
 writeFileSync(join(wikiUpdateDir, "wiki-update-job.json"), `${JSON.stringify({
-	schema_version: 1,
+	schema_version: 1, compiler: "wiki-compilation",
 	status: "succeeded",
 	goal_id: goalId,
 	run_id: wikiUpdateId,
@@ -330,7 +330,7 @@ writeFileSync(join(wikiUpdateDir, "wiki-update-job.json"), `${JSON.stringify({
 	topic_plan: { schema_version: 1, goal_id: goalId, revision: "fixture", status: "active", topics: [{
 		id: "trace", title: "Trace", intent: "Test Trace", questions: ["What changed?"], include: ["Trace"], exclude: ["Noise"],
 	}] },
-	cornell_notes: { relative_path: "artifacts/input/cornell-notes.json", sha256: "a".repeat(64), byte_length: 1 },
+	notes: { relative_path: "artifacts/input/notes.json", sha256: "a".repeat(64), byte_length: 1 },
 	attempts: 1,
 	started_at: "2026-08-07T07:04:00.000Z",
 	updated_at: "2026-08-07T07:06:00.000Z",
@@ -344,7 +344,7 @@ writeFileSync(join(wikiUpdateDir, "wiki-update-job.json"), `${JSON.stringify({
 			finished_at: "2026-08-07T07:05:00.000Z", page_count: 2, reused: false,
 			usage: { input_tokens: 10, output_tokens: 2, cost_usd: 0.01, model_calls: 1 }, trace_ref: shardTrace }],
 		stages: [
-			{ kind: "curation", stage_index: 0, total_stages: 1, status: "succeeded",
+			{ kind: "merge-objects", stage_index: 0, total_stages: 1, status: "succeeded",
 				started_at: "2026-08-07T07:05:00.000Z", finished_at: "2026-08-07T07:05:59.000Z", page_count: 3,
 				usage: { input_tokens: 20, output_tokens: 4, cost_usd: 0.02, model_calls: 2 }, trace_ref: curatorTrace },
 			{ kind: "publication", stage_index: 0, total_stages: 1, status: "succeeded",
@@ -445,7 +445,7 @@ for (const ref of [
 	"wiki/artifacts/report-flow/knowledge-url-registry.json",
 	"wiki/artifacts/report-flow/writer/manifest.json",
 	"wiki/artifacts/report-flow/writer/sections/section-001.md",
-	"wiki/artifacts/cornell-notes/snapshot-seed.json",
+	"wiki/artifacts/notes/snapshot-seed.json",
 	"wiki/artifacts/accepted-chapters/section-001.md",
 	"wiki/artifacts/wiki-compilations/wiki-test/compilation.json",
 	"wiki/artifacts/wiki-compilations/wiki-test/knowledge/topics/final.md",
@@ -470,7 +470,7 @@ assert.throws(() => resolveTraceFile({
 }), /Invalid Trace file ref/u);
 
 // The Wiki Run pins its Curator model at the start; the Trace reads that pin when no Case names a model.
-writeFileSync(join(wikiUpdateDir, "wiki-model-selection.json"), JSON.stringify({ TELOMI_WIKI_CURATOR_MODEL: "telomi-test/wiki-1", TELOMI_PRIME_AGENT_CHILD_MODEL: "telomi-test/child-1", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" }));
+writeFileSync(join(wikiUpdateDir, "wiki-model-selection.json"), JSON.stringify({ TELOMI_WIKI_COMPILATION_MODEL: "telomi-test/wiki-1", TELOMI_PRIME_AGENT_CHILD_MODEL: "telomi-test/child-1", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "low" }));
 const wiki = readTraceRun({ workspaceDir, goalId, kind: "wiki", runId: wikiUpdateId });
 assert.equal(wiki.status, "succeeded");
 assert.equal(wiki.model, "telomi-test/wiki-1");
@@ -486,9 +486,9 @@ assert.deepEqual(wiki.usage, {
 	incompleteExecutions: 0,
 });
 assert.equal(wiki.nodes[0]?.traceRef, `runtime/${shardTrace}`);
-assert.equal(wiki.nodes[0]?.caseRef?.caseId, "wiki-shard-case");
+assert.equal(wiki.nodes[0]?.caseRef, undefined, "compilation stages cannot borrow retired per-stage Cases");
 assert.equal(wiki.nodes[1]?.traceRef, `runtime/${curatorTrace}`);
-assert.equal(wiki.nodes[1]?.caseRef?.caseId, "wiki-curator-case");
+assert.equal(wiki.nodes[1]?.caseRef, undefined);
 const wikiChildTraces = wiki.files.filter((file) => file.kind === "related_agent_trace");
 assert.equal(wikiChildTraces.length, 2);
 assert.ok(wikiChildTraces.some((file) => file.ref === `runtime/${dirname(shardTrace)}/session-artifacts/sub-fixture/child.jsonl`));
@@ -591,7 +591,7 @@ async function testLiveResearchTrace(): Promise<void> {
 		"wiki/artifacts/report-flow/task.md",
 		"wiki/artifacts/report-flow/outline.json",
 		"wiki/artifacts/report-flow/executable-plan.json",
-		"wiki/artifacts/cornell-notes/snapshot-seed.json",
+		"wiki/artifacts/notes/snapshot-seed.json",
 	]) assert.ok(fileRefs.has(ref), `Live Trace is missing ${ref}`);
 	assert.ok([...fileRefs].some((ref) => ref.startsWith("wiki/artifacts/accepted-chapters/") && ref.endsWith(".md")));
 	const standardizedRefs = new Set<string>();

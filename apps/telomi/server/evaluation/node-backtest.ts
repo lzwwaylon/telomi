@@ -51,8 +51,6 @@ const MAX_REPETITIONS = 5;
 const MAX_PROMPT_CHARACTERS = 200_000;
 const INLINE_ARTIFACT_BYTES = 1_000_000;
 const MAX_CACHED_PROJECTION_BYTES = 32 * 1024 * 1024;
-// These identities remain readable evidence, but have no current execution recipe.
-const RETIRED_WIKI_AGENT_IDS = ["wiki-shard-builder", "wiki-curator"];
 
 export type NodeBacktestStatus =
 	| "queued"
@@ -409,7 +407,7 @@ export class NodeBacktestService {
 		const kind = resolveCaseClass(caseValues.map((item) => item.value));
 		const now = new Date().toISOString();
 		const snapshot = parsed.candidate.capabilitySnapshotId
-			? this.activateCapabilitySnapshot(goalId, parsed.candidate.capabilitySnapshotId)
+			? this.requireCapabilitySnapshot(goalId, parsed.candidate.capabilitySnapshotId)
 			: this.createCapabilitySnapshot(goalId, goalDirectory, caseValues.flatMap(({ value }) =>
 				value.mounts.flatMap((mount) => mount.kind === "harness" ? [mount.workspaceRelativePath] : [])));
 		const promptCandidate = resolvePromptSelection(parsed.agentId, parsed.candidate);
@@ -588,7 +586,7 @@ export class NodeBacktestService {
 			path,
 			dataDir: this.options.workspaceDir,
 			ensureGoal,
-			capabilityContentHash: (directory, expectedHash) => capabilityContentHash(directory, undefined, expectedHash),
+			capabilityContentHash: (directory) => capabilityContentHash(directory),
 		});
 	}
 
@@ -598,7 +596,7 @@ export class NodeBacktestService {
 	}> {
 		const result: Array<{ ref: NodeBacktestCaseRef; value: NodeEvaluationCase }> = [];
 		const matches = (value: NodeEvaluationCase) => (!agentId || value.agentId === agentId)
-			&& (this.recipeKeys.has(recipeKey(value.recipe)) || RETIRED_WIKI_AGENT_IDS.includes(value.agentId));
+			&& this.recipeKeys.has(recipeKey(value.recipe));
 		for (const runsRoot of this.sourceRunsDirectories(goalId)) {
 			if (!existsSync(runsRoot)) continue;
 			for (const run of readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
@@ -821,7 +819,7 @@ export class NodeBacktestService {
 			}
 			for (const wikiTraceDirectory of wikiCaseTraceDirectories(value)) {
 				if (existsSync(join(sourceRunDirectory, wikiTraceDirectory))) {
-					// Wiki Curator 的 Runtime 目录与 Worker Workspace 并列；按 Runtime 内的相对路径分类。
+					// Wiki Compilation 的 Runtime 目录与 Worker Workspace 并列；按 Runtime 内的相对路径分类。
 					const kind = value.agentId === "wiki-compilation" ? wikiCompilationCaseTraceKind : basename(wikiTraceDirectory) === "curator-runtime"
 						? (relativePath: string) => wikiCaseTraceKind(`runtime/${relativePath}`)
 						: wikiCaseTraceKind;
@@ -1027,7 +1025,7 @@ export class NodeBacktestService {
 				throw new Error("Node Backtest Candidate Capability Snapshot identity changed");
 			}
 			materializeCapabilities(this.capabilitySnapshotContentDirectory(run.goalId, snapshot.id), workspaceDirectory);
-			if (capabilityContentHash(workspaceDirectory, undefined, run.candidate.workspaceContentHash) !== run.candidate.workspaceContentHash) {
+			if (capabilityContentHash(workspaceDirectory) !== run.candidate.workspaceContentHash) {
 				throw new Error("Node Backtest Candidate Capability Snapshot changed");
 			}
 			for (let caseIndex = 0; caseIndex < run.cases.length; caseIndex += 1) {
@@ -1276,10 +1274,7 @@ export class NodeBacktestService {
 		for (const goalId of this.options.listGoalIds()) {
 			for (const run of this.list(goalId, 500)) {
 				if (run.status !== "queued" && run.status !== "running") continue;
-				if (RETIRED_WIKI_AGENT_IDS.includes(run.agentId)) {
-					log.logWarning(`Node Replay Recipe '${run.agentId}' is retired and unsupported; preserving recorded Replay '${run.id}'`);
-					continue;
-				}
+				if (!this.options.recipes.some((recipe) => recipe.identity.id === run.agentId)) continue;
 				const resumed: NodeBacktestRun = run.status === "running"
 					? { ...run, status: "queued", executions: [], pairs: [], updatedAt: new Date().toISOString(), error: "requeued after server restart" }
 					: run;
@@ -1412,37 +1407,6 @@ export class NodeBacktestService {
 		return this.requireCapabilitySnapshot(goalId, snapshotId);
 	}
 
-	/** Validate frozen bytes first; rename historical Skill ownership only in a fresh activation copy. */
-	private activateCapabilitySnapshot(goalId: string, snapshotId: string): NodeBacktestCapabilitySnapshot {
-		const snapshot = this.requireCapabilitySnapshot(goalId, snapshotId);
-		const content = this.capabilitySnapshotContentDirectory(goalId, snapshot.id);
-		if (!existsSync(join(content, "skills", "cornell-note"))) return snapshot;
-		const temporary = join(this.capabilitySnapshotsDirectory(goalId), `.activation-${randomUUID()}`);
-		mkdirSync(temporary, { recursive: true });
-		try {
-			materializeCapabilities(content, temporary);
-			if (capabilityContentHash(temporary, undefined, snapshot.workspaceContentHash) !== snapshot.workspaceContentHash) {
-				throw new Error("Capability Snapshot changed before activation");
-			}
-			const oldSkillRoot = join(temporary, "skills", "cornell-note");
-			const activeSkillRoot = join(temporary, "skills", "note-agent");
-			const oldSkills = snapshotSkills([oldSkillRoot]);
-			const activeSkills = snapshotSkills([activeSkillRoot]);
-			if (oldSkills.skills.length && activeSkills.skills.length && oldSkills.sha256 !== activeSkills.sha256) {
-				throw new Error("Capability Snapshot activation has conflicting cornell-note and note-agent Skills; choose their ownership before replaying");
-			}
-			if (oldSkills.skills.length || !activeSkills.skills.length) {
-				rmSync(activeSkillRoot, { recursive: true, force: true });
-				renameSync(oldSkillRoot, activeSkillRoot);
-			} else rmSync(oldSkillRoot, { recursive: true, force: true });
-			rmSync(join(temporary, CAPABILITY_ROSTER_FILE), { force: true });
-			// Preserve the full frozen Wiki, rather than applying today's narrower creation filter.
-			return this.createCapabilitySnapshot(goalId, temporary, ["wiki"]);
-		} finally {
-			rmSync(temporary, { recursive: true, force: true });
-		}
-	}
-
 	private requireCapabilitySnapshot(goalId: string, snapshotId: string): NodeBacktestCapabilitySnapshot {
 		const id = safeCapabilitySnapshotId(snapshotId);
 		const root = join(this.capabilitySnapshotsDirectory(goalId), id);
@@ -1454,7 +1418,7 @@ export class NodeBacktestService {
 			throw new Error(`Capability Snapshot '${id}' manifest is invalid`);
 		}
 		const content = join(root, "content");
-		if (!existsSync(content) || capabilityContentHash(content, undefined, snapshot.workspaceContentHash) !== snapshot.workspaceContentHash) {
+		if (!existsSync(content) || capabilityContentHash(content) !== snapshot.workspaceContentHash) {
 			throw new Error(`Capability Snapshot '${id}' content changed`);
 		}
 		return snapshot;
@@ -1601,9 +1565,7 @@ function validateRequest(request: NodeBacktestRequest, registeredAgentIds: Reado
 		throw new Error("baseline is not accepted; Observed Baseline comes from each Node Case");
 	}
 	if (!request.agentId?.trim()) throw new Error("agentId is required");
-	if (RETIRED_WIKI_AGENT_IDS.includes(request.agentId.trim())) {
-		throw new Error(`Node Replay Recipe '${request.agentId.trim()}' is retired and unsupported; historical Cases remain read-only`);
-	}
+
 	if (!registeredAgentIds.has(request.agentId.trim())) {
 		throw new Error(`Unknown Workspace Agent '${request.agentId.trim()}'`);
 	}
@@ -1893,14 +1855,7 @@ function requiredSegment(value: unknown, label: string): string {
 
 
 const CAPABILITY_ROSTER_FILE = ".capability-roster.json";
-// These are immutable pre-roster storage formats, including empty Skill entries and their order.
-// They never register executable Agents. New snapshots freeze their actual roster in the content.
-const PRE_ROSTER_SKILL_ORDERS = [
-	["main-agent", "podcast-writer", "prime-search", "cornell-note", "report-writer", "wiki-shard-builder", "wiki-curator"],
-	["main-agent", "podcast-writer", "prime-search", "note-agent", "report-writer", "wiki-shard-builder", "wiki-curator"],
-] as const;
-
-function capabilityContentHash(goalDirectory: string, wikiPaths?: readonly string[], expectedHash?: string): string {
+function capabilityContentHash(goalDirectory: string, wikiPaths?: readonly string[]): string {
 	const frozenRoster = readCapabilityRoster(goalDirectory);
 	const hash = (roster: readonly string[]) => sha256(stableJson({
 		skills: roster.map((agentId) => ({
@@ -1910,13 +1865,7 @@ function capabilityContentHash(goalDirectory: string, wikiPaths?: readonly strin
 		wiki: hashDirectory(join(goalDirectory, "wiki"), capabilityWikiFilter(wikiPaths)),
 	}));
 	if (frozenRoster) return hash(frozenRoster);
-	if (expectedHash) {
-		for (const roster of PRE_ROSTER_SKILL_ORDERS) {
-			if (skillDirectories(goalDirectory).some((id) => !(roster as readonly string[]).includes(id))) continue;
-			const historicalHash = hash(roster);
-			if (historicalHash === expectedHash) return historicalHash;
-		}
-	}
+
 	return hash(currentCapabilityRoster(goalDirectory));
 }
 
@@ -2006,8 +1955,6 @@ function projectFrozenRun(run: NodeBacktestRun, runDirectory: string): NodeBackt
 			...(run.agentId === "podcast-writer" ? podcastWriterTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "main-agent" ? mainAgentTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "wiki-compilation" ? wikiCompilationTraceRefs(runDirectory, execution) : {}),
-			...(["wiki-shard-builder", "wiki-curator"].includes(run.agentId)
-				? wikiTraceRefs(runDirectory, execution) : {}),
 		}).filter((entry): entry is [string, string] => Boolean(entry[1])));
 	const activeExecution = projectCandidateActiveExecution(run, runDirectory, executionRefs);
 	return {
@@ -2210,60 +2157,6 @@ function wikiCompilationCaseTraceKind(ref: string): string | undefined {
 	return undefined;
 }
 
-function wikiTraceRefs(
-	runDirectory: string,
-	execution: { id: string },
-): NodeExecutionRefs {
-	const executionRoot = join(runDirectory, "executions", execution.id);
-	if (!existsSync(executionRoot)) return {};
-	const files = listFilesRecursive(executionRoot, { absolute: true, strict: true });
-	const relativeRef = (path: string) => relative(runDirectory, path).split(sep).join("/");
-	const executionRef = (path: string) => relative(executionRoot, path).split(sep).join("/");
-	const rootTraces = files.filter((path) => path.endsWith(".jsonl")
-		&& path.includes(`${sep}sessions${sep}sessions${sep}`));
-	const sdkEvents = files.filter((path) => /runtime[/\\](?:(?:entity|concept)[/\\])?sdk-events\.jsonl$/u.test(path)
-		&& path.includes(`${sep}work${sep}`));
-	const childTraces = files.filter((path) => path.endsWith(".jsonl")
-		&& /runtime[/\\](?:entity|concept)?[/\\]?session-artifacts[/\\]sub-/u.test(path));
-	const systemPrompt = files.find((path) => /runtime[/\\]system-prompt\.md$/u.test(path));
-	const userPrompts = files.filter((path) => /runtime[/\\](?:(?:entity|concept)[/\\])?user-prompt\.md$/u.test(path));
-	const runtimeResult = files.find((path) => /runtime[/\\]result\.json$/u.test(path));
-	const workerResults = files.filter((path) => {
-		const ref = relative(executionRoot, path);
-		return ref.endsWith(`${sep}result.json`) && ref.startsWith(`work${sep}`)
-			&& !ref.includes(`${sep}runtime${sep}`);
-	});
-	const childMetadata = files.filter((path) => /^work\/(?:maintainer\/runtime\/(?:entity|concept)|curator-runtime)\/session-artifacts\/sub-[^/]+\/rlm-subagent\.json$/u.test(executionRef(path)));
-	const plan = files.find((path) => /^work\/(?:maintainer|curator)\/work\/plan\.json$/u.test(executionRef(path)));
-	const assignments = files.filter((path) => /^work\/(?:maintainer|curator)\/work\/assignments\/[^/]+\.json$/u.test(executionRef(path)));
-	const childContract = files.find((path) => /^work\/(?:maintainer|curator)\/work\/child-contract\.md$/u.test(executionRef(path)));
-	const inputs = files.filter((path) => /^work\/(?:(?:maintainer|curator)\/input\/|maintainer\/workspace\/notes\/).+$/u.test(executionRef(path)));
-	const relationAssignment = files.find((path) => executionRef(path) === "work/curator/work/relation-assignment.json");
-	const relationContract = files.find((path) => executionRef(path) === "work/curator/work/relation-contract.md");
-	const rootTrace = rootTraces[0];
-	return {
-		...(rootTrace
-			? { agentTrace: relativeRef(rootTrace) }
-			: sdkEvents[0] ? { agentTrace: relativeRef(sdkEvents[0]) } : {}),
-		...(sdkEvents[0] ? { wikiSdkEvents: relativeRef(sdkEvents[0]) } : {}),
-		...Object.fromEntries(sdkEvents.map((path, index) => [`wikiSdkEvents${index + 1}`, relativeRef(path)])),
-		...Object.fromEntries(rootTraces.map((path, index) => [`wikiRootTrace${index + 1}`, relativeRef(path)])),
-		...Object.fromEntries(childTraces.map((path, index) => [`wikiChildTrace${index + 1}`, relativeRef(path)])),
-		...Object.fromEntries(childMetadata.map((path, index) => [`wikiChildMetadata${index + 1}`, relativeRef(path)])),
-		...Object.fromEntries(workerResults.map((path, index) => [`wikiWorkerResult${index + 1}`, relativeRef(path)])),
-		...Object.fromEntries(assignments.map((path, index) => [`wikiAssignment${index + 1}`, relativeRef(path)])),
-		...Object.fromEntries(inputs.map((path, index) => [`wikiInput${index + 1}`, relativeRef(path)])),
-		...(plan ? { wikiPlan: relativeRef(plan) } : {}),
-		...(childContract ? { wikiChildContract: relativeRef(childContract) } : {}),
-		...(relationAssignment ? { wikiRelationAssignment: relativeRef(relationAssignment) } : {}),
-		...(relationContract ? { wikiRelationContract: relativeRef(relationContract) } : {}),
-		...(systemPrompt ? { wikiSystemPrompt: relativeRef(systemPrompt) } : {}),
-		...(userPrompts[0] ? { wikiUserPrompt: relativeRef(userPrompts[0]) } : {}),
-		...Object.fromEntries(userPrompts.map((path, index) => [`wikiUserPrompt${index + 1}`, relativeRef(path)])),
-		...(runtimeResult ? { wikiRuntimeResult: relativeRef(runtimeResult) } : {}),
-	};
-}
-
 function primeSearchTraceRefs(
 	runDirectory: string,
 	execution: { id: string; refs?: NodeExecutionRefs },
@@ -2401,7 +2294,7 @@ function primeSearchCaseTraceKind(relativePath: string): string | undefined {
 }
 
 function wikiCaseTraceDirectories(value: NodeEvaluationCase): string[] {
-	if (!["wiki-shard-builder", "wiki-curator", "wiki-compilation"].includes(value.agentId)
+	if (value.agentId !== "wiki-compilation"
 		|| value.observed.trace?.root !== "run") return [];
 	const recorded = value.observed.traceDirectories?.filter((directory) => directory.root === "run")
 		.map((directory) => directory.ref) ?? [];

@@ -11,7 +11,7 @@ import {
 } from "../../server/research/pipeline/report-knowledge-view.js";
 import { Run } from "../../server/research/pipeline/orchestrator.js";
 import { writeSourceBundleIndex } from "../../server/research/pipeline/source-bundle.js";
-import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
 import type { PublishedArtifactDirectoryRef } from "../../server/agent-runtime/artifact-store.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-report-knowledge-"));
@@ -44,17 +44,17 @@ try {
 			}],
 		}],
 	}] };
-	const evidence: CornellNotesSnapshot = {
+	const evidence: SourceNotesSnapshot = {
 		schema_version: 1, snapshot_id: "snapshot:one", run_id: "run:test",
 		pipeline: { id: "pipeline", version: "1", sha256: "a".repeat(64) },
 		source_bundle_refs: [bundleRef],
 		notes: [{ note, title: "Source title", canonical_locator: url, provider_id: "general_web",
 			provenance_ref: sourceId, source_revision_sha256: source.sha256, members: [] }],
 	};
-	const cornellNotesArtifact = sourceStore.publishText(`${JSON.stringify(evidence, null, 2)}\n`,
-		"artifacts/cornell-notes/snapshot.json");
+	const notesArtifact = sourceStore.publishText(`${JSON.stringify(evidence, null, 2)}\n`,
+		"artifacts/notes/snapshot.json");
 	const organized = materializeNotesReportView({
-		targetStore: new RunArtifactStore(join(root, "notes-compact")), evidence, cornellNotesArtifact,
+		targetStore: new RunArtifactStore(join(root, "notes-compact")), evidence, notesArtifact,
 		targetRelativePath: "snapshot",
 	});
 	assert.equal(existsSync(join(organized.absolutePath, "notes/0001-1.md")), false);
@@ -62,7 +62,7 @@ try {
 		.notes[0].path, undefined);
 	const view = materializeReportKnowledgeView({
 		targetStore: new RunArtifactStore(targetRoot), sourceStore,
-		wiki: sourceStore.describeDirectory("wiki"), evidence, cornellNotesArtifact,
+		wiki: sourceStore.describeDirectory("wiki"), evidence, notesArtifact,
 		targetRelativePath: "artifacts/report-flow/knowledge-snapshot",
 	});
 
@@ -75,13 +75,13 @@ try {
 	assert.equal(readFileSync(join(view.absolutePath, `sources/${sourceId.slice(7)}/README.md`), "utf-8"), document);
 	assert.equal(existsSync(join(view.absolutePath, `sources/${sourceId.slice(7)}/document.md`)), false);
 	const manifest = JSON.parse(readFileSync(join(view.absolutePath, "manifest.json"), "utf-8")) as {
-		wiki_refs: { dangling: unknown[] }; cornell_notes_refs: { dangling: unknown[] };
+		wiki_refs: { dangling: unknown[] }; notes_refs: { dangling: unknown[] };
 	};
 	assert.deepEqual(manifest.wiki_refs.dangling, []);
-	assert.deepEqual(manifest.cornell_notes_refs.dangling, []);
+	assert.deepEqual(manifest.notes_refs.dangling, []);
 	const nextSourceRoot = join(root, "next-source-run");
 	const nextStore = new RunArtifactStore(nextSourceRoot);
-	const nextEvidence: CornellNotesSnapshot = {
+	const nextEvidence: SourceNotesSnapshot = {
 		...evidence,
 		snapshot_id: "snapshot:two",
 		run_id: "run:next",
@@ -89,10 +89,10 @@ try {
 		notes: [],
 	};
 	const nextEvidenceArtifact = nextStore.publishText(`${JSON.stringify(nextEvidence, null, 2)}\n`,
-		"artifacts/cornell-notes/snapshot.json");
+		"artifacts/notes/snapshot.json");
 	const nextView = materializeReportKnowledgeView({
 		targetStore: new RunArtifactStore(join(root, "next-report-run")), sourceStore: nextStore,
-		wiki: sourceStore.describeDirectory("wiki"), evidence: nextEvidence, cornellNotesArtifact: nextEvidenceArtifact,
+		wiki: sourceStore.describeDirectory("wiki"), evidence: nextEvidence, notesArtifact: nextEvidenceArtifact,
 		baseView: view, targetRelativePath: "artifacts/report-flow/knowledge-snapshot",
 	});
 	assert.equal(readFileSync(join(nextView.absolutePath, `sources/${sourceId.slice(7)}/README.md`), "utf-8"), document);
@@ -133,7 +133,7 @@ try {
 	assert.throws(() => materializeReportKnowledgeView({
 		targetStore: new RunArtifactStore(join(root, "escape-target")), sourceStore,
 		wiki: sourceStore.describeDirectory("wiki"), evidence: { ...evidence, source_bundle_refs: ["../escape"] },
-		cornellNotesArtifact, targetRelativePath: "knowledge",
+		notesArtifact, targetRelativePath: "knowledge",
 	}), /escape|relative|inside|Artifact/iu);
 	console.log("report knowledge view tests passed");
 } finally {

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { CHECKS, duplicateHelpers, gitEnvironmentForChecks, liveImports, parseNameStatus, planChecks, planCommands, documentationOnly } from "./pre-commit-plan.js";
 
 // Category checks no longer bundle the full TypeScript test suite.
-for (const file of ["server/evolution/browser-trigger.ts", "server/lib/fs.ts", "server/wiki/compiler.ts", "server/cornell/contracts.ts"]) {
+for (const file of ["server/evolution/browser-trigger.ts", "server/lib/fs.ts", "server/wiki/compiler.ts", "server/notes/contracts.ts"]) {
 	assert.deepEqual(planChecks([`apps/telomi/${file}`]), ["typecheck"]);
 }
 assert.deepEqual(planChecks(["apps/telomi/server/app.ts"]), ["typecheck", "operations-contract"]);

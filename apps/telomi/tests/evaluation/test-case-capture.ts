@@ -35,7 +35,7 @@ import type { SearchBatchRequest, SearchBatchResult } from "../../server/researc
 
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "telomi-case-capture-"));
-const modelEnv = { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_NOTE_AGENT_MODEL: "test/note", TELOMI_WIKI_CURATOR_MODEL: "test/root" };
+const modelEnv = { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_NOTE_AGENT_MODEL: "test/note", TELOMI_WIKI_COMPILATION_MODEL: "test/root" };
 
 // ---------------------------------------------------------------------------
 // 依赖方向：产品模块不得 import Evaluation 实现。

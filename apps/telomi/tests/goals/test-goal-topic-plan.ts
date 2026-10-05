@@ -121,7 +121,7 @@ try {
 		},
 		publish: async () => ({
 			status: "no_change",
-			compilationId: `wiki-curator-${v1.revision}`,
+			compilationId: `wiki-compilation-${v1.revision}`,
 			baseContentHash: "0".repeat(64),
 			publishedContentHash: "0".repeat(64),
 			changedPaths: [],

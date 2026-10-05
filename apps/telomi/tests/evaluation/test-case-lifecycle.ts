@@ -504,7 +504,7 @@ function draftFor(nodeId: string): NodeEvaluationCaseDraft {
 			controlDirectory: recoveryRun,
 			recordDirectory: recoveryRun,
 			artifactStore: new RunArtifactStore(recoveryRun),
-			output: { kind: "cornell_note", publishRelativePath: `replays/${nodeId}.json`, validate: () => ({}) },
+			output: { kind: "note", publishRelativePath: `replays/${nodeId}.json`, validate: () => ({}) },
 			signal: new AbortController().signal,
 		} as unknown as AgentStageRequest<unknown>,
 		recordDirectory: recoveryRun,

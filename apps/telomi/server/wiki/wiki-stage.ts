@@ -76,9 +76,9 @@ async function runAgentWikiStageKind(request: WikiStageRequest): Promise<WikiSta
  const system = adapt(stagePrompt(renderAgentPrompt("wiki", "wiki-compilation", "system-append", {}).content, request.input.stage));
  const user = adapt(renderAgentPrompt("wiki", "wiki-compilation", "user", { stage: request.input.stage }).content);
  const skills = snapshotSkills(bundledAgentSkillPaths("wiki", "wiki-compilation"));
- const thinking = resolveStageThinkingLevel("wikiCurator", "maintenance", request.env).thinkingLevel;
+ const thinking = resolveStageThinkingLevel("wikiCompilation", "maintenance", request.env).thinkingLevel;
  const semantics = wikiStageCapabilityIdentity();
- const identity = hashJson({ input: request.input, system, user, semantics, skills: skills.sha256, root: request.env.TELOMI_WIKI_CURATOR_MODEL,
+ const identity = hashJson({ input: request.input, system, user, semantics, skills: skills.sha256, root: request.env.TELOMI_WIKI_COMPILATION_MODEL,
   modelDefinitions: request.env[PRIME_MODEL_DEFINITIONS_ENV], thinking });
  const checkpoint = join(request.workRoot, "checkpoint.json");
  if (existsSync(checkpoint)) {
@@ -112,7 +112,7 @@ async function runAgentWikiStageKind(request: WikiStageRequest): Promise<WikiSta
    agentRoot: work, runtimeRoot: runtime, readonlyRoots: [inputRoot], env: request.env, signal: request.signal,
    onMessage: () => {},
    extraEnv: { WIKI_STAGE_RUNTIME: runtime, WIKI_STAGE_WORK: work, WIKI_STAGE_INPUT_ROOT: inputRoot,
-    WIKI_STAGE_MODEL: request.env.TELOMI_WIKI_CURATOR_MODEL, WIKI_STAGE_THINKING: thinking } });
+    WIKI_STAGE_MODEL: request.env.TELOMI_WIKI_COMPILATION_MODEL, WIKI_STAGE_THINKING: thinking } });
   request.signal.throwIfAborted();
   const acceptedPath = join(runtime, "accepted-result.json");
   const accepted = JSON.parse(readWikiStageOutput(join(runtime, "accepted.json")).toString("utf8"));

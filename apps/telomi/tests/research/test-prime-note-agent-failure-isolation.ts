@@ -45,7 +45,7 @@ export async function createAgentSession(options) {
 				messages.push(failed);
 				return;
 			}
-			writeFileSync(join(options.cwd, "cornell-note.json"), JSON.stringify({ sections: [{
+			writeFileSync(join(options.cwd, "note.json"), JSON.stringify({ sections: [{
 				section_title: "Stable evidence", summary: "The Source was read.",
 				cue_notes: [{ cue: "Evidence", note: "The first line is the title.", evidence: [
 					{ source_path: "paper.md", start_line: 1, end_line: 1 },

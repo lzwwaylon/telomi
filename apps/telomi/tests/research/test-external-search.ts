@@ -74,12 +74,12 @@ try {
 				section_title: "Feature", cue_notes: [{ cue: "Feature description", note: "The current paper documents the feature.",
 					evidence: [{ source_ref: catalog.sources[0]!.ref, source_path: path, start_line: 1, end_line: 1 }] }] }] };
 			mkdirSync(request.workDirectory, { recursive: true });
-			const output = join(request.workDirectory, "cornell-note.json");
+			const output = join(request.workDirectory, "note.json");
 			writeFileSync(output, JSON.stringify(draft));
 			const value = request.output.validate({ entryPath: output, outputRoot: request.workDirectory,
 				workDirectory: request.workDirectory });
 			return { value, artifact: request.artifactStore.publishFile(output, request.output.publishRelativePath),
-				submissionCount: 1, validationErrors: [], session: { id: "cornell-test", mode: "fresh" },
+				submissionCount: 1, validationErrors: [], session: { id: "note-test", mode: "fresh" },
 				turns: 1, toolCalls: 1, toolCounts: { ipython: 1 }, usage, sessionPath: "trace.jsonl" };
 		},
 	};

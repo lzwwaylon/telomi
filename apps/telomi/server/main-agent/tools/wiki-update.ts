@@ -10,7 +10,7 @@ import { RunArtifactStore, type RunArtifactRef } from "../../agent-runtime/artif
 import { startWikiUpdateActivity } from "../../wiki/update-runner.js";
 import { registerSavedInvestigationCues, startGoalCueWikiUpdates } from "../../research/cue-wiki-trigger.js";
 import { getCueWikiQueueStatus } from "../../research/cue-wiki-queue.js";
-import { createGoalCornellSnapshot } from "../../research/cue-cornell-snapshot.js";
+import { createGoalNoteSnapshot } from "../../research/cue-note-snapshot.js";
 import { sha256 } from "../../lib/hash.js";
 
 const schema = Type.Object({
@@ -68,17 +68,17 @@ export function createWikiUpdateTool(options: {
 				};
 			}
 			if (!input.source_run_id && input.rebuild) {
-				const snapshot = createGoalCornellSnapshot({ goalDir: options.goalDir, snapshotId: "goal-cornell-corpus" });
+				const snapshot = createGoalNoteSnapshot({ goalDir: options.goalDir, snapshotId: "goal-note-corpus" });
 				if (!snapshot.notes.some(record => record.note.sections.length)) throw new Error("This Goal has no validated Cornell evidence to rebuild Wiki");
 				const text = `${JSON.stringify(snapshot, null, 2)}\n`;
 				const sourceRunDirectory = join(options.goalDir, "wiki", "cue-batches", `corpus-${sha256(text)}`);
 				const store = new RunArtifactStore(sourceRunDirectory);
-				const path = "artifacts/input/cornell-notes.json";
+				const path = "artifacts/input/notes.json";
 				const artifact = existsSync(join(sourceRunDirectory, path)) ? store.describeFile(path) : store.publishText(text, path);
 				if (artifact.sha256 !== sha256(text)) throw new Error("Goal Cornell corpus snapshot changed");
 				const started = startUpdate({ ...target, goal: [goalContext.title, goalContext.description].filter(Boolean).join("\n\n"),
 					goalContext, topicPlan: new GoalTopicPlanStore(options.goalId, options.workspaceDir).requireResearchReady(),
-					sourceRunDirectory, cornellNotes: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
+					sourceRunDirectory, sourceNotes: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
 					trigger: { kind: "agent", agent_name: "main_agent" }, reason, rebuild: true, env: { ...process.env, ...options.getEnv() } });
 				if (!started.reused) void started.execution.catch(() => undefined);
 				return { content: [{ type: "text" as const, text: `Wiki Update Activity started: ${started.wikiUpdateId}` }],
@@ -87,8 +87,8 @@ export function createWikiUpdateTool(options: {
 			const sourceRunId = input.source_run_id ? safeId(input.source_run_id) : latestResearchRunId(runtimeDir, options.goalId);
 			const state = readPublishedRunInput(join(runtimeDir, "runs", sourceRunId));
 			if (state.goalId !== options.goalId || state.runId !== sourceRunId) throw new Error(`Unknown Research Run: ${sourceRunId}`);
-			const cornellNotes = state.cornellNotes.at(-1);
-			if (!cornellNotes) throw new Error(`Research Run '${sourceRunId}' has no Cornell Notes checkpoint`);
+			const sourceNotes = state.sourceNotes.at(-1);
+			if (!sourceNotes) throw new Error(`Research Run '${sourceRunId}' has no Cornell Notes checkpoint`);
 			const started = startUpdate({
 				workspaceDir: options.workspaceDir,
 				goalId: options.goalId,
@@ -98,7 +98,7 @@ export function createWikiUpdateTool(options: {
 				topicPlan: new GoalTopicPlanStore(options.goalId, options.workspaceDir).requireResearchReady(),
 				sourceRunId,
 				sourceRunDirectory: join(options.goalDir, "wiki", "runs", sourceRunId),
-				cornellNotes,
+				sourceNotes,
 				trigger: { kind: "agent", agent_name: "main_agent" },
 				reason,
 				rebuild: input.rebuild,
@@ -129,7 +129,7 @@ function latestResearchRunId(runtimeDir: string, goalId: string): string {
 	for (const runId of candidates) {
 		try {
 			const state = readPublishedRunInput(join(runtimeDir, "runs", runId));
-			if (state.goalId === goalId && state.cornellNotes.length > 0) return runId;
+			if (state.goalId === goalId && state.sourceNotes.length > 0) return runId;
 		} catch {
 			// Ignore directories that are not complete Research Run checkpoints.
 		}
@@ -141,7 +141,7 @@ function readPublishedRunInput(controlDirectory: string): {
 	goalId: string;
 	runId: string;
 	question: string;
-	cornellNotes: RunArtifactRef[];
+	sourceNotes: RunArtifactRef[];
 } {
 	let value: unknown;
 	try {
@@ -155,9 +155,9 @@ function readPublishedRunInput(controlDirectory: string): {
 			typeof state.goal_id !== "string"
 			|| typeof state.run_id !== "string"
 			|| typeof state.question !== "string"
-			|| !Array.isArray(state.cornell_note_snapshots)
+			|| !Array.isArray(state.note_snapshots)
 	) throw new Error("Research Run state has no Wiki input");
-	const cornellNotes = state.cornell_note_snapshots.filter((candidate): candidate is RunArtifactRef => {
+	const sourceNotes = state.note_snapshots.filter((candidate): candidate is RunArtifactRef => {
 		if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
 		const artifact = candidate as Record<string, unknown>;
 		return typeof artifact.relative_path === "string"
@@ -168,7 +168,7 @@ function readPublishedRunInput(controlDirectory: string): {
 		goalId: state.goal_id,
 		runId: state.run_id,
 		question: state.question,
-		cornellNotes,
+		sourceNotes,
 	};
 }
 

@@ -27,7 +27,7 @@ let clock = firstRead;
 function agentActivity(id: string, lifecycle: ActivityLifecycle) {
 	return {
 		agentActivityId: id,
-		agentName: "cornell_note",
+		agentName: "note",
 		summary: id,
 		lifecycle,
 		timing: activityTiming(startedAt, lastUpdate),
@@ -183,7 +183,7 @@ try {
 	const quietAt = "2026-09-19T18:03:00.000Z";
 	const busyAt = "2026-09-19T18:39:30.000Z";
 	for (const [executionId, sessionAt] of [["note-quiet", quietAt], ["note-busy", busyAt]] as const) {
-		const session = agentSessionPath(runDir, "cornell_note", executionId);
+		const session = agentSessionPath(runDir, "note", executionId);
 		writeFileSync(session, `${JSON.stringify({
 			type: "message",
 			timestamp: Date.parse(sessionAt),
@@ -191,7 +191,7 @@ try {
 		})}\n`, "utf8");
 		appendRuntimeContext(runDir, "research", {
 			type: "runtime.agent_bound",
-			stage_id: `cornell-note-29-${executionId}`,
+			stage_id: `note-29-${executionId}`,
 			execution_id: executionId,
 			agent: "note_agent",
 			session_file: basename(session),

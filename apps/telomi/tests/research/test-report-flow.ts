@@ -8,7 +8,7 @@ import { finalizeStageOutput, type AgentStageRequest, type AgentStageRunner } fr
 import { Run } from "../../server/research/pipeline/index.js";
 import { reportWriterUsesChineseLint } from "../../server/research/pipeline/prime-report-writer.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
-import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-report-run-"));
 try {
@@ -32,7 +32,7 @@ async function verifyWikiMode(): Promise<void> {
 	const evidence = fixtureEvidence(`run-${inputMode}`);
 	const evidencePath = join(root, inputMode, "evidence.json");
 	writeFileSync(evidencePath, `${JSON.stringify(evidence)}\n`, "utf-8");
-	const cornellNotesArtifact = wikiStore.describeFile("evidence.json");
+	const notesArtifact = wikiStore.describeFile("evidence.json");
 	const knowledgeRoot = join(runRoot, "artifacts/report-run/knowledge-snapshot");
 	mkdirSync(join(knowledgeRoot, "wiki"), { recursive: true });
 	mkdirSync(join(knowledgeRoot, "evidence/one"), { recursive: true });
@@ -121,7 +121,7 @@ async function verifyWikiMode(): Promise<void> {
 		signal: new AbortController().signal,
 		reportInput: {
 			sourceRunId: "source-run",
-			cornellNotesArtifact,
+			notesArtifact,
 				wikiCompilation: {
 					status: "reused", compilationId: "wiki-test", baseKnowledgeSha256: wiki.sha256,
 					knowledge: wiki, pageCount: 1,
@@ -181,8 +181,8 @@ async function verifyWikiMode(): Promise<void> {
 	assert.equal(new RunArtifactStore(runRoot).describeDirectory("artifacts/report-run/knowledge-snapshot").sha256,
 		knowledge.sha256);
 	assert.equal(result.state.report_flow?.knowledge_input?.mode, inputMode);
-	assert.equal(result.state.report_flow?.cornell_notes_snapshot?.relative_path, "artifacts/report-run/cornell-notes.json");
-	new RunArtifactStore(runRoot).openFile(result.state.report_flow!.cornell_notes_snapshot!);
+	assert.equal(result.state.report_flow?.notes_snapshot?.relative_path, "artifacts/report-run/notes.json");
+	new RunArtifactStore(runRoot).openFile(result.state.report_flow!.notes_snapshot!);
 	assert.equal(new RunArtifactStore(join(root, inputMode)).describeDirectory("wiki").sha256, wiki.sha256);
 }
 
@@ -190,7 +190,7 @@ function readable(path: string): boolean {
 	try { readFileSync(path); return true; } catch { return false; }
 }
 
-function fixtureEvidence(runId: string): CornellNotesSnapshot {
+function fixtureEvidence(runId: string): SourceNotesSnapshot {
 	return {
 		schema_version: 1,
 		snapshot_id: "snapshot:one",

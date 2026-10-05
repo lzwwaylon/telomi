@@ -34,7 +34,7 @@ try {
  const jobs = new WikiUpdateJobStore(controlDirectory);
  await assert.rejects(executeWikiUpdate({ goalId, runId, wikiUpdateId: runId, goalDir, workspaceDir: root,
   goal: "Study", goalContext: { title: "Study", description: "" }, topicPlan: plan, runDirectory, controlDirectory,
-  cornellNotes: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength },
+  sourceNotes: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength },
   env: {}, signal: new AbortController().signal, dependencies: {
    compile: async () => ({ ...complete, publicationReady: false,
     failedBatches: [{ batchIndex: 0, sourceIds: ["source:a"], message: "retry me", usage }] }),
@@ -48,7 +48,7 @@ try {
   dependencies: { compile: async request => {
    request.onStarted?.(1);
    request.onBatchProgress?.({ batchIndex: 0, totalBatches: 1, status: "succeeded", pageCount: 1, usage, reused: false });
-   request.onStageProgress?.({ kind: "curation", stageIndex: 0, totalStages: 1, status: "succeeded", pageCount: 7, usage });
+   request.onStageProgress?.({ kind: "merge-objects", stageIndex: 0, totalStages: 1, status: "succeeded", pageCount: 7, usage });
    return complete;
   } } });
  assert.equal(resumed.status, "succeeded");
