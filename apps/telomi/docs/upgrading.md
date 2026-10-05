@@ -134,7 +134,7 @@ npm run service -- status                     # also: stop, start, restart, unin
   `--auto-upgrade=<ref>` follows that branch, tag or commit with `--require-checks`.
   `--daily-snapshot` runs `npm run upgrade -- --snapshot-only --if-idle` at 04:30,
   or when the Mac next wakes.
-- `stop` stops Telomi, its managed browser and memory database, and the scheduled
+- `stop` stops Telomi, its owned Memory service, managed browser and memory database, and the scheduled
   jobs, and keeps them stopped across logins until `start`. `uninstall` removes
   the jobs.
 - `status` shows each job's state and last exit code, the running code, the last

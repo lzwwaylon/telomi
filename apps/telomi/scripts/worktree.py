@@ -669,8 +669,21 @@ def stop_processes(root, state, identity):
     metadata = state / f"{identity}.json"
     recorded = json.loads(metadata.read_text()) if metadata.exists() else {}
     ports = recorded.get("ports", [])
-    if ports:
-        listeners = subprocess.run(["lsof", "-nP", "-t", f"-iTCP:{ports[6]}", "-sTCP:LISTEN"], text=True, capture_output=True)
+    # The installed supervisor supplies checkout()'s resolved environment. Ordinary Worktree
+    # cleanup keeps its private overlay precedence, including cleanup after the checkout was removed.
+    stop_root = os.environ.get("TELOMI_RUNTIME_STOP_ROOT", "")
+    resolved_env = os.environ if (os.environ.get("TELOMI_RUNTIME_STOP_RESOLVED_ENV") == "1"
+                                 and stop_root and Path(stop_root).resolve() == root) else None
+    memory_port = ports[6] if ports else None
+    if resolved_env is not None or (not ports and checked_out(root)):
+        memory_port = None
+        endpoint = urllib.parse.urlsplit(memory_endpoint(resolved_env if resolved_env is not None else execution_env(root))[0])
+        if endpoint.scheme == "http" and endpoint.hostname in ("127.0.0.1", "localhost", "::1"):
+            memory_port = endpoint.port or 80
+    if memory_port:
+        listeners = subprocess.run(["lsof", "-nP", "-t", f"-iTCP:{memory_port}", "-sTCP:LISTEN"], text=True, capture_output=True)
+        if listeners.returncode and (listeners.returncode != 1 or listeners.stderr.strip()):
+            raise RuntimeError("Could not inspect the installation's Memory listener")
         for pid in listeners.stdout.split():
             fields = subprocess.run(["ps", "-p", pid, "-o", "pgid=,command="], text=True, capture_output=True).stdout.split(maxsplit=1)
             if len(fields) == 2 and str(root / HINDSIGHT) + "/" in fields[1]:
@@ -680,7 +693,7 @@ def stop_processes(root, state, identity):
     # Only the Runtime's own Chrome record authorizes stopping a detached browser. A deleted checkout
     # takes that record along; its profile path and recorded CDP port are the remaining evidence.
     # The managed profile lives in the data directory; one started before that layout used the checkout's.
-    data = data_dir(root)
+    data = data_dir(root, resolved_env)
     flags = [f"--user-data-dir={path} " for path in (data / "browser-profile", root / APP / ".chrome-debug-profile")]
     chrome = next((path for path in (data / ".pi/runtime/chrome-debug/chrome-debug.json",
                                      root / APP / ".chrome-debug/chrome-debug.json") if path.is_file()), None)
@@ -724,9 +737,11 @@ def stop_processes(root, state, identity):
     raise RuntimeError("Command supervisors are still shutting down; retry stop")
 
 
-def data_dir(root):
-    """The checkout's data directory as the server resolves it: TELOMI_DATA_DIR from its env files, or the default."""
-    configured = read_env(root).get("TELOMI_DATA_DIR", "").strip() if checked_out(root) else ""
+def data_dir(root, env=None):
+    """The checkout's data directory, using a supervisor's resolved environment when supplied."""
+    if env is None:
+        env = read_env(root) if checked_out(root) else {}
+    configured = env.get("TELOMI_DATA_DIR", "").strip()
     return root / APP / configured if configured else root / APP / "data"
 
 

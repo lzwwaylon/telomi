@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { AUTO_UPGRADE_INTERVAL_S, bootout, jobDefinitions, parseCommand, signedByDeveloper, SNAPSHOT_TIME } from "./service.js";
-import { serviceLabel, UpgradeError } from "./upgrade.js";
+import { AUTO_UPGRADE_INTERVAL_S, bootout, jobDefinitions, main, parseCommand, signedByDeveloper, SNAPSHOT_TIME } from "./service.js";
+import { serviceLabel, UpgradeError, type Checkout } from "./upgrade.js";
 
 function scratch(context: { after(fn: () => void): void }): string {
 	const root = mkdtempSync(join(tmpdir(), "telomi-service-"));
@@ -78,4 +78,44 @@ echo "$@" >> "${calls}"
 	writeFileSync(calls, "");
 	writeFileSync(join(root, "listed"), "1000000");
 	assert.throws(() => bootout("com.telomi.test.server", 500), (error) => error instanceof UpgradeError && /still running/u.test(error.message));
+});
+
+
+test("service stop delegates owned Runtime cleanup and rejects cleanup failure", async (context) => {
+	const root = scratch(context);
+	const bin = join(root, "bin");
+	mkdirSync(bin);
+	const calls = join(root, "calls.log");
+	const result = join(root, "result");
+	writeFileSync(join(bin, "python3"), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${calls}"\nexit "$(cat "${result}")"\n`, { mode: 0o755 });
+	const inst: Checkout = { repoRoot: root, dataDir: join(root, "data"), baseUrl: "http://127.0.0.1:1", env: { PATH: `${bin}:${process.env.PATH}` } };
+	writeFileSync(result, "0");
+	assert.equal(await main(["stop"], inst), 0);
+	assert.equal(readFileSync(calls, "utf8").trim(), "apps/telomi/scripts/worktree.py stop");
+	writeFileSync(result, "7");
+	await assert.rejects(main(["stop"], inst), (error) => error instanceof UpgradeError && /exit 7/u.test(error.message));
+});
+
+test("restart stops the server and owned Runtime before bootstrap without changing scheduled jobs", async (context) => {
+	const root = scratch(context);
+	const bin = join(root, "bin");
+	mkdirSync(bin);
+	const calls = join(root, "calls.log");
+	const live = join(root, "live");
+	const result = join(root, "result");
+	writeFileSync(join(bin, "launchctl"), `#!/bin/sh\necho "$*" >> "${calls}"\ncase "$1" in print) [ -e "${live}" ];; bootout) rm -f "${live}";; *) exit 0;; esac\n`, { mode: 0o755 });
+	writeFileSync(join(bin, "python3"), `#!/bin/sh\necho runtime-stop >> "${calls}"\nexit "$(cat "${result}")"\n`, { mode: 0o755 });
+	const originalPath = process.env.PATH;
+	process.env.PATH = `${bin}:${originalPath}`;
+	context.after(() => { process.env.PATH = originalPath; });
+	const inst: Checkout = { repoRoot: root, dataDir: join(root, "data"), baseUrl: "http://127.0.0.1:1", env: { PATH: process.env.PATH } };
+	writeFileSync(result, "0"); writeFileSync(live, "1");
+	assert.equal(await main(["restart"], inst), 0);
+	const rows = readFileSync(calls, "utf8").trim().split("\n");
+	assert.ok(rows.findIndex((line) => line.startsWith("bootout")) < rows.indexOf("runtime-stop"));
+	assert.ok(rows.indexOf("runtime-stop") < rows.findIndex((line) => line.startsWith("bootstrap")));
+	assert.ok(rows.every((line) => !line.includes(".snapshot") && !line.includes(".auto-upgrade")));
+	writeFileSync(calls, ""); writeFileSync(result, "7"); writeFileSync(live, "1");
+	await assert.rejects(main(["restart"], inst), /exit 7/u);
+	assert.equal(readFileSync(calls, "utf8").includes("bootstrap"), false);
 });
