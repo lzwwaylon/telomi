@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
+import { findLogicalSourceInRun, findLogicalSourceMember, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 import { loadReportNoteWorkspace, type NoteWorkspaceItem } from "../research/notes/workspace.js";
 import { readWikiMessageCitations } from "./wiki-message-store.js";
 import { readJson } from "../lib/fs.js";
@@ -123,7 +123,6 @@ export function resolveCitationSourcePreview(
 	const note = exactNotes ? null : findSourceNote(runRoot, sourceId);
 	if (!exactNotes && !note) return null;
 
-	const prefix = `${member.path.replace(/\/+$/u, "")}/`;
 	const matched = (exactNotes
 		? exactNotes.flatMap((exactNote) => exactNote.evidence.map((anchor) => ({
 			anchor: anchor as EvidenceAnchor,
@@ -138,7 +137,7 @@ export function resolveCitationSourcePreview(
 			cue: typeof cue.cue === "string" ? cue.cue : "原文证据",
 			note: typeof cue.note === "string" ? cue.note : "",
 			})) : [])))
-		.filter(({ anchor }) => typeof anchor.source_path === "string" && anchor.source_path.startsWith(prefix));
+		.filter(({ anchor }) => typeof anchor.source_path === "string" && (exactNotes !== undefined || findLogicalSourceMember(found.source, anchor.source_path)?.path === member.path));
 
 	const clues = new Map<string, {
 		cue: string;
@@ -153,6 +152,9 @@ export function resolveCitationSourcePreview(
 			clues.set(item.key, clue);
 		}
 		const sourcePath = typeof item.anchor.source_path === "string" ? item.anchor.source_path : "";
+		const anchorMember = findLogicalSourceMember(found.source, sourcePath);
+		if (!anchorMember || typeof anchorMember.path !== "string" || typeof anchorMember.source_id !== "string") return null;
+		const anchorPrefix = `${anchorMember.path.replace(/\/+$/u, "")}/`;
 		const startLine = positiveInteger(item.anchor.start_line);
 		const endLine = positiveInteger(item.anchor.end_line);
 		if (!startLine || !endLine || endLine < startLine) continue;
@@ -164,7 +166,13 @@ export function resolveCitationSourcePreview(
 		}]);
 		if (!excerpt) continue;
 		if (excerpt.content) clue.excerpts.push({
-			path: sourcePath.slice(prefix.length),
+			path: sourcePath.slice(anchorPrefix.length),
+			...(anchorMember.source_id !== member.source_id ? {
+				sourceId: anchorMember.source_id,
+				...(typeof anchorMember.title === "string" ? { sourceTitle: anchorMember.title } : {}),
+				...(typeof anchorMember.canonical_locator === "string" && normalizeUrl(anchorMember.canonical_locator)
+					? { sourceUrl: anchorMember.canonical_locator } : {}),
+			} : {}),
 			startLine,
 			endLine,
 			text: excerpt.content,
