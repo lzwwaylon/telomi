@@ -14,8 +14,8 @@ import type { ActivityProjection } from "../../shared/events/activity-projection
 import { ensureGoalWorkspace } from "../../server/workspaces/goal-project.js";
 import { WikiUpdateJobStore } from "../../server/wiki/wiki-update-job.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
-import { validateCornellNotesSnapshot } from "../../server/cornell/contracts.js";
-import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import { validateSourceNotesSnapshot } from "../../server/notes/contracts.js";
+import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
 import { wikiUpdateArtifactDir, wikiUpdateRecordDir } from "../../server/wiki/update-runner.js";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -50,17 +50,17 @@ writeFileSync(join(workspaceDir, "goals.json"), `${JSON.stringify([{
 }], null, 2)}\n`);
 
 // 一次崩掉的 Wiki 更新：任务记录停在 running，没有任何批次凭据。
-const cornellNotesArtifact = new RunArtifactStore(runDirectory)
-	.publishText(`${JSON.stringify(buildEvidence(), null, 2)}\n`, "artifacts/cornell-notes/evidence.json");
+const notesArtifact = new RunArtifactStore(runDirectory)
+	.publishText(`${JSON.stringify(buildEvidence(), null, 2)}\n`, "artifacts/notes/evidence.json");
 new WikiUpdateJobStore(controlDirectory).start({
 	goalId: GOAL_ID,
 	runId: RUN_ID,
 	goal: GOAL_TEXT,
 	goalContext: { title: "Wiki Resume API Live", description: GOAL_TEXT },
-	cornellNotes: {
-		relative_path: cornellNotesArtifact.relativePath,
-		sha256: cornellNotesArtifact.sha256,
-		byte_length: cornellNotesArtifact.byteLength,
+	sourceNotes: {
+		relative_path: notesArtifact.relativePath,
+		sha256: notesArtifact.sha256,
+		byte_length: notesArtifact.byteLength,
 	},
 });
 const server = spawn(process.execPath, ["--import", "tsx", join(appRoot, "server", "index.ts")], {
@@ -174,8 +174,8 @@ function delay(ms: number): Promise<void> {
 }
 
 /** 一个稳定、自包含的 Cornell Note，避免测试依赖未跟踪的历史 output。 */
-function buildEvidence(): CornellNotesSnapshot {
-	return validateCornellNotesSnapshot({
+function buildEvidence(): SourceNotesSnapshot {
+	return validateSourceNotesSnapshot({
 		schema_version: 1,
 		snapshot_id: "snapshot:wiki-resume-api-live",
 		run_id: RUN_ID,

@@ -43,13 +43,13 @@ import {
 	RunArtifactStore,
 } from "../../agent-runtime/artifact-store.js";
 import { buildKnowledgeCitationRegistry, compileCanonicalMarkdown, normalizeCitationSource, validateChapterCandidate } from "./citation-compiler.js";
-import { validateCornellNotesSnapshot, type CornellNotesSnapshot } from "../../cornell/contracts.js";
+import { validateSourceNotesSnapshot, type SourceNotesSnapshot } from "../../notes/contracts.js";
 import { validateSearchExecutionRecord, type ProviderExecution } from "../../providers/search-contracts.js";
 import type { ExecutableReportPlan } from "./report-plan.js";
 import {
-	type CornellNotesMaterializer,
-	type CornellNotesMaterializeRequest,
-} from "./cornell-notes.js";
+	type SourceNotesMaterializer,
+	type SourceNotesMaterializeRequest,
+} from "./source-notes.js";
 import {
 	createAgentEvidenceHandles,
 	requireAgentEvidenceHandle,
@@ -117,7 +117,7 @@ export interface RunRequest {
 	organizerStorageRoot?: string;
 	providerCatalog: Array<ResearchSourceCatalogEntry & { id: string }>;
 	temporalContext: ResearchTemporalContext;
-	pipeline: CornellNotesMaterializeRequest["pipeline"];
+	pipeline: SourceNotesMaterializeRequest["pipeline"];
 	identityPins: RunIdentityPins;
 	topicPlan?: GoalTopicPlan;
 	env: Record<string, string | undefined>;
@@ -128,7 +128,7 @@ export interface RunRequest {
 	 */
 	reportInput?: {
 		sourceRunId: string;
-		cornellNotesArtifact: PublishedArtifactRef;
+		notesArtifact: PublishedArtifactRef;
 		wikiCompilation?: WikiCompilationResult;
 		knowledgeInput?: { ref: string; sha256: string; byteLength: number };
 	};
@@ -153,7 +153,7 @@ export interface RunResult {
 export interface RunDependencies {
 	stageRunner: AgentStageRunner;
 	searchBatchExecutor: SearchBatchExecutor;
-	evidenceMaterializer: CornellNotesMaterializer;
+	evidenceMaterializer: SourceNotesMaterializer;
 
 	wikiAgent?: { compile(request: WikiCompilationRequest): Promise<WikiCompilationResult> };
 	publishWikiCompilation?: typeof publishCompilation;
@@ -169,7 +169,7 @@ function trace(
 interface HydratedCheckpoint {
 	documents: LogicalSource[];
 	bundleRefs: string[];
-	evidence: Array<{ snapshot: CornellNotesSnapshot; artifact: PublishedArtifactRef }>;
+	evidence: Array<{ snapshot: SourceNotesSnapshot; artifact: PublishedArtifactRef }>;
 }
 
 type RunTransition = (status: RunStatus, update?: (draft: RunStateV2) => void) => void;
@@ -181,8 +181,8 @@ type RunEmit = (
 ) => void;
 
 interface SearchCycleResult {
-	evidence: CornellNotesSnapshot;
-	cornellNotesArtifact: PublishedArtifactRef;
+	evidence: SourceNotesSnapshot;
+	notesArtifact: PublishedArtifactRef;
 }
 
 class ScheduledResearchSkipped extends Error {
@@ -290,15 +290,15 @@ export class Run {
 		try {
 			if (request.reportInput) {
 				const reportInput = request.reportInput;
-				const localCornellPath = "artifacts/report-run/cornell-notes.json";
-				const localCornell = existsSync(join(request.workspaceDirectory, localCornellPath))
-					? artifactStore.describeFile(localCornellPath)
-					: artifactStore.publishFile(reportInput.cornellNotesArtifact.absolutePath, localCornellPath);
-				if (localCornell.sha256 !== reportInput.cornellNotesArtifact.sha256
-					|| localCornell.byteLength !== reportInput.cornellNotesArtifact.byteLength) {
+				const localNotesPath = "artifacts/report-run/notes.json";
+				const localNotes = existsSync(join(request.workspaceDirectory, localNotesPath))
+					? artifactStore.describeFile(localNotesPath)
+					: artifactStore.publishFile(reportInput.notesArtifact.absolutePath, localNotesPath);
+				if (localNotes.sha256 !== reportInput.notesArtifact.sha256
+					|| localNotes.byteLength !== reportInput.notesArtifact.byteLength) {
 					throw new Error("Report Cornell Notes changed while entering the Run Artifact Store");
 				}
-				const evidence = validateCornellNotesSnapshot(readJson(localCornell.absolutePath));
+				const evidence = validateSourceNotesSnapshot(readJson(localNotes.absolutePath));
 				artifactStore.publishText(`${JSON.stringify({
 					schema_version: 1,
 					run_id: request.runId,
@@ -314,7 +314,7 @@ export class Run {
 					transition,
 					emit,
 					evidence,
-					cornellNotesArtifact: localCornell,
+					notesArtifact: localNotes,
 					cumulativeBundleRefs: [],
 					nodeStatuses,
 					...(reportInput.wikiCompilation ? { wikiCompilation: reportInput.wikiCompilation } : {}),
@@ -334,7 +334,7 @@ export class Run {
 					skipSearchBatch: state.status === "evidence_materializing",
 				});
 				currentEvidence = initial.evidence;
-				currentEvidenceArtifact = initial.cornellNotesArtifact;
+				currentEvidenceArtifact = initial.notesArtifact;
 			}
 			if (!currentEvidence || !currentEvidenceArtifact) {
 				throw new Error("Research Run has no current Evidence checkpoint");
@@ -348,7 +348,7 @@ export class Run {
 			this.startWikiUpdate({
 				request,
 				evidence: currentEvidence,
-				cornellNotesArtifact: currentEvidenceArtifact,
+				notesArtifact: currentEvidenceArtifact,
 			});
 			return await this.runReportFlow({
 				request,
@@ -357,7 +357,7 @@ export class Run {
 				transition,
 				emit,
 				evidence: currentEvidence,
-				cornellNotesArtifact: currentEvidenceArtifact,
+				notesArtifact: currentEvidenceArtifact,
 				cumulativeBundleRefs,
 					nodeStatuses,
 			});
@@ -400,8 +400,8 @@ export class Run {
 		state: RunStateV2;
 		transition: RunTransition;
 		emit: RunEmit;
-		evidence: CornellNotesSnapshot;
-		cornellNotesArtifact: PublishedArtifactRef;
+		evidence: SourceNotesSnapshot;
+		notesArtifact: PublishedArtifactRef;
 		cumulativeBundleRefs: readonly string[];
 		nodeStatuses: Record<string, ResearchNodeStatus>;
 		wikiCompilation?: WikiCompilationResult;
@@ -412,7 +412,7 @@ export class Run {
 		const reportChild = resolvePrimeAgentModels(request.env).child;
 		const knowledgeMode = args.wikiCompilation ? "wiki" as const : "notes" as const;
 		const knowledgeSnapshot = this.reportKnowledgeSnapshot({ request, artifactStore, evidence,
-			cornellNotesArtifact: args.cornellNotesArtifact, wikiCompilation: args.wikiCompilation });
+			notesArtifact: args.notesArtifact, wikiCompilation: args.wikiCompilation });
 		const availableReportTools = knowledgeMode === "wiki" ? request.reportTools ?? createGoalLlmWikiTools({
 			goalDir: request.goalWorkspaceDirectory ?? request.workspaceDirectory,
 			knowledgeRoot: join(knowledgeSnapshot.absolutePath, "wiki"),
@@ -425,7 +425,7 @@ export class Run {
 		const reportTools = wikiRefs?.tools ?? rawReportTools;
 		const knowledgePaths = wikiRefs ? new Set(wikiRefs.pageRefs) : undefined;
 		const handles = createAgentEvidenceHandles([evidence]);
-		const citationRegistry = buildKnowledgeCitationRegistry({ knowledgeSnapshot, cornellNotes: evidence });
+		const citationRegistry = buildKnowledgeCitationRegistry({ knowledgeSnapshot, sourceNotes: evidence });
 		{
 			const registryPath = "artifacts/report-flow/knowledge-url-registry.json";
 			const serializedRegistry = `${JSON.stringify(citationRegistry, null, 2)}\n`;
@@ -451,7 +451,7 @@ export class Run {
 		const scopeArtifact = existsSync(join(request.workspaceDirectory, scopePath))
 			? artifactStore.describeFile(scopePath)
 			: artifactStore.publishText(`${request.reportContext}\n`, scopePath);
-		const cornellFailures = reportCornellFailures(state, artifactStore);
+		const noteFailures = reportNoteFailures(state, artifactStore);
 
 		const outlinePath = "artifacts/report-flow/outline.json";
 		let outline: ReportOutline | undefined;
@@ -482,7 +482,7 @@ export class Run {
 				: evidence.notes.filter((record) => record.note.sections.length > 0)
 					.map((record) => requireAgentEvidenceHandle(handles, record.note.source_id)).sort(),
 		});
-		if (cornellFailures) writerInput.writeJson("cornell-failures.json", cornellFailures);
+		if (noteFailures) writerInput.writeJson("note-failures.json", noteFailures);
 		if (knowledgeMode === "notes") copyNotesView(writerInput, knowledgeSnapshot);
 		let outlineEvidenceIds = new Set<string>();
 		// N ref 一直保留到 final.json：同一 Source 的不同 Note 必须拥有不同 Citation identity。
@@ -529,7 +529,7 @@ export class Run {
 			outline = authoredOutline;
 			plan = authoredPlan;
 			outlineEvidenceIds = new Set(authoredPlan.sections
-				.flatMap((section) => section.claims.flatMap((claim) => claim.cornell_notes_refs)));
+				.flatMap((section) => section.claims.flatMap((claim) => claim.notes_refs)));
 			return authoredPlan;
 		};
 		const validateWriter = async (resolved: ExecutableReportPlan, rawOutput: WriterOutput) => {
@@ -557,7 +557,7 @@ export class Run {
 			}
 			compileCanonicalMarkdown({
 				plan: resolved,
-				cornellNotes: evidence,
+				sourceNotes: evidence,
 				chapters: resolved.sections.map((section) => ({
 					sectionId: section.section_id,
 					markdown: materializeWriterChapter(section, output),
@@ -687,7 +687,7 @@ export class Run {
 		}));
 		const compiled = compileCanonicalMarkdown({
 			plan: reportPlan,
-			cornellNotes: evidence,
+			sourceNotes: evidence,
 			chapters,
 			citationRegistry,
 			outlineEvidenceIds,
@@ -739,7 +739,7 @@ export class Run {
 					sha256: knowledgeSnapshot.sha256,
 					byte_length: knowledgeSnapshot.byteLength,
 				},
-				cornell_notes_snapshot: artifactRef(args.cornellNotesArtifact),
+				notes_snapshot: artifactRef(args.notesArtifact),
 			};
 			draft.finished_at = new Date().toISOString();
 		});
@@ -757,15 +757,15 @@ export class Run {
 	private reportKnowledgeSnapshot(input: {
 		request: RunRequest;
 		artifactStore: RunArtifactStore;
-		evidence: CornellNotesSnapshot;
-		cornellNotesArtifact: PublishedArtifactRef;
+		evidence: SourceNotesSnapshot;
+		notesArtifact: PublishedArtifactRef;
 		wikiCompilation?: WikiCompilationResult;
 	}): PublishedArtifactDirectoryRef {
 		if (!input.wikiCompilation) {
 			return materializeNotesReportView({
 				targetStore: input.artifactStore,
 				evidence: input.evidence,
-				cornellNotesArtifact: input.cornellNotesArtifact,
+				notesArtifact: input.notesArtifact,
 				targetRelativePath: "artifacts/report-flow/notes-snapshot",
 			});
 		}
@@ -781,7 +781,7 @@ export class Run {
 			sourceStore: input.artifactStore,
 			wiki: input.wikiCompilation.knowledge,
 			evidence: input.evidence,
-			cornellNotesArtifact: input.cornellNotesArtifact,
+			notesArtifact: input.notesArtifact,
 			targetRelativePath: "artifacts/report-flow/knowledge-snapshot",
 			baseView: this.previousReportKnowledgeSnapshot(input.request),
 		});
@@ -814,8 +814,8 @@ export class Run {
 
 	private startWikiUpdate(input: {
 		request: RunRequest;
-		evidence: CornellNotesSnapshot;
-		cornellNotesArtifact: PublishedArtifactRef;
+		evidence: SourceNotesSnapshot;
+		notesArtifact: PublishedArtifactRef;
 	}): void {
 		if (!this.dependencies.publishWikiCompilation
 			|| !input.request.goalWorkspaceDirectory
@@ -844,7 +844,7 @@ export class Run {
 				topicPlan: request.topicPlan!,
 			sourceRunId: request.runId,
 			sourceRunDirectory: request.workspaceDirectory,
-			cornellNotes: artifactRef(input.cornellNotesArtifact),
+			sourceNotes: artifactRef(input.notesArtifact),
 			parentActivityId: `research:${request.runId}`,
 			trigger: request.scheduledResearch
 				? { kind: "schedule", schedule_id: request.scheduledResearch.scheduleId }
@@ -862,7 +862,7 @@ export class Run {
 				run_id: request.runId,
 				wiki_update_id: started.wikiUpdateId,
 				status: started.status,
-				cornell_notes_ref: input.cornellNotesArtifact.relativePath,
+				notes_ref: input.notesArtifact.relativePath,
 			});
 			return;
 		}
@@ -870,7 +870,7 @@ export class Run {
 			type: "runtime.wiki_update_requested",
 			run_id: request.runId,
 			wiki_update_id: started.wikiUpdateId,
-			cornell_notes_ref: input.cornellNotesArtifact.relativePath,
+			notes_ref: input.notesArtifact.relativePath,
 		});
 		void started.execution.then((execution) => {
 			trace(request, {
@@ -1023,7 +1023,7 @@ export class Run {
 				`resumed ${args.cumulativeSources.length} cumulative Sources`,
 			);
 		}
-		args.emit("cornell_notes", "running", args.sequence);
+		args.emit("notes", "running", args.sequence);
 			const materialized = await this.dependencies.evidenceMaterializer.materialize({
 				runId: args.request.runId,
 				sequence: args.sequence,
@@ -1051,28 +1051,28 @@ export class Run {
 			});
 		const { evidence, failures } = materialized;
 		if (args.request.discoveryEnabled && args.request.topicPlan && args.request.workspaceRootDirectory) {
-			submitCornellDiscoveries(args.request, evidence);
+			submitNoteDiscoveries(args.request, evidence);
 		}
-		const cornellNotesArtifact = args.artifactStore.publishText(
+		const notesArtifact = args.artifactStore.publishText(
 			`${JSON.stringify(evidence, null, 2)}\n`,
-			`artifacts/cornell-notes/snapshot-${args.sequence}.json`,
+			`artifacts/notes/snapshot-${args.sequence}.json`,
 		);
 		const failuresArtifact = failures.length > 0 ? args.artifactStore.publishText(
 			`${JSON.stringify({ schema_version: 1, run_id: args.request.runId, sequence: args.sequence, failures }, null, 2)}\n`,
-			`artifacts/cornell-notes/failures-${args.sequence}.json`,
+			`artifacts/notes/failures-${args.sequence}.json`,
 		) : undefined;
 		if (evidence.notes.length === 0 && failures.length > 0) {
 			args.transition(args.state.status, (draft) => {
 				synchronizeAgentUsage(draft, { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 }, args.request.controlDirectory);
 				draft.usage.agent_stages += failures.length;
-				draft.cornell_note_failure_count = failures.length;
-				if (failuresArtifact) (draft.cornell_note_failure_manifests ??= []).push(artifactRef(failuresArtifact));
+				draft.note_failure_count = failures.length;
+				if (failuresArtifact) (draft.note_failure_manifests ??= []).push(artifactRef(failuresArtifact));
 			});
 			throw new Error(`All ${failures.length} Note Agents failed`);
 		}
 		if (args.request.scheduledResearch
 			&& !evidence.notes.some((record) => record.note.sections.length > 0)) {
-			args.emit("cornell_notes", "succeeded", args.sequence, "0 Cornell Notes");
+			args.emit("notes", "succeeded", args.sequence, "0 Cornell Notes");
 			this.skipScheduledResearch({
 				request: args.request,
 				state: args.state,
@@ -1081,17 +1081,17 @@ export class Run {
 				reason: "no_qualifying_evidence",
 				detail: "No Cornell Notes were produced",
 				update: (draft) => {
-					draft.cornell_note_failure_count = failures.length;
-					draft.cornell_note_snapshots.push(artifactRef(cornellNotesArtifact));
-					if (failuresArtifact) (draft.cornell_note_failure_manifests ??= []).push(artifactRef(failuresArtifact));
+					draft.note_failure_count = failures.length;
+					draft.note_snapshots.push(artifactRef(notesArtifact));
+					if (failuresArtifact) (draft.note_failure_manifests ??= []).push(artifactRef(failuresArtifact));
 				},
 			});
 		}
 		if (!hasUsableEvidence(evidence)) {
 			args.transition(args.state.status, (draft) => {
-				draft.cornell_note_snapshots.push(artifactRef(cornellNotesArtifact));
+				draft.note_snapshots.push(artifactRef(notesArtifact));
 			});
-			args.emit("cornell_notes", "succeeded", args.sequence, "0 usable Cornell Notes");
+			args.emit("notes", "succeeded", args.sequence, "0 usable Cornell Notes");
 			throw new Error(NO_USABLE_EVIDENCE);
 		}
 		args.transition("plan_authoring", (draft) => {
@@ -1099,13 +1099,13 @@ export class Run {
 				synchronizeAgentUsage(draft, { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 }, args.request.controlDirectory);
 				draft.usage.agent_stages += failures.length;
 			}
-			draft.cornell_note_failure_count = failures.length;
-			draft.cornell_note_snapshots.push(artifactRef(cornellNotesArtifact));
-			if (failuresArtifact) (draft.cornell_note_failure_manifests ??= []).push(artifactRef(failuresArtifact));
+			draft.note_failure_count = failures.length;
+			draft.note_snapshots.push(artifactRef(notesArtifact));
+			if (failuresArtifact) (draft.note_failure_manifests ??= []).push(artifactRef(failuresArtifact));
 		});
-		args.emit("cornell_notes", "succeeded", args.sequence,
+		args.emit("notes", "succeeded", args.sequence,
 			`${evidence.notes.length} Cornell Notes${failures.length ? `, ${failures.length} failed Sources` : ""}`);
-		return { evidence, cornellNotesArtifact };
+		return { evidence, notesArtifact };
 	}
 
 	private workspaceCapabilityMounts(request: RunRequest, agentId: string): SandboxMountSpec[] {
@@ -1166,7 +1166,7 @@ export class Run {
 
 const NO_USABLE_EVIDENCE = "Research produced no usable source evidence; report generation was not started";
 
-function hasUsableEvidence(evidence: Pick<CornellNotesSnapshot, "notes">): boolean {
+function hasUsableEvidence(evidence: Pick<SourceNotesSnapshot, "notes">): boolean {
 	return evidence.notes.some((record) => record.note.sections.length > 0);
 }
 
@@ -1223,9 +1223,9 @@ function hydrateCheckpoint(
 		bundleRefs.push(artifact.relativePath);
 	}
 
-	const evidence = state.cornell_note_snapshots.map((reference) => {
+	const evidence = state.note_snapshots.map((reference) => {
 		const artifact = artifactStore.openFile(reference);
-		const snapshot = validateCornellNotesSnapshot(readJson(artifact.absolutePath));
+		const snapshot = validateSourceNotesSnapshot(readJson(artifact.absolutePath));
 		if (snapshot.run_id !== state.run_id) {
 			throw new Error(`Evidence Snapshot '${snapshot.snapshot_id}' belongs to another Run`);
 		}
@@ -1355,8 +1355,8 @@ function addUsage(state: RunStateV2, usage: ResearchModelUsage): void {
 	state.usage.model_calls += usage.calls;
 }
 
-function reportCornellFailures(state: RunStateV2, artifactStore: RunArtifactStore): unknown | undefined {
-	const reference = state.cornell_note_failure_manifests?.at(-1);
+function reportNoteFailures(state: RunStateV2, artifactStore: RunArtifactStore): unknown | undefined {
+	const reference = state.note_failure_manifests?.at(-1);
 	if (!reference) return undefined;
 	const value = readJson(artifactStore.openFile(reference).absolutePath);
 	if (!value || typeof value !== "object" || Array.isArray(value)
@@ -1406,7 +1406,7 @@ function persistedOutline(
 		sections: outline.sections.map((section) => ({
 			title: section.title,
 			purpose: section.purpose,
-			cornell_notes_refs: section.cornell_notes_refs.map((id) => requireAgentEvidenceHandle(handles, id)),
+			notes_refs: section.notes_refs.map((id) => requireAgentEvidenceHandle(handles, id)),
 		})),
 	};
 }
@@ -1431,7 +1431,7 @@ function identityHash(value: unknown): string {
 	return sha256(JSON.stringify(value));
 }
 
-function submitCornellDiscoveries(request: RunRequest, evidence: CornellNotesSnapshot): void {
+function submitNoteDiscoveries(request: RunRequest, evidence: SourceNotesSnapshot): void {
 	const plan = request.topicPlan!;
 	const store = new GoalTopicPlanStore(request.goalId, request.workspaceRootDirectory!);
 	const known = new Set(store.listDiscoveries().map((candidate) => candidate.id));

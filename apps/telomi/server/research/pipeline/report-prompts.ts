@@ -8,7 +8,7 @@ export interface ReportOutline {
 	sections: Array<{
 		title: string;
 		purpose: string;
-		cornell_notes_refs: string[];
+		notes_refs: string[];
 		knowledge_refs: string[];
 	}>;
 }
@@ -107,7 +107,7 @@ export function validateWriterAuthoredOutline(
 		const section = requireRecord(candidate, `Writer-authored Outline Section ${index + 1}`);
 		requireExactKeys(section, knowledgePaths
 			? ["section_id", "title", "purpose", "knowledge_refs"]
-			: ["section_id", "title", "purpose", "cornell_notes_refs"],
+			: ["section_id", "title", "purpose", "notes_refs"],
 			`Writer-authored Outline Section ${index + 1}`);
 		const expectedId = `section-${String(index + 1).padStart(3, "0")}`;
 		if (requireString(section.section_id, `Writer-authored Outline Section ${index + 1} ID`) !== expectedId) {
@@ -119,13 +119,13 @@ export function validateWriterAuthoredOutline(
 		}
 		if (titles.has(title)) throw new Error(`Duplicate Writer-authored Outline Section title '${title}'`);
 		titles.add(title);
-		const refs = knowledgePaths ? [] : requireStringArray(section.cornell_notes_refs,
-			`Writer-authored Outline Section '${title}' cornell_notes_refs`)
+		const refs = knowledgePaths ? [] : requireStringArray(section.notes_refs,
+			`Writer-authored Outline Section '${title}' notes_refs`)
 			.map((reference) => resolveAgentEvidenceHandle(handles, reference));
 		return {
 			title,
 			purpose: requireString(section.purpose, `Writer-authored Outline Section '${title}' purpose`),
-			cornell_notes_refs: refs,
+			notes_refs: refs,
 			knowledge_refs: knowledgePaths ? requireKnowledgeRefs(section.knowledge_refs, title, knowledgePaths) : [],
 		};
 	});
@@ -142,10 +142,10 @@ export function materializeReportPlan(
 			return {
 				section_id: sectionId,
 				title: section.title,
-				claims: section.cornell_notes_refs.length === 0 ? [] : [{
+				claims: section.notes_refs.length === 0 ? [] : [{
 					claim_id: `${sectionId}-report-evidence`,
 					content_intent: section.purpose,
-					cornell_notes_refs: [...section.cornell_notes_refs],
+					notes_refs: [...section.notes_refs],
 				}],
 			};
 		}),

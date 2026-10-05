@@ -40,7 +40,7 @@ import { ExecutableReportPlanSchema } from "../../server/research/pipeline/repor
 import { hashRuntimeIdentityJson } from "../../server/research/runtime.js";
 import { effectiveProviderWorkerSkills, goalPrimeSearchSkills } from "../../server/agent-runtime/provider-skills.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
-import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
 import {
 	validatePrimeOrganizerDecisionFile,
 	submitProviderCandidateLedger,
@@ -1010,7 +1010,7 @@ assert.match(writingSkill, /Runtime independently reruns the same scanner/u);
 assert.match(writingSkill, /unattended Report Writer stage[\s\S]+Do not ask the user/iu);
 assert.doesNotMatch(writingSkill, /Antigravity|agy --print|Twitter|install the skill/iu);
 
-const evidence: CornellNotesSnapshot = {
+const evidence: SourceNotesSnapshot = {
 	schema_version: 1,
 	snapshot_id: "snapshot:1",
 	run_id: "run:1",
@@ -1040,10 +1040,10 @@ const outline = validateWriterAuthoredOutline({
 		section_id: "section-001",
 		title: "Findings",
 		purpose: "Explain the supported result.",
-		cornell_notes_refs: ["@1"],
+		notes_refs: ["@1"],
 	}],
 }, handles);
-assert.deepEqual(outline.sections[0]?.cornell_notes_refs, ["source:1"]);
+assert.deepEqual(outline.sections[0]?.notes_refs, ["source:1"]);
 
 const writerAuthoredOutline = validateWriterAuthoredOutline({
 	title: "Research report",
@@ -1051,18 +1051,18 @@ const writerAuthoredOutline = validateWriterAuthoredOutline({
 		section_id: "section-001",
 		title: "Findings",
 		purpose: "Explain the supported result.",
-		cornell_notes_refs: ["@1"],
+		notes_refs: ["@1"],
 	}],
 }, handles);
 assert.deepEqual(writerAuthoredOutline, outline);
 assert.throws(() => validateWriterAuthoredOutline({
 	title: "Invalid",
-	sections: [{ section_id: "section-001", title: "Findings", purpose: "Explain.", cornell_notes_refs: [] }],
+	sections: [{ section_id: "section-001", title: "Findings", purpose: "Explain.", notes_refs: [] }],
 }, handles), /must be a non-empty array/u);
 
 const plan = materializeReportPlan(outline);
 assert.equal(plan.sections[0]?.section_id, "section-001");
-assert.deepEqual(plan.sections[0]?.claims[0]?.cornell_notes_refs, ["source:1"]);
+assert.deepEqual(plan.sections[0]?.claims[0]?.notes_refs, ["source:1"]);
 
 const writer = validateWriterOutput({
 	schema_version: 1,
@@ -1075,7 +1075,7 @@ assert.match(materializeWriterChapter(plan.sections[0]!, writer), /^## Findings/
 
 assert.throws(() => validateWriterAuthoredOutline({
 	title: "Invalid",
-	sections: [{ section_id: "section-001", title: "Findings", purpose: "Explain.", cornell_notes_refs: ["@99"] }],
+	sections: [{ section_id: "section-001", title: "Findings", purpose: "Explain.", notes_refs: ["@99"] }],
 }, handles), /unknown Evidence handle/u);
 assert.throws(() => validateWriterOutput({
 	schema_version: 1,
@@ -1096,11 +1096,11 @@ const wikiOutline = validateWriterAuthoredOutline({
 	}],
 }, handles, new Set(["wiki/index.md"]));
 assert.deepEqual(wikiOutline.sections[0]?.knowledge_refs, ["wiki/index.md"]);
-assert.deepEqual(wikiOutline.sections[0]?.cornell_notes_refs, []);
+assert.deepEqual(wikiOutline.sections[0]?.notes_refs, []);
 assert.deepEqual(validateWriterAuthoredOutline({
 	title: "Resumed Wiki report",
 	sections: [{ section_id: "section-001", title: "Findings", purpose: "Explain.", knowledge_refs: ["wiki/index.md"] }],
-}, handles, new Set(["wiki/index.md"])).sections[0]?.cornell_notes_refs, []);
+}, handles, new Set(["wiki/index.md"])).sections[0]?.notes_refs, []);
 assert.throws(() => validateWriterAuthoredOutline({
 	title: "Missing starting point",
 	sections: [{ section_id: "section-001", title: "Findings", purpose: "Explain." }],
@@ -1136,7 +1136,7 @@ assert.deepEqual(validateWriterAuthoredOutline({
 		title: "Findings",
 		purpose: "Explain the supported result.",
 		knowledge_refs: ["wiki/index.md"],
-		cornell_notes_refs: [],
+		notes_refs: [],
 	}],
 });
 
@@ -1160,7 +1160,7 @@ try {
 	writeFileSync(join(knowledgeRoot, "sources", "meta", "structured.json"),
 		'{"nested":{"external":"https:\\/\\/structured.example\\/path"}}');
 	const knowledge = new RunArtifactStore(root).describeDirectory("knowledge");
-	const registry = buildKnowledgeCitationRegistry({ knowledgeSnapshot: knowledge, cornellNotes: evidence });
+	const registry = buildKnowledgeCitationRegistry({ knowledgeSnapshot: knowledge, sourceNotes: evidence });
 	assert.equal(registry.entries.some((entry) => entry.url === "https://example.com/a"), true);
 	assert.equal(registry.entries.some((entry) => entry.url === "https://example.com/abc"), true);
 	assert.equal(registry.entries.some((entry) => entry.url.startsWith("javascript:")), false);
@@ -1173,7 +1173,7 @@ try {
 	assert.equal(registry.entries.some((entry) => entry.url === "https://structured.example/path"), true);
 	const compiled = compileCanonicalMarkdown({
 		plan: wikiPlan,
-		cornellNotes: evidence,
+		sourceNotes: evidence,
 		citationRegistry: registry,
 		chapters: [{
 			sectionId: "section-001",
@@ -1185,27 +1185,27 @@ try {
 	assert.match(compiled.markdown, /^\d+\. \[[^\]]+\]\(https:\/\/example\.com\/a\)$/mu);
 	assert.throws(() => compileCanonicalMarkdown({
 		plan: wikiPlan,
-		cornellNotes: evidence,
+		sourceNotes: evidence,
 		citationRegistry: registry,
 		chapters: [{ sectionId: "section-001", markdown: "## Findings\n\n<cite>https://example.com/ab</cite>" }],
 	}), /not present in the frozen Knowledge Snapshot/u);
 	assert.throws(() => compileCanonicalMarkdown({
 		plan: wikiPlan,
-		cornellNotes: evidence,
+		sourceNotes: evidence,
 		citationRegistry: registry,
 		chapters: [{ sectionId: "section-001", markdown: "## Findings\n\n<cite>javascript:alert(1)</cite>" }],
 	}), /malformed inline Evidence citation/u);
 	for (const unsafe of ["file:///etc/passwd", "data:text/plain,hello"]) {
 		assert.throws(() => compileCanonicalMarkdown({
 			plan: wikiPlan,
-			cornellNotes: evidence,
+			sourceNotes: evidence,
 			citationRegistry: registry,
 			chapters: [{ sectionId: "section-001", markdown: `## Findings\n\n<cite>${unsafe}</cite>` }],
 		}), /malformed inline Evidence citation/u);
 	}
 	assert.throws(() => compileCanonicalMarkdown({
 		plan: wikiPlan,
-		cornellNotes: evidence,
+		sourceNotes: evidence,
 		citationRegistry: registry,
 		chapters: [{ sectionId: "section-001", markdown: "## Findings\n\n<cite>https:\/\/[bad</cite>" }],
 	}), /malformed inline Evidence citation/u);
@@ -1256,13 +1256,12 @@ try {
 	}
 }
 
-// The Executable Report Plan Schema is hashed into the `schema_bundle` Run identity pin, so
-// changing its serialized bytes makes every existing Research Run checkpoint unresumable with
-// checkpoint_identity_drift. Moving the Schema between modules must keep these bytes exact.
+// The current notes_refs contract is pinned in Research workflow 27. A future serialized
+// Schema change needs an explicit workflow cutover rather than silently resuming a mismatched Run.
 assert.equal(
 	hashRuntimeIdentityJson(ExecutableReportPlanSchema),
-	"1cc40ced107876ba4fb082230a74650cae7cbf16d05b2fc5bc397786bd0cc0d4",
-	"Executable Report Plan Schema identity changed; existing Run checkpoints would stop resuming",
+	"2e003f23dada8c1c0937cb17a8ffed6d2a7e7081026aa34a563dd5e2c2e6240d",
+	"Executable Report Plan Schema changed without an explicit current-workflow cutover",
 );
 
 console.log("Research report flow contracts passed");

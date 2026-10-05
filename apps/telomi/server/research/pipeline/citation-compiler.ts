@@ -2,7 +2,7 @@ import { validateCanonicalMarkdown } from "../../citations/contracts.js";
 import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
-import type { CornellNoteRecord, CornellNotesSnapshot } from "../../cornell/contracts.js";
+import type { SourceNoteRecord, SourceNotesSnapshot } from "../../notes/contracts.js";
 import type { ExecutableReportPlan, ExecutableReportSection } from "./report-plan.js";
 import type { PublishedArtifactDirectoryRef } from "../../agent-runtime/artifact-store.js";
 import type { ResolvedWikiReportCitation } from "./wiki-report-references.js";
@@ -78,7 +78,7 @@ export function compileStandaloneCitationMarkdown(args: {
 
 export function compileCanonicalMarkdown(args: {
 	plan: ExecutableReportPlan;
-	cornellNotes: CornellNotesSnapshot;
+	sourceNotes: SourceNotesSnapshot;
 	chapters: readonly ChapterInput[];
 	citationRegistry: KnowledgeCitationRegistry;
 	/** Outline 全部 Section 认领的 Evidence，用于把引用限制在大纲认领范围内。 */
@@ -94,7 +94,7 @@ export function compileCanonicalMarkdown(args: {
 	const compiled = args.plan.sections.map((section, index) => compileChapter({
 		section,
 		chapter: args.chapters[index]!,
-		cornellNotes: args.cornellNotes,
+		sourceNotes: args.sourceNotes,
 		sources,
 		citationRegistry: args.citationRegistry,
 		...(args.outlineEvidenceIds ? { outlineEvidenceIds: args.outlineEvidenceIds } : {}),
@@ -113,7 +113,7 @@ export function compileCanonicalMarkdown(args: {
 export function validateChapterCandidate(
 	section: ExecutableReportSection,
 	markdown: string,
-	cornellNotes: CornellNotesSnapshot,
+	sourceNotes: SourceNotesSnapshot,
 	citationRegistry?: KnowledgeCitationRegistry,
 	/** Outline 全部 Section 认领的 Evidence。省略或为空表示 Outline 未认领，则不做这层限制。 */
 	outlineEvidenceIds?: ReadonlySet<string>,
@@ -132,9 +132,9 @@ export function validateChapterCandidate(
 	if (extractExternalUrls(markdownWithoutCitations).length > 0) {
 		throw new Error(`Chapter '${section.section_id}' contains an external URL outside an inline Evidence citation`);
 	}
-	const evidenceById = new Map(cornellNotes.notes.map((item) => [item.note.source_id, item]));
-	const assignedEvidenceBySource = new Map<string, CornellNoteRecord>();
-	for (const evidenceId of section.claims.flatMap((claim) => claim.cornell_notes_refs)) {
+	const evidenceById = new Map(sourceNotes.notes.map((item) => [item.note.source_id, item]));
+	const assignedEvidenceBySource = new Map<string, SourceNoteRecord>();
+	for (const evidenceId of section.claims.flatMap((claim) => claim.notes_refs)) {
 		const evidence = requireEvidence(evidenceById, evidenceId);
 		for (const locator of sourceLocators(evidence)) assignedEvidenceBySource.set(normalizeCitationSource(locator), evidence);
 	}
@@ -161,7 +161,7 @@ export function validateChapterCandidate(
 
 export function buildKnowledgeCitationRegistry(input: {
 	knowledgeSnapshot: PublishedArtifactDirectoryRef;
-	cornellNotes: CornellNotesSnapshot;
+	sourceNotes: SourceNotesSnapshot;
 }): KnowledgeCitationRegistry {
 	const filesByUrl = new Map<string, Set<string>>();
 	const metadataByUrl = new Map<string, { title?: string; provenance?: string; evidenceId?: string }>();
@@ -183,7 +183,7 @@ export function buildKnowledgeCitationRegistry(input: {
 			}
 		}
 	}
-	const evidenceByUrl = new Map(input.cornellNotes.notes.flatMap((evidence) => sourceLocators(evidence).map((locator) => [
+	const evidenceByUrl = new Map(input.sourceNotes.notes.flatMap((evidence) => sourceLocators(evidence).map((locator) => [
 		normalizedCitationOrThrow(locator, `Cornell Note '${evidence.note.source_id}' has malformed canonical locator`),
 		evidence,
 	] as const)));
@@ -258,7 +258,7 @@ export function extractExternalUrls(markdown: string): string[] {
 function compileChapter(args: {
 	section: ExecutableReportSection;
 	chapter: ChapterInput;
-	cornellNotes: CornellNotesSnapshot;
+	sourceNotes: SourceNotesSnapshot;
 	sources: NumberedSources;
 	citationRegistry: KnowledgeCitationRegistry;
 	outlineEvidenceIds?: ReadonlySet<string>;
@@ -267,7 +267,7 @@ function compileChapter(args: {
 	if (args.chapter.sectionId !== args.section.section_id) {
 		throw new Error(`Chapter '${args.chapter.sectionId}' does not match Section '${args.section.section_id}'`);
 	}
-	validateChapterCandidate(args.section, args.chapter.markdown, args.cornellNotes, args.citationRegistry,
+	validateChapterCandidate(args.section, args.chapter.markdown, args.sourceNotes, args.citationRegistry,
 		args.outlineEvidenceIds);
 	const body = normalizeGfmTables(args.chapter.markdown.trim()).replace(INLINE_CITE, (_citation, source: string) => {
 		const citation = resolveRegisteredCitation(args.citationRegistry, source);
@@ -305,7 +305,7 @@ function collapseAdjacentCitations(markdown: string): string {
 	return markdown.replace(/(\[\[\d+\]\](?:\([^)\s]*\))?)(?:\s*\1)+/gu, "$1");
 }
 
-function requireEvidence(evidenceById: Map<string, CornellNoteRecord>, evidenceId: string): CornellNoteRecord {
+function requireEvidence(evidenceById: Map<string, SourceNoteRecord>, evidenceId: string): SourceNoteRecord {
 	const evidence = evidenceById.get(evidenceId);
 	if (!evidence) throw new Error(`Unknown Evidence Reference '${evidenceId}'`);
 	return evidence;
@@ -389,7 +389,7 @@ function tryNormalizeCitationSource(value: string): string | undefined {
 	}
 }
 
-function sourceLocators(evidence: CornellNoteRecord): string[] {
+function sourceLocators(evidence: SourceNoteRecord): string[] {
 	return [...new Set([evidence.canonical_locator, ...evidence.members.map((member) => member.canonical_locator)])];
 }
 

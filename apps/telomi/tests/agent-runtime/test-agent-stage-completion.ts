@@ -11,7 +11,7 @@ const workDirectory = join(root, "work");
 const artifactStore = new RunArtifactStore(join(root, "published"));
 const capturedFinalText = JSON.stringify({
 	schema_version: 5,
-	cornell_note: "核实近半年官方 ASR 模型卡中的控制能力。",
+	note: "核实近半年官方 ASR 模型卡中的控制能力。",
 });
 
 const completed = await finalizeStageOutput({
@@ -19,18 +19,18 @@ const completed = await finalizeStageOutput({
 	artifactStore,
 	finalText: capturedFinalText,
 	output: {
-		kind: "cornell_note",
-		publishRelativePath: "artifacts/cornell-notes/cornell-note-3.json",
+		kind: "note",
+		publishRelativePath: "artifacts/notes/note-3.json",
 		validate: ({ entryPath }) => JSON.parse(readFileSync(entryPath, "utf-8")) as {
 			schema_version: 5;
-			cornell_note: string;
+			note: string;
 		},
 	},
 });
 
 assert.equal(completed.source, "final_text");
-assert.equal(completed.value.cornell_note, "核实近半年官方 ASR 模型卡中的控制能力。");
-assert.equal(readFileSync(join(workDirectory, "cornell-note.json"), "utf-8"), capturedFinalText);
+assert.equal(completed.value.note, "核实近半年官方 ASR 模型卡中的控制能力。");
+assert.equal(readFileSync(join(workDirectory, "note.json"), "utf-8"), capturedFinalText);
 assert.equal(
 	readFileSync(completed.artifact.absolutePath, "utf-8"),
 	capturedFinalText,
@@ -57,20 +57,20 @@ assert.equal(readFileSync(fixedOutput.artifact.absolutePath, "utf-8"), "# 已完
 
 const repairedWorkDirectory = join(root, "repaired-work");
 mkdirSync(repairedWorkDirectory, { recursive: true });
-writeFileSync(join(repairedWorkDirectory, "cornell-note.json"), "unfinished", "utf-8");
+writeFileSync(join(repairedWorkDirectory, "note.json"), "unfinished", "utf-8");
 const repairedOutput = await finalizeStageOutput({
 	workDirectory: repairedWorkDirectory,
 	artifactStore,
 	finalText: capturedFinalText,
 	output: {
-		kind: "cornell_note",
-		publishRelativePath: "artifacts/cornell-notes/repaired.json",
+		kind: "note",
+		publishRelativePath: "artifacts/notes/repaired.json",
 		validate: ({ entryPath }) => JSON.parse(readFileSync(entryPath, "utf-8")),
 	},
 });
 assert.equal(repairedOutput.source, "final_text");
 assert.deepEqual(repairedOutput.value, JSON.parse(capturedFinalText));
-assert.equal(readFileSync(join(repairedWorkDirectory, "cornell-note.json"), "utf-8"), capturedFinalText);
+assert.equal(readFileSync(join(repairedWorkDirectory, "note.json"), "utf-8"), capturedFinalText);
 
 const invalidWorkDirectory = join(root, "invalid-work");
 await assert.rejects(
@@ -79,15 +79,15 @@ await assert.rejects(
 		artifactStore,
 		finalText: "任务完成了。",
 		output: {
-			kind: "cornell_note",
-			publishRelativePath: "artifacts/cornell-notes/invalid.json",
+			kind: "note",
+			publishRelativePath: "artifacts/notes/invalid.json",
 			validate: ({ entryPath }) => JSON.parse(readFileSync(entryPath, "utf-8")),
 		},
 	}),
 	/SyntaxError|Unexpected token/u,
 	"a normal stop without a valid artifact must remain a Stage failure",
 );
-assert.equal(existsSync(join(root, "published", "artifacts/cornell-notes/invalid.json")), false);
+assert.equal(existsSync(join(root, "published", "artifacts/notes/invalid.json")), false);
 
 /**
  * A Stage Agent that is still streaming when Runtime rejects its output, with the
@@ -123,7 +123,7 @@ class StreamingStageSession {
 
 const busySession = new StreamingStageSession();
 const neverAccepted = new Promise<void>(() => undefined);
-const busyRepair = awaitStageRepairPrompt(busySession, "Repair cornell-note.json", neverAccepted, () => {
+const busyRepair = awaitStageRepairPrompt(busySession, "Repair note.json", neverAccepted, () => {
 	throw new Error("a queued repair turn must not abort the Agent");
 });
 const beforeRepairTurn = await Promise.race([
@@ -132,7 +132,7 @@ const beforeRepairTurn = await Promise.race([
 ]);
 assert.deepEqual(
 	busySession.queued,
-	[{ text: "Repair cornell-note.json", streamingBehavior: "followUp" }],
+	[{ text: "Repair note.json", streamingBehavior: "followUp" }],
 	"a repair prompt must queue on a still-processing Agent instead of failing the Stage",
 );
 assert.equal(beforeRepairTurn, "pending",
@@ -146,7 +146,7 @@ const stuckSession = new StreamingStageSession();
 let abortedAcceptedRepair = false;
 let resolveAccepted!: () => void;
 const acceptedDuringRepair = new Promise<void>((resolve) => { resolveAccepted = resolve; });
-const acceptedRepair = awaitStageRepairPrompt(stuckSession, "Repair cornell-note.json", acceptedDuringRepair, () => {
+const acceptedRepair = awaitStageRepairPrompt(stuckSession, "Repair note.json", acceptedDuringRepair, () => {
 	abortedAcceptedRepair = true;
 });
 resolveAccepted();

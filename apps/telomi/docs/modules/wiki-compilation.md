@@ -1,10 +1,10 @@
 # Wiki Compilation
 
-New Wiki Updates use `WikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; compilation and publication share one Goal execution turn, and publication remains under the existing Goal Workspace publication lock. Historical shard/curator Updates cannot resume execution. Existing published Editions, Cases and Traces remain readable.
+New Wiki Updates use `WikiCompiler`. Research, manual maintenance and recovery share `wiki/update-runner.ts`; compilation and publication share one Goal execution turn, and publication remains under the existing Goal Workspace publication lock. Current execution records require the Wiki Compilation compiler and carry each compilation stage identity.
 
 ## Construction and input views
 
-1. Runtime validates the frozen Cornell Note Snapshot, structured Goal, active Topic Plan and previous Edition. One Pi Coding Agent using Terra receives one complete bounded Cornell Note, writes object Markdown pages and a manifest with explicit Cue deferrals, and may revise its own files once after field-specific validation feedback. The existing Agent handles oversized or empty Notes. The fair queue runs at most four tasks and replenishes free slots; a failed Note does not cancel other Notes.
+1. Runtime validates the frozen Source Note Snapshot, structured Goal, active Topic Plan and previous Edition. One Pi Coding Agent using Terra receives one complete bounded Source Note, writes object Markdown pages and a manifest with explicit Cue deferrals, and may revise its own files once after field-specific validation feedback. The existing Agent handles oversized or empty Notes. The fair queue runs at most four tasks and replenishes free slots; a failed Note does not cancel other Notes.
 2. Object merging resolves drafts and historical objects serially. It reads all unplaced Cues before assigning them to suitable objects or recording a final discard with a reason. Abstract content alone is not a discard reason. Every available Cue is accounted for at the object boundary.
 3. Concept construction uses four separate Pi stages: question planning, candidate writing, collection audit and conditional conflict merging. Planning gives every object an explicit concept job or a justified object-only disposition; one object may support several distinct questions. At most four candidate writers run concurrently. Each returns zero or one concept and can update one specified historical target. A declined update preserves that target unchanged.
 4. The audit compares candidates and untouched historical concepts. It can withdraw an unnecessary new candidate or identify disjoint conflict groups. Only flagged groups enter serial merging; all other concept bodies survive unchanged. Final pages pass directly to Topic classification; no Agent scans the collection to infer semantic relationships.
@@ -63,11 +63,10 @@ Topic-filtered search uses page membership projected from the section index. It 
 
 The formal `wiki-compilation@1` recipe captures complete construction or navigation-only inputs and replays the production implementation. It preserves Notes where applicable, Goal, Topic Plan, previous Edition, models, artifacts and native sessions. Each file-capable stage captures its logical business Workspace before the first native Agent turn, under that attempt Runtime’s `logical-workspaces/root` tree and `root.json` metadata. The metadata binds the exact native Session, stage, guest working directory and read/write mounts. Repair turns retain this initial capture; a fresh attempt has a separate Session and capture. Native RLM children capture their own first-turn view under `logical-workspaces/child/<child-id>`, with their native Session identity. Runtime libraries and transient kernel state are omitted; library paths are declared separately. Case files and Replay refs preserve all captured business assets, including binary and hidden files, while staged credentials and SDK trees remain excluded. Stateless Page Topic Sessions instead record `workspace-capture.json` with their native Session identity and `not-applicable` / `stateless-no-file-tools`, without claiming a filesystem snapshot. Historical Cases without this evidence remain unchanged.
 
-Legacy shard/curator Cases and private compilation diagnostics cannot be substituted for this boundary. See [Node Evaluation](../node-agent-backtest.md) and [Attestation](../development/attestation.md).
+Cases from other Recipes cannot be substituted for this boundary. See [Node Evaluation](../node-agent-backtest.md) and [Attestation](../development/attestation.md).
 
 Tests cover complete-Note queues, Cue ownership, stage contracts, actual SRT Skill loading, full-text delivery, relation-free construction, failed publication, retry, history, navigation and legacy relationship reading. Deterministic tests do not establish factual correctness or superior Topic selection.
 
-Historical shard/curator Cases retain their captured evidence for inspection, but their retired Replay recipes are not executable.
 
 ## Investigation inputs
 

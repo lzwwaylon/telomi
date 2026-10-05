@@ -77,7 +77,7 @@ try {
 				assert.equal(catalog.sources[0].source_id, "source:one");
 				assert.equal(catalog.sources[0].source_revision_sha256, sha256(options.preferredSourceRunId ? "new-source" : "pinned-source"));
 				assert.equal(catalog.sources[0].readable_file_count, 1, "task preferences are absent from the original evidence catalog");
-				const path = join(request.workDirectory, "cornell-note.json");
+				const path = join(request.workDirectory, "note.json");
 				mkdirSync(request.workDirectory, { recursive: true });
 				writeFileSync(path, JSON.stringify(candidate));
 				const value = request.output.validate({ entryPath: path, outputRoot: request.workDirectory,

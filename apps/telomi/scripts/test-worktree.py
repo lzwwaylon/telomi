@@ -192,33 +192,101 @@ class WorktreeTest(unittest.TestCase):
             wt.private_copy(source, linked)
 
     def test_stop_reaps_only_owned_detached_hindsight_listener(self):
-        # Real detached listeners on the memory port; ownership follows the checkout, not a command shape.
+        # The installed main checkout has no Worktree allocation metadata.
         port, = wt.unused_ports(1)
-        wt.save(self.state / f"{self.identity}.json", {"ports": [0] * 6 + [port, 0]})
         serve = ("import socket, sys, time; s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); "
                  "s.bind(('127.0.0.1', int(sys.argv[2]))); s.listen(); time.sleep(60)")
-        for checkout, owned in ((self.main, False), (self.root, True)):
-            with self.subTest(owned=owned):
-                service = subprocess.Popen([sys.executable, "-c", serve, str(checkout / wt.HINDSIGHT / "telomi_configuration.py"), str(port)],
-                                           start_new_session=True)
-                self.addCleanup(service.kill)
-                while subprocess.run(["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"], capture_output=True).returncode:
-                    self.assertIsNone(service.poll())
-                    time.sleep(.05)
+        for root, other, allocated in ((self.root, self.main, True), (self.main, self.root, False)):
+            _, _, state, identity = wt.context(root)
+            if allocated:
+                wt.save(state / f"{identity}.json", {"ports": [0] * 6 + [port, 0]})
+            else:
+                (root / wt.APP / ".env.local").write_text(f"HINDSIGHT_URL=http://127.0.0.1:{port}/v1/default\n")
+            for checkout, owned in ((other, False), (root, True)):
+                with self.subTest(allocated=allocated, owned=owned):
+                    service = subprocess.Popen([sys.executable, "-c", serve, str(checkout / wt.HINDSIGHT / "telomi_configuration.py"), str(port)],
+                                               start_new_session=True)
+                    self.addCleanup(service.kill)
+                    while subprocess.run(["lsof", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"], capture_output=True).returncode:
+                        self.assertIsNone(service.poll())
+                        time.sleep(.05)
+                    wt.stop_processes(root, state, identity)
+                    if owned:
+                        self.assertEqual(service.wait(timeout=5), -15)
+                    else:
+                        self.assertIsNone(service.poll())
+                        service.kill()
+                        service.wait()
+
+    def test_stop_reaps_partially_closed_memory_group_but_preserves_other_owners_and_ports(self):
+        port, other_port = wt.unused_ports(2)
+        (self.root / wt.APP / ".env.local").write_text(f"HINDSIGHT_URL=http://127.0.0.1:{port}/v1/default\n")
+        ready = self.root / "memory-ready"
+        code = ("import pathlib, signal, socket, subprocess, sys, time; "
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                "s=socket.socket(); s.bind(('127.0.0.1',int(sys.argv[-1]))); s.listen(); s.close(); "
+                "child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)']); "
+                "pathlib.Path(sys.argv[1]).write_text(str(child.pid)); time.sleep(60)")
+        for checkout, service_port, owned in ((self.main, port, False), (self.root, other_port, False), (self.root, port, True)):
+            with self.subTest(owned=owned, service_port=service_port):
+                ready.unlink(missing_ok=True)
+                process = subprocess.Popen([sys.executable, "-c", code, str(ready),
+                                            str(checkout / wt.HINDSIGHT / "telomi_configuration.py"), "--port", str(service_port)], start_new_session=True)
+                def cleanup(process=process):
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait(timeout=5)
+                self.addCleanup(cleanup)
+                deadline = time.monotonic() + 5
+                while not ready.exists():
+                    self.assertIsNone(process.poll())
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(.02)
+                self.assertNotEqual(subprocess.run(["lsof", "-t", f"-iTCP:{service_port}", "-sTCP:LISTEN"], capture_output=True).returncode, 0)
+                owner = {"pid": process.pid, "started": wt.process_stamp(process.pid)}
                 wt.stop_processes(self.root, self.state, self.identity)
                 if owned:
-                    self.assertEqual(service.wait(timeout=5), -15)
+                    self.assertEqual(process.wait(timeout=5), -signal.SIGKILL)
+                    self.assertFalse(wt.group_alive(owner), "both the resistant leader and its child exited")
                 else:
-                    self.assertIsNone(service.poll())
-                    service.kill()
-                    service.wait()
+                    self.assertIsNone(process.poll(), "a foreign checkout or another port remains untouched")
+                cleanup()
+
+    def test_installed_stop_respects_resolved_memory_endpoint_and_inspection_failures(self):
+        _, _, state, identity = wt.context(self.main)
+        # Parent configuration already resolved by the supervisor outranks a different dotenv URL.
+        (self.main / wt.APP / ".env.local").write_text("HINDSIGHT_URL=http://127.0.0.1:18888/v1/default\n")
+        home = Path(self.temporary.name) / "home"
+        env = {"HOME": str(home), "TELOMI_RUNTIME_STOP_RESOLVED_ENV": "1", "TELOMI_RUNTIME_STOP_ROOT": str(self.main)}
+        wt.save(state / f"{identity}.json", {"ports": [0] * 6 + [18888, 0]})
+        for url in ("https://127.0.0.1:18888/v1/default", "http://example.invalid:18888/v1/default"):
+            with self.subTest(url=url), patch.dict(os.environ, {**env, "HINDSIGHT_URL": url}), patch.object(wt.subprocess, "run") as run:
+                wt.stop_processes(self.main, state, identity)
+                run.assert_not_called()
+        # Reaping a different deleted checkout must not borrow this installation's resolved env.
+        native_run = subprocess.run
+        with patch.dict(os.environ, {**env, "TELOMI_RUNTIME_STOP_ROOT": str(self.root), "HINDSIGHT_URL": "http://example.invalid/v1/default"}), \
+                patch.object(wt.subprocess, "run", side_effect=lambda args, **kwargs:
+                             subprocess.CompletedProcess(args, 1, "", "") if args[0] == "lsof" else native_run(args, **kwargs)) as run:
+            wt.stop_processes(self.main, state, identity)
+            self.assertTrue(any("-iTCP:18888" in call.args[0] for call in run.call_args_list))
+        with patch.dict(os.environ, {**env, "HINDSIGHT_URL": ""}), patch.object(wt.subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess([], 1, "", "")
+            wt.stop_processes(self.main, state, identity)
+            self.assertTrue(any("-iTCP:18888" in call.args[0] for call in run.call_args_list))
+        with patch.dict(os.environ, {**env, "HINDSIGHT_URL": "http://127.0.0.1:18888/v1/default"}), patch.object(wt.subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess([], 1, "", "permission denied")
+            with self.assertRaisesRegex(RuntimeError, "Could not inspect"):
+                wt.stop_processes(self.main, state, identity)
 
     def test_stop_in_a_checkout_with_a_configured_data_directory_stops_its_browser_and_memory(self):
         # The data directory may live anywhere; the browser and memory database it holds must stop with the server.
         home = Path(self.temporary.name).resolve() / "home"
         data = Path(self.temporary.name).resolve() / "custom data"
         other = Path(self.temporary.name).resolve() / "another installation"
-        (self.main / wt.APP / ".env.local").write_text(f'TELOMI_DATA_DIR="{data}"\n')
+        (self.main / wt.APP / ".env.local").write_text(f'TELOMI_DATA_DIR="{other}"\n')
         _, _, state, identity = wt.context(self.main)
         chrome_port, = wt.unused_ports(1)
         sleep = [sys.executable, "-c", "import time; time.sleep(60)"]
@@ -232,7 +300,9 @@ class WorktreeTest(unittest.TestCase):
         wt.save(data / ".pi/runtime/chrome-debug/chrome-debug.json", {"pid": chrome.pid, "port": chrome_port})
         for name, files in (("telomi-0123456789ab", data / "user-memory/postgres"), ("telomi-ba9876543210", other / "user-memory/postgres")):
             wt.save(home / ".pg0/instances" / name / "instance.json", {"data_dir": str(files)})
-        with patch.dict(os.environ, {"HOME": str(home)}), patch.object(wt, "stop_memory_database") as stop_memory:
+        with patch.dict(os.environ, {"HOME": str(home), "TELOMI_RUNTIME_STOP_RESOLVED_ENV": "1",
+                                     "TELOMI_DATA_DIR": str(data), "HINDSIGHT_URL": "http://example.invalid/v1/default", "TELOMI_RUNTIME_STOP_ROOT": str(self.main)}), \
+                patch.object(wt, "stop_memory_database") as stop_memory:
             wt.stop_processes(self.main, state, identity)
         self.assertEqual(chrome.wait(timeout=10), -15)
         self.assertIsNone(stranger.poll())

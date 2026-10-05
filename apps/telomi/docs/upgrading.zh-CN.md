@@ -113,7 +113,7 @@ npm run service -- status                     # 另有 stop、start、restart、
   `--auto-upgrade=<ref>` 以 `--require-checks` 跟随该分支、标签或提交。
   `--daily-snapshot` 在每天 04:30（或 Mac 下次唤醒时）执行
   `npm run upgrade -- --snapshot-only --if-idle`。
-- `stop` 停止 Telomi、它托管的浏览器和记忆数据库，以及定时任务，并且在重新登录后
+- `stop` 停止 Telomi、它所属的记忆服务、托管浏览器和记忆数据库，以及定时任务，并且在重新登录后
   仍保持停止，直到执行 `start`。`uninstall` 删除这些任务。
 - `status` 显示每个任务的状态和上次退出码、正在运行的代码、最近一次自动升级的结果，
   以及自动升级从何时起一直发现 Telomi 处于忙碌。

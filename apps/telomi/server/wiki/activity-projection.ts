@@ -9,6 +9,18 @@ import type { ObservabilityActivityProjection } from "../observability/activity-
 import type { ActivityAction, ActivityLifecycle, ActivityMessage, ActivityOutcome, ActivityProjectionItem, ActivityStep } from "../../shared/events/activity-projection.js";
 import { chrome } from "../../shared/events/activity-text.js";
 
+const stageTitles = {
+	"objects": "activityChrome.wiki.stage.objects",
+	"merge-objects": "activityChrome.wiki.stage.mergeObjects",
+	"plan-concepts": "activityChrome.wiki.stage.planConcepts",
+	"concepts": "activityChrome.wiki.stage.concepts",
+	"audit-concepts": "activityChrome.wiki.stage.auditConcepts",
+	"merge-concepts": "activityChrome.wiki.stage.mergeConcepts",
+	"plan-topics": "activityChrome.wiki.stage.planTopics",
+	"topic": "activityChrome.wiki.stage.topic",
+	"page-topics": "activityChrome.wiki.stage.pageTopics",
+} as const;
+
 export class WikiActivityProjection {
 	constructor(private readonly options: { workspaceDir: string }, private readonly outputs: ObservabilityActivityProjection) {}
 	project(goalId: string): ProjectionContribution[] {
@@ -58,7 +70,7 @@ export class WikiActivityProjection {
 			}) : undefined;
 			const timing = activityTiming(batch.started_at, batch.finished_at ?? job.updated_at, batch.finished_at);
 			return {
-				stepId: `wiki-batch:${batch.batch_index + 1}`,
+				stepId: `wiki-objects:${batch.batch_index + 1}`,
 				title: chrome("activityChrome.wiki.batchTitle", { index: batch.batch_index + 1 }),
 				// batch.message 是 Runtime 原始错误文本，作为内容原样附在固定 chrome 之后。
 				summary: batch.status === "running"
@@ -78,8 +90,8 @@ export class WikiActivityProjection {
 				dependsOnStepIds: [],
 				parallelSteps: [],
 				agentActivities: [{
-					agentActivityId: `wiki-shard-builder:${id}:${batch.batch_index}`,
-					agentName: "wiki_maintainer",
+					agentActivityId: `wiki-compilation:objects:${id}:${batch.batch_index}`,
+					agentName: "wiki_compilation",
 					summary: batch.status === "running" ? chrome("activityChrome.wiki.maintainerRunning")
 						: batch.status === "interrupted" ? chrome("activityChrome.wiki.maintainerInterrupted")
 							: batch.status === "failed" ? failureText("activityChrome.wiki.maintainerFailed", batch.message)
@@ -90,7 +102,7 @@ export class WikiActivityProjection {
 					timing,
 					...(outputRef ? { outputRef } : {}),
 					attempts: [{
-						attemptId: `wiki-shard-builder:${id}:${batch.batch_index}:${batch.attempt}`,
+						attemptId: `wiki-compilation:objects:${id}:${batch.batch_index}:${batch.attempt}`,
 						number: batch.attempt,
 						lifecycle: batchLifecycle,
 						...(batchOutcome ? { outcome: batchOutcome } : {}),
@@ -100,8 +112,8 @@ export class WikiActivityProjection {
 				}],
 			};
 		});
-		const curationStages = (progress?.stages ?? []).filter((stage) => stage.kind === "curation");
-		const batchStepIds = new Set((progress?.batches ?? []).map((batch) => `wiki-batch:${batch.batch_index + 1}`));
+		const compilationStages = (progress?.stages ?? []).filter((stage) => stage.kind !== "publication");
+		const batchStepIds = new Set((progress?.batches ?? []).map((batch) => `wiki-objects:${batch.batch_index + 1}`));
 		const stageSteps = (progress?.stages ?? []).map((stage): ActivityStep => {
 			const stageLifecycle: ActivityLifecycle = stage.status === "running"
 				? "running" : stage.status === "interrupted" ? "waiting" : "finished";
@@ -116,25 +128,23 @@ export class WikiActivityProjection {
 				lifecycle: stageLifecycle,
 				...(stageOutcome ? { outcome: stageOutcome } : {}),
 			}) : undefined;
-			const curation = stage.kind === "curation";
-			const title = curation
-				? stage.total_stages > 1
-					? chrome("activityChrome.wiki.curatorTitleIndexed", { index: stage.stage_index + 1, total: stage.total_stages })
-					: chrome("activityChrome.wiki.curatorTitle")
-				: chrome("activityChrome.wiki.publishTitle");
+			const compilation = stage.kind !== "publication";
+			const title = stage.kind === "publication"
+				? chrome("activityChrome.wiki.publishTitle")
+				: chrome(stageTitles[stage.kind]);
 			const timing = activityTiming(stage.started_at, stage.finished_at ?? job.updated_at, stage.finished_at);
-			const previousCuration = curationStages.filter((candidate) => candidate.stage_index < stage.stage_index).at(-1);
-			const ownBatchStepId = `wiki-batch:${stage.stage_index + 1}`;
+			const previousCompilation = compilationStages.filter((candidate) => candidate.stage_index < stage.stage_index).at(-1);
+			const ownBatchStepId = `wiki-objects:${stage.stage_index + 1}`;
 			return {
 				stepId: `wiki-stage:${stage.kind}:${stage.stage_index}`,
 				title,
 				// stage.message 是 Runtime 原始错误文本，作为内容原样附在固定 chrome 之后。
 				summary: stage.status === "running"
-					? chrome(curation ? "activityChrome.wiki.curatorRunning" : "activityChrome.wiki.publishRunning")
+					? chrome(compilation ? "activityChrome.wiki.compilationRunning" : "activityChrome.wiki.publishRunning")
 					: stage.status === "interrupted"
-						? chrome(curation ? "activityChrome.wiki.curatorInterrupted" : "activityChrome.wiki.publishInterrupted")
+						? chrome(compilation ? "activityChrome.wiki.compilationInterrupted" : "activityChrome.wiki.publishInterrupted")
 						: stage.status === "failed"
-							? failureText(curation ? "activityChrome.wiki.curatorFailed" : "activityChrome.wiki.publishFailed", stage.message)
+							? failureText(compilation ? "activityChrome.wiki.compilationFailed" : "activityChrome.wiki.publishFailed", stage.message)
 							: [
 								...chrome("activityChrome.wiki.pageCount", { count: stage.page_count }),
 								...chrome("activityChrome.usage.modelCalls", { count: stage.usage.model_calls }),
@@ -143,15 +153,15 @@ export class WikiActivityProjection {
 				...(stageOutcome ? { outcome: stageOutcome } : {}),
 				timing,
 				dependsOnStepIds: stage.kind === "publication"
-					? curationStages.map((candidate) => `wiki-stage:curation:${candidate.stage_index}`)
+					? compilationStages.map((candidate) => `wiki-stage:${candidate.kind}:${candidate.stage_index}`)
 					: [
 						...(batchStepIds.has(ownBatchStepId) ? [ownBatchStepId] : []),
-						...(previousCuration ? [`wiki-stage:curation:${previousCuration.stage_index}`] : []),
+						...(previousCompilation ? [`wiki-stage:${previousCompilation.kind}:${previousCompilation.stage_index}`] : []),
 					],
 				parallelSteps: [],
 				agentActivities: [{
 					agentActivityId: `wiki-stage:${id}:${stage.kind}:${stage.stage_index}`,
-					agentName: curation ? "wiki_curator" : "wiki_publication",
+					agentName: compilation ? "wiki_compilation" : "wiki_publication",
 					summary: title,
 					lifecycle: stageLifecycle,
 					...(stageOutcome ? { outcome: stageOutcome } : {}),
@@ -175,9 +185,7 @@ export class WikiActivityProjection {
 			label: chrome("activityChrome.wiki.resume"),
 			enabled: canResumeWikiUpdateJob(job),
 			...(!canResumeWikiUpdateJob(job)
-				? { disabledReason: job.compiler !== "wiki-compilation"
-					? chrome("activityChrome.wiki.retired")
-					: chrome("activityChrome.wiki.resumeLimit", { count: MAX_WIKI_UPDATE_ATTEMPTS }) }
+				? { disabledReason: chrome("activityChrome.wiki.resumeLimit", { count: MAX_WIKI_UPDATE_ATTEMPTS }) }
 				: {}),
 			requiresConfirmation: false,
 			href: `/api/goals/${encodeURIComponent(job.goal_id)}/wiki-updates/${encodeURIComponent(id)}/resume`,
@@ -201,7 +209,7 @@ export class WikiActivityProjection {
 				waiting: {
 					kind: "external" as const,
 					// job.message 在这个状态下是 Runtime 写死的固定文案，不能当内容展示；原文留在 Job 记录与服务端日志里。
-					reason: chrome(job.compiler !== "wiki-compilation" ? "activityChrome.wiki.retired" : "activityChrome.wiki.interruptedReason"),
+					reason: chrome("activityChrome.wiki.interruptedReason"),
 					waitingSince: job.updated_at,
 					actions: [resumeAction],
 				},
@@ -258,7 +266,7 @@ function wikiUpdateSummary(job: NonNullable<ReturnType<WikiUpdateJobStore["load"
 	const progress = job.progress;
 	const stages = progress?.stages ?? [];
 		const finalStage = stages.find((stage) => stage.kind === "publication" && stage.status === "succeeded")
-			?? stages.find((stage) => stage.kind === "curation" && stage.status === "succeeded")
+			?? stages.find((stage) => stage.kind !== "publication" && stage.status === "succeeded")
 		?? [...stages].reverse().find((stage) => stage.status === "succeeded");
 	const pageCount = finalStage?.page_count ?? progress?.page_count ?? 0;
 	const modelCalls = (progress?.usage.model_calls ?? 0)
@@ -266,13 +274,12 @@ function wikiUpdateSummary(job: NonNullable<ReturnType<WikiUpdateJobStore["load"
 	const costUsd = (progress?.usage.cost_usd ?? 0)
 		+ stages.reduce((total, stage) => total + stage.usage.cost_usd, 0);
 	if (job.status === "queued") return chrome("activityChrome.wiki.queued");
-	if (job.status === "interrupted") return chrome(job.compiler !== "wiki-compilation"
-		? "activityChrome.wiki.retired" : "activityChrome.wiki.interruptedSummary");
+	if (job.status === "interrupted") return chrome("activityChrome.wiki.interruptedSummary");
 	// job.message 是 Runtime 原始错误文本（可能是含宿主机路径的 stack trace）。
 	// 摘要只用已知事实描述失败，原文留在 Activity Step、Node Trace 和服务端日志里。
 	if (job.status === "failed") {
 		const failedStage = stages.find((stage) => stage.status === "failed");
-		return chrome(failedStage?.kind === "curation" ? "activityChrome.wiki.failedCurator"
+		return chrome(failedStage && failedStage.kind !== "publication" ? "activityChrome.wiki.failedCompilation"
 			: failedStage?.kind === "publication" ? "activityChrome.wiki.failedPublication"
 				: "activityChrome.wiki.failedGeneric");
 	}

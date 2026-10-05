@@ -253,9 +253,9 @@ function readWikiTraceRun(input: {
 	const warnings: string[] = [];
 	const referencedFiles = new Map<string, TraceFileRef>();
 	const context: ReferenceContext = { runDir, wikiRunDir: join(runDir, ".unused-wiki-root"), warnings, referencedFiles };
+	const cases = nodeEvaluationCases(runDir);
 	const batches = (job.progress?.batches ?? []) as unknown as Record<string, unknown>[];
 	const stages = (job.progress?.stages ?? []) as unknown as Record<string, unknown>[];
-	const cases = nodeEvaluationCases(runDir);
 	let eventId = 0;
 	const batchNodes = batches.map((batch): TraceNode => {
 		eventId += 1;
@@ -263,15 +263,13 @@ function readWikiTraceRun(input: {
 		return wikiTraceNode({
 			eventId,
 			runId: input.runId,
-			caseRunId: `${input.runId}-wiki-shard-${index + 1}`,
-			nodeId: `wiki-shard-builder-batch-${String(index + 1).padStart(3, "0")}`,
+			nodeId: `wiki-compilation-objects-${String(index + 1).padStart(3, "0")}`,
 			nodeType: "agent",
-			agent: "wiki_shard_builder",
+			agent: "wiki_compilation",
 			attempt: positiveInteger(batch.attempt) ?? 1,
 			value: batch,
 			dependsOn: [],
 			context,
-			cases,
 		});
 	});
 	let priorStageId: number | undefined;
@@ -279,24 +277,22 @@ function readWikiTraceRun(input: {
 		eventId += 1;
 		const kind = text(stage.kind) ?? "stage";
 		const index = Math.max(0, Math.trunc(finiteNumber(stage.stage_index) ?? eventId - 1));
-		const agent = kind === "curation" ? "wiki_curator" : undefined;
+		const agent = kind === "publication" ? undefined : "wiki_compilation";
 		const node = wikiTraceNode({
 			eventId,
 			runId: input.runId,
-			...(agent ? { caseRunId: `${input.runId}-wiki-curator-batch-${String(index + 1).padStart(3, "0")}` } : {}),
 			nodeId: `wiki-${kind}-${String(index + 1).padStart(3, "0")}`,
 			nodeType: agent ? "agent" : "runtime",
 			...(agent ? { agent, attempt: 1 } : {}),
 			value: stage,
 			dependsOn: priorStageId ? [priorStageId] : batchNodes.flatMap((node) => node.eventId ?? []),
 			context,
-			cases,
 		});
 		priorStageId = eventId;
 		return node;
 	});
 	const nodes = [...batchNodes, ...stageNodes];
-	const agentItems = [...batches, ...stages.filter((stage) => text(stage.kind) === "curation")];
+	const agentItems = [...batches, ...stages.filter((stage) => text(stage.kind) !== "publication")];
 	const metrics = agentItems.map((item) => wikiUsage(record(item.usage)));
 	const complete = metrics.filter((value): value is TraceUsageTotals => Boolean(value));
 	const totals = complete.reduce((sum, value) => ({
@@ -329,7 +325,7 @@ function readWikiTraceRun(input: {
 		: undefined;
 	const startedAt = text(job.started_at) ?? earliest(nodes.map((node) => node.startedAt));
 	const finishedAt = text(job.finished_at) ?? latest(nodes.map((node) => node.finishedAt));
-	// A Wiki Run pins its Curator model at the start; that pin is the model the Run actually used.
+	// A Wiki Run pins its compilation model at the start; that pin is the model the Run actually used.
 	const model = cases.map(({ value }) => text(record(value.request)?.actualModel))
 		.find((value): value is string => Boolean(value))
 		?? pinnedWikiModel(runDir)
@@ -362,7 +358,6 @@ function readWikiTraceRun(input: {
 function wikiTraceNode(input: {
 	eventId: number;
 	runId: string;
-	caseRunId?: string;
 	nodeId: string;
 	nodeType: "runtime" | "agent";
 	agent?: string;
@@ -370,24 +365,16 @@ function wikiTraceNode(input: {
 	value: Record<string, unknown>;
 	dependsOn: number[];
 	context: ReferenceContext;
-	cases: Array<{ value: Record<string, unknown> }>;
 }): TraceNode {
 	const traceRef = text(input.value.trace_ref)
 		? normalizeExistingFileReference(text(input.value.trace_ref)!, input.context)
-		: undefined;
-	const nodeCase = input.caseRunId
-		? input.cases.find(({ value }) => text(value.runId) === input.caseRunId)
-		: undefined;
-	const caseId = text(nodeCase?.value.caseId);
-	const caseFileRef = caseId
-		? normalizeFileReference(`node-evaluation/cases/${caseId}/manifest.json`, input.context)
 		: undefined;
 	return {
 		eventId: input.eventId,
 		nodeId: input.nodeId,
 		nodeType: input.nodeType,
 		...(input.agent ? { agent: input.agent } : {}),
-		executionId: input.caseRunId ?? `${input.runId}-${input.nodeId}`,
+		executionId: `${input.runId}-${input.nodeId}`,
 		...(input.attempt ? { attempt: input.attempt } : {}),
 		status: traceStatus(input.value.status),
 		dependsOn: input.dependsOn,
@@ -400,7 +387,6 @@ function wikiTraceNode(input: {
 			...(record(input.value.usage) ? { metrics: input.value.usage } : {}),
 		},
 		...(traceRef ? { traceRef } : {}),
-		...(caseId && caseFileRef ? { caseRef: { sourceRunId: input.runId, caseId, fileRef: caseFileRef } } : {}),
 	};
 }
 
@@ -651,7 +637,7 @@ function collectWikiFiles(root: string): TraceFileRef[] {
 		|| relativePath === "artifacts/report-flow/executable-plan.json"
 		|| relativePath === "artifacts/report-flow/knowledge-url-registry.json"
 		|| /^artifacts\/report-flow\/writer\/(?:manifest\.json|sections\/[^/]+\.md)$/u.test(relativePath)
-		|| /^artifacts\/cornell-notes\/snapshot-(?:seed|\d+)\.json$/u.test(relativePath)
+		|| /^artifacts\/notes\/snapshot-(?:seed|\d+)\.json$/u.test(relativePath)
 		|| /^artifacts\/wiki-compilations\/[^/]+\/compilation\.json$/u.test(relativePath)
 		|| /^artifacts\/wiki-compilations\/[^/]+\/(?:knowledge|agent-update)\/.+\.md$/u.test(relativePath)
 		|| relativePath === "report/final.json"
@@ -831,7 +817,7 @@ function readTaskHistory(
 function pinnedWikiModel(wikiRunDir: string): string | undefined {
 	const path = join(wikiRunDir, "wiki-model-selection.json");
 	if (!existsSync(path)) return undefined;
-	try { return text(record(JSON.parse(readFileSync(path, "utf-8")))?.TELOMI_WIKI_CURATOR_MODEL); }
+	try { return text(record(JSON.parse(readFileSync(path, "utf-8")))?.TELOMI_WIKI_COMPILATION_MODEL); }
 	catch { return undefined; }
 }
 
@@ -953,7 +939,7 @@ function fileKind(path: string): string {
 	if (path === "artifacts/report-flow/knowledge-url-registry.json") return "knowledge_url_registry";
 	if (path === "artifacts/report-flow/writer/manifest.json") return "writer_chapter_manifest";
 	if (/^artifacts\/report-flow\/writer\/sections\/[^/]+\.md$/u.test(path)) return "writer_chapter";
-	if (/^artifacts\/cornell-notes\/snapshot-(?:seed|\d+)\.json$/u.test(path)) return "cornell_note_snapshot";
+	if (/^artifacts\/notes\/snapshot-(?:seed|\d+)\.json$/u.test(path)) return "note_snapshot";
 	if (/^artifacts\/wiki-compilations\/[^/]+\/compilation\.json$/u.test(path)) return "wiki_compilation";
 	if (path.includes("/agent-update/")) return "wiki_agent_update";
 	if (path.includes("/wiki-compilations/") && path.includes("/knowledge/")) return "wiki_final_snapshot";

@@ -1,19 +1,19 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
-import { validateCornellNotesSnapshot, type CornellNoteRecord, type CornellNotesSnapshot } from "../cornell/contracts.js";
+import { validateSourceNotesSnapshot, type SourceNoteRecord, type SourceNotesSnapshot } from "../notes/contracts.js";
 import { hashJson, sha256 } from "../lib/hash.js";
 import { assertInsideRoot } from "../lib/paths.js";
 import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 import { resolveNoteReadingCue, type NoteReadingResult } from "./note-reading.js";
 
 /** Import validated saved Cues without rerunning a Reader or creating a Research Run. */
-export function createCueCornellSnapshot(input: {
+export function createCueNoteSnapshot(input: {
 	goalDir: string;
 	artifactRefs: readonly { path: string; sha256: string }[];
 	snapshotId: string;
-}): CornellNotesSnapshot {
-	const notes = new Map<string, CornellNoteRecord>();
+}): SourceNotesSnapshot {
+	const notes = new Map<string, SourceNoteRecord>();
 	const origins = new Map<string, string>();
 	for (const ref of [...input.artifactRefs].sort((a, b) => a.path.localeCompare(b.path))) {
 		const match = /^artifacts\/deep-search\/([A-Za-z0-9._-]{1,100})\.json$/u.exec(ref.path);
@@ -68,23 +68,23 @@ export function createCueCornellSnapshot(input: {
 			}] });
 		}
 	}
-	return validateCornellNotesSnapshot({ schema_version: 1, snapshot_id: input.snapshotId, run_id: input.snapshotId,
+	return validateSourceNotesSnapshot({ schema_version: 1, snapshot_id: input.snapshotId, run_id: input.snapshotId,
 		pipeline: { id: "cue-wiki-import", version: "1", sha256: hashJson({ contract: "cue-wiki-import", version: 1 }) },
 		source_bundle_refs: [], notes: [...notes.values()] });
 }
 
 /** Rebuild from the whole durable Cornell corpus, including Cues never adopted by a Wiki page. */
-export function createGoalCornellSnapshot(input: { goalDir: string; snapshotId: string }): CornellNotesSnapshot {
+export function createGoalNoteSnapshot(input: { goalDir: string; snapshotId: string }): SourceNotesSnapshot {
 	const runsRoot = join(input.goalDir, "wiki", "runs");
-	const records = new Map<string, CornellNoteRecord>();
+	const records = new Map<string, SourceNoteRecord>();
 	for (const run of existsSync(runsRoot) ? readdirSync(runsRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)) : []) {
 		if (!run.isDirectory() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(run.name)) continue;
-		const notesRoot = join(runsRoot, run.name, "artifacts", "cornell-notes");
+		const notesRoot = join(runsRoot, run.name, "artifacts", "notes");
 		if (!existsSync(notesRoot)) continue;
 		const file = readdirSync(notesRoot).filter(name => /^snapshot-\d+\.json$/u.test(name))
 			.sort((a, b) => Number(b.slice(9, -5)) - Number(a.slice(9, -5)))[0];
 		if (!file) continue;
-		const snapshot = validateCornellNotesSnapshot(JSON.parse(readFileSync(join(notesRoot, file), "utf8")));
+		const snapshot = validateSourceNotesSnapshot(JSON.parse(readFileSync(join(notesRoot, file), "utf8")));
 		if (snapshot.run_id !== run.name) throw new Error("Cornell Snapshot Run identity changed");
 		for (const record of snapshot.notes) {
 			const sourceRunId = record.source_run_id ?? snapshot.run_id;
@@ -103,7 +103,7 @@ export function createGoalCornellSnapshot(input: { goalDir: string; snapshotId: 
 	const artifactRefs = (existsSync(readingRoot) ? readdirSync(readingRoot) : [])
 		.filter(name => /^[A-Za-z0-9._-]{1,100}\.json$/u.test(name))
 		.map(name => ({ path: `artifacts/deep-search/${name}`, sha256: sha256(readFileSync(join(readingRoot, name))) }));
-	const imported = createCueCornellSnapshot({ ...input, artifactRefs });
+	const imported = createCueNoteSnapshot({ ...input, artifactRefs });
 	for (const record of imported.notes) {
 		const key = `${record.source_run_id}\0${record.note.source_id}`;
 		const previous = records.get(key);
@@ -115,7 +115,7 @@ export function createGoalCornellSnapshot(input: { goalDir: string; snapshotId: 
 			return cues.length ? [{ ...section, cue_notes: cues }] : [];
 		}));
 	}
-	return validateCornellNotesSnapshot({ ...imported,
-		pipeline: { id: "goal-cornell-corpus", version: "1", sha256: hashJson({ contract: "goal-cornell-corpus", version: 1 }) },
+	return validateSourceNotesSnapshot({ ...imported,
+		pipeline: { id: "goal-note-corpus", version: "1", sha256: hashJson({ contract: "goal-note-corpus", version: 1 }) },
 		notes: [...records.values()] });
 }

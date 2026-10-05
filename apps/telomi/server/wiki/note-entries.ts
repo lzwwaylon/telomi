@@ -1,16 +1,16 @@
-import type { CornellNotesSnapshot } from "../cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../notes/contracts.js";
 import { hashJson } from "../lib/hash.js";
 
 interface NoteEntry {
 	id: string; revisionSha256: string; sourceRunId: string; sourceId: string; sourceTitle: string; canonicalLocator: string;
 	originCueRef?: string; sourceRevisionSha256?: string;
-	members: CornellNotesSnapshot["notes"][number]["members"];
+	members: SourceNotesSnapshot["notes"][number]["members"];
 	section: string; sectionSummary?: string; cue: string; detail: string; topicRefs?: string[]; topicPlanRevision?: string;
 	anchors: Array<{ path: string; startLine: number; endLine: number; sha256: string;
 		sourceRunId?: string; sourceId?: string; sourceRevisionSha256?: string; sourceTitle?: string; canonicalLocator?: string }>;
 }
 
-export function noteWikiEntries(evidence: CornellNotesSnapshot, topicPlanRevision?: string): NoteEntry[] {
+export function noteWikiEntries(evidence: SourceNotesSnapshot, topicPlanRevision?: string): NoteEntry[] {
 	return evidence.notes.flatMap((record) => record.note.sections.flatMap((section, sectionIndex) => section.cue_notes.map((note, noteIndex) => {
 		const identity = note.origin_ref ? { origin: note.origin_ref }
 			: { source: record.note.source_id, section: sectionIndex, cue: note.cue, note: noteIndex, detail: note.note };

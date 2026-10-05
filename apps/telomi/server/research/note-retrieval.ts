@@ -1,12 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { validateCornellNotesSnapshot } from "../cornell/contracts.js";
+import { validateSourceNotesSnapshot } from "../notes/contracts.js";
 import { findLogicalSourceInRun, readSourceEvidenceAnchors } from "../workspaces/source-view.js";
 import { noteWikiEntries } from "../wiki/note-entries.js";
 import { resolveNoteReadingCue } from "./note-reading.js";
 
-const REF = /^cornell:([A-Za-z0-9._-]{1,200}):([a-f0-9]{24}):([a-f0-9]{12})$/u;
+const REF = /^note:([A-Za-z0-9._-]{1,200}):([a-f0-9]{24}):([a-f0-9]{12})$/u;
 
 interface RegistryEntry {
 	id: string;
@@ -27,7 +27,7 @@ interface RegistryEntry {
 
 export interface SavedNoteCue {
 	ref: string;
-	kind: "cornell" | "note_reading";
+	kind: "note" | "note_reading";
 	wiki_entry_id?: string;
 	section_title: string;
 	cue: string;
@@ -57,8 +57,8 @@ export function listSavedNoteCues(knowledgeRoot: string): SavedNoteCue[] {
 			throw new Error("Wiki Note Registry has an invalid original Cue ref");
 		}
 		return {
-			ref: entry.originCueRef ?? `cornell:${entry.sourceRunId}:${entry.id.slice(6)}:${entry.revisionSha256.slice(0, 12)}`,
-			kind: entry.originCueRef ? "note_reading" as const : "cornell" as const,
+			ref: entry.originCueRef ?? `note:${entry.sourceRunId}:${entry.id.slice(6)}:${entry.revisionSha256.slice(0, 12)}`,
+			kind: entry.originCueRef ? "note_reading" as const : "note" as const,
 			...(entry.originCueRef ? { wiki_entry_id: entry.id } : {}),
 			section_title: entry.section,
 			cue: entry.cue,
@@ -88,9 +88,9 @@ export function resolveSavedNoteCue(goalDir: string, ref: string) {
 	const match = REF.exec(ref);
 	if (!match) return null;
 	const [, runId, entryHash, revisionPrefix] = match;
-	const notesRoot = join(goalDir, "wiki", "runs", runId!, "artifacts", "cornell-notes");
+	const notesRoot = join(goalDir, "wiki", "runs", runId!, "artifacts", "notes");
 	for (const file of snapshotFiles(notesRoot)) {
-		const snapshot = validateCornellNotesSnapshot(JSON.parse(readFileSync(join(notesRoot, file), "utf-8")));
+		const snapshot = validateSourceNotesSnapshot(JSON.parse(readFileSync(join(notesRoot, file), "utf-8")));
 		if (snapshot.run_id !== runId) throw new Error("Cornell Snapshot Run identity changed");
 		const entry = noteWikiEntries(snapshot).find((item) => item.id === `entry:${entryHash}`
 			&& item.revisionSha256.startsWith(revisionPrefix!));

@@ -287,7 +287,7 @@ function materializeAuthoredOutline(path: string): void {
 			throw new Error(`work/report-outline.json.sections[${index}] must be an object`);
 		}
 		const section = raw as Record<string, unknown>;
-		const materialRefs = knowledgeMode === "wiki" ? "knowledge_refs" : "cornell_notes_refs";
+		const materialRefs = knowledgeMode === "wiki" ? "knowledge_refs" : "notes_refs";
 		const expectedKeys = section.section_id === undefined
 			? [materialRefs, "purpose", "title"].sort()
 			: [materialRefs, "purpose", "section_id", "title"].sort();

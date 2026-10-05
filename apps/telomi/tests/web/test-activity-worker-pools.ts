@@ -33,26 +33,26 @@ function step(id: string, activity: AgentActivity, parallelSteps: ActivityStep[]
 	};
 }
 
-const cornellA = step("note:a", agent("cornell:a", "note_agent"));
-const cornellB = step("note:b", agent("cornell:b", "note_agent"));
+const noteA = step("note:a", agent("note:a", "note_agent"));
+const noteB = step("note:b", agent("note:b", "note_agent"));
 const research = groupActivitySteps([
 	step("search", agent("search", "prime_search")),
-	step("group:1", agent("ignored", "note_agent"), [cornellA, cornellB]),
-	step("group:2", agent("cornell:c", "note_agent")),
+	step("group:1", agent("ignored", "note_agent"), [noteA, noteB]),
+	step("group:2", agent("note:c", "note_agent")),
 	step("report", agent("report", "report_writer")),
 ]);
 
 assert.equal(research.length, 1);
 assert.deepEqual(research[0]!.entries.map((entry) => entry.kind), ["step", "worker-pool", "step"]);
-const cornellPool = research[0]!.entries[1]!;
-assert.equal(cornellPool.kind, "worker-pool");
-assert.equal(activityText(cornellPool.label), "Note Agent", "the pool label is a message id the UI renders");
-assert.deepEqual(cornellPool.workers.map((worker) => worker.agent.agentActivityId), ["cornell:a", "cornell:b", "cornell:c"]);
+const notePool = research[0]!.entries[1]!;
+assert.equal(notePool.kind, "worker-pool");
+assert.equal(activityText(notePool.label), "Note Agent", "the pool label is a message id the UI renders");
+assert.deepEqual(notePool.workers.map((worker) => worker.agent.agentActivityId), ["note:a", "note:b", "note:c"]);
 
 const wiki = groupActivitySteps([
-	step("wiki-batch:1", agent("wiki:1", "wiki_maintainer")),
-	step("wiki-batch:2", agent("wiki:2", "wiki_maintainer")),
-	step("wiki-stage:curation:1", agent("curator", "wiki_curator")),
+	step("wiki-objects:1", agent("wiki:1", "wiki_compilation")),
+	step("wiki-objects:2", agent("wiki:2", "wiki_compilation")),
+	step("wiki-stage:merge-objects:1", agent("curator", "wiki_compilation")),
 ]);
 
 assert.equal(wiki.length, 2);

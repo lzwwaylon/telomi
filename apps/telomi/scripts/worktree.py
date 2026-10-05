@@ -292,7 +292,7 @@ def group_alive(record):
                for group, status in (line.split() for line in output(["ps", "-axo", "pgid=,stat="]).splitlines()))
 
 
-def terminate_group(record):
+def terminate_group(record, force=False):
     if not group_alive(record):
         return True
     try:
@@ -303,7 +303,20 @@ def terminate_group(record):
         if not group_alive(record):
             return True
         time.sleep(.1)
-    return False  # Keep ownership and refuse removal rather than deleting under a live process.
+    if force:
+        if not group_alive(record):
+            return True
+        # Managed Memory may close its listener while native worker threads keep its group alive.
+        # group_alive rechecks the recorded identity before escalation, including PID reuse.
+        try:
+            os.killpg(record["pid"], signal.SIGKILL)
+        except ProcessLookupError:
+            return True
+        for _ in range(100):
+            if not group_alive(record):
+                return True
+            time.sleep(.1)
+    return False  # Other command groups retain their original graceful-only ownership policy.
 
 
 def check_marker(state):
@@ -669,18 +682,40 @@ def stop_processes(root, state, identity):
     metadata = state / f"{identity}.json"
     recorded = json.loads(metadata.read_text()) if metadata.exists() else {}
     ports = recorded.get("ports", [])
-    if ports:
-        listeners = subprocess.run(["lsof", "-nP", "-t", f"-iTCP:{ports[6]}", "-sTCP:LISTEN"], text=True, capture_output=True)
-        for pid in listeners.stdout.split():
+    # The installed supervisor supplies checkout()'s resolved environment. Ordinary Worktree
+    # cleanup keeps its private overlay precedence, including cleanup after the checkout was removed.
+    stop_root = os.environ.get("TELOMI_RUNTIME_STOP_ROOT", "")
+    resolved_env = os.environ if (os.environ.get("TELOMI_RUNTIME_STOP_RESOLVED_ENV") == "1"
+                                 and stop_root and Path(stop_root).resolve() == root) else None
+    memory_port = ports[6] if ports else None
+    if resolved_env is not None or (not ports and checked_out(root)):
+        memory_port = None
+        endpoint = urllib.parse.urlsplit(memory_endpoint(resolved_env if resolved_env is not None else execution_env(root))[0])
+        if endpoint.scheme == "http" and endpoint.hostname in ("127.0.0.1", "localhost", "::1"):
+            memory_port = endpoint.port or 80
+    if memory_port:
+        listeners = subprocess.run(["lsof", "-nP", "-t", f"-iTCP:{memory_port}", "-sTCP:LISTEN"], text=True, capture_output=True)
+        if listeners.returncode and (listeners.returncode != 1 or listeners.stderr.strip()):
+            raise RuntimeError("Could not inspect the installation's Memory listener")
+        pids = set(listeners.stdout.split())
+        # A partially shut down service no longer listens. Its exact managed entry point and
+        # configured port still identify it without borrowing another checkout or port.
+        entry = re.compile(r"(?:^|\s)" + re.escape(str(root / HINDSIGHT / "telomi_configuration.py")) + r"(?=\s|$)")
+        port_argument = re.compile(r"(?:^|\s)--port(?:=|\s+)" + str(memory_port) + r"(?=\s|$)")
+        for line in output(["ps", "-axo", "pid=,command="]).splitlines():
+            fields = line.strip().split(maxsplit=1)
+            if len(fields) == 2 and entry.search(fields[1]) and port_argument.search(fields[1]):
+                pids.add(fields[0])
+        for pid in pids:
             fields = subprocess.run(["ps", "-p", pid, "-o", "pgid=,command="], text=True, capture_output=True).stdout.split(maxsplit=1)
             if len(fields) == 2 and str(root / HINDSIGHT) + "/" in fields[1]:
                 group = int(fields[0])
-                if not terminate_group({"pid": group, "started": process_stamp(group)}):
+                if not terminate_group({"pid": group, "started": process_stamp(group)}, force=True):
                     pending = True
     # Only the Runtime's own Chrome record authorizes stopping a detached browser. A deleted checkout
     # takes that record along; its profile path and recorded CDP port are the remaining evidence.
     # The managed profile lives in the data directory; one started before that layout used the checkout's.
-    data = data_dir(root)
+    data = data_dir(root, resolved_env)
     flags = [f"--user-data-dir={path} " for path in (data / "browser-profile", root / APP / ".chrome-debug-profile")]
     chrome = next((path for path in (data / ".pi/runtime/chrome-debug/chrome-debug.json",
                                      root / APP / ".chrome-debug/chrome-debug.json") if path.is_file()), None)
@@ -724,9 +759,11 @@ def stop_processes(root, state, identity):
     raise RuntimeError("Command supervisors are still shutting down; retry stop")
 
 
-def data_dir(root):
-    """The checkout's data directory as the server resolves it: TELOMI_DATA_DIR from its env files, or the default."""
-    configured = read_env(root).get("TELOMI_DATA_DIR", "").strip() if checked_out(root) else ""
+def data_dir(root, env=None):
+    """The checkout's data directory, using a supervisor's resolved environment when supplied."""
+    if env is None:
+        env = read_env(root) if checked_out(root) else {}
+    configured = env.get("TELOMI_DATA_DIR", "").strip()
     return root / APP / configured if configured else root / APP / "data"
 
 

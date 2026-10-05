@@ -43,7 +43,7 @@ export interface ProviderConfig extends ModelDefaultsView {
 }
 
 export type TaskModelRole =
-  "noteAgent" | "primeRoot" | "primeChild" | "wikiCurator" | "browserEvolution";
+  "noteAgent" | "primeRoot" | "primeChild" | "wikiCompilation" | "browserEvolution";
 
 interface TaskModelRoleInfo {
   id: TaskModelRole;

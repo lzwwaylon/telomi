@@ -14,7 +14,7 @@ try {
 	const memberRoot = join(sourceRoot, "members", "arxiv", "paper");
 	const findOutRoot = join(root, "artifacts", "report-flow", "notes-snapshot");
 	mkdirSync(join(memberRoot, "assets"), { recursive: true });
-	mkdirSync(join(root, "artifacts", "cornell-notes", "sequence-1"), { recursive: true });
+	mkdirSync(join(root, "artifacts", "notes", "sequence-1"), { recursive: true });
 	mkdirSync(join(findOutRoot, "notes"), { recursive: true });
 	mkdirSync(reportRoot, { recursive: true });
 	writeFileSync(join(reportRoot, "final.md"), "# Report\n");
@@ -62,7 +62,7 @@ try {
 			}],
 		}],
 	};
-	writeFileSync(join(root, "artifacts", "cornell-notes", "sequence-1", "source-group-123456789abc.json"), JSON.stringify(noteAgent));
+	writeFileSync(join(root, "artifacts", "notes", "sequence-1", "source-group-123456789abc.json"), JSON.stringify(noteAgent));
 	writeFileSync(join(findOutRoot, "notes", "0001.json"), JSON.stringify(noteAgent));
 	writeFileSync(join(findOutRoot, "index.json"), JSON.stringify({
 		schema_version: 1,
@@ -188,17 +188,17 @@ try {
 	}));
 	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/paper"), null);
 
-	// Investigation reports carry the exact Cornell/Deep Cue and original Source bytes.
+	// Investigation reports carry the exact Source Note/Note Reading Cue and original Source bytes.
 	// No live Wiki, Cue artifact or original Run needs to exist for these frozen previews.
-	const cornellRef = "cornell:old-run:entry:revision";
+	const noteRef = "note:old-run:entry:revision";
 	const readingRef = "deep-search:saved:1";
 	const frozenAnchor = {
 		source_run_id: "old-run", source_id: "source:frozen", source_revision_sha256: "a".repeat(64),
 		source_path: "paper.md", start_line: 7, end_line: 8, excerpt: "Frozen line one.\nFrozen line two.",
 		content_sha256: sha256("Frozen line one.\nFrozen line two.\n"),
 	};
-	const frozenCornell = {
-		ref: cornellRef, cue: "Exact Cornell detail", note: "Preserved Cornell Note.",
+	const frozenNote = {
+		ref: noteRef, cue: "Exact Cornell detail", note: "Preserved Cornell Note.",
 		source_title: "Frozen paper", canonical_locator: "https://example.com/frozen",
 		evidence: [frozenAnchor],
 	};
@@ -207,7 +207,7 @@ try {
 		evidence: [{ ...frozenAnchor, title: "Local source", url: "" }],
 	};
 	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [
-		{ number: 4, title: "Frozen paper", url: "https://example.com/frozen", refs: [cornellRef], cue: frozenCornell },
+		{ number: 4, title: "Frozen paper", url: "https://example.com/frozen", refs: [noteRef], cue: frozenNote },
 		{ number: 5, title: "Another exact Cue", url: "https://example.com/frozen", refs: [readingRef],
 			cue: { ...frozenDeep, evidence: [{ ...frozenAnchor, url: "https://example.com/frozen" }] } },
 		{ number: 6, title: "Local source", refs: [readingRef], cue: frozenDeep },

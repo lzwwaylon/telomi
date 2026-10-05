@@ -19,6 +19,9 @@ import {
 	launchdHooks,
 	reportFlatSnapshots,
 	serviceLabel,
+	stopRuntime,
+	stopAll,
+	recoverAfterCrash,
 	dataFormatChanged,
 	listSnapshots,
 	main,
@@ -277,7 +280,10 @@ test("an uncaught exception after Telomi was stopped starts it again and clears 
 	const root = scratch(context);
 	gitRepo(root);
 	const target = install(root);
+	const bin = join(target.dataDir, ".fixture-tools"); mkdirSync(bin);
+	writeFileSync(join(bin, "python3"), `#!/bin/sh\necho stop >> "${join(root, "runtime-stop.log")}"\n`, { mode: 0o755 });
 	const env = {
+		PATH: `${bin}:${process.env.PATH}`,
 		// Recorded by the hooks; no real server answers on the base URL, so the health wait lasts until the crash.
 		TELOMI_SERVICE_STOP: "echo stop >> hooks.log",
 		TELOMI_SERVICE_START: "echo start >> hooks.log",
@@ -296,6 +302,7 @@ test("an uncaught exception after Telomi was stopped starts it again and clears 
 	assert.equal(result.status, 1, result.stderr);
 	assert.match(result.stderr, /crashed after stopping Telomi: Error: injected crash/u);
 	assert.deepEqual(readFileSync(join(root, "hooks.log"), "utf8").trim().split("\n"), ["stop", "start", "start"]);
+	assert.equal(readFileSync(join(root, "runtime-stop.log"), "utf8").trim(), "stop", "the supervisor hook also runs complete Runtime cleanup");
 	assert.equal(existsSync(target.marker), false);
 	assert.equal(existsSync(join(target.backupDir, ".upgrade.lock")), false);
 	assert.equal(listSnapshots(target.backupDir).length, 1);
@@ -316,4 +323,38 @@ test("a snapshot-only run with nothing changed since the newest snapshot stops n
 	assert.equal(await main(["--snapshot-only"], target), 0);
 	assert.equal(existsSync(join(root, "hooks.log")), false, "Telomi was not stopped");
 	assert.deepEqual(listSnapshots(target.backupDir).map((candidate) => candidate.path), [snapshot.path]);
+});
+
+
+test("Runtime stop uses the resolved installation configuration and fails before callers can proceed", (context) => {
+	const root = scratch(context);
+	const bin = join(root, "bin"); mkdirSync(bin);
+	const calls = join(root, "calls.json");
+	const script = join(bin, "python3");
+	writeFileSync(script, `#!/usr/bin/env node\nrequire("node:fs").writeFileSync(${JSON.stringify(calls)},JSON.stringify({args:process.argv.slice(2),data:process.env.TELOMI_DATA_DIR,url:process.env.HINDSIGHT_URL,resolved:process.env.TELOMI_RUNTIME_STOP_RESOLVED_ENV}));\n`, { mode: 0o755 });
+	const inst = install(root);
+	inst.env = { PATH: `${bin}:${process.env.PATH}`, HINDSIGHT_URL: "http://example.invalid:19999/v1/default", TELOMI_DATA_DIR: "wrong-relative-root" };
+	stopRuntime(inst);
+	assert.deepEqual(JSON.parse(readFileSync(calls, "utf8")), { args: ["apps/telomi/scripts/worktree.py", "stop"], data: inst.dataDir, url: inst.env.HINDSIGHT_URL, resolved: "1" });
+	writeFileSync(script, "#!/bin/sh\nexit 7\n", { mode: 0o755 });
+	assert.throws(() => stopRuntime(inst), (error) => error instanceof UpgradeError && /exit 7/u.test(error.message));
+});
+
+
+test("upgrade and synchronous crash recovery do not continue after Runtime cleanup fails", async (context) => {
+	const root = scratch(context);
+	const git = gitRepo(root);
+	const previous = git("rev-parse", "HEAD");
+	git("commit", "--allow-empty", "-qm", "replacement");
+	const replacement = git("rev-parse", "HEAD");
+	const inst = install(root);
+	mkdirSync(inst.backupDir, { recursive: true });
+	const bin = join(inst.dataDir, ".fixture-tools"); mkdirSync(bin);
+	writeFileSync(join(bin, "python3"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
+	inst.env = { PATH: `${bin}:${process.env.PATH}`, TELOMI_SERVICE_STOP: "echo stop >> hooks.log", TELOMI_SERVICE_START: "echo start >> hooks.log" };
+	await assert.rejects(stopAll(inst), /exit 7/u);
+	assert.equal(listSnapshots(inst.backupDir).length, 0);
+	assert.throws(() => recoverAfterCrash(inst, previous, undefined), /exit 7/u);
+	assert.equal(git("rev-parse", "HEAD"), replacement, "cleanup failure never switches code or restores data over a possibly running service");
+	assert.deepEqual(readFileSync(join(root, "hooks.log"), "utf8").trim().split("\n"), ["stop", "stop"], "cleanup failure never bootstraps a replacement");
 });

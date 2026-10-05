@@ -6,7 +6,7 @@ import { ensureGoalWorkspace } from "../../server/workspaces/goal-project.js";
 import { readPreviousWikiEdition, writeWikiEdition } from "../../server/wiki/wiki-edition.js";
 import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
-import type { CornellNotesSnapshot } from "../../server/cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
 import type { GoalTopicPlan, WikiCompilationRequest } from "../../server/wiki/contracts.js";
 import { hashJson } from "../../server/lib/hash.js";
 import { hashWikiDirectory } from "../../server/wiki/files.js";
@@ -17,10 +17,10 @@ import { wikiPageEntryIds, type WikiPagesResult } from "../../server/wiki/wiki-p
 const root = mkdtempSync(join(tmpdir(), "wiki-compilation-"));
 const failureUsage = { inputTokens: 7, outputTokens: 3, costUsd: 0.04, calls: 2 };
 const usage = { inputTokens: 10, outputTokens: 5, costUsd: 0, calls: 1 };
-const env = { TELOMI_WIKI_CURATOR_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_CURATOR_THINKING_LEVEL: "low" };
+const env = { TELOMI_WIKI_COMPILATION_MODEL: "test/root", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/child", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "low" };
 const plan: GoalTopicPlan = { schema_version: 1, goal_id: "goal", revision: "v1", status: "active", topics: ["training", "evaluation"].map(id => ({ id, title: id, intent: `Understand ${id}`, questions: [], include: [], exclude: [] })) };
-function evidence(count: number, offset = 0): CornellNotesSnapshot {
- return { schema_version: 1, snapshot_id: "snapshot", run_id: "source-run", pipeline: { id: "cornell", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [],
+function evidence(count: number, offset = 0): SourceNotesSnapshot {
+ return { schema_version: 1, snapshot_id: "snapshot", run_id: "source-run", pipeline: { id: "note", version: "1", sha256: "a".repeat(64) }, source_bundle_refs: [],
   notes: Array.from({ length: count }, (_, index) => {
    const n = index + offset;
    return { note: { schema_version: 1, source_id: `source:${n}`, sections: ["Training", "Evaluation"].map((section, i) => ({ section_title: section, summary: `${section} conditions`, cue_notes: [{ cue: `${section} cue`, note: `Object ${n}: ${section} exact value 1.45%, condition ${i}.`, topic_refs: [], evidence: [{ source_path: `source-${n}.md`, content_sha256: "b".repeat(64), start_line: i + 1, end_line: i + 1 }] }] })) }, title: `Object ${n}`, canonical_locator: `https://example.test/${n}`, provider_id: "test", provenance_ref: "provider:test", source_revision_sha256: "c".repeat(64), members: [] };
@@ -32,7 +32,7 @@ function request(name: string, snapshot = evidence(6), previous?: string): WikiC
  if (previous) cpSync(previous, join(goalDir, "wiki", "knowledge"), { recursive: true });
  const store = new RunArtifactStore(join(base, "run"));
  const notes = store.publishText(JSON.stringify(snapshot), "input/notes.json");
- return { goalDir, runId: name, runDirectory: store.root, controlDirectory: join(base, "control"), cornellNotesSnapshot: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength }, goalContext: { title: "Models", description: "Compare model training and evaluation" }, topicPlan: plan, env, signal: new AbortController().signal };
+ return { goalDir, runId: name, runDirectory: store.root, controlDirectory: join(base, "control"), notesSnapshot: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength }, goalContext: { title: "Models", description: "Compare model training and evaluation" }, topicPlan: plan, env, signal: new AbortController().signal };
 }
 const empty = (): WikiPagesResult => ({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] });
 const read = (path: string) => readFileSync(path, "utf8");
@@ -256,6 +256,7 @@ try {
  const historicalSeedHash = hashWikiDirectory(historicalConflictSeed);
  const historicalEntityPath = "entities/source-0.md";
  const oldEntityBytes = read(join(historicalConflictSeed, historicalEntityPath));
+ assert.match(oldEntityBytes, /Note Entry `entry:[a-f0-9]{24}`/u, "published citations use the current Note Entry label");
  assert.match(oldEntityBytes, /## Related/u, "legacy Edition has a readable relation");
  const historicalConflict = await new WikiCompiler({ runStage: async ({ input }) => {
   historicalInputs.push(input);

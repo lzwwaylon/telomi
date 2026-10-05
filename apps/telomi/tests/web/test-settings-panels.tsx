@@ -549,11 +549,11 @@ test("a connection row counts every model it serves and names its users as the m
 
   const chat = renderToStaticMarkup(<ConnectionBadges summary={{ ...CONNECTIONS[0], usedBy: [
     { capability: "chat", consumer: "default", connection: "telomi-test", model: "large-1" },
-    { capability: "chat", consumer: "wikiCurator", connection: "telomi-test", model: "small-1" },
+    { capability: "chat", consumer: "wikiCompilation", connection: "telomi-test", model: "small-1" },
     { capability: "embedding", consumer: "memory", connection: "telomi-test", model: "embed-1" },
   ] }} />);
-  for (const label of [i18next.t("settings.board.default"), "Wiki Curator", i18next.t("settings.embedding.memory")]) assert.ok(chat.includes(label), label);
-  assert.doesNotMatch(chat, /wikiCurator|· memory/);
+  for (const label of [i18next.t("settings.board.default"), "Wiki Compilation", i18next.t("settings.embedding.memory")]) assert.ok(chat.includes(label), label);
+  assert.doesNotMatch(chat, /wikiCompilation|· memory/);
 });
 
 test("a saved key waits to be activated with a test model the user picks, and says so", () => {

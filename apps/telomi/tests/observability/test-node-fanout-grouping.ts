@@ -20,7 +20,7 @@ import {
 	type NodeExecutionRecord,
 } from "../../server/observability/run-records.js";
 import { RuntimeNoteAgentProcessor } from "../../server/research/note-agent.js";
-import { RuntimeCornellNotesMaterializer } from "../../server/research/pipeline/cornell-notes.js";
+import { RuntimeSourceNotesMaterializer } from "../../server/research/pipeline/source-notes.js";
 import type { LogicalSource } from "../../server/research/research-types.js";
 
 const goalId = "goal_fanout_grouping";
@@ -46,7 +46,7 @@ const recordingRunner: AgentStageRunner = {
 		await new Promise((resolve) => { setImmediate(resolve); });
 		const sourceId = request.session.key.replace("note-agent/", "");
 		const failed = failing.delete(sourceId);
-		const entryPath = join(request.workDirectory, "cornell-note.json");
+		const entryPath = join(request.workDirectory, "note.json");
 		if (!failed) {
 			writeFileSync(entryPath, `${JSON.stringify({
 				sections: [{
@@ -94,7 +94,7 @@ const recordingRunner: AgentStageRunner = {
 	},
 };
 
-const materializer = new RuntimeCornellNotesMaterializer(new RuntimeNoteAgentProcessor({
+const materializer = new RuntimeSourceNotesMaterializer(new RuntimeNoteAgentProcessor({
 	outputLanguage: "en",
 	documentConcurrency: 2,
 	noteAgentModel: "openai-codex/test",

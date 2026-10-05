@@ -19,7 +19,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -46,7 +46,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -76,7 +76,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -98,7 +98,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -126,7 +126,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -153,7 +153,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -176,7 +176,7 @@
 				"apps/telomi/agents/research/prime-search/",
 				"apps/telomi/server/agent-runtime/",
 				"apps/telomi/server/evaluation/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -206,7 +206,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -229,7 +229,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"
@@ -251,7 +251,7 @@
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
 				"apps/telomi/services/research-source-service/",
-				"apps/telomi/server/cornell/",
+				"apps/telomi/server/notes/",
 				"apps/telomi/server/citations/",
 				"apps/telomi/server/embedding/",
 				"apps/telomi/server/media/product-"

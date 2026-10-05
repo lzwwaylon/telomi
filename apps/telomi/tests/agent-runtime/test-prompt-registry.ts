@@ -122,43 +122,43 @@ const topicPlan = {
 		{ id: "multilingual", title: "Multilingual", intent: "Track Chinese and multilingual quality", questions: [], include: ["Chinese"], exclude: [] },
 	],
 };
-const cornellPrompt = `${buildNoteAgentSystemPrompt()}\n${buildNoteAgentUserPrompt({
+const notePrompt = `${buildNoteAgentSystemPrompt()}\n${buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "Understand speech generation" },
 	discoveryEnabled: true,
 	topicPlan,
 })}`;
-assert.match(cornellPrompt, /Discovery is enabled only for this Note Agent stage/u);
-assert.match(cornellPrompt, /"discovery":\{"finding"/u);
-assert.match(cornellPrompt, /T1 \| Multilingual/u);
-assert.match(cornellPrompt, /"topic_refs":\["T1"\]/u);
-assert.doesNotMatch(cornellPrompt, /- multilingual \| Multilingual/u);
-assert.doesNotMatch(cornellPrompt, /## Note focus/u);
-const cornellWithFocus = buildNoteAgentUserPrompt({
+assert.match(notePrompt, /Discovery is enabled only for this Note Agent stage/u);
+assert.match(notePrompt, /"discovery":\{"finding"/u);
+assert.match(notePrompt, /T1 \| Multilingual/u);
+assert.match(notePrompt, /"topic_refs":\["T1"\]/u);
+assert.doesNotMatch(notePrompt, /- multilingual \| Multilingual/u);
+assert.doesNotMatch(notePrompt, /## Note focus/u);
+const noteWithFocus = buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "" },
 	discoveryEnabled: false,
 	noteFocus: "Loss definitions and data pipelines, at the level of PyTorch modules.",
 });
-assert.match(cornellWithFocus, /inputs\/context\.md/u);
-assert.doesNotMatch(cornellWithFocus, /Loss definitions and data pipelines/u, "task content stays in the input file instead of being duplicated in the Prompt");
-assert.match(cornellWithFocus, /emphasis does not replace the assigned scope/u);
-const cornellWithoutDiscovery = buildNoteAgentUserPrompt({
+assert.match(noteWithFocus, /inputs\/context\.md/u);
+assert.doesNotMatch(noteWithFocus, /Loss definitions and data pipelines/u, "task content stays in the input file instead of being duplicated in the Prompt");
+assert.match(noteWithFocus, /emphasis does not replace the assigned scope/u);
+const noteWithoutDiscovery = buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "" },
 	discoveryEnabled: false,
 	topicPlan,
 });
-assert.doesNotMatch(cornellWithoutDiscovery, /Discovery|discovery|finding/u);
-assert.doesNotMatch(cornellWithoutDiscovery, /Source update|New member paths|Changed member paths/u);
-const cornellWithSourceUpdate = buildNoteAgentUserPrompt({
+assert.doesNotMatch(noteWithoutDiscovery, /Discovery|discovery|finding/u);
+assert.doesNotMatch(noteWithoutDiscovery, /Source update|New member paths|Changed member paths/u);
+const noteWithSourceUpdate = buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
 	goal: { title: "Become a TTS expert", description: "" },
 	discoveryEnabled: false,
 	topicPlan,
 	sourceUpdate: { newMemberPaths: ["members/github/repo"], changedMemberPaths: [] },
 });
-assert.match(cornellWithSourceUpdate, /Source update[\s\S]+New member paths: members\/github\/repo/u);
+assert.match(noteWithSourceUpdate, /Source update[\s\S]+New member paths: members\/github\/repo/u);
 assert.doesNotMatch(
 	composeAgentSystemPrompt("", { tools: [{ name: "bash" }] }),
 	/other runtime tools may be available/iu,

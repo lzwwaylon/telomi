@@ -66,7 +66,7 @@ export interface ResearchRuntimeConfig {
 }
 
 export interface ResearchProgressEvent {
-	stage: "search_batch" | "cornell_notes" | "wiki_compiler" | "report_writer" | "citation_compiler" | "wiki_publish" | "complete";
+	stage: "search_batch" | "notes" | "wiki_compiler" | "report_writer" | "citation_compiler" | "wiki_publish" | "complete";
 	status: "running" | "succeeded" | "failed" | "cancelled";
 	sequence?: number;
 	detail?: string;

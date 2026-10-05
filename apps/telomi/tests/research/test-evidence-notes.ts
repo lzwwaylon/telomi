@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { CornellNoteProcessor } from "../../server/research/cornell-note.js";
+import type { SourceNoteProcessor } from "../../server/research/source-note.js";
 import type { LogicalSource } from "../../server/research/research-types.js";
 import {
 	finalizeStageOutput,
@@ -12,8 +12,8 @@ import {
 } from "../../server/agent-runtime/agent-stage-runtime.js";
 import {
 	Run,
-	RuntimeCornellNotesMaterializer,
-	cornellNoteArtifactPath,
+	RuntimeSourceNotesMaterializer,
+	noteArtifactPath,
 	dedupeLogicalSources,
 	type SearchBatchRequest,
 } from "../../server/research/pipeline/index.js";
@@ -24,7 +24,7 @@ import { RunStateStore } from "../../server/research/run-state.js";
 import { installCaseCapture } from "../../server/observability/case-capture.js";
 
 let removeCapture: (() => void) | undefined;
-const root = mkdtempSync(join(tmpdir(), "telomi-cornell-notes-"));
+const root = mkdtempSync(join(tmpdir(), "telomi-notes-"));
 try {
 	const documents: LogicalSource[] = [
 		source("source:a", "https://example.test/a", "a".repeat(64)),
@@ -32,12 +32,12 @@ try {
 		source("source:c", "https://example.test/c", "c".repeat(64)),
 	];
 	let processorCalls = 0;
-		const processor: CornellNoteProcessor = {
+		const processor: SourceNoteProcessor = {
 			async process(input) {
 				processorCalls += 1;
 				return { notes: input.sources.map((document) => ({
 					source: document,
-				artifactRef: `artifacts/cornell-notes/${document.id}.json`,
+				artifactRef: `artifacts/notes/${document.id}.json`,
 				note: {
 					schema_version: 1,
 					source_id: document.id,
@@ -55,7 +55,7 @@ try {
 				})), failures: [] };
 			},
 		};
-	const materializer = new RuntimeCornellNotesMaterializer(processor);
+	const materializer = new RuntimeSourceNotesMaterializer(processor);
 	const firstResult = await materializer.materialize(request(1, documents));
 	const first = firstResult.evidence;
 	assert.deepEqual(firstResult.failures, []);
@@ -105,16 +105,16 @@ try {
 	const checkpointStore = new RunArtifactStore(root);
 	checkpointStore.publishText(
 		`${JSON.stringify(first.notes[0]!.note)}\n`,
-		cornellNoteArtifactPath(6, documents[0]!.id, documents[0]!.revisionSha256),
+		noteArtifactPath(6, documents[0]!.id, documents[0]!.revisionSha256),
 	);
 	let resumedSourceIds: string[] = [];
-	const resumedFromFiles = await new RuntimeCornellNotesMaterializer({
+	const resumedFromFiles = await new RuntimeSourceNotesMaterializer({
 		async process(input) {
 			resumedSourceIds = input.sources.map((document) => document.id);
 			return {
 				notes: input.sources.map((document) => ({
 					source: document,
-					artifactRef: `artifacts/cornell-notes/sequence-6/${document.id.slice(7)}.json`,
+					artifactRef: `artifacts/notes/sequence-6/${document.id.slice(7)}.json`,
 					note: { schema_version: 1, source_id: document.id, sections: [] },
 				})),
 				failures: [],
@@ -126,12 +126,12 @@ try {
 	assert.deepEqual(resumedFromFiles.evidence.notes.map((record) => record.note.source_id),
 		["source:a", "source:b", "source:c"]);
 
-	const degraded = await new RuntimeCornellNotesMaterializer({
+	const degraded = await new RuntimeSourceNotesMaterializer({
 		async process(input) {
 			return {
 				notes: input.sources.filter((document) => document.id !== "source:b").map((document) => ({
 					source: document,
-					artifactRef: `artifacts/cornell-notes/${document.id}.json`,
+					artifactRef: `artifacts/notes/${document.id}.json`,
 					note: {
 						schema_version: 1,
 						source_id: document.id,
@@ -176,7 +176,7 @@ try {
 			async runStage<T>(stageRequest: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
 				writerCalls++;
 				const inputs = stageRequest.readonlyMounts.find((mount) => mount.guestPath === "/inputs")!;
-				const projectedFailures = JSON.parse(readFileSync(join(inputs.hostPath, "cornell-failures.json"), "utf-8")) as {
+				const projectedFailures = JSON.parse(readFileSync(join(inputs.hostPath, "note-failures.json"), "utf-8")) as {
 					failed_source_count: number;
 					failed_sources: Array<Record<string, unknown>>;
 				};
@@ -192,7 +192,7 @@ try {
 						section_id: "section-001",
 						title: "Available evidence",
 						purpose: "Report available evidence and its coverage limitation.",
-						cornell_notes_refs: ["@1"],
+						notes_refs: ["@1"],
 					}],
 				}));
 				writeFileSync(join(stageRequest.workDirectory, "writer-output", "sections", "section-001.md"),
@@ -327,12 +327,12 @@ try {
 	assert.equal(degradedResult.state.status, "published",
 		"a failed Cornell Source must still produce a published report");
 	assert.equal(degradedState.failure, undefined);
-	assert.equal(degradedState.cornell_note_snapshots.length, 1);
-	assert.equal(degradedState.cornell_note_failure_manifests?.length, 1);
-	assert.equal(degradedState.cornell_note_failure_count, 1);
+	assert.equal(degradedState.note_snapshots.length, 1);
+	assert.equal(degradedState.note_failure_manifests?.length, 1);
+	assert.equal(degradedState.note_failure_count, 1);
 	const failureManifest = JSON.parse(readFileSync(join(
 		runWorkspace,
-		degradedState.cornell_note_failure_manifests![0]!.relative_path,
+		degradedState.note_failure_manifests![0]!.relative_path,
 	), "utf-8")) as { failures: Array<{ source_id: string }> };
 	assert.deepEqual(failureManifest.failures.map((failure) => failure.source_id), ["source:run-b"]);
 	const allFailedWorkspace = join(root, "all-failed-run", "workspace");
@@ -348,7 +348,7 @@ try {
 	const allFailedState = new RunStateStore(allFailedControl).load()!;
 	assert.equal(allFailedState.status, "failed");
 	assert.equal(allFailedState.failure?.failed_stage, "evidence_materializing");
-	assert.equal(allFailedState.cornell_note_failure_count, 2);
+	assert.equal(allFailedState.note_failure_count, 2);
 	const beforeEmpty = writerCalls;
 	const emptyControl = join(root, "empty-run", "control");
 	await assert.rejects(degradedRun.run({
@@ -361,7 +361,7 @@ try {
 	assert.equal(writerCalls, beforeEmpty, "a complete Search with zero Sources must not start Writer");
 	const emptyState = new RunStateStore(emptyControl).load()!;
 	assert.equal(emptyState.failure?.failed_stage, "evidence_materializing");
-	assert.equal(emptyState.cornell_note_snapshots.length, 1, "retain the empty evidence snapshot for diagnosis");
+	assert.equal(emptyState.note_snapshots.length, 1, "retain the empty evidence snapshot for diagnosis");
 	// Resuming hydrates that empty snapshot instead of searching again; the gate must still hold.
 	new RunStateStore(emptyControl).resume();
 	await assert.rejects(degradedRun.run({

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { appendResearchNodeRecord } from "../../server/observability/run-records.js";
 import type { ResearchModelUsage } from "../../server/agent-runtime/model-usage.js";
-import { Run, type CornellNotesMaterializeRequest, type SearchBatchRequest } from "../../server/research/pipeline/index.js";
+import { Run, type SourceNotesMaterializeRequest, type SearchBatchRequest } from "../../server/research/pipeline/index.js";
 import { RunStateStore } from "../../server/research/run-state.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-research-usage-"));
@@ -83,7 +83,7 @@ const runtime = new Run({
 		},
 	},
 	evidenceMaterializer: {
-		async materialize(request: CornellNotesMaterializeRequest) {
+		async materialize(request: SourceNotesMaterializeRequest) {
 			recordLateUsage = request.onAgentStageCompleted;
 			const noteUsage = { inputTokens: 10, outputTokens: 5, costUsd: 0.1, calls: 2 };
 			recordAgentUsage("note-success", "succeeded", noteUsage);

@@ -79,7 +79,7 @@ try {
 	const authoring = {
 		...initialized,
 		status: "plan_authoring" as const,
-		cornell_note_snapshots: [{ relative_path: "artifacts/cornell-notes.json", sha256: sha, byte_length: 1 }],
+		note_snapshots: [{ relative_path: "artifacts/notes.json", sha256: sha, byte_length: 1 }],
 	};
 	failedStore.save(initialized, authoring);
 	const failed = {
@@ -97,7 +97,7 @@ try {
 	assert.equal(resumedFailed.status, "plan_authoring");
 	assert.equal(resumedFailed.failure, undefined);
 	assert.equal(resumedFailed.finished_at, undefined);
-	assert.equal(resumedFailed.cornell_note_snapshots.length, 1);
+	assert.equal(resumedFailed.note_snapshots.length, 1);
 
 	// 采集阶段失败同样可以原地继续：该阶段自己负责复用已封存的 Source。
 	const searchFailedRoot = join(root, "failed-search");

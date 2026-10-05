@@ -195,7 +195,7 @@ try {
 		researchRunId: "run-increment",
 		discoveredSources: 1,
 		incrementalSources: 1,
-		cornellNotes: 0,
+		sourceNotes: 0,
 		sources: [increment, updatedBaseline],
 		now: new Date("2026-01-01T04:02:00.000Z"),
 	});
@@ -298,8 +298,8 @@ try {
 		status: string;
 		sourceBundles?: string[];
 		organizedSources?: string[];
-		cornellNoteSnapshots?: string[];
-		cornellNoteFailureManifests?: string[];
+		noteSnapshots?: string[];
+		noteFailureManifests?: string[];
 		skipReason?: string;
 	}) => ({
 		schema_version: 2,
@@ -326,9 +326,9 @@ try {
 		source_bundles: (input.sourceBundles ?? []).map(artifactRef),
 		find_out_sources: (input.organizedSources ?? []).map(artifactRef),
 		search_execution_records: [],
-		cornell_note_snapshots: (input.cornellNoteSnapshots ?? []).map(artifactRef),
-		...(input.cornellNoteFailureManifests
-			? { cornell_note_failure_manifests: input.cornellNoteFailureManifests.map(artifactRef) }
+		note_snapshots: (input.noteSnapshots ?? []).map(artifactRef),
+		...(input.noteFailureManifests
+			? { note_failure_manifests: input.noteFailureManifests.map(artifactRef) }
 			: {}),
 		writer_outputs: [],
 		accepted_chapters: [],
@@ -357,12 +357,12 @@ try {
 	);
 	const organizedBundlePath = "artifacts/source-bundles/bundle-1";
 	const findOutPath = "artifacts/find-out-sources/sequence-1";
-	const organizedEvidencePath = "artifacts/cornell-notes/snapshot-seed.json";
+	const organizedEvidencePath = "artifacts/notes/snapshot-seed.json";
 	const logicalSourceId = "source:logical-project";
 	const logicalRevision = "f".repeat(64);
 	mkdirSync(join(organizedWikiRunDir, organizedBundlePath), { recursive: true });
 	mkdirSync(join(organizedWikiRunDir, findOutPath), { recursive: true });
-	mkdirSync(join(organizedWikiRunDir, "artifacts", "cornell-notes"), { recursive: true });
+	mkdirSync(join(organizedWikiRunDir, "artifacts", "notes"), { recursive: true });
 	mkdirSync(organizedControlRunDir, { recursive: true });
 	writeFileSync(join(organizedWikiRunDir, "README.md"), [
 		`# Run ${organizedRunId}`,
@@ -414,7 +414,7 @@ try {
 		status: "published",
 		sourceBundles: [organizedBundlePath],
 		organizedSources: [findOutPath],
-		cornellNoteSnapshots: [organizedEvidencePath],
+		noteSnapshots: [organizedEvidencePath],
 	}), null, 2)}\n`, "utf-8");
 	const organizedBaseline = readProcessedResearchRun({
 		goalDir: organizedGoalDir,
@@ -496,11 +496,11 @@ try {
 			"runs",
 			input.runId,
 		);
-		const evidencePath = "artifacts/cornell-notes/snapshot-1.json";
+		const evidencePath = "artifacts/notes/snapshot-1.json";
 		const revisionOf = input.revisionOf
 			?? ((sourceId: string) => gapNoteSha(input.sources.indexOf(sourceId) + 1));
 		mkdirSync(join(wikiRunDir, findOutPath), { recursive: true });
-		mkdirSync(join(wikiRunDir, "artifacts", "cornell-notes"), { recursive: true });
+		mkdirSync(join(wikiRunDir, "artifacts", "notes"), { recursive: true });
 		mkdirSync(controlRunDir, { recursive: true });
 		writeFileSync(join(wikiRunDir, findOutPath, "manifest.json"), `${JSON.stringify({
 			schema_version: ORGANIZED_SOURCE_MANIFEST_SCHEMA_VERSION,
@@ -527,7 +527,7 @@ try {
 			notes: input.notedSourceIds.map((sourceId) => ({ note: { source_id: sourceId } })),
 		}, null, 2)}\n`, "utf-8");
 		const failurePaths = (input.failureManifests ?? []).map((manifest, index) => {
-			const path = `artifacts/cornell-notes/failures-${index + 1}.json`;
+			const path = `artifacts/notes/failures-${index + 1}.json`;
 			writeFileSync(join(wikiRunDir, path), `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
 			return path;
 		});
@@ -536,8 +536,8 @@ try {
 			goalId: input.goalId,
 			status: input.status ?? "published",
 			organizedSources: [findOutPath],
-			cornellNoteSnapshots: [evidencePath],
-			...(failurePaths.length ? { cornellNoteFailureManifests: failurePaths } : {}),
+			noteSnapshots: [evidencePath],
+			...(failurePaths.length ? { noteFailureManifests: failurePaths } : {}),
 		}), null, 2)}\n`, "utf-8");
 		writeBaselineResumeRequest(input.goalId, input.runId, "Write for the launch review board.");
 		return { goalDir, controlRunDir };
@@ -688,7 +688,7 @@ try {
 			researchRunId: input.researchRunId,
 			discoveredSources: 1,
 			incrementalSources: 1,
-			cornellNotes: input.sources.length,
+			sourceNotes: input.sources.length,
 			sources: input.sources,
 			sourceGaps: input.sourceGaps,
 			now: new Date(input.now),
@@ -724,7 +724,7 @@ try {
 		researchRunId: "run-revision-moved-on",
 		discoveredSources: 1,
 		incrementalSources: 1,
-		cornellNotes: 1,
+		sourceNotes: 1,
 		sources: [laterRevision],
 		now: new Date("2026-01-03T00:01:00.000Z"),
 	});
@@ -744,7 +744,7 @@ try {
 		researchRunId: "run-revision-recovered",
 		discoveredSources: 1,
 		incrementalSources: 1,
-		cornellNotes: 1,
+		sourceNotes: 1,
 		sources: [failedRevision],
 		now: new Date("2026-01-04T00:01:00.000Z"),
 	});
@@ -782,7 +782,7 @@ try {
 		goalDir: foreignRun.goalDir,
 		controlRunDir: foreignRun.controlRunDir,
 		runId: foreignRunId,
-	}), /failure manifest 'artifacts\/cornell-notes\/failures-1.json' is invalid/u);
+	}), /failure manifest 'artifacts\/notes\/failures-1.json' is invalid/u);
 
 	// A malformed failure manifest is a broken Run, not a licence to drop Sources.
 	const malformedGoalId = "goal_malformed_manifest";
@@ -803,7 +803,7 @@ try {
 		goalDir: malformedRun.goalDir,
 		controlRunDir: malformedRun.controlRunDir,
 		runId: malformedRunId,
-	}), /failure manifest 'artifacts\/cornell-notes\/failures-1.json' has an invalid failure/u);
+	}), /failure manifest 'artifacts\/notes\/failures-1.json' has an invalid failure/u);
 
 	// Every Source recorded as failed: the reader reports it, and creation rejects it clearly.
 	const emptyGoalId = "goal_empty_baseline";
@@ -854,7 +854,7 @@ try {
 		sources: [],
 		unprocessedSources: [],
 		discoveredSources: 0,
-		cornellNotes: 0,
+		sourceNotes: 0,
 	});
 
 	// Runtime triggers Research Schedule Reviews on its existing tick.

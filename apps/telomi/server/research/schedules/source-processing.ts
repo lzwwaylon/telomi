@@ -5,7 +5,7 @@ import { RunStateStore } from "../run-state.js";
 import { ORGANIZED_SOURCE_MANIFEST_SCHEMA_VERSION } from "../pipeline/organized-sources.js";
 import type { ResearchScheduleSource } from "./types.js";
 
-interface CornellNoteSnapshot {
+interface SourceNoteSnapshot {
 	schema_version: number;
 	notes?: Array<{ note: { source_id: string } }>;
 }
@@ -29,7 +29,7 @@ export interface ProcessedResearchRun {
 	 */
 	unprocessedSources: ResearchScheduleSource[];
 	discoveredSources: number;
-	cornellNotes: number;
+	sourceNotes: number;
 }
 
 export function readProcessedResearchRun(args: {
@@ -49,7 +49,7 @@ export function readProcessedResearchRun(args: {
 	const sources = readOrganizedSources(wikiRunDir, organizedSourceRefs);
 	const discoveredSources = new Set(sources.map((source) => source.sourceIdentity)).size;
 
-	const evidenceRef = state.cornell_note_snapshots.at(-1);
+	const evidenceRef = state.note_snapshots.at(-1);
 	if (!evidenceRef && state.status === "skipped" && state.skip_reason === "no_source_increment") {
 		return {
 			runId: state.run_id,
@@ -59,13 +59,13 @@ export function readProcessedResearchRun(args: {
 			sources: [],
 			unprocessedSources: [],
 			discoveredSources,
-			cornellNotes: 0,
+			sourceNotes: 0,
 		};
 	}
 	if (!evidenceRef) throw new Error(`Research Run '${args.runId}' has no Evidence snapshot`);
 	const evidence = JSON.parse(
 		readFileSync(join(wikiRunDir, evidenceRef.relative_path), "utf-8"),
-	) as CornellNoteSnapshot;
+	) as SourceNoteSnapshot;
 	if (evidence.schema_version !== 1 || !Array.isArray(evidence.notes)) {
 		throw new Error(`Research Run '${args.runId}' has no completed Cornell Note snapshot`);
 	}
@@ -75,7 +75,7 @@ export function readProcessedResearchRun(args: {
 	const recordedFailures = readRecordedNoteFailures(
 		wikiRunDir,
 		args.runId,
-		state.cornell_note_failure_manifests ?? [],
+		state.note_failure_manifests ?? [],
 	);
 	const processedSources = new Map<string, ResearchScheduleSource>();
 	const unprocessedSources = new Map<string, ResearchScheduleSource>();
@@ -106,7 +106,7 @@ export function readProcessedResearchRun(args: {
 		sources: [...processedSources.values()],
 		unprocessedSources: [...unprocessedSources.values()],
 		discoveredSources,
-		cornellNotes: evidence.notes.length,
+		sourceNotes: evidence.notes.length,
 	};
 }
 

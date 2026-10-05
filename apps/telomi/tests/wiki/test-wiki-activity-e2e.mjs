@@ -49,16 +49,16 @@ const browserCheck = String.raw`
       timing: { createdAt: now, startedAt: now, updatedAt: now },
       resultLinks: [],
       steps: [{
-        stepId: 'wiki-batch:2',
+        stepId: 'wiki-objects:2',
         title: 'Wiki 批次 2',
-        summary: 'Wiki Curator 正在整理知识页',
+        summary: 'Wiki Compilation 正在整理知识页',
         lifecycle: 'running',
         timing: { createdAt: now, startedAt: now, updatedAt: now },
-        dependsOnStepIds: ['wiki-batch:1'],
+        dependsOnStepIds: ['wiki-objects:1'],
         parallelSteps: [],
         agentActivities: [{
-          agentActivityId: 'wiki-shard-builder:wiki-1:1',
-          agentName: 'wiki_maintainer',
+          agentActivityId: 'wiki-compilation:objects:wiki-1:1',
+          agentName: 'wiki_compilation',
           summary: '正在创建和更新 Wiki 页面',
           lifecycle: 'running',
           timing: { createdAt: now, startedAt: now, updatedAt: now },
@@ -66,12 +66,12 @@ const browserCheck = String.raw`
           attempts: [],
         }],
       }, {
-        stepId: 'wiki-stage:curation:0',
-        title: 'Wiki Curator 1/1',
+        stepId: 'wiki-stage:merge-objects:0',
+        title: 'Wiki Compilation 1/1',
         summary: '等待整理完整 Wiki',
         lifecycle: 'queued',
         timing: { createdAt: now, queuedAt: now, updatedAt: now },
-        dependsOnStepIds: ['wiki-batch:2'],
+        dependsOnStepIds: ['wiki-objects:2'],
         parallelSteps: [],
         agentActivities: [],
       }],
@@ -115,13 +115,13 @@ const browserCheck = String.raw`
   try {
     root.render(React.createElement(GoalActivityPanel, { goalId: 'wiki-e2e' }));
     await waitFor(() => host.innerText.includes('正在创建 Goal Wiki'), 'Wiki Activity');
-    const replay = host.querySelector('button[aria-label="查看 Wiki 批次 2 · Wiki Curator 1 回放"]');
+    const replay = host.querySelector('button[aria-label="查看 Wiki 批次 2 · Wiki Compilation 1 回放"]');
     if (!replay) throw new Error('Wiki replay action is missing');
     replay.click();
     await waitFor(() => host.innerText.includes('Wiki Commit'), 'Wiki Agent replay');
     const stage = replay.closest('.goal-activity-step');
     if (!stage?.querySelector('.goal-activity-replay')) throw new Error('Trace must expand inside its own stage');
-    if (!host.innerText.includes('SHARD 整理') || !host.innerText.includes('WIKI CURATOR')) {
+    if (!host.innerText.includes('对象构建') || !host.innerText.includes('WIKI COMPILATION')) {
       throw new Error('Wiki stages must be grouped as a progressive timeline');
     }
     if (replay.textContent.includes('查看回放')) throw new Error('Replay must not use the old prominent button label');

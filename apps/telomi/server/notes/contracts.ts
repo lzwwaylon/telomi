@@ -18,7 +18,7 @@ const RuntimeId = Type.String({
 	pattern: "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
 });
 
-const CornellEvidenceSchema = Type.Object({
+const SourceNoteEvidenceSchema = Type.Object({
 	source_run_id: Type.Optional(RuntimeId),
 	source_id: Type.Optional(RuntimeId),
 	source_revision_sha256: Type.Optional(Sha256),
@@ -30,33 +30,33 @@ const CornellEvidenceSchema = Type.Object({
 	content_sha256: Sha256,
 }, { additionalProperties: false });
 
-const CornellCueNoteSchema = Type.Object({
+const SourceCueNoteSchema = Type.Object({
 	/** Imported question-scoped Cues keep their original durable identity. */
 	origin_ref: Type.Optional(Type.String({ pattern: "^deep-search:[A-Za-z0-9._-]{1,100}:cue-[1-9][0-9]*$" })),
 	cue: NonEmptyString,
 	note: NonEmptyString,
-	evidence: Type.Array(CornellEvidenceSchema, { minItems: 1 }),
+	evidence: Type.Array(SourceNoteEvidenceSchema, { minItems: 1 }),
 	topic_refs: Type.Optional(Type.Array(NonEmptyString, { uniqueItems: true })),
 	discovery: Type.Optional(Type.Object({
 		finding: NonEmptyString,
 	}, { additionalProperties: false })),
 }, { additionalProperties: false });
 
-const CornellSectionSchema = Type.Object({
+const SourceNoteSectionSchema = Type.Object({
 	section_title: NonEmptyString,
 	summary: NonEmptyString,
-	cue_notes: Type.Array(CornellCueNoteSchema, { minItems: 1 }),
+	cue_notes: Type.Array(SourceCueNoteSchema, { minItems: 1 }),
 }, { additionalProperties: false });
 
-const CornellNoteSchema = Type.Object({
+const SourceNoteSchema = Type.Object({
 	schema_version: Type.Literal(1),
 	source_id: RuntimeId,
-	sections: Type.Array(CornellSectionSchema),
+	sections: Type.Array(SourceNoteSectionSchema),
 }, { additionalProperties: false });
 
-const CornellNoteRecordSchema = Type.Object({
+const SourceNoteRecordSchema = Type.Object({
 	source_run_id: Type.Optional(RuntimeId),
-	note: CornellNoteSchema,
+	note: SourceNoteSchema,
 	title: NonEmptyString,
 	canonical_locator: NonEmptyString,
 	provider_id: RuntimeId,
@@ -70,7 +70,7 @@ const CornellNoteRecordSchema = Type.Object({
 	}, { additionalProperties: false })),
 }, { additionalProperties: false });
 
-const CornellNotesSnapshotSchema = Type.Object({
+const SourceNotesSnapshotSchema = Type.Object({
 	schema_version: Type.Literal(1),
 	snapshot_id: RuntimeId,
 	run_id: RuntimeId,
@@ -80,14 +80,14 @@ const CornellNotesSnapshotSchema = Type.Object({
 		sha256: Sha256,
 	}, { additionalProperties: false }),
 	source_bundle_refs: Type.Array(NonEmptyString, { uniqueItems: true }),
-	notes: Type.Array(CornellNoteRecordSchema),
+	notes: Type.Array(SourceNoteRecordSchema),
 }, { additionalProperties: false });
 
-export type CornellNoteRecord = Static<typeof CornellNoteRecordSchema>;
-export type CornellNotesSnapshot = Static<typeof CornellNotesSnapshotSchema>;
+export type SourceNoteRecord = Static<typeof SourceNoteRecordSchema>;
+export type SourceNotesSnapshot = Static<typeof SourceNotesSnapshotSchema>;
 
-export function validateCornellNotesSnapshot(value: unknown): CornellNotesSnapshot {
-	const snapshot = validateSchema(CornellNotesSnapshotSchema, value);
+export function validateSourceNotesSnapshot(value: unknown): SourceNotesSnapshot {
+	const snapshot = validateSchema(SourceNotesSnapshotSchema, value);
 	assertNoDuplicates(snapshot.source_bundle_refs, "Cornell Notes source_bundle_refs");
 	assertNoDuplicates(snapshot.notes.map((item) => `${item.source_run_id ?? snapshot.run_id}\0${item.note.source_id}`), "Cornell Note source_id");
 	assertNoDuplicates(snapshot.notes.flatMap((item) => item.note.sections.flatMap((section) =>
@@ -121,8 +121,8 @@ export function validateCornellNotesSnapshot(value: unknown): CornellNotesSnapsh
 	return snapshot;
 }
 
-export function validateCornellNoteArtifact(value: unknown): CornellNoteRecord["note"] {
-	const note = validateSchema(CornellNoteSchema, value);
+export function validateSourceNoteArtifact(value: unknown): SourceNoteRecord["note"] {
+	const note = validateSchema(SourceNoteSchema, value);
 	const originalFields = new Set(["source_path", "start_line", "end_line", "content_sha256"]);
 	if (note.sections.some(section => section.cue_notes.some(cue => cue.origin_ref !== undefined
 		|| cue.evidence.some(anchor => Object.keys(anchor).some(key => !originalFields.has(key)))))) {

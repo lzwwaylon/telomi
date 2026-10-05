@@ -7,13 +7,13 @@ import { sha256 } from "../lib/hash.js";
 import { preparePythonSkillEnvironment } from "../agent-runtime/python-environment.js";
 import { loadAgentPromptConfig } from "../agent-runtime/prompt-registry.js";
 import type {
-	CornellEvidence,
-	CornellNote,
-	CornellNoteBatchResult,
-	CornellNoteInput,
-	CornellNoteProcessor,
-	CornellSourceNote,
-} from "./cornell-note.js";
+	SourceNoteEvidence,
+	SourceNote,
+	SourceNoteBatchResult,
+	SourceNoteInput,
+	SourceNoteProcessor,
+	ProcessedSourceNote,
+} from "./source-note.js";
 import type { ResearchRuntimeConfig } from "./research-types.js";
 import { AgentStageExecutionError, type AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
@@ -25,7 +25,7 @@ import {
 } from "./pipeline/note-agent-prompt.js";
 import { mapConcurrentFairly } from "../lib/fair-concurrency.js";
 import { caseCapture } from "../observability/case-capture.js";
-import { cornellNoteArtifactPath, RuntimeCornellNotesMaterializer } from "./pipeline/cornell-notes.js";
+import { noteArtifactPath, RuntimeSourceNotesMaterializer } from "./pipeline/source-notes.js";
 import { isReadableTextContent, materializeAgentSourceView } from "./pipeline/agent-source-view.js";
 import type { SourceFileRecord } from "./pipeline/source-bundle.js";
 import type { ResearchHarnessSnapshot } from "./harness/snapshot.js";
@@ -103,18 +103,18 @@ export async function createProductionNoteAgentProcessor(input: {
 
 export async function createProductionNoteMaterializer(
 	input: Parameters<typeof createProductionNoteAgentProcessor>[0],
-): Promise<RuntimeCornellNotesMaterializer> {
-	return new RuntimeCornellNotesMaterializer(await createProductionNoteAgentProcessor(input));
+): Promise<RuntimeSourceNotesMaterializer> {
+	return new RuntimeSourceNotesMaterializer(await createProductionNoteAgentProcessor(input));
 }
 
-export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
+export class RuntimeNoteAgentProcessor implements SourceNoteProcessor {
 	constructor(
 		private readonly config: ResearchRuntimeConfig,
 		private readonly stageRunner: AgentStageRunner,
 		private readonly skills: Array<{ hostPath: string; workspaceRelativePath: string; pythonPaths: string[] }> = [],
 	) {}
 
-	async process(input: CornellNoteInput): Promise<CornellNoteBatchResult> {
+	async process(input: SourceNoteInput): Promise<SourceNoteBatchResult> {
 		input.signal.throwIfAborted();
 		const outcomes = await mapConcurrentFairly(
 			input.sources,
@@ -140,9 +140,9 @@ export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
 	}
 
 	private async processDocument(
-		input: CornellNoteInput,
-		document: CornellSourceNote["source"],
-	): Promise<CornellSourceNote> {
+		input: SourceNoteInput,
+		document: ProcessedSourceNote["source"],
+	): Promise<ProcessedSourceNote> {
 		input.signal.throwIfAborted();
 		// Stage 身份按 Source batch 与 Source 固定。恢复后 pending 列表会因复用检查点而缩短或重排，
 		// 按位置编号会让同一个逻辑节点换一个身份，也会和另一批次的另一个 Source 撞号。
@@ -169,7 +169,7 @@ export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
 		const runner = caseCapture()?.noteAgent?.(this.stageRunner, {
 			...request, document: { id: document.id, title: document.title, url: document.url, provider: document.providerId },
 		}, this.skills) ?? this.stageRunner;
-		const result = await runner.runStage<CornellNote>({
+		const result = await runner.runStage<SourceNote>({
 			runId: input.runId,
 			stageId: `note-agent-${segment}`,
 			attemptId: `attempt-${randomUUID().slice(0, 8)}`,
@@ -210,12 +210,12 @@ export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
 			controlDirectory: input.controlDir,
 			artifactStore,
 			output: {
-				kind: "cornell_note",
-				entryRelativePath: "cornell-note.json",
-				publishRelativePath: cornellNoteArtifactPath(input.sequence, document.id, document.revisionSha256),
+				kind: "note",
+				entryRelativePath: "note.json",
+				publishRelativePath: noteArtifactPath(input.sequence, document.id, document.revisionSha256),
 				validate: ({ entryPath }) => {
-					const note = validateCornellNote(
-						parseCornellNoteJson(entryPath),
+					const note = validateSourceNote(
+						parseNoteJson(entryPath),
 						document.id,
 						sourceFiles,
 						input.topicPlan,
@@ -232,13 +232,13 @@ export class RuntimeNoteAgentProcessor implements CornellNoteProcessor {
 	}
 }
 
-export function validateCornellNote(
+export function validateSourceNote(
 	value: unknown,
 	expectedSourceId: string,
 	sourceFiles: readonly SourceFileRecord[],
 	topicPlan?: GoalTopicPlan,
 	discoveryEnabled = false,
-): CornellNote {
+): SourceNote {
 	const record = requireRecord(value, "Cornell Note");
 	assertExactKeys(record, ["sections"], "Cornell Note");
 	if (!Array.isArray(record.sections)) {
@@ -288,7 +288,7 @@ function validateEvidence(
 	value: unknown,
 	files: ReadonlyMap<string, SourceFileRecord>,
 	label: string,
-): CornellEvidence {
+): SourceNoteEvidence {
 	const evidence = requireRecord(value, label);
 	assertExactKeys(evidence, ["source_path", "start_line", "end_line"], label, ["content_sha256"]);
 	const requestedPath = nonEmpty(evidence.source_path, `${label} source_path`);
@@ -356,7 +356,7 @@ function validateCueTopics(
 	plan: GoalTopicPlan | undefined,
 	discoveryEnabled: boolean,
 	label: string,
-): Pick<CornellNote["sections"][number]["cue_notes"][number], "topic_refs" | "discovery"> {
+): Pick<SourceNote["sections"][number]["cue_notes"][number], "topic_refs" | "discovery"> {
 	const topicRefs = plan ? validateTopicRefs(note.topic_refs, plan, label) : undefined;
 	if (!discoveryEnabled) return topicRefs ? { topic_refs: topicRefs } : {};
 	const discovery = requireRecord(note.discovery, `${label} discovery`);
@@ -383,12 +383,12 @@ function validateTopicRefs(value: unknown, plan: GoalTopicPlan, label: string): 
 	return refs.map((ref) => known.get(ref)!.id);
 }
 
-function parseCornellNoteJson(path: string): unknown {
-	if (!existsSync(path)) throw new Error("cornell-note.json is missing; create the complete fixed output file");
+function parseNoteJson(path: string): unknown {
+	if (!existsSync(path)) throw new Error("note.json is missing; create the complete fixed output file");
 	try {
 		return JSON.parse(readFileSync(path, "utf-8")) as unknown;
 	} catch (error) {
-		throw new Error(`cornell-note.json must be valid JSON: ${toErrorMessage(error)}`);
+		throw new Error(`note.json must be valid JSON: ${toErrorMessage(error)}`);
 	}
 }
 

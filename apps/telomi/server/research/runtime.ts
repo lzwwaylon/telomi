@@ -30,7 +30,7 @@ import {
 	primeProviderCatalog,
 	primeSearchBatchContractIdentity,
 	WriterOutputSchema,
-	type CornellNotesMaterializer,
+	type SourceNotesMaterializer,
 	type SearchBatchExecutor,
 } from "./pipeline/index.js";
 import {
@@ -79,7 +79,7 @@ export interface ResearchRunRequest {
 	/** 没有 wikiCompilation 就是 Notes 模式：Knowledge 视图当场从冻结的 Cornell Notes 物化。 */
 	reportInput?: {
 		sourceRunId: string;
-		cornellNotesArtifact: PublishedArtifactRef;
+		notesArtifact: PublishedArtifactRef;
 		wikiCompilation?: WikiCompilationResult;
 		knowledgeInput?: { ref: string; sha256: string; byteLength: number };
 	};
@@ -102,7 +102,7 @@ export class ResearchRuntime {
 	constructor(private readonly options: {
 		stageRunner?: AgentStageRunner;
 		searchBatchExecutor?: SearchBatchExecutor;
-		evidenceMaterializer?: CornellNotesMaterializer;
+		evidenceMaterializer?: SourceNotesMaterializer;
 	} = {}) {}
 
 	async run(request: ResearchRunRequest): Promise<ResearchRunResult> {
@@ -333,7 +333,7 @@ function buildIdentityPins(
 		model_policy: hashRuntimeIdentityJson({
 			prime_search: { root: primeSearchContract.rootModel, child: primeSearchContract.childModel },
 			prime_report: primeReportContract,
-			cornell_note: config.noteAgentModel,
+			note: config.noteAgentModel,
 			// Reasoning depth is configuration too, so it belongs to the Run's identity: a Run that
 			// reasoned less deeply is not the same Run as one that reasoned more.
 			stage_thinking: runModelSelection(env).stageThinkingLevels,

@@ -116,7 +116,7 @@ try {
 		reframe: async (input) => {
 			reframeAttempts += 1;
 			recordedReframe(input.proposal.proposal_id, "failed");
-			throw new Error("Wiki Curator failed");
+			throw new Error("Wiki Compilation failed");
 		},
 	});
 	const failed = store.proposePatch({ source: "main_agent", patch: patch(activeRevision, "Reframe failure") });
@@ -201,7 +201,7 @@ try {
 		reframe: async (input) => {
 			recoveryReframes.push(input.proposal.proposal_id);
 			// 崩溃窗口：reframe 在写下第一条记录之前就结束。
-			if (breakReframe) throw new Error("Wiki Curator died before recording");
+			if (breakReframe) throw new Error("Wiki Compilation died before recording");
 			return recordedReframe(input.proposal.proposal_id, "succeeded");
 		},
 	});

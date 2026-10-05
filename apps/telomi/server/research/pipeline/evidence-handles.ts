@@ -1,4 +1,4 @@
-import type { CornellNotesSnapshot } from "../../cornell/contracts.js";
+import type { SourceNotesSnapshot } from "../../notes/contracts.js";
 
 export type AgentEvidenceHandle = `@${number}`;
 
@@ -10,7 +10,7 @@ export interface AgentEvidenceHandles {
 const EVIDENCE_HANDLE = /^@[1-9][0-9]*$/u;
 
 export function createAgentEvidenceHandles(
-	snapshots: readonly CornellNotesSnapshot[],
+	snapshots: readonly SourceNotesSnapshot[],
 ): AgentEvidenceHandles {
 	const byEvidenceId = new Map<string, AgentEvidenceHandle>();
 	const byHandle = new Map<AgentEvidenceHandle, string>();

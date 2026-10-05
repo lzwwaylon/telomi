@@ -59,7 +59,7 @@ try {
  let calls = 0;
  const tool = createWikiUpdateTool({ ...target, goalTitle: "Speech", getEnv: () => ({}) }, input => {
   calls++;
-  const snapshot = JSON.parse(readFileSync(new RunArtifactStore(input.sourceRunDirectory).openFile(input.cornellNotes).absolutePath, "utf8"));
+  const snapshot = JSON.parse(readFileSync(new RunArtifactStore(input.sourceRunDirectory).openFile(input.sourceNotes).absolutePath, "utf8"));
   assert.equal(input.sourceRunId, undefined, "whole-corpus rebuild never invents a Research Run");
   assert.equal(input.rebuild, true);
   assert.equal(snapshot.notes[0].source_run_id, "original");

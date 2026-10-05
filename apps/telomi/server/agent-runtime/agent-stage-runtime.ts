@@ -85,7 +85,7 @@ export type AgentStageRole = ResearchAgentStageRole | (string & {});
 
 export type StageArtifactKind =
 	| "source_bundle"
-	| "cornell_note"
+	| "note"
 	| "chapter"
 	| "writer_chapters"
 	| "stage_report"
@@ -1281,7 +1281,7 @@ function stageOutputDefinition(
 ): { entry: string; root?: string } {
 	const definitions: Record<StageArtifactKind, { entry: string; root?: string }> = {
 		source_bundle: { entry: "source-bundle/result.json", root: "source-bundle" },
-		cornell_note: { entry: "cornell-note.json" },
+		note: { entry: "note.json" },
 		chapter: { entry: "chapter.md" },
 		writer_chapters: { entry: "writer-output/manifest.json", root: "writer-output" },
 		stage_report: { entry: "stage-report.md" },
