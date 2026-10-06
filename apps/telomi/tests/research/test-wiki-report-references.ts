@@ -26,15 +26,19 @@ try {
 	const Read = Type.Object({ path: Type.String() });
 	const result = (details: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(details) }], details });
 	let rawReadPath = "";
+	let searchPath = "wiki/entities/beta.md";
+	let pageExtras: Record<string, unknown> = {};
+	let searchExtras: Record<string, unknown> = { mode: "hybrid", index: { status: "ready" } };
 	const topics = { topics: [{ topic_ref: "T1", title: "Models", intent: "Track models.",
 		questions: [], include: [], exclude: [], page_count: 2 }] };
 	const tools: AgentTool[] = [{
 		name: "wiki_list_topics", label: "wiki_list_topics", description: "list", parameters: Type.Object({}),
-		execute: async () => result(topics),
+		execute: async () => result({ ...topics, revision: "internal-revision",
+			topics: topics.topics.map(topic => ({ ...topic, id: "internal-topic" })) }),
 	}, {
 		name: "wiki_search", label: "wiki_search", description: "search", parameters: Query,
-		execute: async () => result({ results: [{
-			path: "wiki/entities/beta.md", title: "Beta", type: "entity",
+		execute: async () => result({ ...searchExtras, elapsedMs: 41, tokenHits: 1, vectorHits: 1, graphHits: 0, results: [{
+			path: searchPath, title: "Beta", type: "entity", snippet: "Beta finding.", sources: ["embedding"],
 			knowledgeContext: { outgoingLinks: ["wiki/concepts/alpha.md"], backlinks: [], linkCount: 1 },
 		}] }),
 	}, {
@@ -52,6 +56,7 @@ try {
 					anchors: [{ path: "paper.md", startLine: 2, endLine: 3, format: "markdown", content: "Exact evidence.", assets: [] }],
 				}],
 				links: ["concepts/alpha"], backlinks: [], missingLinks: [],
+				...pageExtras,
 			});
 		},
 	}];
@@ -71,6 +76,17 @@ try {
 	assert.equal(searchDetails.results[0]?.page_ref, "P2");
 	assert.equal("path" in searchDetails.results[0]!, false, "Agent-facing search results must not expose hash paths");
 	assert.doesNotMatch(JSON.stringify(searchDetails), /wiki\/(?:concepts|entities)\//u);
+
+	assert.deepEqual(searchDetails, { results: [{ page_ref: "P2", title: "Beta", type: "entity", snippet: "Beta finding." }] });
+	for (const [mode, status, warning] of [
+		["keyword_graph", "unavailable", /Semantic retrieval is unavailable/u],
+		["hybrid", "partial", /covers only part/u],
+	] as const) {
+		searchExtras = { mode, index: { status, error: "PRIVATE_DIAGNOSTIC", indexedPages: 1, totalPages: 2, refreshing: true } };
+		const degraded = await search.execute("degraded", { query: "Beta" });
+		assert.match(JSON.stringify(degraded.details), warning);
+		assert.doesNotMatch(JSON.stringify(degraded), /PRIVATE_DIAGNOSTIC|indexedPages|elapsedMs|sources|knowledgeContext/u);
+	}
 
 	const read = adapter.tools.find((tool) => tool.name === "wiki_read_page")!;
 	const pageDetails = (await read.execute("read", { path: "P2" })).details as {
@@ -154,6 +170,36 @@ try {
 	assert.match(noteCompiled.markdown, /First claim\. \[\[1\]\].*Second claim\. \[\[1\]\]/su);
 	assert.match(noteCompiled.markdown, /## References\n\n1\. \[Beta source\]\(https:\/\/example\.test\/beta\)\n$/u,
 		"Notes from one Source share one References entry without provenance");
+	const privateAnchor = { ...citation.entry.anchors[0]!, sha256: "anchor-hash",
+		source: { id: "internal-source", title: "Original source", url: "https://example.test/original", runId: "internal-run", revisionSha256: "revision-hash" },
+		assets: [{ sourceId: "internal-source", path: "images/chart.png", width: 640, height: 480 }],
+	};
+	pageExtras = {
+		pageId: "internal-page", frontmatter: { entry_ids: ["entry:beta"] }, unknownInternalField: "private",
+		primaryTopicRef: "T1", topicRefs: ["T1"], description: "Beta description.",
+		sections: [{ id: "internal-section", heading: "Finding", anchor: "finding", topicRefs: ["T1"] }],
+		links: ["concepts/alpha", "missing/page"], backlinks: ["wiki/concepts/alpha.md"],
+		knowledgeContext: { outgoingLinks: ["concepts/alpha"], backlinks: [], linkCount: 1 },
+		relations: [{ from: "internal-page", to: "internal-alpha", label: "uses", direction: "outgoing",
+			page: { path: "concepts/alpha.md", pageId: "internal-alpha", title: "Alpha", type: "concept", description: "Related concept." } }],
+		evidence: [{ ...citation.entry, anchors: [privateAnchor] }],
+	};
+	const projected = await read.execute("private-metadata", { path: "P2" });
+	const clean = JSON.parse(projected.content[0]!.type === "text" ? projected.content[0]!.text : "{}");
+	assert.deepEqual(JSON.parse(JSON.stringify(projected.details)), clean, "both Tool delivery channels use the same projection");
+	assert.deepEqual(clean.sections, [{ heading: "Finding", anchor: "finding", topicRefs: ["T1"] }]);
+	assert.deepEqual(clean.links, ["P1"]);
+	assert.deepEqual(clean.backlinks, ["P1"]);
+	assert.deepEqual(clean.relations, [{ label: "uses", direction: "outgoing",
+		page: { page_ref: "P1", title: "Alpha", type: "concept", description: "Related concept." } }]);
+	assert.deepEqual(clean.evidence[0].anchors, [{ path: "paper.md", startLine: 2, endLine: 3,
+		format: "markdown", content: "Exact evidence.", source: { title: "Original source" },
+		assets: [{ path: "images/chart.png", width: 640, height: 480 }] }]);
+	assert.doesNotMatch(JSON.stringify(clean), /internal-|sha256|revisionSha256|runId|pageId|sourceId|frontmatter|unknownInternalField|missingLinks|knowledgeContext/u);
+	assert.deepEqual(adapter.resolveCitationRef("C2").entry.anchors, [privateAnchor], "Runtime retains original hashes, identities and asset provenance");
+	searchPath = "wiki/outside.md";
+	await assert.rejects(search.execute("outside-edition", { query: "Beta" }), /outside the pinned Edition/u);
+
 	await assert.rejects(read.execute("unknown", { path: "P99" }), /unknown Wiki Page ref 'P99'/u);
 	console.log("Wiki Report short reference adapter passed");
 } finally {

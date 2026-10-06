@@ -86,41 +86,33 @@ function createWikiReferenceAdapter(
 		if (!page) throw new Error(`unknown Wiki Page ref '${ref}'`);
 		return page.path;
 	};
-	const projectPageRef = (value: string): string => {
+	const projectPageRef = (value: string): string | undefined => {
 		const normalized = value.startsWith("wiki/")
 			? value.endsWith(".md") ? value : `${value}.md`
 			: `wiki/${value.endsWith(".md") ? value : `${value}.md`}`;
-		return pageByPath.get(normalized)?.ref ?? pageById.get(value.replace(/^wiki\//u, "").replace(/\.md$/u, ""))?.ref ?? value;
+		return pageByPath.get(normalized)?.ref ?? pageById.get(value.replace(/^wiki\//u, "").replace(/\.md$/u, ""))?.ref;
 	};
-	const projectSummary = (value: unknown): unknown => {
-		if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-		const record = value as Record<string, unknown>;
-		const path = typeof record.path === "string" ? record.path : undefined;
-		const id = typeof record.id === "string" ? record.id : undefined;
-		const page = path ? pageByPath.get(path) : id ? pageById.get(id) : undefined;
-		const { path: _path, id: _id, knowledgeContext, graphRelatedTo, ...rest } = record;
-		return {
-			...rest,
-			...(page ? { page_ref: page.ref } : {}),
-			...(!path || page ? {} : { path }),
-			...(!id || page ? {} : { id }),
-			...(knowledgeContext ? { knowledgeContext: projectSummary(knowledgeContext) } : {}),
-			...(Array.isArray(graphRelatedTo)
-				? { graphRelatedTo: graphRelatedTo.map((item) => typeof item === "string" ? projectPageRef(item) : item) }
-				: {}),
-			...(Array.isArray(record.outgoingLinks)
-				? { outgoingLinks: record.outgoingLinks.map((item) => typeof item === "string" ? projectPageRef(item) : item) }
-				: {}),
-			...(Array.isArray(record.backlinks)
-				? { backlinks: record.backlinks.map((item) => typeof item === "string" ? projectPageRef(item) : item) }
-				: {}),
-		};
-	};
+	const projectLinks = (value: unknown): string[] => Array.isArray(value)
+		? value.flatMap(item => typeof item === "string" ? projectPageRef(item) ?? [] : []) : [];
 	const projectToolResult = (toolName: string, value: unknown, requestedRef?: string): unknown => {
 		const record = requireRecord(value, `${toolName} result`);
-		if (toolName === "wiki_list_topics") return record;
+		if (toolName === "wiki_list_topics") return { topics: Array.isArray(record.topics) ? record.topics.map(value => {
+			const topic = requireRecord(value, "Wiki Topic");
+			return { topic_ref: topic.topic_ref, title: topic.title, intent: topic.intent,
+				questions: topic.questions, include: topic.include, exclude: topic.exclude, page_count: topic.page_count };
+		}) : [] };
 		if (toolName === "wiki_search") {
-			return { ...record, results: Array.isArray(record.results) ? record.results.map(projectSummary) : [] };
+			const index = record.index as { status?: string } | undefined;
+			return {
+				...(record.mode === "keyword_graph" ? { warning: "Semantic retrieval is unavailable. Results use keyword and linked-page matches; no matches do not establish absence of relevant knowledge." }
+					: index?.status === "partial" ? { warning: "Semantic retrieval covers only part of this Wiki. Other pages remain searchable by keyword; no matches do not establish absence of relevant knowledge." } : {}),
+				results: Array.isArray(record.results) ? record.results.map(value => {
+					const hit = requireRecord(value, "Wiki search result");
+					const pageRef = projectPageRef(requireString(hit.path, "Wiki Page path"));
+					if (!pageRef) throw new Error("Wiki search returned a Page outside the pinned Edition");
+					return { page_ref: pageRef, title: hit.title, type: hit.type, snippet: hit.snippet };
+				}) : [],
+			};
 		}
 		const path = resolvePageRef(requestedRef!);
 		const page = pageByRef.get(requestedRef!)!;
@@ -146,17 +138,30 @@ function createWikiReferenceAdapter(
 				cue: entry.cue,
 				note: entry.note,
 				source: { title: entry.source.title },
-				anchors: entry.anchors,
+				anchors: entry.anchors.map(anchor => ({
+					path: anchor.path, startLine: anchor.startLine, endLine: anchor.endLine,
+					format: anchor.format, content: anchor.content,
+					...(anchor.source ? { source: { title: anchor.source.title } } : {}),
+					assets: anchor.assets.map(asset => ({ path: asset.path, width: asset.width, height: asset.height })),
+				})),
 			};
 		});
-		const { path: _path, frontmatter: _frontmatter, evidence: _evidence, links, backlinks, knowledgeContext, ...rest } = record;
 		return {
-			...rest,
-			page_ref: page.ref,
+			page_ref: page.ref, title, type, description: record.description, content,
+			primaryTopicRef: record.primaryTopicRef, topicRefs: record.topicRefs,
+			sections: Array.isArray(record.sections) ? record.sections.map(value => {
+				const section = requireRecord(value, "Wiki Section");
+				return { heading: section.heading, anchor: section.anchor, topicRefs: section.topicRefs };
+			}) : [],
 			evidence,
-			...(Array.isArray(links) ? { links: links.map((item) => typeof item === "string" ? projectPageRef(item) : item) } : {}),
-			...(Array.isArray(backlinks) ? { backlinks: backlinks.map((item) => typeof item === "string" ? projectPageRef(item) : item) } : {}),
-			...(knowledgeContext ? { knowledgeContext: projectSummary(knowledgeContext) } : {}),
+			links: projectLinks(record.links), backlinks: projectLinks(record.backlinks),
+			relations: Array.isArray(record.relations) ? record.relations.flatMap(value => {
+				const relation = requireRecord(value, "Wiki relationship");
+				const target = requireRecord(relation.page, "Wiki relationship Page");
+				const pageRef = typeof target.path === "string" ? projectPageRef(target.path) : undefined;
+				return pageRef ? [{ label: relation.label, direction: relation.direction,
+					page: { page_ref: pageRef, title: target.title, type: target.type, description: target.description } }] : [];
+			}) : [],
 		};
 	};
 	const adaptedTools = tools.map((tool): AgentTool => ({
