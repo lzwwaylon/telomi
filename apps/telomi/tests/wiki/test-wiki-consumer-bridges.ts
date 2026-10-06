@@ -83,10 +83,14 @@ try {
 		};
 		assert.equal(searchResult.results[0]?.page_ref, "P1");
 		assert.equal(searchResult.results[0]?.path, undefined);
+		assert.deepEqual(Object.keys(searchResult).sort(), ["results", "warning"], "Agent search exposes only matches and a semantic retrieval limitation");
+		assert.deepEqual(Object.keys(searchResult.results[0]!).sort(), ["page_ref", "snippet", "title", "type"]);
 		const read = await investigateCall({ operation: "wiki_read_page", path: "P1" });
 		assert.equal(read.status, 200);
 		assert.match((readInvestigationHandoff(root, read.body, "wiki_read_page") as { content: string }).content,
 			/BRIDGEVERIFICATION731/u);
+		const pageResult = readInvestigationHandoff(root, read.body, "wiki_read_page");
+		assert.doesNotMatch(JSON.stringify(pageResult), /pageId|missingLinks|knowledgeContext|frontmatter/u);
 		assert.deepEqual(wikiCalls, [
 			{ operation: "wiki_list_topics", args: {} },
 			{ operation: "wiki_search", args: searchArgs },

@@ -57,6 +57,8 @@ Tree and page responses expose section IDs, headings, anchors and Topic referenc
 
 Agent readers share `wiki_list_topics`, `wiki_search` and `wiki_read_page`. Topic discovery reads the same Wiki Edition as search and returns invocation-local `T` references plus scope and direct page counts. Runtime maps those references to persisted Topic identities; callers must rediscover them in a new execution. The searched Edition may lag the Goal's latest confirmed Topic Plan. Missing plans yield an empty catalog; Topics without page memberships remain discoverable. Current Agents do not receive graph-search tools; historical readers can retain their recorded links. Main delegates knowledge questions to Investigate Root, and assigned Report Writer Section children remain read-only page consumers.
 
+Agent-facing Wiki results use an explicit field allowlist at the shared short-reference adapter. Search returns page summaries and a plain-language limitation when semantic retrieval is unavailable or partial. Read results retain evidence text, citation refs and navigable page refs; persisted identities, hashes, retrieval diagnostics and duplicate navigation stay with Runtime. Citation resolution retains the original evidence, including Source and asset provenance. The UI continues to use the full runtime projection.
+
 Topic-filtered search uses page membership projected from the section index. It continues to search the full body of matching pages, not only their Topic-selected sections. Snippets and directory counts are navigation aids, not semantic quality scores.
 
 ## Verification and evaluation
