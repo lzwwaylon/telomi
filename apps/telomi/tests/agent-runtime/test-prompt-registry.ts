@@ -99,12 +99,13 @@ assert.doesNotMatch(mainAgentPrompt, /Goal Harness|capability snapshot|historica
 assert.doesNotMatch(mainAgentPrompt, /rebuild=true|research\.schedule|recurring monitoring/iu);
 assert.doesNotMatch(mainAgentPrompt, /topic_plan_activate/u);
 assert.equal(loadAgentPromptConfig("research", "note-agent").sandbox?.network, "deny");
+const noteWriting = renderAgentPrompt("research", "note-agent", "reference", {}, "note-writing").content;
 const readingQuality = renderAgentPrompt("research", "note-agent", "reference", {}, "evidence-reading-quality").content;
 for (const variant of ["default", "question-reading"] as const) {
 	const scope = renderAgentPrompt("research", "note-agent", "system-append", {}, variant);
 	const composed = renderNoteAgentSystemPrompt(undefined, variant);
-	assert.equal(composed.content, `${scope.content}\n\n${readingQuality}`,
-		`${variant} Reader must include the registered quality rules exactly once`);
+	assert.equal(composed.content, `${scope.content}\n\n${noteWriting}\n\n${readingQuality}`,
+		`${variant} Reader must include the registered writing and quality rules exactly once`);
 	assert.deepEqual(composed.revision, scope.revision, "Reader scope retains its registered variant identity");
 }
 assert.match(buildNoteAgentSystemPrompt(), /one supplied Source/u);

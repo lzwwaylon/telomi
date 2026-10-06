@@ -68,7 +68,7 @@ export function buildNoteReadingTaskPrompt(question: string, sourceCount: number
 		"Read source/reader-context.json for the original question, verified prior Cue navigation, current anchor mappings and preferred Source refs. It is navigation only; cite exact original Source lines.",
 		`The Goal has ${sourceCount} pinned Source views in source/catalog.json, available as needed to resolve the assigned question. Source refs are navigation handles, not evidence.`,
 		"Write note.json with exactly this shape:",
-		'{"status":"found|partial|not_found","summary":"short answer or search outcome","gaps":["specific unresolved point"],"sections":[{"section_title":"topic","cue_notes":[{"cue":"topic + keywords","note":"supported conclusion","evidence":[{"source_ref":"S1","source_path":"exact path within that Source","start_line":1,"end_line":2}]}]}]}',
+		'{"status":"found|partial|not_found","summary":"short answer or search outcome","gaps":["specific unresolved point"],"sections":[{"section_title":"topic","cue_notes":[{"cue":"one-sentence claim","note":"supported conclusion","evidence":[{"source_ref":"S1","source_path":"exact path within that Source","start_line":1,"end_line":2}]}]}]}',
 		"Use found only when the question is answered with evidence; partial when some evidence exists but a gap remains; not_found with empty sections when no evidence was found. Every Cue needs at least one exact original-text citation. Do not cite the catalog or manifests. Do not include hashes, IDs, or extra fields: Runtime supplies them.",
 	].join("\n\n");
 }

@@ -6,6 +6,7 @@ prompts:
     default: system.md.njk
     question-reading: system.question-reading.md.njk
   reference:
+    note-writing: reference.note-writing.md.njk
     evidence-reading-quality: reference.evidence-reading-quality.md.njk
   user:
     default: user.md.njk
