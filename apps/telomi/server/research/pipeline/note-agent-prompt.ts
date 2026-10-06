@@ -13,8 +13,9 @@ export function renderNoteAgentSystemPrompt(
 	variant: "default" | "question-reading" = "default",
 ): RenderedAgentPrompt {
 	const scope = renderAgentPrompt("research", "note-agent", "system-append", {}, variant);
+	const writing = renderAgentPrompt("research", "note-agent", "reference", {}, "note-writing");
 	const quality = renderAgentPrompt("research", "note-agent", "reference", {}, "evidence-reading-quality");
-	return { ...scope, content: `${scope.content}\n\n${quality.content}` };
+	return { ...scope, content: `${scope.content}\n\n${writing.content}\n\n${quality.content}` };
 }
 
 export function buildNoteAgentUserPrompt(
