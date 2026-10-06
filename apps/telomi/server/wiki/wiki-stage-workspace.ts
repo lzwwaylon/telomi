@@ -1,5 +1,8 @@
 import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
+import type { Nodes } from 'mdast';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import { hashJson } from '../lib/hash.js';
 import { isRecord } from '../lib/values.js';
 import { splitFrontmatter } from './model/frontmatter.js';
@@ -25,6 +28,21 @@ export interface WikiStageWorkspace {
  receipts(): { pages: string[]; sections: string[]; entries: string[] };
 }
 function fail(message: string): never { throw new Error(`Wiki compilation output: ${message}`); }
+const markdownParser = unified().use(remarkParse);
+function validateMarkdownMarkup(body: string, field: string): void {
+ const nodes: Nodes[] = [markdownParser.parse(body)];
+ for (const node of nodes) {
+  if (node.type === 'link') {
+   const start = node.position!.start;
+   fail(`${field}: no links allowed at body line ${start.line}, column ${start.column}: ${JSON.stringify(node.url.slice(0, 120))}. Use escaped text or code for literal notation.`);
+  }
+  if (node.type === 'html') {
+   const start = node.position!.start;
+   fail(`${field}: HTML is not allowed at body line ${start.line}, column ${start.column}: ${JSON.stringify(node.value.slice(0, 120))}. Use escaped text or code for literal notation.`);
+  }
+  if ('children' in node) for (const child of node.children) nodes.push(child);
+ }
+}
 function text(value: unknown, field: string): string {
  if (typeof value !== 'string' || !value.trim()) fail(`${field}: expected non-empty text; received ${JSON.stringify(value) ?? 'undefined'}`);
  return value as string;
@@ -304,7 +322,8 @@ export function createWikiStageWorkspace(input: WikiStageInput, inputRoot: strin
    shape(fields, ['title', 'description'], `${path}.file(${file}).frontmatter`);
    const title = text(fields.title, `${path}.file(${file}).frontmatter.title`), description = text(fields.description, `${path}.file(${file}).frontmatter.description`);
    text(body, `${path}.file(${file}).body`);
-   if (!/^##\s+\S/mu.test(body) || /^#\s|^---\s*$|^##\s+(?:Related|Evidence)\s*$/imu.test(body) || /(?:https?:\/\/|\]\(|<\/?[A-Za-z][^<>\n]*>|^\s*\[[^\]]+\]:)/mu.test(body)) fail(`${path}.file(${file}).body: Markdown requires H2 sections and no links, HTML, Related or Evidence sections`);
+   if (!/^##\s+\S/mu.test(body) || /^#\s|^---\s*$|^##\s+(?:Related|Evidence)\s*$/imu.test(body) || /(?:https?:\/\/|\]\(|^\s*\[[^\]]+\]:)/mu.test(body)) fail(`${path}.file(${file}).body: Markdown requires H2 sections and no links, HTML, Related or Evidence sections`);
+   validateMarkdownMarkup(body, `${path}.file(${file}).body`);
    const markers = [...body.matchAll(/\[\[([^\]]+)\]\]/gu)];
    if (!markers.length || /\[\[|\]\]/u.test(body.replace(/\[\[([^\]]+)\]\]/gu, ''))) fail(`${path}.file(${file}).body: body must cite valid short Entry markers such as [[N1]]`);
    for (const match of markers) entry(match[1], `${path}.file(${file}).body`);

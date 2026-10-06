@@ -51,6 +51,32 @@ try {
  markdown('Bad.md', '## Loss\nWrong [[N1]] [link](elsewhere)');
  assert.throws(() => ws.validate({ ...draft, pages: [{ file: 'pages/Bad.md' }] }, work), /no links/u);
 
+ // Technical notation is text or code, not HTML, even when it contains angle brackets.
+ for (const literal of [
+  '<S{id}>', '\\<S{id}\\>', '\\<speaker\\>', '&lt;speaker&gt;',
+  '`<speaker>`', '`<script>alert(1)</script>`',
+  '`<user@example.org>`', '\\<user@example.org\\>', '`<ftp:files>`',
+  '```xml\n<speaker>\n</speaker>\n```', '    <speaker>\n    </speaker>',
+ ]) {
+  markdown('Literal.md', `## Mechanism\n\n${literal}\n\nSupported notation [[N1]].`);
+  const value = ws.validate({ ...draft, pages: [{ file: 'pages/Literal.md' }] }, work);
+  assert.ok(value.kind === 'pages' && value.value.pages[0]!.body.includes(literal), 'Validation preserves literal bytes');
+ }
+ for (const html of ['<speaker>', '<em>text</em>', '<script>alert(1)</script>', '<!-- hidden -->', '<!DOCTYPE html>', '\\\\<speaker>', '<speaker\n name="label">', '> <speaker>', '- <speaker>']) {
+  markdown('Html.md', `## Mechanism\n\n${html}\n\nSupported statement [[N1]].`);
+  assert.throws(() => ws.validate({ ...draft, pages: [{ file: 'pages/Html.md' }] }, work), /HTML/u);
+ }
+ for (const link of ['<user@example.org>', '<mailto:user@example.org>', '<ftp:files>']) {
+  markdown('Link.md', `## Mechanism\n\n${link} [[N1]].`);
+  assert.throws(() => ws.validate({ ...draft, pages: [{ file: 'pages/Link.md' }] }, work), /no links allowed at body line 4, column 1/u);
+ }
+ markdown('Html.md', '## Mechanism\n\nUnsafe <speaker>. [[N1]]');
+ assert.throws(() => ws.validate({ ...draft, pages: [{ file: 'pages/Html.md' }] }, work), error => {
+  assert.match(String(error), /pages\/Html.md.*HTML.*body line 4, column 8/u);
+  assert.match(String(error), /<speaker>.*escaped text or code/u);
+  return true;
+ });
+
  const merge = input('merge-objects');
  merge.pages = [{ ref: 'old:first', page: first, previous: true, role: 'member' }, { ref: 'draft:second', page: second, previous: false, role: 'member' }];
  merge.previousRelations = [{ from: first.id, to: second.id, label: 'contrasts', entryIds: [id] }];
