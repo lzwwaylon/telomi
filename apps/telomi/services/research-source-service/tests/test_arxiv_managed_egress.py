@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
@@ -72,10 +73,13 @@ def test_static_name_collision_leaves_routes_unchanged(
     tmp_path: Path, authorization: dict[str, str],
 ) -> None:
     with client_for(tmp_path, lambda _: httpx.Response(500), arxiv_egress_proxies={ROUTE: PROXY}) as client:
-        response = client.post("/v1/arxiv/egress", headers=authorization,
+        response = client.post("/v1/arxiv/egress", headers={**authorization, "x-request-id": "request-1081"},
                                json={"schema_version": 1, "routes": {ROUTE: "socks5h://127.0.0.1:1081"}})
         assert response.status_code == 400
-        assert PROXY not in response.text and "1081" not in response.text
+        error = response.json()["error"]
+        assert error.pop("request_id") == "request-1081"
+        serialized_error = json.dumps(error)
+        assert PROXY not in serialized_error and "1081" not in serialized_error
         assert client.app.state.registry.http.arxiv_egress.managed == {}
 
 
