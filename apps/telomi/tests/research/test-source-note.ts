@@ -17,7 +17,6 @@ import { AgentStageExecutionError } from "../../server/agent-runtime/agent-stage
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { materializeAgentSourceView } from "../../server/research/pipeline/agent-source-view.js";
 import { validateSourceNotesSnapshot } from "../../server/notes/contracts.js";
-import type { GoalTopicPlan } from "../../server/goals/topic-plan/index.js";
 
 const root = mkdtempSync(join(tmpdir(), "note-agent-contract-"));
 try {
@@ -44,46 +43,19 @@ try {
 		] }],
 	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }]);
 	assert.equal(caseNormalized.sections[0]!.cue_notes[0]!.evidence[0]!.source_path, "paper.md");
-	const topicPlan: GoalTopicPlan = {
-		schema_version: 1,
-		goal_id: "goal-notes",
-		revision: "topic-plan-v1",
-		status: "active",
-		topics: [
-			{ id: "multilingual", title: "Multilingual", intent: "Multilingual speech", questions: [], include: [], exclude: [] },
-			{ id: "historical", title: "Historical", intent: "Historical Topic", questions: [], include: [], exclude: [] },
-		],
-	};
-	const topicNote = validateSourceNote({ sections: [{
-		section_title: "Language coverage",
-		summary: "The Source covers multilingual speech.",
-		cue_notes: [{
-			cue: "Multilingual + coverage",
-			note: "The system covers Chinese and English.",
-			topic_refs: ["T1"],
-			evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }],
-		}],
-	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan);
-	assert.deepEqual(topicNote.sections[0]!.cue_notes[0]!.topic_refs, ["multilingual"]);
 	assert.throws(() => validateSourceNote({ sections: [{
-		section_title: "Duplicate",
-		summary: "Duplicate Topic references are invalid.",
-		cue_notes: [{ cue: "Duplicate", note: "Invalid.", topic_refs: ["T1", "T1"], evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
-	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan),
-	/sections\[0\]\.cue_notes\[0\]\.topic_refs contains duplicate reference 'T1'/u);
-	assert.throws(() => validateSourceNote({ sections: [{
-		section_title: "Unknown",
-		summary: "Invalid unknown Topic.",
-		cue_notes: [{ cue: "Unknown", note: "Invalid.", topic_refs: ["T9"], evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
-	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan),
-	/sections\[0\]\.cue_notes\[0\]\.topic_refs\[0\].*T9.*allowed references.*T1.*Multilingual/u);
+		section_title: "Topic references",
+		summary: "Cue Notes no longer carry Topic references.",
+		cue_notes: [{ cue: "Topic", note: "Invalid.", topic_refs: ["T1"], evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
+	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }]),
+	/must contain exactly/u);
 	assert.throws(() => validateSourceNote({ sections: "invalid" }, "source-group:test", []),
 		/Cornell Note\.sections must be an array/u);
 	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Evidence fields",
 		summary: "Evidence fields are invalid.",
-		cue_notes: [{ cue: "Evidence", note: "Invalid.", topic_refs: [], evidence: [{ source_path: "paper.md", start_line: 2, extra: true }] }],
-	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan),
+		cue_notes: [{ cue: "Evidence", note: "Invalid.", evidence: [{ source_path: "paper.md", start_line: 2, extra: true }] }],
+	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }]),
 	/sections\[0\]\.cue_notes\[0\]\.evidence\[0\].*missing: end_line.*unexpected: extra/u);
 	const discoveryNote = validateSourceNote({ sections: [{
 		section_title: "Emerging",
@@ -91,22 +63,21 @@ try {
 		cue_notes: [{
 			cue: "Inference adaptation",
 			note: "The Source introduces a new inference adaptation direction.",
-			topic_refs: [],
 			discovery: { finding: "Inference adaptation can materially extend the Goal." },
 			evidence: [{ source_path: "paper.md", start_line: 3, end_line: 3 }],
 		}],
-	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan, true);
+	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], true);
 	assert.equal(discoveryNote.sections[0]!.cue_notes[0]!.discovery?.finding, "Inference adaptation can materially extend the Goal.");
 	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Missing Discovery",
 		summary: "Discovery is required by the enabled contract.",
-		cue_notes: [{ cue: "Missing", note: "Invalid.", topic_refs: [], evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
-	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan, true), /must contain exactly/u);
+		cue_notes: [{ cue: "Missing", note: "Invalid.", evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
+	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], true), /must contain exactly/u);
 	assert.throws(() => validateSourceNote({ sections: [{
 		section_title: "Unexpected Discovery",
 		summary: "Discovery is disabled.",
-		cue_notes: [{ cue: "Unexpected", note: "Invalid.", topic_refs: [], discovery: { finding: "Unexpected" }, evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
-	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], topicPlan, false), /must contain exactly/u);
+		cue_notes: [{ cue: "Unexpected", note: "Invalid.", discovery: { finding: "Unexpected" }, evidence: [{ source_path: "paper.md", start_line: 2, end_line: 2 }] }],
+	}] }, "source-group:test", [{ relativePath: "paper.md", absolutePath: path, sha256: sha256("alpha\nbeta\ngamma\n"), byteLength: 17 }], false), /must contain exactly/u);
 	assert.throws(() => validateSourceNote({
 		relevance_level: "high",
 		rationale: "legacy",

@@ -32,4 +32,4 @@ export {
 	type GoalTopicPlanActivationResult,
 } from "./activation.js";
 export { createTopicPlanRouter } from "./api.js";
-export { goalTopicReferences, resolveGoalTopicRefs, validateDiscoveryCandidate, validateGoalTopicPatch, validateGoalTopicPlan } from "./validation.js";
+export { resolveGoalTopicRefs, validateDiscoveryCandidate, validateGoalTopicPatch, validateGoalTopicPlan } from "./validation.js";

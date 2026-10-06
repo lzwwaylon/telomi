@@ -29,7 +29,6 @@ import { noteArtifactPath, RuntimeSourceNotesMaterializer } from "./pipeline/sou
 import { isReadableTextContent, materializeAgentSourceView } from "./pipeline/agent-source-view.js";
 import type { SourceFileRecord } from "./pipeline/source-bundle.js";
 import type { ResearchHarnessSnapshot } from "./harness/snapshot.js";
-import { goalTopicReferences, type GoalTopicPlan } from "../goals/topic-plan/index.js";
 import { toErrorMessage } from "../lib/values.js";
 import { safeName } from "../lib/paths.js";
 
@@ -218,7 +217,6 @@ export class RuntimeNoteAgentProcessor implements SourceNoteProcessor {
 						parseNoteJson(entryPath),
 						document.id,
 						sourceFiles,
-						input.topicPlan,
 						input.discoveryEnabled,
 					);
 					writeFileSync(entryPath, `${JSON.stringify(note, null, 2)}\n`);
@@ -236,7 +234,6 @@ export function validateSourceNote(
 	value: unknown,
 	expectedSourceId: string,
 	sourceFiles: readonly SourceFileRecord[],
-	topicPlan?: GoalTopicPlan,
 	discoveryEnabled = false,
 ): SourceNote {
 	const record = requireRecord(value, "Cornell Note");
@@ -262,7 +259,6 @@ export function validateSourceNote(
 					const noteLabel = `${sectionLabel}.cue_notes[${noteIndex}]`;
 					const note = requireRecord(candidateNote, noteLabel);
 					const expected = ["cue", "note", "evidence"];
-					if (topicPlan) expected.push("topic_refs");
 					if (discoveryEnabled) expected.push("discovery");
 					assertExactKeys(note, expected, noteLabel);
 					if (!Array.isArray(note.evidence) || note.evidence.length === 0) {
@@ -271,7 +267,7 @@ export function validateSourceNote(
 					return {
 						cue: nonEmpty(note.cue, `${noteLabel}.cue`),
 						note: nonEmpty(note.note, `${noteLabel}.note`),
-						...validateCueTopics(note, topicPlan, discoveryEnabled, noteLabel),
+						...validateCueDiscovery(note, discoveryEnabled, noteLabel),
 						evidence: note.evidence.map((candidateEvidence, evidenceIndex) => validateEvidence(
 							candidateEvidence,
 							files,
@@ -351,36 +347,17 @@ function assertExactKeys(value: Record<string, unknown>, expected: string[], lab
 	}
 }
 
-function validateCueTopics(
+function validateCueDiscovery(
 	note: Record<string, unknown>,
-	plan: GoalTopicPlan | undefined,
 	discoveryEnabled: boolean,
 	label: string,
-): Pick<SourceNote["sections"][number]["cue_notes"][number], "topic_refs" | "discovery"> {
-	const topicRefs = plan ? validateTopicRefs(note.topic_refs, plan, label) : undefined;
-	if (!discoveryEnabled) return topicRefs ? { topic_refs: topicRefs } : {};
+): Pick<SourceNote["sections"][number]["cue_notes"][number], "discovery"> {
+	if (!discoveryEnabled) return {};
 	const discovery = requireRecord(note.discovery, `${label} discovery`);
 	assertExactKeys(discovery, ["finding"], `${label} discovery`);
 	if (typeof discovery.finding !== "string") throw new Error(`${label} discovery finding must be a string`);
 	const finding = discovery.finding.trim();
-	return {
-		...(topicRefs ? { topic_refs: topicRefs } : {}),
-		...(finding ? { discovery: { finding } } : {}),
-	};
-}
-
-function validateTopicRefs(value: unknown, plan: GoalTopicPlan, label: string): string[] {
-	if (!Array.isArray(value)) throw new Error(`${label}.topic_refs must be an array`);
-	const references = goalTopicReferences(plan);
-	const known = new Map(references.map(({ ref, topic }) => [ref, topic]));
-	const refs = value.map((ref, index) => nonEmpty(ref, `${label}.topic_refs[${index}]`));
-	const duplicate = refs.find((ref, index) => refs.indexOf(ref) !== index);
-	if (duplicate) throw new Error(`${label}.topic_refs contains duplicate reference '${duplicate}'`);
-	const unknownIndex = refs.findIndex((ref) => !known.has(ref));
-	if (unknownIndex >= 0) {
-		throw new Error(`${label}.topic_refs[${unknownIndex}] contains unknown Goal Topic reference '${refs[unknownIndex]}'; allowed references: ${references.map(({ ref, topic }) => `${ref} (${topic.title})`).join(", ")}`);
-	}
-	return refs.map((ref) => known.get(ref)!.id);
+	return finding ? { discovery: { finding } } : {};
 }
 
 function parseNoteJson(path: string): unknown {

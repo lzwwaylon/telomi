@@ -1,7 +1,6 @@
 import type {
 	DiscoveryCandidate,
 	DiscoveryResolution,
-	GoalTopic,
 	GoalTopicInput,
 	GoalTopicPatch,
 	GoalTopicPatchOperation,
@@ -44,15 +43,6 @@ export function resolveGoalTopicRefs(plan: GoalTopicPlan, refs: readonly string[
 	return [...new Set(refs)].map((ref) => ids.has(ref)
 		? { input_ref: ref, status: "exact", canonical_refs: [ref] }
 		: { input_ref: ref, status: "unresolved", canonical_refs: [] });
-}
-
-/**
- * Agents reference Topics by short ref instead of the canonical Topic ID: a 20 hex character ID
- * cannot be transcribed reliably, and one wrong character costs a whole Agent repair round.
- * Runtime maps the refs back to canonical IDs when it reads an Agent result.
- */
-export function goalTopicReferences(plan: GoalTopicPlan): Array<{ ref: string; topic: GoalTopic }> {
-	return plan.topics.map((topic, index) => ({ ref: `T${index + 1}`, topic }));
 }
 
 export function validateGoalTopicPatch(value: GoalTopicPatch): GoalTopicPatch {

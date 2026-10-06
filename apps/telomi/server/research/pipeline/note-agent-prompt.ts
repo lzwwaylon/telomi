@@ -1,6 +1,6 @@
 import { renderAgentPrompt, type RenderedAgentPrompt } from "../../agent-runtime/prompt-registry.js";
 import type { ScheduledResearchContext } from "../scheduled-research-context.js";
-import { goalTopicReferences, type GoalTopicPlan } from "../../goals/topic-plan/index.js";
+import type { GoalTopicPlan } from "../../goals/topic-plan/index.js";
 
 export function buildNoteAgentSystemPrompt(
 	scheduledResearch?: ScheduledResearchContext,
@@ -59,9 +59,8 @@ export function renderPrimeNoteAgentUserPrompt(taskPrompt: string, variant: "pri
 function renderTopicPlan(plan: GoalTopicPlan): string {
 	return [
 		`Revision: ${plan.revision}`,
-		"Use the short Topic references exactly as shown in topic_refs; Runtime maps them to canonical Topic IDs.",
-		...goalTopicReferences(plan).flatMap(({ ref, topic }) => [
-			`- ${ref} | ${topic.title}`,
+		...plan.topics.flatMap((topic) => [
+			`- ${topic.title}`,
 			`  Intent: ${topic.intent}`,
 			...(topic.include.length ? [`  Include: ${topic.include.join(" | ")}`] : []),
 			...(topic.exclude.length ? [`  Exclude: ${topic.exclude.join(" | ")}`] : []),
