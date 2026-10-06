@@ -17,7 +17,7 @@ Description: {{ goal_description }}
 
 ## Reading priorities
 
-Read `inputs/context.md`. Where this Source covers the requested priorities, record them at the required granularity, including implementation symbols and paths when needed. Record other relevant evidence as usual; emphasis does not replace the assigned scope.
+Read `inputs/context.md`. Where this Source covers the requested priorities, record them at the required granularity, including exact identifiers and locations when needed. Record other relevant evidence as usual; emphasis does not replace the assigned scope.
 
 
 {% if source_update_context %}
@@ -40,22 +40,12 @@ Discovery is enabled only for this Note Agent stage. It must not broaden the que
 For every Cue Note, include `discovery` with exactly one `finding` string. Leave `finding` empty unless this Cue Note and its cited evidence reveal a well-supported finding that can materially advance the User Goal but is not adequately represented by the current Topic Plan. A finding may be unrelated to the current Topic, but it must be relevant to the User Goal. Do not classify it, suggest a related Topic, or invent a finding from model knowledge.
 {% endif %}
 
-{% if topic_plan_context and discovery_enabled %}
-Write JSON with exactly:
-
-{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"...","note":"...","topic_refs":["T1"],"discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
-
-`topic_refs` must use exact short Topic references shown in the Active Goal Topic Plan and may contain multiple references or be empty. `discovery` is required on every Cue Note, but its `finding` may be empty. A non-empty finding creates only an Inbox candidate, never a Topic.
-{% elif topic_plan_context %}
-Write JSON with exactly:
-
-{"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"...","note":"...","topic_refs":["T1"],"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
-
-`topic_refs` must use exact short Topic references shown in the Active Goal Topic Plan and may contain multiple references or be empty.
-{% elif discovery_enabled %}
+{% if discovery_enabled %}
 Write JSON with exactly:
 
 {"sections":[{"section_title":"...","summary":"2-4 sentences","cue_notes":[{"cue":"...","note":"...","discovery":{"finding":"material Goal-relevant finding, or empty string"},"evidence":[{"source_path":"declared path","start_line":1,"end_line":2}]}]}]}
+
+`discovery` is required on every Cue Note, but its `finding` may be empty. A non-empty finding creates only an Inbox candidate, never a Topic.
 {% else %}
 Write JSON with exactly:
 

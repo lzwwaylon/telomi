@@ -131,9 +131,8 @@ const notePrompt = `${buildNoteAgentSystemPrompt()}\n${buildNoteAgentUserPrompt(
 })}`;
 assert.match(notePrompt, /Discovery is enabled only for this Note Agent stage/u);
 assert.match(notePrompt, /"discovery":\{"finding"/u);
-assert.match(notePrompt, /T1 \| Multilingual/u);
-assert.match(notePrompt, /"topic_refs":\["T1"\]/u);
-assert.doesNotMatch(notePrompt, /- multilingual \| Multilingual/u);
+assert.match(notePrompt, /- Multilingual\n {2}Intent: Track Chinese and multilingual quality/u);
+assert.doesNotMatch(notePrompt, /topic_refs/u);
 assert.doesNotMatch(notePrompt, /## Note focus/u);
 const noteWithFocus = buildNoteAgentUserPrompt({
 	question: "Track speech generation.",
