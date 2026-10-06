@@ -147,6 +147,7 @@ export function wikiStageCapabilityIdentity(): string {
  return hashJson({ semantics, system: system.content, registration: system.configSha256,
   pageTopics: renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "page-topics").content,
   piObjects: renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "objects-pi").content,
+  piObjectPage: renderAgentPrompt("wiki", "wiki-compilation", "reference", {}, "object-page").content,
   piConceptCommon: renderAgentPrompt("wiki", "wiki-compilation", "reference", {}, "concept-common").content,
   piConcepts: ["question-plan-pi", "concepts-pi", "audit-concepts-pi", "merge-concepts-pi"]
    .map(variant => renderAgentPrompt("wiki", "wiki-compilation", "system", {}, variant).content),

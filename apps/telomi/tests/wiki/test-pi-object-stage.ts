@@ -23,6 +23,7 @@ try {
  const piSystem = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'objects-pi').content;
  assert.match(piSystem, /First identify the research subject or subjects/);
  assert.match(piSystem, /Use the write tool to create one file per object/);
+ assert.match(renderAgentPrompt('wiki', 'wiki-compilation', 'reference', {}, 'object-page').content, /^# Object page writing/);
  const user = piObjectUserContext(input, inputRoot);
  assert.deepEqual(Object.keys(JSON.parse(user)), ['output_language', 'goal', 'entries']);
  assert.ok(!user.includes('Create research object pages'));
