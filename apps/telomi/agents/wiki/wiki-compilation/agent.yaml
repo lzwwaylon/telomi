@@ -14,6 +14,7 @@ prompts:
     audit-concepts-pi: system.audit-concepts-pi.md.njk
     merge-concepts-pi: system.merge-concepts-pi.md.njk
   reference:
+    object-page: object-page.md.njk
     concept-common: concept-common.md.njk
   system-append:
     default: system.md.njk

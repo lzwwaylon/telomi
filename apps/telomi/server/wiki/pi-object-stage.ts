@@ -192,6 +192,7 @@ async function runPiObjectFileStage(request: WikiStageRequest, mode: 'default' |
   modelId: mergePlanning ? PI_OBJECT_PLAN_MODEL : !merging && !residual ? PI_OBJECT_NOTE_MODEL : PI_OBJECT_MODEL,
   promptVariant: mergePlanning ? 'plan-object-targets-pi' : targetWriting ? 'write-object-target-pi'
    : residual ? 'resolve-object-cues-pi' : 'objects-pi',
+  referenceVariant: mergePlanning ? undefined : 'object-page',
   user, role: 'wiki.object_builder',
   grepRoot: mergePlanning || residual ? '/work/wiki/pages' : undefined,
   executionMode: mode.startsWith('target-') ? `pi-object-${mode}` : 'pi-file-agent',
