@@ -74,7 +74,7 @@ To upgrade an existing installation, run `npm run upgrade`: it snapshots the dat
 2. **Create a Goal.** Describe something you want to understand or keep following.
 3. **Confirm the topic plan.** Discuss the questions and scope with Telomi before starting research.
 4. **Ask, follow up or request a report.** Telomi investigates your question and returns a cited answer. Report requests publish the verified content as a report card you can read or turn into audio. Follow up in the same investigation or start another subject.
-5. **Keep learning.** Share feedback and create a research schedule from a published report to follow new developments.
+5. **Keep learning.** Share feedback to guide later answers. If you have a published Research Run with successfully read Source Notes, you can use it as the baseline for a research schedule. Reports published from conversation investigations cannot serve as schedule baselines.
 
 ## Help and contributing
 

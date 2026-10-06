@@ -17,7 +17,7 @@ Pin the current Goal Wiki Knowledge for a Research Run. User preferences and use
 ## Responsibility boundaries
 
 - Wiki Agents exclusively own Goal Knowledge curation.
-- Main Agent queries knowledge through Wiki Tools, without injecting the entire Wiki into its System Prompt.
+- Main Agent delegates knowledge questions through `investigate`; Investigate Root queries the pinned Wiki through read-only Wiki Tools.
 - This module does not read, infer, store, or project user preferences.
 
 ## Wiki retrieval index

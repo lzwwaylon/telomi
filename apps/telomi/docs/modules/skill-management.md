@@ -21,7 +21,7 @@ An input path may identify one Skill or a directory containing multiple Skills. 
 - Plain names in `agent.yaml.skills` resolve within the current Bundle. A few shared Skills explicitly reference the sole copy in another Bundle through `<agent-id>/<skill-name>`.
 - On every Turn, Main Agent merges server-bundled Skills declared by `main/main-agent` with Goal `skills/main-agent`, then materializes them in that Turn's sandbox.
 - At Research startup, Skills declared by each Agent Bundle are content-hashed and materialized in the Run Control Directory.
-- Prime Search Providers declare server-bundled Skills through `workerSkills` in the Provider Catalog. The Coordinator body is also declared by `agent.yaml`; Runtime generates only the current Provider Catalog and execution contract in `references/current-run.md`.
+- Prime Search Providers declare server-bundled Skills through `workerSkills` in the Provider Catalog. Prime Search Root's acquisition instructions come from its registered Prompt template; Runtime supplies the current Provider Catalog and execution contract directly in the task input.
 - Server-bundled Skills for Prime Report, Wiki Compilation and Podcast are materialized through the same module.
 - Runtime writes generated `references/API.md` into materialized Provider Skills, so the materialized directory's hash is not the Skill identity. Startup conditions record the source hash verified during materialization through `materializedSkillIdentity` and reject Skills whose source files changed after materialization.
 - Agents and RLM children continue to read materialized directories through Pi's native filesystem and Skill Loader.
