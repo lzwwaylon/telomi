@@ -1,7 +1,6 @@
 display_name: Wiki Compilation
 schema_version: 2
 id: wiki-compilation
-skills: [wiki]
 prompts:
   system:
     page-topics: system.page-topics.md.njk
@@ -16,7 +15,3 @@ prompts:
   reference:
     object-page: object-page.md.njk
     concept-common: concept-common.md.njk
-  system-append:
-    default: system.md.njk
-  user:
-    default: user.md.njk

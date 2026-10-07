@@ -10,17 +10,20 @@ import { isRecord } from "../lib/values.js";
 export function pinWikiModelSelection(controlDirectory: string, environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const selectionPath = join(controlDirectory, "wiki-model-selection.json");
 	const saved = existsSync(selectionPath) ? JSON.parse(readFileSync(selectionPath, "utf-8")) : undefined;
-	if (saved !== undefined && (!isRecord(saved) || Object.keys(saved).length !== 3
-		|| ![saved.TELOMI_WIKI_COMPILATION_MODEL, saved.TELOMI_PRIME_AGENT_CHILD_MODEL]
-		.every((model) => typeof model === "string" && /^[^/]+\/.+$/u.test(model))
+	if (saved !== undefined && (!isRecord(saved)
+		|| Object.keys(saved).some((key) => !["TELOMI_WIKI_COMPILATION_MODEL", "TELOMI_WIKI_COMPILATION_THINKING_LEVEL", "TELOMI_PRIME_AGENT_CHILD_MODEL"].includes(key))
+		|| typeof saved.TELOMI_WIKI_COMPILATION_MODEL !== "string" || !/^[^/]+\/.+$/u.test(saved.TELOMI_WIKI_COMPILATION_MODEL)
+		|| (saved.TELOMI_PRIME_AGENT_CHILD_MODEL !== undefined && (typeof saved.TELOMI_PRIME_AGENT_CHILD_MODEL !== "string" || !/^[^/]+\/.+$/u.test(saved.TELOMI_PRIME_AGENT_CHILD_MODEL)))
 		|| !isThinkingLevel(saved.TELOMI_WIKI_COMPILATION_THINKING_LEVEL))) {
 		throw new Error("Invalid persisted Wiki model selection");
 	}
-	const pinned = pinTaskModelSelection(["wikiCompilation", "primeChild"], { ...(environment), ...saved });
+	const pinned = pinTaskModelSelection(["wikiCompilation"], { ...environment,
+		...(saved ? { TELOMI_WIKI_COMPILATION_MODEL: saved.TELOMI_WIKI_COMPILATION_MODEL,
+			TELOMI_WIKI_COMPILATION_THINKING_LEVEL: saved.TELOMI_WIKI_COMPILATION_THINKING_LEVEL } : {}),
+	});
 	mkdirSync(controlDirectory, { recursive: true });
 	writeJsonAtomic(selectionPath, {
 		TELOMI_WIKI_COMPILATION_MODEL: pinned.TELOMI_WIKI_COMPILATION_MODEL,
-		TELOMI_PRIME_AGENT_CHILD_MODEL: pinned.TELOMI_PRIME_AGENT_CHILD_MODEL,
 		TELOMI_WIKI_COMPILATION_THINKING_LEVEL: pinned.TELOMI_WIKI_COMPILATION_THINKING_LEVEL,
 	});
 	return freezeModelDefinitions(pinned, controlDirectory);

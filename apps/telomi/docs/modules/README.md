@@ -40,5 +40,5 @@ The table below records only ownership relationships that are not apparent from 
 | `main/podcast-writer` | Prime Podcast Writer Root |
 | `research/prime-search` | Prime Search and Source Organizer |
 | `research/note-agent`, `research/report-writer`, `research/schedule-reviewer` | Research Agents |
-| `wiki/wiki-compilation` | Wiki Compilation stages and Topic Python Skill |
+| `wiki/wiki-compilation` | Wiki Compilation Pi stages and direct Topic classification |
 | `evolution/browser-skill-evolution` | [Evolution Module](../evolution-module-design.md) |

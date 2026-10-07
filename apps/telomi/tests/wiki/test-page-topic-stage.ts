@@ -2,21 +2,24 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { freezeModelDefinitions } from '../../server/agent-runtime/model-policy.js';
 import { listJsonl } from '../../server/lib/fs.js';
-import { type PageTopicCompletion, PAGE_TOPIC_MODEL, runPageTopicStage } from '../../server/wiki/page-topic-stage.js';
+import { type PageTopicCompletion, runPageTopicStage } from '../../server/wiki/page-topic-stage.js';
 import type { WikiStageInput, WikiStageRequest } from '../../server/wiki/wiki-stage-contract.js';
 import { wikiPageSections } from '../../server/wiki/wiki-page-contract.js';
 
 const root = mkdtempSync(join(tmpdir(), 'page-topic-stage-'));
 const canonical = join(root, 'canonical');
 mkdirSync(canonical);
-const model = { id: 'gpt-5.6-terra', name: 'Terra', api: 'openai-codex-responses', provider: 'openai-codex', baseUrl: 'https://chatgpt.com/backend-api', reasoning: true,
+const selectedModel = 'wiki-topic-fixture/configured-wiki';
+const model = { id: 'configured-wiki', name: 'Configured Wiki', api: 'openai-completions', provider: 'wiki-topic-fixture', baseUrl: 'http://127.0.0.1:1/v1', reasoning: true,
  input: ['text'], cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0 }, contextWindow: 272000, maxTokens: 128000 };
-writeFileSync(join(canonical, 'auth.json'), JSON.stringify({ 'openai-codex': { type: 'api_key', key: 'fake-test-key-never-sent' } }));
-writeFileSync(join(canonical, 'models.json'), '{"providers":{}}');
-writeFileSync(join(canonical, 'models-store.json'), JSON.stringify({ 'openai-codex': { models: [model] } }));
-const env = freezeModelDefinitions({ ...process.env, PRIME_AGENT_CODING_AGENT_DIR: canonical }, join(root, 'frozen'));
+writeFileSync(join(canonical, 'auth.json'), '{}');
+writeFileSync(join(canonical, 'models.json'), JSON.stringify({ providers: { 'wiki-topic-fixture': { baseUrl: model.baseUrl, api: model.api, apiKey: 'fake-test-key-never-sent', models: [model] } } }));
+writeFileSync(join(canonical, 'models-store.json'), JSON.stringify({ 'wiki-topic-fixture': { models: [model] } }));
+const env = freezeModelDefinitions({ ...process.env, PI_CODING_AGENT_DIR: canonical,
+ TELOMI_WIKI_COMPILATION_MODEL: selectedModel, TELOMI_WIKI_COMPILATION_THINKING_LEVEL: 'high' }, join(root, 'frozen'));
 const entryId = `entry:${'a'.repeat(24)}`;
 const page = { id: 'entity:demo', kind: 'entity' as const, title: 'Hidden page title', description: 'Hidden description', body: `## Water\nUses drip irrigation. [[${entryId}]]\n\n## Context\nUnrelated note.` };
 const input: WikiStageInput = { stage: 'page-topics', key: 'demo', language: 'en', goal: { title: 'Hidden goal', description: '' },
@@ -26,7 +29,7 @@ const input: WikiStageInput = { stage: 'page-topics', key: 'demo', language: 'en
  topics: [{ id: 'topic:water', title: 'Water use', intent: 'Water conservation', questions: [], include: ['Irrigation'], exclude: ['Electricity'] }],
 };
 const output = { sections: [{ section_ref: 'S1', matches: [{ topic_ref: 'T1', reason: 'The section describes water conservation.' }] }, { section_ref: 'S2', matches: [] }] };
-const response = (text = JSON.stringify(output)): Awaited<ReturnType<PageTopicCompletion>> => ({ role: 'assistant', api: 'openai-codex-responses', provider: 'openai-codex', model: 'gpt-5.6-terra',
+const response = (text = JSON.stringify(output)): Awaited<ReturnType<PageTopicCompletion>> => ({ role: 'assistant', api: 'openai-completions', provider: 'wiki-topic-fixture', model: 'configured-wiki',
  content: [{ type: 'text', text }], stopReason: 'stop', timestamp: Date.now(),
  usage: { input: 100, cacheRead: 40, cacheWrite: 0, output: 30, totalTokens: 170, cost: { input: 0.01, cacheRead: 0.001, cacheWrite: 0, output: 0.002, total: 0.013 } } });
 const request = (name: string): WikiStageRequest => ({ input, env, workRoot: join(root, name), signal: new AbortController().signal });
@@ -34,8 +37,8 @@ const json = (file: string) => JSON.parse(readFileSync(file, 'utf8'));
 let calls = 0;
 const complete: PageTopicCompletion = async (resolved, context, options) => {
  calls++;
- assert.equal(`${resolved.provider}/${resolved.id}`, PAGE_TOPIC_MODEL);
- assert.equal(options?.reasoning, 'medium');
+ assert.equal(`${resolved.provider}/${resolved.id}`, selectedModel);
+ assert.equal(options?.reasoning, 'high');
  assert.equal(options?.apiKey, 'fake-test-key-never-sent');
  assert.deepEqual(context.tools, []);
  assert.equal(context.messages.length, 1);
@@ -57,8 +60,8 @@ try {
   let originalUser: unknown;
   let firstContext: Parameters<PageTopicCompletion>[1] | undefined;
   const repaired = await runPageTopicStage(req, async (resolved, context, options) => {
-   assert.equal(`${resolved.provider}/${resolved.id}`, PAGE_TOPIC_MODEL);
-   assert.equal(options?.reasoning, 'medium');
+   assert.equal(`${resolved.provider}/${resolved.id}`, selectedModel);
+   assert.equal(options?.reasoning, 'high');
    assert.deepEqual(context.tools, []);
    if (++attempts === 1) { firstContext = context; originalUser = structuredClone(context.messages[0]); return invalid; }
    assert.equal(attempts, 2, 'one repair completion at most');
@@ -113,7 +116,7 @@ try {
   stage: { kind: input.stage, key: input.key }, applicability: 'not-applicable', reason: 'stateless-no-file-tools' });
  assert.equal(json(join(runtime, 'model-metadata.json')).executionMode, 'bounded-validation-completion');
  assert.equal(json(join(runtime, 'model-metadata.json')).completionLimit, 2);
- assert.equal(json(join(runtime, 'result.json')).actualModel, PAGE_TOPIC_MODEL);
+ assert.equal(json(join(runtime, 'result.json')).actualModel, selectedModel);
  assert.deepEqual(json(join(runtime, 'tool-definitions.json')), []);
  assert.deepEqual(json(join(runtime, 'mounted-skills.json')), { skills: [], diagnostics: [] });
  assert.deepEqual(readFileSync(join(runtime, 'transport.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line).status), [429, 200]);
@@ -125,6 +128,8 @@ try {
  assert.deepEqual(await runPageTopicStage(successful, complete), outcome);
  assert.equal(calls, 1, 'successful resume must not call the model');
  await assert.rejects(runPageTopicStage({ ...successful, input: { ...input, language: 'zh-CN' } }, complete), /contract changed/);
+ await assert.rejects(runPageTopicStage({ ...successful, env: { ...env, TELOMI_WIKI_COMPILATION_THINKING_LEVEL: 'low' } }, complete), /contract changed/);
+ await assert.rejects(runPageTopicStage({ ...successful, env: { ...env, TELOMI_WIKI_COMPILATION_MODEL: 'wiki-topic-fixture/another-selection' } }, complete), /contract changed/);
  writeFileSync(join(runtime, 'accepted-result.json'), '{}');
  await assert.rejects(runPageTopicStage(successful, complete), /artifacts changed/);
  for (const [name, bad] of [
@@ -180,6 +185,26 @@ try {
   let attempts = 0; await assert.rejects(runPageTopicStage(request(name), async () => { attempts++; return bad; }));
   assert.equal(attempts, 1, 'partial output, consumed tokens and model mismatches are not transport retries');
  }
+ const originalAuth = ModelRegistry.prototype.getApiKeyAndHeaders;
+ const authEndpoint = 'http://127.0.0.1:2/oauth-tenant';
+ const endpointRequest = request('credential-bound-endpoint');
+ ModelRegistry.prototype.getApiKeyAndHeaders = async function(resolved) {
+  const auth = await originalAuth.call(this, resolved);
+  return auth.ok ? { ...auth, baseUrl: authEndpoint } : auth;
+ };
+ try {
+  const classified = await runPageTopicStage(endpointRequest, async (resolved, _context, options) => {
+   assert.equal(`${resolved.provider}/${resolved.id}`, selectedModel, 'auth endpoint overrides preserve the configured model identity');
+   assert.equal(resolved.baseUrl, authEndpoint, 'direct Topic completion uses the endpoint resolved by native Provider auth');
+   assert.equal(options?.apiKey, 'fake-test-key-never-sent');
+   assert.equal(options?.reasoning, 'high');
+   return response();
+  });
+  assert.equal(classified.result.kind, 'page-topics');
+  const endpointSaved = json(join(endpointRequest.workRoot, 'checkpoint.json'));
+  assert.deepEqual(json(join(endpointSaved.attemptRoot, 'runtime/agent-context-attempt-1.json')).model,
+   { provider: 'wiki-topic-fixture', id: 'configured-wiki', baseUrl: authEndpoint }, 'request evidence records the effective endpoint without credential headers');
+ } finally { ModelRegistry.prototype.getApiKeyAndHeaders = originalAuth; }
  const rejected = request('transport-throw');
  let thrownCalls = 0;
  await assert.rejects(runPageTopicStage(rejected, async () => { thrownCalls++; throw new Error('Transport failed'); }), /Transport failed/);

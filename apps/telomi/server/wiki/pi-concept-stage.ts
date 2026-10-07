@@ -6,7 +6,6 @@ import { createWikiStageWorkspace } from './wiki-stage-workspace.js';
 import { createConceptReadCoverage, validatePiConceptFiles, type ReadCoverage } from './pi-concept-contract.js';
 import { runPiFileStage } from './pi-file-stage.js';
 
-export const PI_CONCEPT_MODEL = 'openai-codex/gpt-5.6-terra';
 const variants = {
  'plan-concepts': 'question-plan-pi', concepts: 'concepts-pi',
  'audit-concepts': 'audit-concepts-pi', 'merge-concepts': 'merge-concepts-pi',
@@ -44,7 +43,7 @@ export async function runPiConceptStage(request: WikiStageRequest): Promise<Wiki
  if (!(stage in variants)) throw new Error('Unsupported Pi concept stage');
  let coverage: ReadCoverage;
  return runPiFileStage(request, {
-  modelId: PI_CONCEPT_MODEL, referenceVariant: 'concept-common', promptVariant: variants[stage as keyof typeof variants],
+  referenceVariant: 'concept-common', promptVariant: variants[stage as keyof typeof variants],
   user: piConceptUserContext(request.input), executionMode: `pi-concept-${stage}`, role: 'wiki.object_builder',
   grepRoot: stage === 'plan-concepts' || stage === 'audit-concepts' ? '/work/input/pages' : undefined,
   codeFiles: ['./pi-concept-stage.ts', './pi-concept-contract.ts', './wiki-stage-contract.ts', './wiki-page-contract.ts'],

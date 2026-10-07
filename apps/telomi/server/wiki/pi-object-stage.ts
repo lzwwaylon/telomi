@@ -9,19 +9,15 @@ import { wikiPageEntryIds } from './wiki-page-contract.js';
 import { targetWriterContext, validateTargetWriter } from './pi-object-targets.js';
 import { runPiFileStage } from './pi-file-stage.js';
 
-export const PI_OBJECT_MODEL = 'openai-codex/gpt-6-luna';
-export const PI_OBJECT_NOTE_MODEL = 'openai-codex/gpt-5.6-terra';
-export const PI_OBJECT_PLAN_MODEL = 'openai-codex/gpt-5.6-terra';
 export { acceptPiFiles as acceptPiObjectFiles } from './pi-file-stage.js';
 
 export function piObjectUserContext(input: WikiStageInput, inputRoot: string): string {
  if (input.stage !== 'objects' || input.pages.length || input.entries.length !== input.requiredEntries.length
-  || new Set(input.entries.map(entry => entry.sourceId)).size !== 1) throw new Error('Pi object task expects one complete Note');
+  || new Set(input.entries.map(entry => entry.sourceId)).size > 1) throw new Error('Pi object task expects one complete Note');
  createWikiStageWorkspace(input, inputRoot);
  const user = JSON.stringify({ output_language: input.language, goal: input.goal,
   entries: input.entries.map((entry, index) => ({ ref: `N${index + 1}`, source_title: entry.sourceTitle,
    section: entry.section, section_summary: entry.sectionSummary ?? '', cue: entry.cue, detail: entry.detail })) });
- if (user.length > 60_000) throw new Error('Pi object Note exceeds input limit');
  return user;
 }
 
@@ -189,7 +185,6 @@ async function runPiObjectFileStage(request: WikiStageRequest, mode: 'default' |
   : merging ? piObjectMergeUserContext(request.input) : piObjectUserContext(request.input, join(request.workRoot, 'input-check'));
  const mergeReads = new Map<string, Set<number>>();
  return runPiFileStage(request, {
-  modelId: mergePlanning ? PI_OBJECT_PLAN_MODEL : !merging && !residual ? PI_OBJECT_NOTE_MODEL : PI_OBJECT_MODEL,
   promptVariant: mergePlanning ? 'plan-object-targets-pi' : targetWriting ? 'write-object-target-pi'
    : residual ? 'resolve-object-cues-pi' : 'objects-pi',
   referenceVariant: mergePlanning ? undefined : 'object-page',

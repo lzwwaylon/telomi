@@ -1,17 +1,10 @@
-import { stagePrompt } from "./wiki-stage-prompt.js";
-import { skillPrompt } from "./wiki-topic-skill.js";
-import { bundledAgentSkillPaths, snapshotSkills } from "../agent-runtime/skill-registry.js";
-import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, readdirSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveStageThinkingLevel } from "../agent-runtime/model-config/resolve.js";
-import { PRIME_MODEL_DEFINITIONS_ENV } from "../agent-runtime/prime-agent-paths.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
-import { spawnPrimeWorker } from "../agent-runtime/prime-worker.js";
-import { listJsonl, writeJsonAtomic } from "../lib/fs.js";
+import { listJsonl } from "../lib/fs.js";
 import { hashJson, sha256 } from "../lib/hash.js";
-import { toErrorMessage } from "../lib/values.js";
 import type { WikiStageOutcome, WikiStageRequest } from "./wiki-stage-contract.js";
 
 /** Read untrusted output without following links or accepting shared inodes. */
@@ -62,89 +55,21 @@ export async function runWikiStageKind(request: WikiStageRequest): Promise<WikiS
  request.signal.throwIfAborted();
  if (request.input.stage === "page-topics") return (await import("./page-topic-stage.js")).runPageTopicStage(request);
  if (request.input.stage === "merge-objects") return (await import("./pi-object-merge.js")).runPiObjectMergeStage(request);
- if (request.input.stage === "objects" && request.input.entries.length > 0 && JSON.stringify(request.input.entries).length <= 50_000) {
-  return (await import("./pi-object-stage.js")).runPiObjectStage(request);
- }
+ if (request.input.stage === "objects") return (await import("./pi-object-stage.js")).runPiObjectStage(request);
  if (["plan-concepts", "concepts", "audit-concepts", "merge-concepts"].includes(request.input.stage))
   return (await import("./pi-concept-stage.js")).runPiConceptStage(request);
- return runAgentWikiStageKind(request);
+ throw new Error(`Unsupported Wiki compilation stage: ${request.input.stage}`);
 }
 
-async function runAgentWikiStageKind(request: WikiStageRequest): Promise<WikiStageOutcome> {
- request.signal.throwIfAborted();
- const adapt = request.input.stage === "topic" ? skillPrompt : (value: string) => value;
- const system = adapt(stagePrompt(renderAgentPrompt("wiki", "wiki-compilation", "system-append", {}).content, request.input.stage));
- const user = adapt(renderAgentPrompt("wiki", "wiki-compilation", "user", { stage: request.input.stage }).content);
- const skills = snapshotSkills(bundledAgentSkillPaths("wiki", "wiki-compilation"));
- const thinking = resolveStageThinkingLevel("wikiCompilation", "maintenance", request.env).thinkingLevel;
- const semantics = wikiStageCapabilityIdentity();
- const identity = hashJson({ input: request.input, system, user, semantics, skills: skills.sha256, root: request.env.TELOMI_WIKI_COMPILATION_MODEL,
-  modelDefinitions: request.env[PRIME_MODEL_DEFINITIONS_ENV], thinking });
- const checkpoint = join(request.workRoot, "checkpoint.json");
- if (existsSync(checkpoint)) {
-  const saved = JSON.parse(readWikiStageOutput(checkpoint).toString("utf8"));
-  if (saved.identity !== identity) throw new Error("Wiki compilation stage input or execution contract changed across resume");
-  if (saved.status === "succeeded") {
-   const acceptedPath = join(saved.attemptRoot, "runtime", "accepted-result.json");
-   const receiptsPath = join(saved.attemptRoot, "runtime", "receipts.json");
-   if (saved.resultHash !== sha256(readWikiStageOutput(acceptedPath))
-    || saved.receiptsHash !== sha256(readWikiStageOutput(receiptsPath))
-    || saved.outputHash !== wikiStageOutputHash(join(saved.attemptRoot, "work"))
-    || saved.outcomeHash !== hashJson(saved.outcome)) throw new Error("Accepted Wiki compilation checkpoint changed");
-   request.onAttemptStarted?.(saved.attemptRoot);
-   return saved.outcome as WikiStageOutcome;
-  }
- }
- mkdirSync(request.workRoot, { recursive: true });
- const attemptRoot = realpathSync(mkdtempSync(join(request.workRoot, "attempt-")));
- const runtime = join(attemptRoot, "runtime");
- const work = join(attemptRoot, "work");
- const inputRoot = join(attemptRoot, "input");
- for (const path of [runtime, work, inputRoot]) mkdirSync(path);
- writeJsonAtomic(join(runtime, "input.json"), request.input);
- writeJsonAtomic(join(runtime, "skills.json"), skills);
- writeFileSync(join(runtime, "system-prompt.md"), system);
- writeFileSync(join(runtime, "user-prompt.md"), user);
- writeJsonAtomic(checkpoint, { identity, status: "running", attemptRoot });
- request.onAttemptStarted?.(attemptRoot);
- try {
-  await spawnPrimeWorker({ name: `Wiki compilation ${request.input.stage}`, worker: fileURLToPath(new URL("./prime-wiki-stage-worker.ts", import.meta.url)),
-   agentRoot: work, runtimeRoot: runtime, readonlyRoots: [inputRoot], env: request.env, signal: request.signal,
-   onMessage: () => {},
-   extraEnv: { WIKI_STAGE_RUNTIME: runtime, WIKI_STAGE_WORK: work, WIKI_STAGE_INPUT_ROOT: inputRoot,
-    WIKI_STAGE_MODEL: request.env.TELOMI_WIKI_COMPILATION_MODEL, WIKI_STAGE_THINKING: thinking } });
-  request.signal.throwIfAborted();
-  const acceptedPath = join(runtime, "accepted-result.json");
-  const accepted = JSON.parse(readWikiStageOutput(join(runtime, "accepted.json")).toString("utf8"));
-  if (accepted.outputHash !== wikiStageOutputHash(work)
-   || accepted.resultHash !== sha256(readWikiStageOutput(acceptedPath))
-   || accepted.receiptsHash !== sha256(readWikiStageOutput(join(runtime, "receipts.json")))) throw new Error("Accepted Wiki compilation artifacts changed");
-  const outcome: WikiStageOutcome = { result: JSON.parse(readWikiStageOutput(acceptedPath).toString("utf8")),
-   usage: wikiStageTraceUsage(request.workRoot), sessionPaths: sessionPaths(request.workRoot) };
-  writeJsonAtomic(checkpoint, { identity, status: "succeeded", attemptRoot, ...accepted, outcomeHash: hashJson(outcome), outcome });
-  return outcome;
- } catch (error) {
-  const usage = wikiStageTraceUsage(request.workRoot);
-  const paths = sessionPaths(request.workRoot);
-  writeJsonAtomic(checkpoint, { identity, status: request.signal.aborted ? "cancelled" : "failed", attemptRoot,
-   error: toErrorMessage(error), usage, sessionPaths: paths });
-  throw Object.assign(error instanceof Error ? error : new Error(toErrorMessage(error)), { usage, sessionPaths: paths });
- }
-}
-
-function sessionPaths(root: string): string[] {
- return [...new Set(listJsonl(root).filter(path => path.includes("/sessions/")).map(path => path.slice(0, path.indexOf("/sessions/") + "/sessions".length)))];
-}
-
-/** Compiler and stage checkpoints share the registered Prompt/Skill/code identity. */
+/** Compiler and stage checkpoints share the registered Prompt/reference/code identity. */
 export function wikiStageCapabilityIdentity(): string {
- const files = ["wiki-stage.ts", "prime-wiki-stage-worker.ts", "wiki-stage-contract.ts", "wiki-stage-workspace.ts",
-  "wiki-stage-search.ts", "wiki-topic-skill.ts", "wiki-stage-prompt.ts", "wiki-page-contract.ts", "wiki-edition.ts",
+ const files = ["wiki-stage.ts", "wiki-stage-contract.ts", "wiki-stage-workspace.ts",
+  "wiki-stage-search.ts", "wiki-page-contract.ts", "wiki-edition.ts",
   "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts",
-  "pi-file-stage.ts", "../agent-runtime/logical-workspace-snapshot.ts", "../agent-runtime/srt-agent-sandbox.ts", "pi-concept-stage.ts", "pi-concept-contract.ts", "../agent-runtime/accept-agent-output.ts"];
+  "pi-file-stage.ts", "wiki-pi-runtime.ts", "../providers/custom-models.ts", "../agent-runtime/logical-workspace-snapshot.ts", "../agent-runtime/srt-agent-sandbox.ts", "pi-concept-stage.ts", "pi-concept-contract.ts", "../agent-runtime/accept-agent-output.ts"];
  const semantics = files.map(path => sha256(readFileSync(fileURLToPath(new URL(path, import.meta.url)))));
- const system = renderAgentPrompt("wiki", "wiki-compilation", "system-append", {});
- return hashJson({ semantics, system: system.content, registration: system.configSha256,
+ const prompt = renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "objects-pi");
+ return hashJson({ semantics, registration: prompt.configSha256,
   pageTopics: renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "page-topics").content,
   piObjects: renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "objects-pi").content,
   piObjectPage: renderAgentPrompt("wiki", "wiki-compilation", "reference", {}, "object-page").content,
@@ -153,7 +78,5 @@ export function wikiStageCapabilityIdentity(): string {
    .map(variant => renderAgentPrompt("wiki", "wiki-compilation", "system", {}, variant).content),
   piObjectMerge: ["plan-object-targets-pi", "write-object-target-pi", "resolve-object-cues-pi"]
    .map(variant => renderAgentPrompt("wiki", "wiki-compilation", "system", {}, variant).content),
-  users: ["objects", "merge-objects", "plan-concepts", "concepts", "merge-concepts", "plan-topics", "topic"]
-   .map(stage => renderAgentPrompt("wiki", "wiki-compilation", "user", { stage }).content),
-  skills: snapshotSkills(bundledAgentSkillPaths("wiki", "wiki-compilation")).sha256 });
+ });
 }

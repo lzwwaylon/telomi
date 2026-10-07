@@ -7,6 +7,7 @@ import { WikiCompiler } from '../../server/wiki/wiki-compiler.js';
 import type { SourceNotesSnapshot } from '../../server/notes/contracts.js';
 import type { WikiCompilationRequest } from '../../server/wiki/contracts.js';
 import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
+import { piObjectUserContext, piObjectMergeUserContext } from '../../server/wiki/pi-object-stage.js';
 import { createWikiStageWorkspace } from '../../server/wiki/wiki-stage-workspace.js';
 import { createConceptReadCoverage, validatePiConceptFiles } from '../../server/wiki/pi-concept-contract.js';
 import { createPageTopicTask } from '../../server/wiki/page-topic-contract.js';
@@ -31,8 +32,10 @@ try {
  markdown('O1.md');
  const single = input('objects'); single.requiredEntries = [id, otherId];
  const ws = workspace(single);
- assert.ok(ws.userContext.includes(evidence.detail));
- assert.ok(!ws.userContext.includes(id), 'durable entry IDs stay out of agent context');
+ const noteContext = piObjectUserContext(single, join(root, 'native-note-context'));
+ assert.ok(noteContext.includes(evidence.detail));
+ assert.ok(!noteContext.includes(id), 'durable entry IDs stay out of agent context');
+ ws.read('N1'); ws.read('N2');
  assert.ok(!readFileSync(join(root, 'input-1', 'evidence', 'N1.md'), 'utf8').includes(evidence.revisionSha256));
  const draft = { pages: [{ file: 'pages/O1.md' }], deferred_entries: [{ entry_ref: 'N2', reason: 'Await object placement review' }] };
  const accepted = ws.validate(draft, work);
@@ -84,7 +87,7 @@ try {
  const mw = workspace(merge);
  assert.equal(mw.overviews.P1!.relations[0]!.to, 'P2');
  assert.equal(mw.overviews.P2!.relations[0]!.direction, 'incoming');
- assert.ok(!mw.userContext.includes(first.id));
+ assert.ok(!piObjectMergeUserContext(merge).includes(first.id));
  markdown('O1.md', '## Loss\nExact 1.45% [[N1]]\nDifferent condition [[N2]]');
  const merged = { ...empty(), pages: [{ file: 'pages/O1.md', member_refs: ['P1', 'P2'] }] };
  assert.throws(() => mw.validate(merged, work), /read every section/u);
@@ -182,8 +185,9 @@ try {
  assert.throws(() => sw.search({ query: 'Rate', page_ref: 'P999' }), /unknown page_ref/u);
  assert.throws(() => sw.search({ query: 'Rate', limit: 41 }), /limit/u);
  markdown('O1.md');
- const hugeNote = workspace({ ...single, entries: [{ ...evidence, detail: 'Full condition. '.repeat(5000) + '1.45%' }], requiredEntries: [id] });
- assert.match(hugeNote.userContext, /Read ALL entries/u);
+ const hugeInput = { ...single, entries: [{ ...evidence, detail: 'Full condition. '.repeat(5000) + '1.45%' }], requiredEntries: [id] };
+ const hugeNote = workspace(hugeInput);
+ assert.equal(JSON.parse(piObjectUserContext(hugeInput, join(root, 'native-huge-note-context'))).entries[0].detail, hugeInput.entries[0]!.detail, 'large Notes use the same complete native Pi input');
  assert.throws(() => hugeNote.validate({ pages: draft.pages, deferred_entries: [] }, work), /read every Cornell/u);
  assert.match(hugeNote.read('N1'), /1\.45%/u);
  assert.equal(hugeNote.validate({ pages: draft.pages, deferred_entries: [] }, work).kind, 'pages');
@@ -219,7 +223,10 @@ try {
   let manifest: unknown;
   const pageAliases = stage.pages.map((p, i) => ({ alias: `P${i + 1}`, ...p }));
   const members = pageAliases.filter(p => p.role === 'member');
-  if (stage.stage === 'objects') manifest = { pages: [], deferred_entries: stage.entries.map((_, i) => ({ entry_ref: `N${i + 1}`, reason: 'Await object placement' })) };
+  if (stage.stage === 'objects') {
+   stage.entries.forEach((_, index) => w.read(`N${index + 1}`));
+   manifest = { pages: [], deferred_entries: stage.entries.map((_, i) => ({ entry_ref: `N${i + 1}`, reason: 'Await object placement' })) };
+  }
   if (stage.stage === 'merge-objects') {
    for (const row of stage.unplacedEntries ?? []) w.read(`N${stage.entries.findIndex(entry => entry.id === row.entryId) + 1}`);
    members.forEach(p => w.read(p.alias));
