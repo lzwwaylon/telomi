@@ -36,15 +36,16 @@ interface AgentRegistration {
 
 // The product owns Replay identities and their output contracts. OPS consumes this
 // catalog rather than maintaining a second Agent name, source path or renderer map.
+// server/wiki/ belongs to every Agent whose run calls the Wiki read Tools, not only to the compiler.
 const AGENTS: Record<string, AgentRegistration> = {
-	"main-agent": { domain: "main", bundle: "main-agent", presentationKind: "chat", replayPromptModes: [...REPLAY_PROMPT_MODES], promptOverrideFields: [...PROMPT_OVERRIDE_FIELDS], impactPaths: ["apps/telomi/server/main-agent/"] },
+	"main-agent": { domain: "main", bundle: "main-agent", presentationKind: "chat", replayPromptModes: [...REPLAY_PROMPT_MODES], promptOverrideFields: [...PROMPT_OVERRIDE_FIELDS], impactPaths: ["apps/telomi/server/main-agent/", "apps/telomi/server/wiki/"] },
 	"prime-search": { domain: "research", bundle: "prime-search", presentationKind: "source-search", replayPromptModes: ["candidate", "override"], promptOverrideFields: ["userPrompt"], impactPaths: ["apps/telomi/server/research/prime/", "apps/telomi/server/research/external-search.ts"] },
-	"prime-investigation": { domain: "research", bundle: "prime-search", displayName: "Investigate Root", presentationKind: "investigation", replayPromptModes: [...REPLAY_PROMPT_MODES], promptOverrideFields: ["userPrompt"], impactPaths: ["apps/telomi/server/research/investigate.ts", "apps/telomi/server/research/investigation-"] },
+	"prime-investigation": { domain: "research", bundle: "prime-search", displayName: "Investigate Root", presentationKind: "investigation", replayPromptModes: [...REPLAY_PROMPT_MODES], promptOverrideFields: ["userPrompt"], impactPaths: ["apps/telomi/server/research/investigate.ts", "apps/telomi/server/research/investigation-", "apps/telomi/server/wiki/"] },
 	"provider-child": { displayName: "Source Agent", presentationKind: "provider-child", impactPaths: ["apps/telomi/server/providers/", "apps/telomi/services/research-source-service/", "apps/telomi/server/research/python-tools/", "apps/telomi/server/research/prime/", "apps/telomi/agents/research/prime-search/"] },
 	"note-agent": { domain: "research", bundle: "note-agent", presentationKind: "note", replayPromptModes: [...REPLAY_PROMPT_MODES], promptOverrideFields: [...PROMPT_OVERRIDE_FIELDS], impactPaths: ["apps/telomi/server/research/note-", "apps/telomi/server/research/pipeline/note-", "apps/telomi/server/research/pipeline/prime-note-agent"] },
-	"report-writer": { domain: "research", bundle: "report-writer", presentationKind: "report", replayPromptModes: [...REPLAY_PROMPT_MODES], promptOverrideFields: [...PROMPT_OVERRIDE_FIELDS], impactPaths: ["apps/telomi/server/research/pipeline/report-", "apps/telomi/server/research/pipeline/prime-report-writer.ts", "apps/telomi/server/research/investigation-answer.ts"] },
+	"report-writer": { domain: "research", bundle: "report-writer", presentationKind: "report", replayPromptModes: [...REPLAY_PROMPT_MODES], promptOverrideFields: [...PROMPT_OVERRIDE_FIELDS], impactPaths: ["apps/telomi/server/research/pipeline/report-", "apps/telomi/server/research/pipeline/prime-report-writer.ts", "apps/telomi/server/research/investigation-answer.ts", "apps/telomi/server/wiki/"] },
 	"podcast-writer": { domain: "main", bundle: "podcast-writer", presentationKind: "generic", impactPaths: ["apps/telomi/server/media/podcast/"] },
-	"schedule-reviewer": { domain: "research", bundle: "schedule-reviewer", presentationKind: "generic", impactPaths: ["apps/telomi/server/research/schedules/"] },
+	"schedule-reviewer": { domain: "research", bundle: "schedule-reviewer", presentationKind: "generic", impactPaths: ["apps/telomi/server/research/schedules/", "apps/telomi/server/wiki/"] },
 	"wiki-compilation": { domain: "wiki", bundle: "wiki-compilation", presentationKind: "wiki", impactPaths: ["apps/telomi/server/wiki/"] },
 	"evolution": { domain: "evolution", bundle: "browser-skill-evolution", presentationKind: "evolution", impactPaths: ["apps/telomi/server/evolution/"] },
 };

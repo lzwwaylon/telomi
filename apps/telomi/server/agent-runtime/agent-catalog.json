@@ -42,6 +42,7 @@
 			"impactPaths": [
 				"apps/telomi/agents/main/main-agent/",
 				"apps/telomi/server/main-agent/",
+				"apps/telomi/server/wiki/",
 				"apps/telomi/server/agent-runtime/",
 				"apps/telomi/server/evaluation/",
 				"apps/telomi/server/providers/",
@@ -121,6 +122,7 @@
 				"apps/telomi/agents/research/prime-search/",
 				"apps/telomi/server/research/investigate.ts",
 				"apps/telomi/server/research/investigation-",
+				"apps/telomi/server/wiki/",
 				"apps/telomi/server/research/",
 				"apps/telomi/server/agent-runtime/",
 				"apps/telomi/server/evaluation/",
@@ -201,6 +203,7 @@
 				"apps/telomi/server/research/pipeline/report-",
 				"apps/telomi/server/research/pipeline/prime-report-writer.ts",
 				"apps/telomi/server/research/investigation-answer.ts",
+				"apps/telomi/server/wiki/",
 				"apps/telomi/server/research/",
 				"apps/telomi/server/agent-runtime/",
 				"apps/telomi/server/evaluation/",
@@ -224,6 +227,7 @@
 			"impactPaths": [
 				"apps/telomi/agents/research/schedule-reviewer/",
 				"apps/telomi/server/research/schedules/",
+				"apps/telomi/server/wiki/",
 				"apps/telomi/server/research/",
 				"apps/telomi/server/agent-runtime/",
 				"apps/telomi/server/evaluation/",
