@@ -7,7 +7,7 @@ A Research Run turns a user question into two parallel outputs:
 - A final report grounded in the current Cornell Notes
 - A background incremental Goal Wiki update
 
-Runtime owns only deterministic mechanisms. Agents make every semantic judgment involved in search, selection, cross-Provider grouping, knowledge extraction, report editing, and Wiki maintenance.
+Runtime owns only deterministic mechanisms. Agents make every semantic judgment involved in search, selection, Source grouping, knowledge extraction, report editing, and Wiki maintenance.
 
 ## Execution Flow
 
@@ -17,7 +17,7 @@ Research Schedule or user-requested recovery
   -> Prime Search Root
        -> one Prime child per Root-selected Provider
   -> Runtime Source validation and immutable materialization
-  -> incremental cross-provider Organizer (Prime Agent when needed)
+  -> incremental Source Organizer (Prime Agent when needed)
   -> Runtime logical Source materialization
   -> one fresh Note Agent per logical Source
   -> Source Note Snapshot
@@ -55,7 +55,7 @@ Upstream overload handling shares a bounded budget within each Provider child; c
 
 Optional arXiv [egress routes](../services/research-source-service/README.md#optional-arxiv-egress-routes) select transport within the same shared admission and cooldown. Switching exits never grants a new Provider Child budget or another controlled retry. Source Service makes one request and advertises an available alternate through sanitized route names; the built-in arXiv Runtime may then use its existing bounded retry. With routing disabled, the single-attempt policy outside Provider Children is unchanged.
 
-The Provider child submits its existing or empty Ledger and returns `source_unavailable` and uncovered responsibilities to the Root in its completion reply. Based on capabilities and evidence types in the current Provider Catalog, the Root selects at most one suitable alternative Provider that has not yet been tried and delegates only the uncovered portion. The alternative child uses its own Ledger and Provider identity. If no suitable alternative exists or it is also unavailable, the Root records unresolved coverage and stops instead of cycling between Providers. Differences in collection coverage and full-text availability enter the downstream report's limitations.
+The Provider child submits its existing or empty Ledger and returns `source_unavailable` and uncovered responsibilities to the Root in its completion reply. Root selects an unvisited alternative whose Catalog capabilities and evidence types cover the same Evidence Need, preserving its scope and delegating only the uncovered portion. Each alternative uses its own Ledger and Provider identity. Runtime validates the unavailable child's submitted result, compatible replacement and acyclic per-need path before dispatch. A Provider may be tried once per Evidence Need, and a Search Batch has a bounded number of fallback decisions. Root stops when the need is covered, no eligible Provider remains or the execution budget is exhausted. Empty results and object-not-found errors require identity or coverage investigation, not automatic fallback. Differences in collection coverage and full-text availability enter the downstream report's limitations.
 
 Like arXiv, Hugging Face Paper acquisition uses a progressive funnel: search or Daily Papers performs discovery, `paper_profile` screens through metadata or a bounded opening portion of the body, and `download_paper` materializes only retained papers. Each paper becomes a Source Snapshot containing `paper.md` and `metadata.json`; the latter retains native Hugging Face metadata and its project-page, GitHub repository, and original PDF links. A Hugging Face Paper Candidate cannot pass submission with search metadata JSON alone because the Note Agent must read the complete Logical Source. An arXiv `pdf_url` serves only as provenance and does not bypass arXiv's overload circuit breaker.
 
@@ -76,43 +76,19 @@ source/
 
 Runtime validates Provider execution, Provider, URL, Candidate ID, directory safety, and actual material, and deterministically converts supported documents to text. Browser material is converted directly in its Provider execution Workspace, bypassing Goal file ingestion; it therefore creates no Activity and does not appear in the Main Agent's `/documents`. Agents cannot fabricate nonexistent material or bypass the Provider Interface.
 
-## 4. Cross-provider Organizer
+## 4. Source Organizer
 
-The Organizer maintains a Goal-scoped incremental index rather than regrouping everything each Run. Runtime first merges current results and the historical Index by stable Source ID, preserves existing decisions, and gives only new Sources to an independent fresh Prime Session. The Organizer Agent is skipped when there are no new Sources or the accumulated Index still contains only one Provider.
+The Organizer maintains a Goal-scoped incremental index rather than regrouping everything each Run. Runtime first merges current results and the historical Index by stable Source ID and preserves existing decisions. A fresh Prime Session receives new Sources, historically ungrouped Sources and existing Group summaries. The Organizer Agent is skipped when there are no new Sources or the accumulated Index contains fewer than two Sources.
 
-The Agent runs in an isolated metadata-only Workspace, reading only `input.json` and writing `decision.json`. It has only an SRT-constrained IPython Tool, with no Source material, Provider SDK, Source Bridge, Skills, or Runtime private state mounted, and cannot spawn RLM children. It groups only direct representations of the same canonical research object across different Providers:
+The Agent runs in an isolated metadata-only Workspace, reading only `input.json` and writing `decision.json`. It has only an SRT-constrained IPython Tool, with no Source material, Provider SDK, Source Bridge, Skills, or Runtime private state mounted, and cannot spawn RLM children. It groups only direct representations of the same canonical research object:
 
 - A repository, model release, primary paper, and implementation explicitly linked to that paper may be grouped when they represent the same official project.
 - `built on`, `adapted from`, fine-tuning, compatibility, shared architecture or task, broad families, and third-party integrations do not justify grouping.
-- Being cross-provider is necessary but insufficient to establish identity; uncertain Sources remain ungrouped.
+- Members usually come from different Providers, but release variants of the same object from one Provider may qualify when their metadata establishes that identity. Uncertain Sources remain ungrouped.
 
-It handles only newly added and historically ungrouped Sources, which may join an existing canonical Group, form a new Group, or remain ungrouped. Existing Group members are not moved or merged during ordinary incremental processing:
+It handles only newly added and historically ungrouped Sources, which may join an existing canonical Group, form a new Group, or remain ungrouped. Existing Group members are not moved or merged during ordinary incremental processing. The persisted Index and decision schemas are defined in `server/research/pipeline/prime-source-organizer-index.ts`.
 
-```json
-{
-  "schema_version": 2,
-  "sources": {
-    "source:<stable-id>": {
-      "candidate_id": "arxiv:...",
-      "provider_id": "arxiv",
-      "title": "...",
-      "url": "https://...",
-      "summary": "...",
-      "revision_sha256": "...",
-      "snapshot_path": "snapshots/...",
-      "group_id": "qwen3-tts"
-    }
-  },
-  "groups": {
-    "qwen3-tts": {
-      "title": "Qwen3-TTS",
-      "identity": "reusable cross-provider identity rule"
-    }
-  }
-}
-```
-
-`group_id` must be a stable kebab-case slug for the canonical object, never a UUID, Hash, Provider ID, or Run ID. Each Group contains Sources from at least two different Providers. Runtime retains a file snapshot for each Source revision. When a Group is encountered in the current Run, historical members and new or changed members are materialized together as a Logical Source revision with the same stable ID.
+Runtime assigns each new Group a stable `group_id` derived from its semantic title and identity; Agents use local Source and Group refs rather than inventing durable IDs. Each Group contains at least two Sources. Runtime retains a file snapshot for each Source revision. When a Group is encountered in the current Run, historical members and new or changed members are materialized together as a Logical Source revision with the same stable ID.
 
 ## 5. Cornell Note
 
@@ -127,7 +103,7 @@ Only when an existing Logical Source gains members or its members change does Ru
 
 Binary files such as original PDFs remain in the Source Artifact and are excluded from the Note Source View. Local images referenced by Markdown retain their original relative paths and can be viewed through IPython rich display, but Evidence may cite only body-text line numbers. Runtime rejects missing conversion output outright; the Agent cannot fall back to original files.
 
-The Agent sees no Ontology, Report Outline, other Sources, or global coverage. It submits top-level `sections`; Runtime adds the version and Source identity, and validates Topic and Discovery fields against the current context. Every Cue must cite a Source-relative path and exact line numbers. `sections` may be empty when there is no relevant content.
+The Agent sees no Report Outline, other Sources, or global coverage. A supplied Topic Plan guides reading focus and Discovery; the Agent does not assign Topics to Cues. It submits top-level `sections`; Runtime adds the version and Source identity and validates Discovery fields against the current context. Wiki Compilation assigns Topics to published page sections. Every Cue must cite a Source-relative path and exact line numbers. `sections` may be empty when there is no relevant content.
 
 Runtime validates files and line numbers and adds cited-content hashes. Unchanged Source revisions reuse existing Notes. A new Run Snapshot is written to:
 
@@ -169,7 +145,7 @@ Citation compilation preserves the stored Source URLs and performs no network re
 
 Wiki Compilation runs asynchronously alongside Report Writer. It consumes frozen Cornell Notes and previous Wiki pages, never raw Sources.
 
-New Wiki Updates use the Wiki compilation compiler. Runtime processes each complete Cornell Note into object pages, resolves object identity and unplaced Cues against the previous Edition, then derives concepts only from accepted object evidence. Object construction and target writing use Luna; object target planning uses Terra. Existing published Editions remain readable.
+New Wiki Updates use the Wiki compilation compiler. Runtime processes each complete Cornell Note into object pages, resolves object identity and unplaced Cues against the previous Edition, then derives concepts only from accepted object evidence. Pi Note-object construction and object target planning use Terra; residual Cue and object target writers use Luna. Existing published Editions remain readable.
 
 Concept generation uses four separate Pi Coding Agent stages, all with Terra and medium reasoning:
 
@@ -178,7 +154,7 @@ Concept generation uses four separate Pi Coding Agent stages, all with Terra and
 3. Audit the complete candidate collection and untouched old concepts, identifying unnecessary new candidates and disjoint conflicts.
 4. Merge only the flagged conflicts, preserving member evidence and leaving unrelated page bodies unchanged.
 
-These concept sessions expose only read-only page material and SRT-bound `read`, `write` and `edit`; they receive no Topic Plan or independent Cue-detail input and cannot delegate RLM children. Runtime validates manifests, evidence, identities, actual native reads and accepted files. Validation errors return to the same session for one repair turn. Construction publishes no semantic relationships; page-level Topic classification builds navigation from final pages. See [Wiki Compilation](modules/wiki-compilation.md) for the ownership, recovery and publication constraints.
+These concept sessions expose read-only page material and SRT-bound `read`, `write` and `edit`. Planning and audit additionally allow native `grep` over those page files; search results do not grant full-read receipts. The sessions receive no Topic Plan or independent Cue-detail input and cannot delegate RLM children. Runtime validates manifests, evidence, identities, actual native reads and accepted files. Validation errors return to the same session for one repair turn. Construction publishes no semantic relationships; page-level Topic classification builds navigation from final pages. See [Wiki Compilation](modules/wiki-compilation.md) for the ownership, recovery and publication constraints.
 
 ### Resuming Interrupted Updates
 

@@ -367,16 +367,18 @@ The `twitter` source provides these read-only operations:
 - `device_follow`, `notifications`, and `trending`
 - `media`
 
-It does not install an extension or launch a browser. When started by Telomi,
-the Node Runtime imports only the required X session Cookies from the already
-running project-managed Chrome Profile and keeps them in process memory. The Host service sends
+It does not install an extension or launch a browser. Telomi refreshes the required
+X session Cookies from its managed browser when it is running and saves the header
+in the installation's `.pi/runtime/browser-session` directory. While the browser
+is stopped, the saved session remains available; a later browser read can replace
+or withdraw it. The Host service sends
 the same authenticated web GraphQL and REST reads as the X web client using a
 local session Cookie header. This skips browser-based login orchestration, not
 X authentication. The Cookie header is equivalent to account access and must
 be protected like a password.
 
-Prefer a permission-restricted file so the session can be rotated without
-restarting the Node Runtime:
+For a standalone service, a permission-restricted Cookie file can be rotated
+between Source calls:
 
 ```bash
 chmod 600 /absolute/path/to/x-cookies.txt
@@ -386,8 +388,10 @@ export SOURCE_SERVICE_TWITTER_COOKIE_FILE='/absolute/path/to/x-cookies.txt'
 The file may contain a raw `Cookie` header, a browser JSON cookie export, or
 Netscape `cookies.txt`. It must include both `auth_token` and `ct0`. A raw
 header can instead be supplied through `SOURCE_SERVICE_TWITTER_COOKIE`, but environment variables are easier to leak
-through process inspection and diagnostics. Cookie values are injected only
-by the Python service and are never returned to Runtime or Prime Search.
+through process inspection and diagnostics. Telomi imports a locally configured
+Cookie file once into its managed credential store; later edits to that file do not change the credential. Update managed
+credentials through Settings. The Python service sends the selected credential
+to X and never includes Cookie values in Source results or Agent inputs.
 Domain-bearing exports retain only exact `x.com` or `twitter.com` cookies.
 The authenticated upstream origin is restricted to the HTTPS root of those
 two domains.
@@ -419,9 +423,10 @@ GraphQL operation names:
 }
 ```
 
-The service reloads the Cookie file and operation override file for each
-Source call. It validates all operation names, query IDs, arguments, cursors,
-and result limits before making an upstream request. `media` returns direct
+The service reloads its configured Cookie file when a request uses service-owned
+credentials, and reloads the operation override file for each Source call.
+Telomi-managed requests use their supplied credential snapshot instead. It
+validates all operation names, query IDs, arguments, cursors, and result limits before making an upstream request. `media` returns direct
 asset metadata and URLs but does not download or write files.
 
 `POST /v1/documents/parse` accepts only a trusted local file:

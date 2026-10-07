@@ -24,7 +24,7 @@ The Note Agent has one registered bundle, `research/note-agent`, and two reading
 | Prime Search Root | Prime Agent SDK | Standalone search question, time, Topic Plan, scheduled context, available Provider Catalog | Root-only general search, Provider routing, Provider child orchestration, and coverage checks |
 | Prime local investigation | Prime Agent SDK | Main's question, frozen Wiki edition, saved Cues and external access scope | Evidence selection, further acquisition and Cornell reading, Writer delegation, and verbatim delivery of the Writer answer and gaps |
 | Provider child | Prime child Agent | Root-assigned task for one Provider and its Skill | One Candidate Ledger and the required material |
-| Source Organizer | Prime Agent | New Sources from this execution, historical ungrouped index, and existing Group summaries | Grouping Patch for new Sources only |
+| Source Organizer | Prime Agent | New Sources from this execution, historical ungrouped index, and existing Group summaries | Grouping Patch for new and previously ungrouped Sources, preserving existing Group members |
 | Note Agent, source reading | Prime Agent | One complete read-only Logical Source, the question, and optional paths of changed members | Cornell Note Sections, Cues, and Evidence line numbers |
 | Note Agent, question reading | Prime Agent | One question and read-only original Sources selected from the Goal by the reader | Durable question-specific Cues with validated Source revision, file path, and line ranges |
 | Report Writer, answer variant | One independent Prime Session | Complete question, requested parts, assigned Notes and citations, frozen excerpts and bounded original Source views | Conversational answer, citation refs, coverage and gaps |

@@ -2,7 +2,7 @@
 
 ## Source reading
 
-Search and the cross-provider Organizer first produce an immutable Source directory. Runtime then materializes a Note Source View for each Source and starts a fresh Prime Agent. The Agent sees only:
+Search and the Source Organizer first produce an immutable Source directory. Runtime then materializes a Note Source View for each Source and starts a fresh Prime Agent. The Agent sees only:
 
 - The read-only Note Source View, containing UTF-8 text and local image assets declared in the conversion manifest
 - The Source ID

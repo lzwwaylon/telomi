@@ -20,7 +20,7 @@ Capability Snapshots freeze their ordered Skill ownership alongside the files. I
 | `prime-investigation` | Yes; pins the question, prompt, model policy, Wiki snapshot, and successful knowledge, reading, external-search and Writer responses seen by the Root | Main-triggered local investigations |
 | `wiki-compilation` | Yes; freezes the complete Notes, Goal, Topic Plan and base Wiki, or the base Wiki and Topic Plan for reindex | Production Wiki Updates and Topic reindex runs |
 | `podcast-writer` | Yes; freezes Canonical Report, generation requirements, and models | Production Podcast generation runs |
-| `schedule-reviewer` | No (restricted); Cases can be captured and exported, but Candidate Replay requires exact matching of frozen answers, as described below | Production Research Schedule Reviews |
+| `schedule-reviewer` | Yes, restricted to the captured memory and Wiki requests; changed operation arguments fail closed, as described below | Production Research Schedule Reviews |
 | `evolution` | Yes; reruns complete Browser Evolution in an isolated Goal without changing the real Goal | Terminal Browser Evolutions; see [Evolution Module](evolution-module-design.md) |
 
 The production Research Runtime and Node Backtest share one Stage Runner construction entry point. Candidate Replay replaces only the target Agent's Candidate Capability Bundle, keeping Node Case Input and the Evaluation Runtime Epoch fixed.
@@ -81,23 +81,10 @@ GET /operations/v1/goals/:goalId/cases/:sourceRunId/:caseId/files
 GET /operations/v1/goals/:goalId/cases/:sourceRunId/:caseId/file?ref=REF
 ```
 
-The status endpoint returns the currently registered Recipes:
-
-```json
-{
-  "recipes": [
-    "note-agent@3",
-    "evolution@2",
-    "main-agent@1",
-    "prime-search@4",
-    "provider-child@1",
-    "podcast-writer@1",
-    "report-writer@2",
-    "schedule-reviewer@1",
-    "wiki-compilation@1"
-  ]
-}
-```
+The status endpoint returns the currently registered Recipe identities. Use that
+list for Replay admission rather than a separately maintained inventory. Recipe
+registration belongs to `server/evaluation/operations-runtime.ts`; the Agent
+Catalog describes their executable Agent boundaries and supported Prompt modes.
 
 Status returns no host paths. The launching process configures the material cache root through `SOURCE_SERVICE_MATERIAL_CACHE_ROOT`, defaulting to `<TELOMI_CACHE_DIR>/material-cache`. Eval instances use their own writable Overlay, not the production cache. External evaluation environments set these values themselves and do not need Telomi to report its disk layout.
 
@@ -141,7 +128,7 @@ Frozen Tool order, Source identities and byte-exact Writer requirements remain u
 
 Main Agent also freezes a per-Case Prompt Bundle. Candidate mode renders the current Main project template over the captured Goal title/description, output language, Topic state, prior Research navigation and preference context, while restoring the captured conversation and turn context. Candidate Case evidence records the actual native composed system Prompt and its Hash. Legacy Main Cases without structured promptContext reject candidate mode; use observed or override instead of inferring Goal variables from rendered text. Main observed/override applies the complete recorded or supplied system bytes after native prompt preparation and suppresses live preference injection.
 
-Other Recipes execute their native current Candidate Agent Bundle and accept `candidate` or an omitted mode. They reject `observed` because they cannot freeze historical templates; Main Agent supports explicit observed replay as described above. Explicit overrides remain supported only by Main Agent and Prime Search, with Prime Search accepting user-only overrides. Every new Run records its effective `candidate.promptMode`; older saved Runs remain readable.
+Replay Prompt modes and override fields are declared by the Agent Catalog in `server/agent-runtime/agent-catalog.ts`. Prime Search supports candidate mode and user-only overrides. Main Agent, Note Agent, Report Writer and Investigation support candidate, observed and override modes under the contracts above; Investigation accepts user-only overrides. Other Recipes execute their native current Candidate Agent Bundle and accept `candidate` or an omitted mode, rejecting observed and override modes. Every new Run records its effective `candidate.promptMode`; older saved Runs remain readable.
 
 The resulting `run.candidate.promptBundle` stores per-Case Prompts, their content Hashes and provenance, and the Bundle Hash. Replay reads only these pinned Prompts. `run.candidate.capabilityBundleHash` binds both Workspace Snapshot and Prompt Bundle so the external Operations Interface can verify the actual Candidate identity. Each repetition reruns the Candidate and pairs it anonymously with the same Observed Baseline.
 

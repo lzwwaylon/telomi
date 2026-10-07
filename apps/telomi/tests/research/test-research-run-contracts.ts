@@ -980,6 +980,8 @@ assert.match(notesSelfDirectedDelegationPrompt("test/child"),
 assert.match(wikiSelfDirectedDelegationPrompt("test/child"),
 	/Runtime validated[\s\S]+injected every Section ID[\s\S]+exactly one Report Writer Section child per Section[\s\S]+test\/child/iu);
 assert.match(primeWriterFinalPrompt("notes"), /Do not write[\s\S]+manifest\.json[\s\S]+Runtime creates/iu);
+assert.doesNotMatch(primeWriterFinalPrompt("notes"), /retrieval plan/iu);
+assert.match(primeWriterFinalPrompt("wiki"), /retrieval plan/iu);
 assert.doesNotMatch(primeWriterFinalPrompt("notes"), /"schema_version": 1|Create writer-output\/\.complete last/iu);
 assert.match(primeWriterFinalPrompt("notes", true),
 	/load the writing-skill[\s\S]+writing_skill\("work\/final-check\.md"\)/iu);
@@ -1006,7 +1008,7 @@ assert.deepEqual(primeReportWriterContractIdentity({}, {
 });
 const writingSkill = readFileSync(join(reportWriterSkillRoot, "writing-skill", "SKILL.md"), "utf-8");
 assert.match(writingSkill, /^---[\s\S]+name: writing-skill[\s\S]+Research Report Writing/mu);
-assert.match(writingSkill, /Runtime independently reruns the same scanner/u);
+assert.match(writingSkill, /Runtime independently[\s\S]+reruns the same scanner/u);
 assert.match(writingSkill, /unattended Report Writer stage[\s\S]+Do not ask the user/iu);
 assert.doesNotMatch(writingSkill, /Antigravity|agy --print|Twitter|install the skill/iu);
 

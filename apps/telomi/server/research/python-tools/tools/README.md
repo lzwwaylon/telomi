@@ -7,18 +7,20 @@ without an intermediate command or plan file.
 Record dictionaries combine several resource types, so fields documented by a
 TypedDict can be absent. Use `record.get("field")` for optional metadata.
 
-Import only the Source module assigned to this Worker. Its dedicated section
-below covers the entry points most assignments need. The mounted module is the
-authoritative surface: use `dir(module)` to see everything it exports and
-`help(function)` for exact signatures, and read the assigned Provider Skill for
-Provider-specific discovery and pagination guidance.
+Use only the Provider assigned to this child. Read its assigned Provider Skill
+for discovery, acquisition and pagination guidance; its Python-backed module
+reuses this SDK. Use `help(function)` when a selected operation's signature is
+unclear, and the Skill's generated `references/API.md` for advanced operations.
+The mounted Python module is authoritative for exact signatures.
 
-The frozen final program may discover and paginate through any number of
-Provider rows. Deterministically filter and deduplicate them, then return exactly
-`{"results": [...]}` with the selected Provider rows unchanged. Do not add
-schema versions, Runtime IDs, provenance, hashes, paths, or validation fields.
-Runtime validates the rows against the final Provider execution and adds all
-system fields afterward.
+Provider children discover candidates, acquire the material required by their
+Evidence Need, and write the assigned Candidate Ledger with `CandidateLedger`.
+Keep actual discovery queries and Provider material results. Runtime owns IDs,
+provenance validation and immutable Source publication. Write
+`work/<provider_id>_candidates.json`, then call
+`research_runtime.finish(provider_id=...)`. Repair that file on validation
+failure; successful submission ends acquisition. Root orchestrates children and
+reviews their completion replies rather than downloading their selected material.
 
 ## github
 
@@ -40,9 +42,10 @@ Read-only discovery and inspection:
 text, then call `get_issue` to retrieve the selected Issue body and complete
 structured comment thread.
 
-Provider children must not clone repositories or download files and releases.
-Submit candidates from GitHub Metadata only. Prime Search Root acquires selected
-GitHub Sources afterward.
+Provider children acquire the selected repository, files or release material
+through `clone_repository`, `download_file` or `download_release` according to
+the assigned Evidence Need. Preserve Runtime-returned material in the Ledger;
+do not substitute metadata for required original material.
 
 ## arxiv
 
@@ -108,9 +111,10 @@ Every paper is a dictionary with this shape:
 }
 ```
 
-Provider children receive Atom Metadata only. Prime Search Root downloads full
-PDFs for selected papers. Read the arXiv ID from `metadata["arxiv_id"]` or
-the versioned ID from `metadata["arxiv_version_id"]`.
+Provider children discover through Atom metadata and acquire retained papers
+through `download_pdf`. Read the arXiv ID from `metadata["arxiv_id"]` or
+the versioned ID from `metadata["arxiv_version_id"]`; pass acquired material
+unchanged to the Ledger builder.
 
 ## huggingface
 
@@ -138,8 +142,8 @@ functions:
 - `huggingface.paginate_models`, `paginate_datasets`, and `paginate_spaces`
 
 Use `papers_search` for keyword queries. Use `model_info` or `dataset_info`
-only when the Planner assignment explicitly supplies the exact repository ID,
-or after that ID is returned by the same final discovery execution. Use
+only when Root's assignment explicitly supplies the exact repository ID,
+or after discovery returns that ID. Use
 `dataset_leaderboard` only for benchmark datasets with submitted evaluations.
 The two Daily Papers functions do not accept `query`; they only list or
 paginate the Daily Papers feed.
@@ -184,8 +188,8 @@ at the top level:
 ```
 
 Paper rows similarly expose `paper_id`, `upvotes`, and `pdf_url`. These fields
-are copied from `metadata`; Runtime adds its IDs and provenance after validating
-the final program output.
+are copied from `metadata`; Runtime validates the child's submitted Ledger and
+material before assigning published Source identities.
 
 ## twitter
 
@@ -238,8 +242,8 @@ direct network access. Runtime validates, schedules, caches, and records each
 request before the Host service injects the local X session.
 
 Provider results contain authenticated post, article, thread, profile, or
-timeline Metadata. Never revisit the public X URL. Return selected rows
-unchanged so Prime Search Root can materialize selected records.
+timeline content and metadata. Never revisit the public X URL. The Provider
+child passes retained results to the Ledger builder for materialization.
 
 ## user_documents
 
@@ -258,8 +262,9 @@ rows = user_documents.search(
 )
 ```
 
-The returned records use the same Runtime-owned Metadata candidate shape as
-other Providers. Prime Search Root materializes selected documents.
+The returned records use the same Runtime-owned candidate shape as other
+Providers. The Provider child passes retained document records to the Ledger
+builder; Runtime preserves their original and readable material.
 
 ## youtube
 
@@ -283,21 +288,24 @@ Main functions:
 
 YouTube functions expose business parameters only. They do not accept
 `purpose`, `allow_asr`, or `stt_provider`; Runtime owns audit labels and the
-ASR Provider choice. Prime Search Root owns transcript acquisition after selection.
+ASR Provider choice. The Provider child acquires required transcript evidence
+through `youtube.transcript` after selection.
 
 Use `subscription_uploads` for scheduled monitoring and pass the prior successful
 sync timestamp as `published_after`. Every operation uses Host-owned yt-dlp with
 public operations remaining Cookie-free. Account operations use the Host's
 `PI_YOUTUBE_YTDLP_COOKIE_FILE`: the user's own value when configured, otherwise a
-cookie file the Runtime exports from the user's browser login (over CDP) at startup
-and before each research run. `PI_YOUTUBE_YTDLP_COOKIES_FROM_BROWSER` selects a
+cookie file retained from the managed browser's login. Browser synchronization
+refreshes that file when the browser is read; a stopped browser leaves the saved
+credential unchanged. `PI_YOUTUBE_YTDLP_COOKIES_FROM_BROWSER` selects a
 browser profile directly instead. Cookie files must be absolute, no larger than
 10 MiB, and readable only by their owner. The Worker does
 not choose authentication, parse URLs, or receive Cookie configuration.
 
 For paged operations, call `youtube.next_page_token(rows)` and pass the returned
 opaque value to the next request. Filter candidates from list metadata before
-calling `youtube.video`. Prime Search Root retrieves transcripts for selected videos.
+calling `youtube.video`. The Provider child retrieves required transcripts for
+selected videos through `youtube.transcript`.
 Channel-list timestamps marked
 `timestamp_precision="approximate"` use a conservative one-day overlap around
 `published_after`; call `youtube.video` for retained candidates to apply the
@@ -326,8 +334,8 @@ Every video record exposes stable fields from metadata when available:
 }
 ```
 
-Treat page tokens as opaque. Provider children select videos from Metadata only.
-Prime Search Root retrieves and materializes selected transcripts.
+Treat page tokens as opaque. Provider children use metadata for discovery and
+retain acquired transcripts in their Candidate Ledger.
 Transcript documents retain the original video description as a
 `Video Description` section before the transcript so downstream Agents can
 inspect and cite author-provided project, repository, and demo links.
@@ -365,11 +373,11 @@ Blocked by Runtime: `eval`, `upload`, `download`, `screenshot`, `pdf`, and sessi
 
 ## Building a pipeline
 
-Keep the complete acquisition and pagination loop in one Python program.
-Only a fixed ID or URL supplied as an exact assignment input needs its
-direct lookup. For discovery, start with a small sample, verify result shape,
-then expand the final program to the assignment's deterministic query, filter,
-and Provider-proven pagination boundary.
+Use native Python calls for discovery, acquisition and pagination. A fixed ID
+or URL supplied by the assignment may use direct lookup. For discovery, start
+with a small sample, verify result shape, then follow the assignment's query,
+filters and Provider-proven pagination boundary. Preserve results across calls
+and submit the final Ledger through `research_runtime.finish`.
 
 Use `help()` on functions from the assigned Provider module when exact details
 are still unclear.
@@ -405,9 +413,10 @@ Prime Agents work through ipython. `research_runtime` exposes everything the Run
 | --- | --- | --- |
 | `search_source(requests, source=...)` | Provider child | Search the assigned specialized Provider. |
 | `search_general_web(query, max_results=10)` | Search Root only | General web discovery; results are routing leads, not evidence. |
-| `browser(*args)` / `browser_program(program)` | Browser child, Root | Read-only Browser commands in this execution's own Browser session. |
+| `browser(*args)` / `browser_program(program)` | Browser child | Browser commands in this execution's own Runtime-owned session. |
 | `materialize_source(source, title=None)` | Browser child | Retain the current page, an attachment ref, or a public file as converted material. |
 | `read_skill(path)` | any | Read a staged `skills/...` file; Runtime records a `skill_read` receipt for Evolution. |
+| `finish(provider_id=...)` | Provider child | Validate and freeze the assigned Candidate Ledger. |
 
 The caller identifies itself with `execution_id()`: `root`, or the child id the Runtime wrote
 into `work/.execution-id` when it created the child workspace. Root-only functions are refused

@@ -64,7 +64,7 @@ Unqualified Skill names are resolved only inside the same bundle's `skills/` dir
 
 A shared Skill may be referenced as `<agent-id>/<skill-name>`. Keep this exceptional and explicit so one canonical Skill can support closely related Agents without copying its implementation.
 
-`execution_profile` is optional. When `sandbox` is present, `network` and `tools` are executable allowlists used by SRT and replay runtimes. Direct utility and Prime runtimes omit `sandbox` because their dedicated runtime owns execution policy.
+`execution_profile` is optional. When `sandbox` is present, `network` and `tools` are executable allowlists used by SRT and replay runtimes. Dedicated executors may own policy without a `sandbox` declaration; Prime-backed Bundles such as Note Agent and Research Schedule Reviewer declare their supported execution profile and permissions explicitly.
 
 ## Global system Prompt
 
