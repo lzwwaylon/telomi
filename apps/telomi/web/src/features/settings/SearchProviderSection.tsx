@@ -12,7 +12,7 @@ import { BrowserLoginDialog } from "./BrowserLoginDialog";
 /** Every control in a source row shares one height, so text buttons, icon buttons and the switch line up. */
 const BTN_PRIMARY = `${BTN_BASE} h-8`;
 const BTN_DANGER = `${BTN_DANGER_BASE} h-8`;
-const BTN_ICON = `${BTN_PRIMARY} w-8 px-0`;
+const BTN_ICON = cn(BTN_PRIMARY, "w-8 px-0");
 import type { SearchCredentialFieldStatus, SearchCredentialProviderStatus } from "./provider-config";
 
 export type SourceEntry = SourceSummary<SearchCredentialProviderStatus>;
@@ -564,7 +564,7 @@ function SearchCredentialControls({
           {(configured || staged) && (
             <button
               type="button"
-              className={`${BTN_DANGER} w-8 px-0`}
+              className={cn(BTN_DANGER, "w-8 px-0")}
               onClick={clear}
               disabled={busy !== null}
               aria-label={uiText("settings.page.clearTheIdApiKey", { id: provider.id })}
