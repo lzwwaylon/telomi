@@ -19,10 +19,10 @@ The Agent writes to the fixed `note.json` path and submits only `sections` at th
 
 Runtime supplies `schema_version` and `source_id` from the calling context and computes Evidence `content_sha256`. The Agent does not determine these persisted identities.
 
-- When a Topic Plan is supplied, every Cue must submit `topic_refs` using the short Refs in that prompt. Runtime rejects unknown or duplicate Refs and maps them to confirmed Topic IDs. Use an empty array when no Topic matches.
+- A supplied Topic Plan directs attention and defines what Discovery counts as uncovered. Cues carry no Topic association: Runtime rejects a submitted `topic_refs`, and Wiki Compilation assigns Topics to published page sections.
 - When Discovery is enabled, every Cue must submit `discovery.finding`. Submit an empty string when there is no finding; Runtime does not store empty findings. Conditional fields must not be submitted when their feature is disabled.
 
-The authoritative field validation is `validateSourceNote` in `server/research/note-agent.ts`. The prompt supplies submission requirements using the same Topic Plan and Discovery switches.
+The authoritative field validation is `validateSourceNote` in `server/research/note-agent.ts`. The prompt supplies submission requirements using the same Discovery switch.
 
 When a Source contributes nothing to the question, `sections` may be empty. The system does not generate or store relevance grades, acceptance/rejection decisions, reasons, matched questions, Note types, Report Section routing, or unresolved questions.
 
@@ -33,7 +33,7 @@ Runtime owns only deterministic mechanisms:
 1. Materialize a Note Source View containing only readable text and declared assets from the immutable Source.
 2. Mount that View read-only. Reject missing readable text without falling back to original binary files.
 3. Inject the corresponding member paths as reading navigation only when an existing Logical Source gains members or a member revision changes. Do not inject this mechanism context when nothing changed.
-4. Validate output against the current Topic Plan and Discovery switches.
+4. Validate output against the current Discovery switch.
 5. Supply the Source ID from the calling context and validate text-file paths and line ranges.
 6. Compute and record `content_sha256` for each cited passage.
 7. Reuse unchanged Notes by Source revision.

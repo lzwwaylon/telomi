@@ -141,7 +141,7 @@ A Goal with an activated, user-confirmed Goal Topic Plan and no user-requested r
 _Avoid_: Goal with a draft Topic Plan, Goal with a pending Proposal
 
 **Goal Topic**:
-A stable user-attention lens within a Goal Topic Plan. It may reference many Cornell Notes and Wiki Pages, and one Note or Page may reference many Goal Topics.
+A stable user-attention lens within a Goal Topic Plan. One Wiki Page may support many Goal Topics, and each Goal Topic may cover many Pages grounded in Source Notes.
 _Avoid_: Concept, Entity, Wiki Page, Report Section, exclusive category
 
 **Goal Topic ID**:

@@ -103,7 +103,7 @@ Only when an existing Logical Source gains members or its members change does Ru
 
 Binary files such as original PDFs remain in the Source Artifact and are excluded from the Note Source View. Local images referenced by Markdown retain their original relative paths and can be viewed through IPython rich display, but Evidence may cite only body-text line numbers. Runtime rejects missing conversion output outright; the Agent cannot fall back to original files.
 
-The Agent sees no Ontology, Report Outline, other Sources, or global coverage. It submits top-level `sections`; Runtime adds the version and Source identity, and validates Topic and Discovery fields against the current context. Every Cue must cite a Source-relative path and exact line numbers. `sections` may be empty when there is no relevant content.
+The Agent sees no Report Outline, other Sources, or global coverage. A supplied Topic Plan guides reading focus and Discovery; the Agent does not assign Topics to Cues. It submits top-level `sections`; Runtime adds the version and Source identity and validates Discovery fields against the current context. Wiki Compilation assigns Topics to published page sections. Every Cue must cite a Source-relative path and exact line numbers. `sections` may be empty when there is no relevant content.
 
 Runtime validates files and line numbers and adds cited-content hashes. Unchanged Source revisions reuse existing Notes. A new Run Snapshot is written to:
 

@@ -106,10 +106,6 @@ export async function executeInvestigation(input: {
 		...listSavedNoteReadingCues(input.goalDir).map((cue) => ({ ...cue, kind: "note_reading" as const })),
 	].reverse().map((cue) => [cue.ref, cue])).values()];
 	writeJsonAtomic(join(runDir, "input", "knowledge-cues.json"), catalog);
-	const topicPlanPath = join(knowledgeRoot, ".topic-plan.json");
-	const topicPlan = existsSync(topicPlanPath)
-		? JSON.parse(readFileSync(topicPlanPath, "utf-8")) as { topics?: Array<{ id: string; title: string; intent?: string }> }
-		: {};
 	const wikiAdapter = createWikiReferenceAdapterFromRoot(knowledgeRoot,
 		createGoalLlmWikiTools({ goalDir: input.goalDir, knowledgeRoot }));
 	const searchTool = wikiAdapter.tools.find((tool) => tool.name === "wiki_search")!;
@@ -231,13 +227,8 @@ export async function executeInvestigation(input: {
 						}) };
 				});
 				const cues = enrichInvestigationCues(input.goalDir, rankSavedNoteCues(catalog, query, limit));
-				const topicIds = [...new Set(cues.flatMap((cue) => "topic_refs" in cue ? cue.topic_refs : []))];
-				const topicLeads = topicIds.slice(0, 4).flatMap((id) => {
-				const topic = topicPlan.topics?.find((item) => item.id === id);
-				return topic ? [{ topic_ref: `T${topicPlan.topics!.indexOf(topic) + 1}`, title: topic.title, intent: topic.intent ?? "" }] : [];
-				});
 				const result = { wiki: { ...wiki, results: (wiki.results ?? []).slice(0, limit) },
-					pages: projectedPages, cues: projectCues(cues), topic_leads: topicLeads };
+					pages: projectedPages, cues: projectCues(cues) };
 				const recorded = { ...result, cues };
 				firstKnowledgeSearch = { key, result, recorded };
 				recordInteraction("knowledge_search", { query, limit }, recorded);
