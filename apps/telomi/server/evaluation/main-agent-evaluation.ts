@@ -18,6 +18,11 @@ import {
 } from "../agent-runtime/artifact-store.js";
 import type { AgentStageRequest, ValidatedStageArtifact } from "../agent-runtime/agent-stage-runtime.js";
 
+/** How a candidate-mode Replay refreshed the frozen history before the turn: sha256 of the Candidate file each Skill read now carries, by guest path. */
+export interface MainAgentHistoryRefresh {
+	skillReads: Record<string, string>;
+}
+
 export function captureMainAgentNodeEvaluation(input: {
 	runId: string;
 	runDirectory: string;
@@ -26,6 +31,8 @@ export function captureMainAgentNodeEvaluation(input: {
 	actualModel: string;
 	thinkingLevel: ThinkingLevel;
 	contextBefore?: Buffer;
+	/** Present only when `contextBefore` is a refreshed history rather than the verbatim Case history. */
+	historyRefresh?: MainAgentHistoryRefresh;
 	sessionPath: string;
 	terminal: MainTerminalDetails;
 	toolCounts: Record<string, number>;
@@ -70,6 +77,7 @@ export function captureMainAgentNodeEvaluation(input: {
 				...(input.promptContext ? { promptContext: input.promptContext } : {}),
 				...(input.turnContext ? { turnContext: input.turnContext } : {}),
 				...(input.attachments?.length ? { attachments: input.attachments } : {}),
+				...(input.historyRefresh ? { historyRefresh: input.historyRefresh } : {}),
 			},
 			inputRelativePath: relative(input.runDirectory, input.logicalWorkspacePath).split(sep).join("/"),
 			inputGuestPath: "/",

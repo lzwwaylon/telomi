@@ -10,9 +10,12 @@ import type { GoalSnapshot, PromptInput } from "../../shared/types.js";
 import { GoalRunner } from "../main-agent/runner.js";
 import { attachmentPayloadsFromCase, type AttachmentCaseDescriptor } from "../main-agent/attachment-utils.js";
 import { FileIngestService } from "../ingestion/service.js";
-import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
+import { captureMainAgentNodeEvaluation, type MainAgentHistoryRefresh } from "./main-agent-evaluation.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
+import { agentSkillRoot } from "../workspaces/agent-layout.js";
+import { bundledAgentSkillPaths, snapshotSkills, type SkillSetSnapshot } from "../agent-runtime/skill-registry.js";
 import { sha256 } from "../lib/hash.js";
+import { comparePaths } from "../lib/paths.js";
 import { getResearchSourceServiceClient } from "../providers/source-service-client.js";
 import {
 	goalTopicDocumentFromPlan,
@@ -69,19 +72,25 @@ async function replayMainAgentCase(
 			workspaceDirectory,
 			goalId,
 		});
-		const contextBefore = value.request.session.contextBefore;
-		const contextBeforeBytes = contextBefore
-			? Buffer.from(readNodeEvaluationFile(casePath, contextBefore))
-			: undefined;
-		if (contextBefore) {
-			writeFileSync(
-				join(goalDirectory, "context.jsonl"),
-				contextBeforeBytes!,
-				{ mode: 0o600 },
-			);
-		}
 		const recipeInput = mainAgentRecipeInput(value.recipeInput);
 		const candidateMode = promptMode === "candidate" || (promptMode === undefined && !promptOverride);
+		const contextBefore = value.request.session.contextBefore;
+		let contextBeforeBytes: Buffer | undefined = contextBefore
+			? Buffer.from(readNodeEvaluationFile(casePath, contextBefore))
+			: undefined;
+		let historyRefresh: MainAgentHistoryRefresh | undefined;
+		if (contextBeforeBytes && candidateMode) {
+			// The same roots MainWorkspaceRuntime materializes for the turn, so a Goal override wins here too.
+			const refreshed = refreshSkillReadsInHistory(contextBeforeBytes, snapshotSkills([
+				...bundledAgentSkillPaths("main", "main-agent"),
+				join(goalDirectory, agentSkillRoot("main-agent")),
+			], { allowOverrides: true }));
+			contextBeforeBytes = refreshed.history;
+			historyRefresh = { skillReads: refreshed.skillReads };
+		}
+		if (contextBeforeBytes) {
+			writeFileSync(join(goalDirectory, "context.jsonl"), contextBeforeBytes, { mode: 0o600 });
+		}
 		const promptContext = candidateMode || recipeInput.promptContext !== undefined
 			? capturedMainAgentPromptContext(recipeInput.promptContext) : undefined;
 		const systemPrompt = promptOverride?.systemPrompt ?? (promptContext
@@ -163,6 +172,7 @@ async function replayMainAgentCase(
 					actualModel: value.request.actualModel,
 					thinkingLevel: recipeInput.thinkingLevel,
 					...(contextBeforeBytes ? { contextBefore: contextBeforeBytes } : {}),
+					...(historyRefresh ? { historyRefresh } : {}),
 					sessionPath: join(recordDirectory, "main-agent-trace", "main-agent.jsonl"),
 					terminal,
 					toolCounts: { all: toolCalls },
@@ -190,6 +200,66 @@ async function replayMainAgentCase(
 			// The nested Replay workspace is disposable and never the product workspace.
 			rmSync(workspaceDirectory, { recursive: true, force: true });
 		}
+}
+
+const SKILL_GUEST_ROOT = "/capabilities/skills/";
+
+/**
+ * A continued session carries every earlier Tool result, including the full text of each Skill the
+ * Agent read under `/capabilities/skills/`. Candidate mode mounts the Candidate's Skills, but the
+ * Agent only rereads one by chance, so an edited Skill stays unexercised while the frozen copy in
+ * history is what it follows. Replace those read results with the Candidate's current file for the
+ * same path, as a fresh session would have seen, and report the sha256 of each file so the Case can
+ * tell a refreshed history from a verbatim one. Lines that are not refreshed keep their exact bytes.
+ */
+export function refreshSkillReadsInHistory(
+	history: Buffer,
+	skills: Pick<SkillSetSnapshot, "skills">,
+): { history: Buffer; skillReads: Record<string, string> } {
+	const lines = history.toString("utf-8").split("\n");
+	const readPaths = new Map<string, string>();
+	const skillReads: Record<string, string> = {};
+	const refreshed = lines.map((line) => {
+		if (!line.trim()) return line;
+		const entry = JSON.parse(line) as { type?: string; message?: PiHistoryMessage };
+		const message = entry.type === "message" ? entry.message : undefined;
+		if (message?.role === "assistant" && Array.isArray(message.content)) {
+			for (const item of message.content) {
+				if (item.type === "toolCall" && item.name === "read" && typeof item.id === "string"
+					&& typeof item.arguments?.path === "string" && item.arguments.path.startsWith(SKILL_GUEST_ROOT)) {
+					if (item.arguments.offset !== undefined || item.arguments.limit !== undefined) {
+						throw new Error(`Frozen history reads ${item.arguments.path} with offset/limit; Candidate Replay cannot refresh a partial Skill read`);
+					}
+					readPaths.set(item.id, item.arguments.path);
+				}
+			}
+			return line;
+		}
+		const path = message?.role === "toolResult" && message.toolName === "read" && !message.isError
+			&& typeof message.toolCallId === "string" ? readPaths.get(message.toolCallId) : undefined;
+		if (!path) return line;
+		const [name, ...rest] = path.slice(SKILL_GUEST_ROOT.length).split("/");
+		const relativePath = rest.join("/");
+		const skill = skills.skills.find((item) => item.name === name);
+		if (!skill || !skill.files.some((file) => file.relativePath === relativePath)) {
+			throw new Error(`Frozen history reads ${path}, which the Candidate's Skills do not provide`);
+		}
+		const bytes = readFileSync(join(skill.sourcePath, relativePath));
+		skillReads[path] = sha256(bytes);
+		return JSON.stringify({ ...entry, message: { ...message, content: [{ type: "text", text: bytes.toString("utf-8") }] } });
+	});
+	return {
+		history: Buffer.from(refreshed.join("\n"), "utf-8"),
+		skillReads: Object.fromEntries(Object.entries(skillReads).sort(([left], [right]) => comparePaths(left, right))),
+	};
+}
+
+interface PiHistoryMessage {
+	role?: string;
+	toolCallId?: string;
+	toolName?: string;
+	isError?: boolean;
+	content?: string | Array<{ type?: string; id?: string; name?: string; arguments?: { path?: unknown; offset?: unknown; limit?: unknown } }>;
 }
 
 export async function prepareMainAgentReplayGoalWorkspace(input: {
