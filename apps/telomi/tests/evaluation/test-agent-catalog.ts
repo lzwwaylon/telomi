@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { agentReplayCapabilities, assertAgentDescriptor, describeEvaluationAgent, evaluationAgentCatalog } from "../../server/agent-runtime/agent-catalog.js";
+import { agentReplayCapabilities, assertAgentDescriptor, describeEvaluationAgent, evaluationAgentCatalog, registeredEvaluationAgentIds } from "../../server/agent-runtime/agent-catalog.js";
 import { OPERATIONS_SCHEMA_HASH, validateOperations } from "../../server/evaluation/operations-contract.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-agent-catalog-"));
@@ -22,6 +22,11 @@ try {
 	assert.deepEqual(agentReplayCapabilities("prime-search"), { replayPromptModes: ["candidate", "override"], promptOverrideFields: ["userPrompt"] });
 	assert.deepEqual(agentReplayCapabilities("new-product-agent"), { replayPromptModes: ["candidate"], promptOverrideFields: [] });
 	assert.ok(before.impactPaths?.includes(`${before.sourcePath}/`));
+	// Agents whose runs call the Wiki read Tools, plus the compiler that owns the directory.
+	const wikiReaders = ["main-agent", "prime-investigation", "report-writer", "schedule-reviewer", "wiki-compilation"];
+	for (const id of registeredEvaluationAgentIds()) {
+		assert.equal(describeEvaluationAgent(id, root).impactPaths?.includes("apps/telomi/server/wiki/"), wikiReaders.includes(id), id);
+	}
 	const hash = OPERATIONS_SCHEMA_HASH;
 	config("Source Reader");
 	const catalog = evaluationAgentCatalog(["note-agent", "note-agent", "new-product-agent"], root);
