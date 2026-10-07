@@ -50,8 +50,7 @@ import type { ScheduledResearchContext } from "./scheduled-research-context.js";
 import type { ResearchProgressEvent, ResearchRuntimeConfig } from "./research-types.js";
 import type { RunContextSnapshot } from "./run-context.js";
 import type { GoalTopicPlan } from "../goals/topic-plan/index.js";
-import { createGoalLlmWikiTools,
-	type WikiCompilationResult } from "../wiki/index.js";
+import type { WikiCompilationResult } from "../wiki/index.js";
 import { publishCompilation } from "../wiki/publication.js";
 import { materializeSkills } from "../agent-runtime/skill-registry.js";
 import { caseCapture } from "../observability/case-capture.js";
@@ -160,7 +159,6 @@ export class ResearchRuntime {
 			const stageRunner = request.onAgentOutput
 				? withAgentOutput(baseStageRunner, request.onAgentOutput)
 				: baseStageRunner;
-			const wikiTools = createGoalLlmWikiTools({ goalDir: request.goalWorkspaceDirectory });
 			const evidenceMaterializer = this.options.evidenceMaterializer
 				?? await createProductionNoteMaterializer({
 					harness: request.researchHarnessSnapshot,
@@ -225,7 +223,6 @@ export class ResearchRuntime {
 					env,
 					signal,
 					...(request.reportInput ? { reportInput: request.reportInput } : {}),
-					...(wikiTools.length ? { wikiTools } : {}),
 					...(request.reportTools?.length ? { reportTools: request.reportTools } : {}),
 					...(request.scheduledResearch ? { scheduledResearch: request.scheduledResearch } : {}),
 					onProgress: (event) => request.onProgress?.({

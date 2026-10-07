@@ -133,7 +133,6 @@ export interface RunRequest {
 		knowledgeInput?: { ref: string; sha256: string; byteLength: number };
 	};
 	reportTools?: readonly AgentTool[];
-	wikiTools?: readonly AgentTool[];
 	scheduledResearch?: ScheduledResearchContext;
 	onProgress?: (event: {
 		stage: string;
