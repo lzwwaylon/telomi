@@ -15,6 +15,9 @@ import { createStageWorkspace } from './wiki-topic-skill.js';
 import { wikiStageOutputHash, wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
 
 const required = (key: string): string => { const value = process.env[key]; if (!value) throw new Error(`${key} is required`); return value; };
+const { createPrimeWorkerControl } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH")) as typeof import("../agent-runtime/prime-worker-control.js");
+const control = createPrimeWorkerControl();
+
 const runtime = required("WIKI_STAGE_RUNTIME");
 const cwd = required("WIKI_STAGE_WORK");
 const inputRoot = required("WIKI_STAGE_INPUT_ROOT");
@@ -74,6 +77,7 @@ const { session } = await prime.createAgentSession({ cwd, agentDir, authStorage,
    } },
   ]),
  ], rlmMaxDepth: 1, prewarmIpythonKernel: true, executionMode: "print", telemetryDisabled: true, autonomous: { enabled: false } });
+control.registerSession(session);
 const observePythonMessages = () => {
  if (!topic) return;
  for (const message of session.messages) {
@@ -116,12 +120,15 @@ try {
    initialPrompt: user,
    promptTurn: async (text, repair) => {
     try {
-     await session.prompt(text, repair ? { expandPromptTemplates: false, streamingBehavior: "followUp" } : undefined);
+     await session.prompt(text, { signal: control.signal, ...(repair ? { expandPromptTemplates: false, streamingBehavior: "followUp" } : {}) });
+     control.signal.throwIfAborted();
      await session.waitForRlmQuiescence();
+     control.signal.throwIfAborted();
      assertPrimeModelAnswered(session);
     } catch (error) { promptFailure = { error }; throw error; }
    },
    validate: () => {
+    control.signal.throwIfAborted();
     observePythonMessages();
     const outputHash = wikiStageOutputHash(cwd);
     const result = workspace.validate(JSON.parse(readWikiStageOutput(join(cwd, "result.json")).toString("utf8")), cwd);
@@ -139,11 +146,11 @@ try {
    resultHash: sha256(readWikiStageOutput(join(runtime, "accepted-result.json"))),
    receiptsHash: sha256(readWikiStageOutput(join(runtime, "receipts.json"))) });
  } finally {
-  await session.abort().catch(() => undefined);
+  await control.abort();
   await session.waitForRlmQuiescence().catch(() => undefined);
   unsubscribe();
   observePythonMessages();
-  await session.disposeAsync();
+  await control.dispose();
   writeJsonAtomic(join(runtime, "receipts.json"), workspace.receipts());
   const usage = wikiStageTraceUsage(runtime);
   writeJsonAtomic(join(runtime, "result.json"), { usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens, cost_usd: usage.costUsd, model_calls: usage.calls },

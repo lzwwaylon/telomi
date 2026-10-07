@@ -20,6 +20,9 @@ import {
 } from "./writer-contract.js";
 import { toErrorMessage } from "../../lib/values.js";
 
+const { createPrimeWorkerControl } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH")) as typeof import("../../agent-runtime/prime-worker-control.js");
+const control = createPrimeWorkerControl();
+
 const thinkingLevel = required("PRIME_PODCAST_THINKING_LEVEL");
 if (!isThinkingLevel(thinkingLevel)) throw new Error("Invalid configured thinking level");
 const cwd = required("PRIME_PODCAST_CWD");
@@ -80,6 +83,7 @@ const { session } = await prime.createAgentSession({
 	executionMode: "print",
 	telemetryDisabled: true,
 });
+control.registerSession(session);
 
 const shouldRecordTraceEvent = createPrimeTraceEventFilter();
 session.subscribe((event: unknown) => {
@@ -95,11 +99,12 @@ session.subscribe((event: unknown) => {
 });
 
 try {
+	control.signal.throwIfAborted();
 	if (!podcastWorkspaceReady(cwd, "segments")) {
 		console.log("[prime-podcast] planning and segment delegation");
 		await session.prompt(renderAgentPrompt("main", "podcast-writer", "user", {
 			child_model: childSelector,
-		}, "plan").content);
+		}, "plan").content, { signal: control.signal });
 		await waitForChildren();
 	}
 	checkProvider();
@@ -110,7 +115,7 @@ try {
 		console.log("[prime-podcast] root merge and isolated initial reviews");
 		await session.prompt(renderAgentPrompt("main", "podcast-writer", "user", {
 			child_model: childSelector,
-		}, "initial-review").content, { streamingBehavior: "followUp" });
+		}, "initial-review").content, { streamingBehavior: "followUp", signal: control.signal });
 		await waitForChildren();
 	}
 	checkProvider();
@@ -120,7 +125,7 @@ try {
 		console.log("[prime-podcast] root final edit and final source audit");
 		await session.prompt(renderAgentPrompt("main", "podcast-writer", "user", {
 			child_model: childSelector,
-		}, "final-edit").content, { streamingBehavior: "followUp" });
+		}, "final-edit").content, { streamingBehavior: "followUp", signal: control.signal });
 		await waitForChildren();
 	}
 	checkProvider();
@@ -128,7 +133,7 @@ try {
 
 	if (!existsSync(join(cwd, "writer-output", "review.json"))) {
 		await session.prompt(renderAgentPrompt("main", "podcast-writer", "user", {}, "review").content,
-			{ streamingBehavior: "followUp" });
+			{ streamingBehavior: "followUp", signal: control.signal });
 	}
 	checkProvider();
 	try {
@@ -136,14 +141,13 @@ try {
 	} catch (error) {
 		await session.prompt(renderAgentPrompt("main", "podcast-writer", "user", {
 			validation_error: toErrorMessage(error),
-		}, "output-repair").content, { streamingBehavior: "followUp" });
+		}, "output-repair").content, { streamingBehavior: "followUp", signal: control.signal });
 		checkProvider();
 		materializePodcastOutput(cwd);
 	}
 	console.log("[prime-podcast] writer output complete");
 } finally {
-	await session.abort().catch(() => undefined);
-	session.dispose();
+	await control.dispose();
 }
 
 writeFileSync(join(runtimeRoot, "result.json"), `${JSON.stringify({
@@ -155,7 +159,9 @@ writeFileSync(join(runtimeRoot, "result.json"), `${JSON.stringify({
 }, null, 2)}\n`);
 
 async function waitForChildren(): Promise<void> {
+	control.signal.throwIfAborted();
 	await session.waitForRlmQuiescence();
+	control.signal.throwIfAborted();
 }
 
 async function validateWithRepair(
@@ -164,13 +170,15 @@ async function validateWithRepair(
 ) {
 	for (let repair = 0; ; repair += 1) {
 		try {
+			control.signal.throwIfAborted();
 			return validatePodcastWorkspace(cwd, phase);
 		} catch (error) {
+			control.signal.throwIfAborted();
 			if (repair === MAX_REPAIRS) throw error;
 			await session.prompt(renderAgentPrompt("main", "podcast-writer", "user", {
 				child_model: childSelector,
 				validation_error: toErrorMessage(error),
-			}, repairVariant).content, { streamingBehavior: "followUp" });
+			}, repairVariant).content, { streamingBehavior: "followUp", signal: control.signal });
 			await waitForChildren();
 			checkProvider();
 		}
@@ -186,6 +194,7 @@ function findModel(selector: string) {
 
 /** A model call that failed after Prime's own retries ends the writer; one a retry recovered does not. */
 function checkProvider(): void {
+	control.signal.throwIfAborted();
 	assertPrimeModelAnswered(session);
 }
 

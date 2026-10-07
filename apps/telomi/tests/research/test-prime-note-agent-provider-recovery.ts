@@ -3,6 +3,7 @@ import { fork } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const root = mkdtempSync(join(tmpdir(), "prime-note-agent-provider-recovery-"));
 try {
@@ -71,6 +72,7 @@ export async function createAgentSession(options) {
 			messages.push(answered);
 		},
 		async abort() {},
+		async disposeAsync() {},
 		dispose() {},
 	} };
 }
@@ -105,6 +107,7 @@ export async function createAgentSession(options) {
           TELOMI_PRIME_CREDENTIAL_SOURCE: agentDir,
           PRIME_AGENT_MODULE_PATH: fakePrime,
           PRIME_AGENT_PATHS_MODULE_PATH: resolve("server/agent-runtime/prime-agent-paths.ts"),
+          PRIME_WORKER_CONTROL_MODULE_PATH: fileURLToPath(new URL("../../server/agent-runtime/prime-worker-control.ts", import.meta.url)),
           FAKE_VALID_OUTPUT: String(validOutput),
           FAKE_PROVIDER_ERROR: providerError,
         },

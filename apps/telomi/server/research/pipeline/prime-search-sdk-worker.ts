@@ -33,6 +33,9 @@ interface Input {
 	serviceTier?: "default" | "priority" | "flex";
 }
 
+const { createPrimeWorkerControl } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH")) as typeof import("../../agent-runtime/prime-worker-control.js");
+const control = createPrimeWorkerControl();
+
 const input = JSON.parse(readFileSync(required("PRIME_SEARCH_SDK_INPUT"), "utf-8")) as Input;
 const agentDir = required("PRIME_AGENT_CODING_AGENT_DIR");
 const prime = await import(required("PRIME_AGENT_MODULE_PATH"));
@@ -94,6 +97,7 @@ const sessionOptions = {
 const { session } = await prime.createAgentSession({ ...sessionOptions,
 	...(input.contractTools && !input.childReplayId ? { subagentRuntimeHost: createProviderChildRuntimeHost(prime, input.cwd, sessionOptions as import("prime-agent").CreateAgentSessionOptions) } : {}),
 });
+control.registerSession(session);
 
 const shouldRecordTraceEvent = createPrimeTraceEventFilter();
 const snapshotChildWorkspace = input.logicalWorkspaceCaptureRoot
@@ -116,13 +120,16 @@ session.subscribe((event: unknown) => {
 });
 
 try {
+	control.signal.throwIfAborted();
 	if (input.organizerTools) {
 		try {
 			const accepted = await acceptAgentOutput({
 				initialPrompt: input.prompt,
 				promptTurn: async (text, repair) => {
-					await session.prompt(text, repair ? { streamingBehavior: "followUp", expandPromptTemplates: false } : undefined);
+					await session.prompt(text, { signal: control.signal, ...(repair ? { streamingBehavior: "followUp", expandPromptTemplates: false } : {}) });
+					control.signal.throwIfAborted();
 					await session.waitForRlmQuiescence();
+					control.signal.throwIfAborted();
 					assertPrimeModelAnswered(session);
 				},
 				validate: () => validatePrimeOrganizerDecisionFile(input.cwd),
@@ -140,6 +147,7 @@ try {
 		// Match Prime's native first child turn; a parent model/session is deliberately absent.
 		const content = `[task from parent]\n\n${input.prompt}`;
 		await session.promptAndWait(content, {
+			signal: control.signal,
 			expandPromptTemplates: false,
 			source: "extension",
 			customMessage: {
@@ -149,9 +157,11 @@ try {
 			},
 		});
 	} else {
-		await session.prompt(input.prompt);
+		await session.prompt(input.prompt, { signal: control.signal });
 	}
+	control.signal.throwIfAborted();
 	await session.waitForRlmQuiescence();
+	control.signal.throwIfAborted();
 } finally {
 	// The prime SDK composes the effective system prompt internally; capture it here (the only place it exists) into the
 	// work dir so the Case snapshot carries it. The Agent is done, so this dotfile never enters its reasoning.
@@ -159,8 +169,7 @@ try {
 		const systemPrompt = (session as { systemPrompt?: string }).systemPrompt;
 		if (typeof systemPrompt === "string" && systemPrompt) writeFileSync(join(sessionCwd, ".system-prompt.md"), systemPrompt, "utf-8");
 	} catch { /* the snapshot simply lacks the system prompt */ }
-	await session.abort().catch(() => undefined);
-	await session.disposeAsync();
+	await control.dispose();
 }
 
 function findModel(provider: string, model: string): unknown {
