@@ -12,8 +12,10 @@ npm start
 
 The Node runtime owns the process lifecycle. It reuses a healthy service at
 `HINDSIGHT_URL`, otherwise it runs `telomi_configuration.py` with the existing Hindsight Python
-interpreter and stops that child with Telomi. Persistent data defaults to
-`pg0://telomi`; model updates keep that database and the existing bank identity.
+interpreter and stops that child with Telomi. Unless `HINDSIGHT_API_DATABASE_URL`
+is explicitly configured, each data directory gets its own pg0 database, with
+files under `<TELOMI_DATA_DIR>/user-memory/postgres`. Model updates keep that
+database and the existing bank identity.
 
 Use Settings > Models and services > User Memory for the base LLM, retain,
 reflect, and consolidation. LLM roles inherit the global default or
@@ -27,10 +29,14 @@ failure that prevents safe rollback is reported instead of killing admitted work
 Model selections come from managed settings; legacy model environment values
 are ignored.
 Managed launches do not load Hindsight's independent dotenv overrides. LLMs use
-OpenAI chat-completions compatible connections, with native DeepSeek, Groq and
-OpenRouter backends where selected. Reranking is not configurable: Hindsight
-runs its own default local cross encoder, legacy reranker environment values are
-ignored, and a reranker selection saved by an earlier version is dropped.
+connections whose model API is OpenAI Chat Completions, Anthropic Messages or
+OpenAI Responses. Runtime selects the matching native client, retaining the
+DeepSeek, Groq and OpenRouter backends for their Chat Completions connections.
+Reranking is not configurable: Telomi pins a local multilingual cross encoder
+so recall can rank Chinese as well as English memories. Its model is defined by
+`DEFAULT_MEMORY_RERANKER_MODEL` in `server/goals/memory/hindsight-runtime.ts`.
+Legacy reranker environment values are ignored, and a reranker selection saved
+by an earlier version is dropped.
 
 A loopback transport resolves native Pi credentials for each outgoing request.
 Connection identity and credential deletion are checked again after asynchronous

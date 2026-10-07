@@ -75,11 +75,11 @@ The Runtime-owned system that executes Runs with a pinned Research Harness while
 _Avoid_: AgentDisco Runtime, Research Agent, Research Harness
 
 **Preference Evidence**:
-A provenance-preserving explicit user statement used to publish a Goal-scoped User Preference.
+A provenance-preserving explicit user statement supporting a remembered User Preference.
 _Avoid_: inferred behavior, prediction, raw UI telemetry
 
 **User Preference**:
-A confirmed, scope-aware statement about how the single user wants responses or artifacts produced, supported by but distinct from Preference Evidence.
+An explicit, scope-aware statement about how the single user wants responses or artifacts produced, supported by but distinct from Preference Evidence. Recalled Memory Facts about it remain historical context rather than current instructions.
 _Avoid_: Preference Evidence, Profile fact, inferred behavior
 
 **Goal Preference**:
@@ -337,7 +337,7 @@ The immutable cumulative set of Runtime-validated Cornell Notes for one Run revi
 _Avoid_: mutable note store, Source Bundle, final report
 
 **Report Outline**:
-The title and ordered Sections chosen after evidence exists by the Report Writer Root or the explicit report-outline Agent evaluation path.
+The title and ordered Sections chosen after evidence exists by the Report Writer Root.
 _Avoid_: evidence coverage, Provider assignment, draft prose, fixed Note assignment
 
 **Executable Report Plan**:

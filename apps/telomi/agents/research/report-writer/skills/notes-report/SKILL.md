@@ -17,7 +17,7 @@ import notes_report
 # 1. The whole roster: every Source with its handle, title, origins, evidence_origins and Section titles.
 #    evidence_origins says where the Notes anchor their evidence (a code repository, a paper, a page);
 #    it is the roster's only signal of what depth a Source's Notes can carry.
-#    Page it to the end — this is the only view that shows you everything that exists.
+#    Page it to the end - this is the only view that shows you everything that exists.
 roster = await notes_report.summary()
 while roster["next_offset"] is not None:
     roster = await notes_report.summary(offset=roster["next_offset"])
@@ -51,7 +51,7 @@ none remain. Omitted Notes have not been shown and must not be cited as if alrea
 - Cite Notes as `<cite>N123</cite>` using refs returned by `notes_report.get()`. Runtime resolves
   each ref to its Source's canonical URL deterministically; a hand-typed URL can be wrong, a ref
   cannot. Use only claims returned by `notes_report.get()`.
-- Child Agents may retrieve only the Note refs assigned by the root editorial plan.
+- Child Agents retrieve Notes only from the Source handles assigned by Root, using Source filters to discover the Note refs their Section needs.
 - Retrieve and read one bounded page at a time. Make each `notes_report.get()` batch the final
   expression of its own IPython cell, consume it immediately, and do not fetch pages silently in a
   loop before combining or reprinting them as one large result.

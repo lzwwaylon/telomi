@@ -12,7 +12,7 @@ Each Provider workspace contains:
 - `skills/`: an entry point to this Run's staged, read-only Skill set.
 - `.prime-kernel/`: that child's scratch and temporary home.
 
-The staged Skill set remains the Run's selected Provider and Root Skills, as in native Prime resource inheritance. This change does not introduce Provider-specific Skill admission or infer permissions from child prompt text.
+The staged Skill set is the Run's selected Provider and Root Skills, as in native Prime resource inheritance. Skill availability does not imply Provider-specific permission; Runtime does not infer permissions from child prompt text.
 
 The Root reads submission receipts at `provider-executions/<native-child-id>/work/.provider-assignment`, relative to its initial working directory. The native `session_dir` retains its session-storage meaning and must not be used to derive Provider output locations. Native RLM delegation, messages and `waitForRlmQuiescence()` remain unchanged.
 
@@ -20,7 +20,7 @@ The Root reads submission receipts at `provider-executions/<native-child-id>/wor
 
 The SDK worker runs with the Root workspace as its process cwd. Its Resource Loader publishes relative `filePath` and `baseDir` values under `skills/`; native SDK file reads still resolve there. Python installation metadata retains the host package path for native preparation. Child kernels have the same relative Skill entry point. Skill references resolve from the directory containing `SKILL.md`.
 
-SRT reads are allowed by default. Kernel policy therefore denies the configured Telomi data root as well as private Runtime directories, then opens the execution workspace and required runtime dependencies. Provider children additionally deny the Root tree and reopen only their own execution and the staged Skills. They do not inherit the Root's readable workspace or writable scratch. Staged Skills are explicitly denied writes, including writes through the child's Skill link. Host Tools derive their destination from the native calling session.
+Pi and Prime kernel reads are denied by default. Runtime explicitly grants access to the execution workspace, staged inputs and required runtime dependencies, while private Runtime directories remain denied. Provider children can read their own execution and the staged Skills, without inheriting the Root's readable workspace or writable scratch. Staged Skills are explicitly denied writes, including writes through the child's Skill link. Host Tools derive their destination from the native calling session.
 
 Linked venv directories are canonicalized before constructing the executable path and sandbox policy. The interpreter executable itself is not resolved through `bin/python`, which would lose virtual-environment selection.
 
@@ -30,4 +30,4 @@ Each child application-workspace snapshot is taken on its first running event. I
 
 `npm test -- tests/agent-runtime/test-prime-workspace.ts` uses real sandboxed Python, subprocesses and the installed Prime Resource Loader without model or Provider calls. It checks relative I/O, Python Skill imports, linked venvs, read-only Skills, parent/sibling/private-data access denial, symlink escape rejection and child snapshot contents. `TELOMI_TEST_WORKSPACE_PARENT` can place its disposable fixtures on the same volume used by production data.
 
-Live Replay keeps the explicit file-ingest Interface available for Browser material conversion. Eval startup does not resume persisted ingestion jobs; new requests can enqueue and convert their own material. Disabling both the background recovery and the HTTP Interface would make `research_runtime.materialize_source` fail after browsing succeeds.
+Browser material conversion runs directly in the Provider execution Workspace through the shared local document converter. It does not enqueue Goal file-ingestion jobs or depend on their HTTP Interface. Live Replay retains the converter's authenticated parser and audio services when the material requires them; disabling background ingestion recovery does not disable this conversion path.

@@ -5,7 +5,7 @@ description: Shape an evidence-grounded research report and run deterministic Ch
 
 # Research Report Writing
 
-This Skill is mounted inside an unattended Report Writer stage. The audience and output are already fixed: produce the requested research report from frozen Notes. Do not ask the user questions, start extra model conversations, call external writing tools, or change the root/Section-child orchestration supplied in the user prompt.
+This Skill is mounted inside an unattended Report Writer stage. The task defines the audience, frozen evidence and output contract for a report or investigation answer. Follow that stage's factual boundary and output contract. Do not ask the user questions, start extra model conversations, call external writing tools, or change the orchestration supplied in the user prompt.
 
 ## Structure
 
@@ -28,4 +28,4 @@ print(report)
 
 Read [the lint reference](./references/external_prose_lint.md) when interpreting findings. Fix mechanical problems that are real for this report; the diagnostic is not a semantic judge and does not replace citation or report-contract validation. For a report in any other language, skip this Chinese-specific diagnostic.
 
-Runtime independently reruns the same scanner against `work/final-check.md` and publishes its report. Never claim the diagnostic ran when the callable failed.
+For a full Chinese report, Runtime independently reconstructs the final Section text from the validated Writer output, reruns the same scanner and publishes its diagnostic. It does not trust the Agent's check file as publication evidence. Never claim the diagnostic ran when the callable failed.

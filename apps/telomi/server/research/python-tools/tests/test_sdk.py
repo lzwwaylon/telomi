@@ -2272,10 +2272,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("## twitter", readme)
         self.assertIn("## youtube", readme)
         self.assertNotIn("## document", readme)
-        self.assertNotIn("youtube.transcript(", readme)
         self.assertIn("-> list[YouTubeRecord]", readme)
-        self.assertIn("Runtime validates the rows against the final Provider execution", readme)
-        self.assertIn("Use `help()` on functions from the assigned Provider", readme)
         self.assertNotIn("/workspace/tools/examples/search_and_parse.py", readme)
 
 

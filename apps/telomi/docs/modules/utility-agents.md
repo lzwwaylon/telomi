@@ -8,8 +8,8 @@ Utility Agents provide supporting semantic capabilities to the main workflows. T
 
 | Capability | Main function | Execution |
 |---|---|---|
-| Model Connectivity Test | Verify that a specified Provider and model return `OK` under the contract | Codex uses Research Model Gateway; other Providers issue a minimal completion directly with the same model registry and credentials |
-| Voice Cleanup | Clean punctuation and formatting and apply the custom dictionary to raw STT text, retaining the original on failure | Direct small-model call without tools |
+| Model Connectivity Test | Verify that the specified Provider and model complete a minimal request using the configured connection | Codex uses Research Model Gateway; other Providers issue a minimal completion directly with the same model registry and credentials |
+| Voice Cleanup | Clean punctuation and formatting and apply the custom dictionary to raw STT text, retaining the original on failure | Direct call to the configured cleanup model without tools |
 | Podcast Writer | Generate a single-narrator Podcast Script from a Canonical Report and frozen Podcast Generation Brief | Prime Root and RLM children |
 | LiveKit Voice Entry | Connect VAD, STT, streaming Goal Main Agent interaction, and TTS | LiveKit Agent Session; semantic answers still come from Goal Main Agent |
 

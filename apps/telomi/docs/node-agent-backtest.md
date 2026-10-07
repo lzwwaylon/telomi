@@ -20,7 +20,7 @@ Capability Snapshots freeze their ordered Skill ownership alongside the files. I
 | `prime-investigation` | Yes; pins the question, prompt, model policy, Wiki snapshot, and successful knowledge, reading, external-search and Writer responses seen by the Root | Main-triggered local investigations |
 | `wiki-compilation` | Yes; freezes the complete Notes, Goal, Topic Plan and base Wiki, or the base Wiki and Topic Plan for reindex | Production Wiki Updates and Topic reindex runs |
 | `podcast-writer` | Yes; freezes Canonical Report, generation requirements, and models | Production Podcast generation runs |
-| `schedule-reviewer` | No (restricted); Cases can be captured and exported, but Candidate Replay requires exact matching of frozen answers, as described below | Production Research Schedule Reviews |
+| `schedule-reviewer` | Yes, restricted to the captured memory and Wiki requests; changed operation arguments fail closed, as described below | Production Research Schedule Reviews |
 | `evolution` | Yes; reruns complete Browser Evolution in an isolated Goal without changing the real Goal | Terminal Browser Evolutions; see [Evolution Module](evolution-module-design.md) |
 
 The production Research Runtime and Node Backtest share one Stage Runner construction entry point. Candidate Replay replaces only the target Agent's Candidate Capability Bundle, keeping Node Case Input and the Evaluation Runtime Epoch fixed.
@@ -81,23 +81,10 @@ GET /operations/v1/goals/:goalId/cases/:sourceRunId/:caseId/files
 GET /operations/v1/goals/:goalId/cases/:sourceRunId/:caseId/file?ref=REF
 ```
 
-The status endpoint returns the currently registered Recipes:
-
-```json
-{
-  "recipes": [
-    "note-agent@3",
-    "evolution@2",
-    "main-agent@1",
-    "prime-search@4",
-    "provider-child@1",
-    "podcast-writer@1",
-    "report-writer@2",
-    "schedule-reviewer@1",
-    "wiki-compilation@1"
-  ]
-}
-```
+The status endpoint returns the currently registered Recipe identities. Use that
+list for Replay admission rather than a separately maintained inventory. Recipe
+registration belongs to `server/evaluation/operations-runtime.ts`; the Agent
+Catalog describes their executable Agent boundaries and supported Prompt modes.
 
 Status returns no host paths. The launching process configures the material cache root through `SOURCE_SERVICE_MATERIAL_CACHE_ROOT`, defaulting to `<TELOMI_CACHE_DIR>/material-cache`. Eval instances use their own writable Overlay, not the production cache. External evaluation environments set these values themselves and do not need Telomi to report its disk layout.
 
