@@ -17,7 +17,7 @@ const input: WikiStageInput = { stage: 'merge-objects', key: 'merge', language: 
   page: { id: `entity:${index}`, kind: 'entity', title: index === 0 ? 'Model' : `Model draft ${index}`, description: 'Records', body: `## Record\nFact ${index} [[${id}]].` } })),
  requiredEntries: ids.slice(0, 7), requiredPages: [], topics: [], sections: [], previousRelations: [], instructions: '', unplacedEntries: [] };
 const empty = (): WikiPagesResult => ({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] });
-const request = (name: string, value = input): WikiStageRequest => ({ input: value, workRoot: join(root, name), env: {}, signal: new AbortController().signal });
+const request = (name: string, value = input): WikiStageRequest => ({ input: value, workRoot: join(root, name), env: { TELOMI_WIKI_COMPILATION_MODEL: "test/selected", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "high" }, signal: new AbortController().signal });
 
 function accepted(request: WikiStageRequest, result: WikiStageResult): WikiStageOutcome {
  const attemptRoot = join(request.workRoot, 'attempt-fixture'), work = join(attemptRoot, 'work'), runtime = join(attemptRoot, 'runtime');

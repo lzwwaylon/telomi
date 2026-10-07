@@ -8,13 +8,11 @@ import type { AgentStageRequest, ValidatedStageArtifact } from "../agent-runtime
 import { beginNodeEvaluationCase, finishNodeEvaluationCase, type NodeReplayRecipe } from "../agent-runtime/node-evaluation.js";
 import { pinWikiModelSelection } from "../wiki/compilation-runtime.js";
 import { isThinkingLevel, resolveLLMConfig, resolveStageThinkingLevel, type ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
-import { resolvePrimeModel } from "../agent-runtime/model-policy.js";
 import { TASK_MODEL_ROLE_INFO } from "../config/settings.js";
 import { validateSourceNotesSnapshot } from "../notes/contracts.js";
 import { requireWikiGoalContext, validateGoalTopicPlan, type GoalTopicPlan, type WikiCompilationRequest, type WikiCompilationResult, type WikiGoalContext } from "../wiki/contracts.js";
 import { WikiCompiler, type WikiReindexRequest, type WikiReindexResult } from "../wiki/wiki-compiler.js";
 import { hashWikiDirectory } from "../wiki/files.js";
-import { PAGE_TOPIC_MODEL, PAGE_TOPIC_THINKING } from "../wiki/page-topic-stage.js";
 import { hashJson } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
@@ -23,19 +21,19 @@ import { WikiCueOriginSchema, type WikiCueOrigin } from "../wiki/wiki-update-job
 import { validateJsonSchema } from "../agent-runtime/structured-output.js";
 
 const RECIPE = { id: "wiki-compilation", version: 1 };
-interface FrozenWikiModels { root: string; child: string; thinking: ThinkingLevel }
+interface FrozenWikiModels { root: string; thinking: ThinkingLevel }
 
 function wikiModels(env: NodeJS.ProcessEnv): FrozenWikiModels {
 	const root = resolveLLMConfig({ envVarName: TASK_MODEL_ROLE_INFO.wikiCompilation.modelEnvVar,
 		taskModelRole: "wikiCompilation", envOverride: env });
-	if (!root.model) throw new Error("Wiki evaluation requires a configured Root model");
-	return { root: root.model, child: resolvePrimeModel("primeChild", env).selector,
+	if (!root.model) throw new Error("Wiki evaluation requires a configured model");
+	return { root: root.model,
 		thinking: resolveStageThinkingLevel("wikiCompilation", "maintenance", env).thinkingLevel };
 }
 
 function frozenWikiEnv(models: FrozenWikiModels): NodeJS.ProcessEnv {
 	return { ...process.env, TELOMI_WIKI_COMPILATION_MODEL: models.root,
-		TELOMI_PRIME_AGENT_CHILD_MODEL: models.child, TELOMI_WIKI_COMPILATION_THINKING_LEVEL: models.thinking };
+		TELOMI_WIKI_COMPILATION_THINKING_LEVEL: models.thinking };
 }
 interface FrozenRequest {
 	schema_version: 1;
@@ -64,10 +62,10 @@ export function readWikiCompilationCaseInput(directory: string) {
 		|| typeof raw.rebuild !== "boolean" || typeof raw.has_previous_edition !== "boolean"
 		|| (raw.goal !== undefined && typeof raw.goal !== "string") || !isRecord(raw.models)
 		|| typeof raw.models.root !== "string" || !/^[^/]+\/.+$/u.test(raw.models.root)
-		|| typeof raw.models.child !== "string" || !/^[^/]+\/.+$/u.test(raw.models.child)
+		|| (raw.models.child !== undefined && (typeof raw.models.child !== "string" || !/^[^/]+\/.+$/u.test(raw.models.child)))
 		|| !isThinkingLevel(raw.models.thinking)) throw new Error("Invalid Wiki compilation frozen request");
 	const request: FrozenRequest = { schema_version: 1, operation: raw.operation as FrozenRequest["operation"],
-		goalContext: requireWikiGoalContext(raw.goalContext), models: { root: raw.models.root, child: raw.models.child, thinking: raw.models.thinking },
+		goalContext: requireWikiGoalContext(raw.goalContext), models: { root: raw.models.root, thinking: raw.models.thinking },
 		rebuild: raw.rebuild, has_previous_edition: raw.has_previous_edition, ...(typeof raw.goal === "string" ? { goal: raw.goal } : {}) };
 	if (request.has_previous_edition !== existsSync(join(directory, "previous-edition"))
 		|| (request.operation === "reindex" && (!request.has_previous_edition || request.rebuild))
@@ -154,9 +152,8 @@ async function captureProduction<T>(input: {
 
 function prepareCapture(input: { recordDirectory: string; directory: string; runId: string; signal: AbortSignal; capabilitySnapshotId?: string }) {
 	const frozen = readWikiCompilationCaseInput(join(input.directory, "input"));
-	const navigationOnly = frozen.request.operation === "reindex";
-	const model = navigationOnly ? PAGE_TOPIC_MODEL : frozen.request.models.root;
-	const thinking = navigationOnly ? PAGE_TOPIC_THINKING : frozen.request.models.thinking;
+	const model = frozen.request.models.root;
+	const thinking = frozen.request.models.thinking;
 	const store = new RunArtifactStore(input.recordDirectory);
 	const evidence = join(input.directory, "evidence");
 	mkdirSync(evidence);

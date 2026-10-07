@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { primeModelDefinitions } from '../agent-runtime/prime-agent-paths.js';
+import { modelDefinitionHash } from '../agent-runtime/model-policy.js';
+import { wikiModelSelection } from './wiki-pi-runtime.js';
 import { listJsonl, writeJsonAtomic } from '../lib/fs.js';
 import { hashJson, sha256 } from '../lib/hash.js';
 import { toErrorMessage } from '../lib/values.js';
@@ -17,7 +18,9 @@ export async function runPiObjectMergeStage(request: WikiStageRequest,
  request.signal.throwIfAborted();
  if (request.input.stage !== 'merge-objects') throw new Error('Object merging expects merge-objects');
  mkdirSync(request.workRoot, { recursive: true });
- const identity = hashJson({ input: request.input, semantics: wikiStageCapabilityIdentity(), models: primeModelDefinitions(request.env) });
+ const selection = wikiModelSelection(request.env);
+ const identity = hashJson({ input: request.input, semantics: wikiStageCapabilityIdentity(), selection,
+  definition: modelDefinitionHash(selection.selector, request.env) });
  const checkpoint = join(request.workRoot, 'checkpoint.json');
  const saved = existsSync(checkpoint) ? JSON.parse(readWikiStageOutput(checkpoint).toString('utf8')) : undefined;
  if (saved && saved.identity !== identity) throw new Error('Object merge input or execution contract changed across resume');

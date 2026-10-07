@@ -65,7 +65,7 @@ for (const [name, body] of mainSkillBodies) {
 }
 assert.deepEqual(bundledAgentSkillPaths("research", "report-writer").map((path) => path.split("/").at(-1)),
 	["wiki-report", "notes-report", "writing-skill"]);
-assert.deepEqual(loadAgentPromptConfig("wiki", "wiki-compilation").skills, ["wiki"]);
+assert.deepEqual(loadAgentPromptConfig("wiki", "wiki-compilation").skills ?? [], []);
 assert.deepEqual(loadAgentPromptConfig("main", "podcast-writer").skills, ["podcast-writing"]);
 assert.deepEqual(loadAgentPromptConfig("evolution", "browser-skill-evolution").sandbox, {
 	role: "evolution.candidate_author",

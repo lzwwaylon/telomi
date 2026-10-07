@@ -2,31 +2,16 @@ import assert from "node:assert/strict";
 import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { stagePrompt } from "../../server/wiki/wiki-stage-prompt.js";
-import { skillPrompt } from "../../server/wiki/wiki-topic-skill.js";
 import { renderAgentPrompt } from "../../server/agent-runtime/prompt-registry.js";
-import type { WikiStageKind } from "../../server/wiki/wiki-stage-contract.js";
 import { wikiStageOutputHash, readWikiStageOutput } from "../../server/wiki/wiki-stage.js";
 
 const root = mkdtempSync(join(tmpdir(), "wiki-compilation-output-"));
 try {
- const stages: WikiStageKind[] = ['objects', 'merge-objects', 'plan-concepts', 'concepts', 'merge-concepts', 'plan-topics', 'topic'];
- const source = renderAgentPrompt('wiki', 'wiki-compilation', 'system-append', {}).content;
- assert.doesNotMatch(source, /submit_note_first/u, 'Wiki fallback ends by writing files for Runtime acceptance');
- for (const stage of stages) {
-  const prompt = stagePrompt(source, stage);
-  assert.deepEqual([...prompt.matchAll(/^(objects|merge-objects|plan-concepts|concepts|audit-concepts|merge-concepts|plan-topics|topic): /gm)].map(match => match[1]), [stage]);
-  assert.ok(renderAgentPrompt('wiki', 'wiki-compilation', 'user', { stage }).content.includes(stage));
- }
- for (const variant of ['question-plan-pi', 'concepts-pi', 'audit-concepts-pi', 'merge-concepts-pi']) {
+ for (const variant of ['objects-pi', 'plan-object-targets-pi', 'resolve-object-cues-pi', 'write-object-target-pi',
+  'question-plan-pi', 'concepts-pi', 'audit-concepts-pi', 'merge-concepts-pi', 'page-topics']) {
   const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, variant).content;
   assert.ok(prompt.trim(), `${variant} must render a nonempty stage contract`);
  }
- const topicPrompt = skillPrompt(stagePrompt(source, 'topic'));
- assert.ok(topicPrompt.includes('wiki.read'));
- assert.ok(!topicPrompt.includes('read_wiki'));
- assert.throws(() => stagePrompt(source.replace(/^merge-concepts: /m, 'missing: '), 'topic'));
- assert.throws(() => Reflect.apply(stagePrompt, undefined, [source, 'relations']), /Unknown Wiki stage/u);
  const work = join(root, "work");
  mkdirSync(join(work, "pages"), { recursive: true });
  writeFileSync(join(work, "result.json"), JSON.stringify({ pages: [{ file: "pages/O1.md" }] }));

@@ -3,8 +3,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SessionManager as PrimeSessionManager } from 'prime-agent';
-import { createRlmChildLogicalWorkspaceSnapshotter } from '../../server/agent-runtime/logical-workspace-snapshot.js';
 import { AgentSession } from '@earendil-works/pi-coding-agent';
 import { freezeModelDefinitions } from '../../server/agent-runtime/model-policy.js';
 import { runPiFileStage } from '../../server/wiki/pi-file-stage.js';
@@ -13,12 +11,13 @@ import type { WikiStageInput } from '../../server/wiki/wiki-stage-contract.js';
 const root = mkdtempSync(join(tmpdir(), 'wiki-first-turn-'));
 const canonical = join(root, 'canonical');
 mkdirSync(canonical);
-const model = { id: 'gpt-6-luna', name: 'Luna', api: 'openai-codex-responses', provider: 'openai-codex', baseUrl: 'https://chatgpt.com/backend-api', reasoning: true,
+const model = { id: 'configured-wiki', name: 'Configured Wiki', api: 'openai-completions', provider: 'capture-fixture', baseUrl: 'http://127.0.0.1:1/v1', reasoning: true,
  input: ['text'], cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0 }, contextWindow: 272000, maxTokens: 128000 };
-writeFileSync(join(canonical, 'auth.json'), JSON.stringify({ 'openai-codex': { type: 'api_key', key: 'fake-test-key-never-sent' } }));
-writeFileSync(join(canonical, 'models.json'), JSON.stringify({ providers: { 'openai-codex': { models: [model] } } }));
-writeFileSync(join(canonical, 'models-store.json'), JSON.stringify({ 'openai-codex': { models: [model] } }));
-const env = freezeModelDefinitions({ ...process.env, PRIME_AGENT_CODING_AGENT_DIR: canonical }, join(root, 'frozen'));
+writeFileSync(join(canonical, 'auth.json'), JSON.stringify({ 'capture-fixture': { type: 'api_key', key: 'fake-test-key-never-sent' } }));
+writeFileSync(join(canonical, 'models.json'), JSON.stringify({ providers: { 'capture-fixture': { baseUrl: model.baseUrl, api: model.api, apiKey: 'fake-test-key-never-sent', models: [model] } } }));
+writeFileSync(join(canonical, 'models-store.json'), JSON.stringify({ 'capture-fixture': { baseUrl: model.baseUrl, api: model.api, apiKey: 'fake-test-key-never-sent', models: [model] } }));
+const env = freezeModelDefinitions({ ...process.env, PI_CODING_AGENT_DIR: canonical,
+ TELOMI_WIKI_COMPILATION_MODEL: 'capture-fixture/configured-wiki' }, join(root, 'frozen'));
 const input: WikiStageInput = { stage: 'objects', key: 'same-stage-key', language: 'en', goal: { title: 'Fixture', description: '' },
  entries: [], pages: [], requiredEntries: [], requiredPages: [], topics: [], sections: [], previousRelations: [], instructions: '' };
 const fs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
@@ -27,49 +26,6 @@ const originalPrompt = AgentSession.prototype.prompt;
 let promptCalls = 0;
 AgentSession.prototype.prompt = async () => { promptCalls++; throw new Error('Test must never call the model'); };
 try {
- const childWork = join(root, 'native-child-work'); mkdirSync(childWork);
- writeFileSync(join(childWork, 'input.bin'), 'before child turn');
- mkdirSync(join(childWork, '.prime-kernel')); writeFileSync(join(childWork, '.prime-kernel', 'ipc'), 'private runtime state');
- const childSession = PrimeSessionManager.create(childWork, join(root, 'native-child-sessions'));
- const childCaptures = join(root, 'child-captures');
- const captureChild = createRlmChildLogicalWorkspaceSnapshotter(() => ({ guestCwd: childWork,
-  mounts: [{ hostPath: childWork, guestPath: childWork, access: 'read-write', shadowPaths: ['/.prime-kernel'] }],
-  sessionId: childSession.getSessionId(), sessionRole: 'child', stage: { kind: 'topic', key: 'same-stage-key' },
-  captureMoment: 'before-first-agent-turn', excludedMounts: [{ guestPath: join(childWork, '.prime-kernel'), access: 'read-write', reason: 'runtime-state' }],
- }), childCaptures, 'child');
- captureChild({ type: 'rlm_child_update', child: { id: 'sub-one', status: 'queued' } });
- assert.equal(existsSync(join(childCaptures, 'child', 'sub-one.json')), false);
- captureChild({ type: 'rlm_child_update', child: { id: 'sub-one', status: 'running' } });
- const childMetadata = JSON.parse(readFileSync(join(childCaptures, 'child', 'sub-one.json'), 'utf8'));
- assert.equal(childMetadata.sessionId, childSession.getSessionId()); assert.equal(childMetadata.role, 'child');
- assert.equal(childMetadata.excludedMounts[0].reason, 'runtime-state');
- const firstUser = { role: 'user' as const, content: 'Frozen task', timestamp: Date.now() };
- childSession.appendMessage(firstUser); childSession.flushNow();
- assert.ok(Date.parse(childMetadata.capturedAt) <= firstUser.timestamp);
- writeFileSync(join(childWork, 'input.bin'), 'after child turn');
- captureChild({ type: 'rlm_child_update', child: { id: 'sub-one', status: 'running' } });
- assert.equal(readFileSync(join(childCaptures, 'child', 'sub-one', childWork.slice(1), 'input.bin'), 'utf8'), 'before child turn');
- assert.equal(existsSync(join(childCaptures, 'child', 'sub-one', childWork.slice(1), '.prime-kernel')), false);
- // Native SDK subscriber errors are swallowed. A later running event must not
- // relabel changed business files as evidence from before the first turn.
- const missingInput = join(root, 'temporarily-unavailable');
- let failedCaptureAttempts = 0;
- const captureFailure = createRlmChildLogicalWorkspaceSnapshotter(() => {
-  failedCaptureAttempts++;
-  return { guestCwd: '/work', mounts: [{ hostPath: missingInput, guestPath: '/input', access: 'read-only' }],
-   sessionId: childSession.getSessionId(), sessionRole: 'child', captureMoment: 'before-first-agent-turn' };
- }, childCaptures, 'child');
- const running = { type: 'rlm_child_update', child: { id: 'sub-failed', status: 'running' } };
- // Match the native SDK emitter's subscriber exception boundary.
- try { captureFailure(running); } catch {}
- mkdirSync(missingInput); writeFileSync(join(missingInput, 'late.bin'), 'after first model entry');
- captureFailure(running);
- assert.equal(failedCaptureAttempts, 1, 'the initial capture attempt is terminal even when it fails');
- assert.equal(existsSync(join(childCaptures, 'child', 'sub-failed.json')), false);
- assert.equal(existsSync(join(childCaptures, 'child', 'sub-failed')), false, 'partial evidence is removed');
- const captureError = JSON.parse(readFileSync(join(childCaptures, 'child', 'sub-failed.failed.json'), 'utf8'));
- assert.equal(captureError.status, 'failed'); assert.equal(captureError.childId, 'sub-failed');
- assert.equal(captureError.reason, 'initial-workspace-capture-failed');
  const sessionIds: string[] = [];
  for (const attempt of ['first', 'retry']) {
   const controller = new AbortController();
@@ -104,7 +60,7 @@ try {
    mkdirSync(join(path, 'work', '.git'));
    writeFileSync(join(path, 'work', '.git', 'config'), 'private git config');
   } }, {
-   modelId: 'openai-codex/gpt-6-luna', promptVariant: 'objects-pi', user: 'Fixture task', executionMode: 'fixture', role: 'wiki.object_builder', codeFiles: [],
+   promptVariant: 'objects-pi', user: 'Fixture task', executionMode: 'fixture', role: 'wiki.object_builder', codeFiles: [],
    prepare(path) {
     writeFileSync(join(path, 'asset.bin'), 'initial business bytes');
     writeFileSync(join(path, '.business-state'), 'initial hidden state');

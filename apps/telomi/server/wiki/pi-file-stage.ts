@@ -1,11 +1,12 @@
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
 import { snapshotLogicalWorkspace } from '../agent-runtime/logical-workspace-snapshot.js';
 import { createSrtAgentSandbox } from '../agent-runtime/srt-agent-sandbox.js';
 import type { SrtAgentSandboxOptions } from '../agent-runtime/srt-agent-sandbox.js';
-import { primeAgentDir, primeModelDefinitions, removeStagedPrimeCredentials, stagePrimeAgentDirectory } from '../agent-runtime/prime-agent-paths.js';
+import { modelDefinitionHash } from '../agent-runtime/model-policy.js';
+import { createWikiModelRuntime, wikiModelSelection } from './wiki-pi-runtime.js';
 import { renderAgentPrompt } from '../agent-runtime/prompt-registry.js';
 import { scrubResearchModelError } from '../agent-runtime/models/error-classifier.js';
 import { listJsonl, writeJsonAtomic } from '../lib/fs.js';
@@ -15,12 +16,10 @@ import { hashWikiDirectory } from './files.js';
 import { wikiStageOutputHash, wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
 import type { WikiStageOutcome, WikiStageResult, WikiStageRequest } from './wiki-stage-contract.js';
 
-const thinking = 'medium';
 const fileTools = ['read', 'write', 'edit'] as const;
 export interface PiReadParameters { path: string; offset?: number; limit?: number }
 export interface PiReadResult { content: Array<{ type: string; text?: string }> }
 interface PiFileStageOptions {
- modelId: string;
  promptVariant: string;
  referenceVariant?: string;
  grepRoot?: '/work/wiki/pages' | '/work/input/pages';
@@ -74,7 +73,8 @@ export async function acceptPiFiles(
 export async function runPiFileStage(request: WikiStageRequest, options: PiFileStageOptions): Promise<WikiStageOutcome> {
  request.signal.throwIfAborted();
  mkdirSync(request.workRoot, { recursive: true });
- const { modelId, user } = options;
+ const { selector: modelId, thinking } = wikiModelSelection(request.env);
+ const { user } = options;
  const tools = options.grepRoot ? [...fileTools, 'grep' as const] : fileTools;
  const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, options.promptVariant);
  const prefix = options.referenceVariant ? renderAgentPrompt('wiki', 'wiki-compilation', 'reference', {}, options.referenceVariant).content + '\n' : '';
@@ -83,8 +83,8 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
   : '');
  const identity = hashJson({ input: request.input, user, systemPrompt, registration: prompt.configSha256,
   model: modelId, thinking, tools, role: options.role, executionMode: options.executionMode,
-  maxAttempts: options.maxAttempts ?? 2, definitions: primeModelDefinitions(request.env),
-  code: [...options.codeFiles, './pi-file-stage.ts', './wiki-stage.ts', './wiki-stage-workspace.ts',
+  maxAttempts: options.maxAttempts ?? 2, definition: modelDefinitionHash(modelId, request.env),
+  code: [...options.codeFiles, './pi-file-stage.ts', './wiki-pi-runtime.ts', './wiki-stage.ts', './wiki-stage-workspace.ts',
    '../agent-runtime/srt-agent-sandbox.ts', '../agent-runtime/logical-workspace-snapshot.ts', '../../../extensions/telomi-srt/sandbox-spec.ts',
    '../../../extensions/telomi-srt/tool-operations.ts'].map(file => sha256(readFileSync(fileURLToPath(new URL(file, import.meta.url))))) });
  const checkpoint = join(request.workRoot, 'checkpoint.json');
@@ -123,11 +123,7 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
  let session: Awaited<ReturnType<typeof createAgentSession>>['session'] | undefined;
  let sandbox: ReturnType<typeof createSrtAgentSandbox> | undefined;
  try {
-  stagePrimeAgentDirectory(agentDirectory, request.env);
-  const modelRuntime = await ModelRuntime.create({ authPath: join(primeAgentDir(request.env), 'auth.json'),
-   modelsPath: join(agentDirectory, 'models.json'), allowModelNetwork: false });
-  const model = modelRuntime.getModel('openai-codex', modelId.split('/')[1]!);
-  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) throw new Error(`Pi model is unavailable: ${modelId}`);
+  const { modelRuntime, model } = await createWikiModelRuntime(request.env, request.signal);
   sandbox = createSrtAgentSandbox({ id: request.input.key, role: options.role, workDirectory: work,
    readonlyMounts,
    activeTools: tools, network: 'deny' });
@@ -187,7 +183,7 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
   writeJsonAtomic(checkpoint, { identity, status: request.signal.aborted ? 'cancelled' : 'failed', attemptRoot, error: message, usage, sessionPaths });
   throw Object.assign(new Error(message), { usage, sessionPaths });
  } finally {
-  try { session?.dispose(); await sandbox?.close(); }
-  finally { removeStagedPrimeCredentials(agentDirectory); }
+  try { session?.dispose(); }
+  finally { await sandbox?.close(); }
  }
 }

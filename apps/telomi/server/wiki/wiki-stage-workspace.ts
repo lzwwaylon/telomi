@@ -19,7 +19,6 @@ export interface PageOverview {
 }
 
 export interface WikiStageWorkspace {
- userContext: string;
  read(ref: string): string;
  search(query: string | SearchRequest): string;
  searchIndex: SearchRow[];
@@ -116,7 +115,7 @@ export function createWikiStageWorkspace(input: WikiStageInput, inputRoot: strin
  const topic = (ref: unknown, field = 'topic ref') => topics.get(text(ref, field)) ?? fail(`${field}: unknown Topic ${String(ref)}; expected an available T alias`);
  const section = (ref: unknown, field = 'section ref') => sections.get(text(ref, field)) ?? fail(`${field}: unknown section ${String(ref)}; expected an available S alias`);
  const requiredPages = input.requiredPages.map(ref => pageAliases.get(ref) ?? fail('unknown required page'));
- const requiredEntries = input.requiredEntries.map(id => entryAliases.get(id) ?? fail('unknown required Entry'));
+ for (const id of input.requiredEntries) if (!entryAliases.has(id)) fail('unknown required Entry');
  const unplaced = new Map<string, string>();
  for (const row of input.unplacedEntries ?? []) {
   const ref = entryAliases.get(row.entryId) ?? fail('unknown unplaced Entry');
@@ -184,42 +183,7 @@ export function createWikiStageWorkspace(input: WikiStageInput, inputRoot: strin
   overviews[from].relations.push({ from, to, label: relation.label, direction: 'outgoing', page: pageSummary(to) });
   overviews[to].relations.push({ from, to, label: relation.label, direction: 'incoming', page: pageSummary(from) });
  }
- const catalog = [...pages].map(([ref, row]) => `${ref} | ${row.page.kind} | ${row.previous ? 'previous' : 'new'} | ${row.role} | ${row.page.title} | ${row.page.description} | indexes/${ref}.json`).join('\n');
  const sectionIndex = [...sections].map(([ref, row]) => `${ref} | ${[...pages].find(([, candidate]) => candidate.page.id === row.pageId)![0]} | ${row.heading}`).join('\n');
- const contracts = {
-  objects: '{pages:[{file:"pages/O1.md"}],deferred_entries:[{entry_ref:"N1",reason:"..."}]}',
-  'merge-objects': '{pages:[{file:"pages/O1.md",member_refs:["P1"]}],retained_refs:[],discarded_refs:[{ref:"P2",reason:"..."}],deferred_entries:[]}',
-  concepts: '{pages:[{file:"pages/C1.md"}],considered_pages:[{page_ref:"P1",reason:"..."}]}',
-  'merge-concepts': '{pages:[{file:"pages/C1.md",member_refs:["P1"]}],retained_refs:[],discarded_refs:[]}',
-  'plan-concepts': '{concept_jobs:[{question:"...",scope:"...",page_refs:["P1"],target_ref:null}],object_only:[{page_ref:"P2",compared_with:["P1"],reason:"..."}]}',
-  'audit-concepts': '{reviewed_pages:[{page_ref:"P1",reason:"..."}],conflict_groups:[{page_refs:["P1","P2"],reason:"..."}],discarded_refs:[]}',
-  'plan-topics': '{jobs:[{topic_ref:"T1",instructions:"..."}]}',
-  topic: '{topic_ref:"T1",matches:[{section_ref:"S1",reason:"..."}],gaps:[]}',
- };
- const coverageLabel = input.stage === 'plan-concepts' ? 'Objects requiring an explicit concept job or verified object-only disposition'
-  : 'Required pages';
- const context = [
-  `Required output manifest fields (exact shape; use actual references and reasons): ${contracts[input.stage]}\nMarkdown output files require exactly title and description frontmatter fields, followed by H2 sections with [[N1]]-style citations. Do not add ref or other frontmatter fields. No IDs, URLs, Markdown links, Related or Evidence sections.`,
-  `Stage: ${input.stage}\nOutput language: ${input.language}\nGoal: ${input.goal.title}\n${input.goal.description}\nInstructions: ${input.instructions}`,
-  `${coverageLabel}: ${requiredPages.join(', ') || '(none)'}\nRequired entries: ${requiredEntries.join(', ') || '(none)'}`,
-  `## Page catalog\n${catalog || '(none)'}\nHistorical concept pages: ${input.pages.filter(row => row.previous && row.page.kind === 'concept').length}. This catalog is complete for this task; index.md repeats the task snapshot.`,
-  `## Topics\n${[...topics].map(([ref, { id: _id, ...row }]) => `${ref}: ${JSON.stringify(row)}`).join('\n') || '(none)'}`,
-  `## Available Cue details\n${[...visibleEntries].map(ref => { const row = entry(ref); return `${ref} | ${row.sourceTitle} | ${row.section} | ${row.cue}${unplaced.has(ref) ? ` | Upstream placement opinion: ${unplaced.get(ref)}` : ''}`; }).join('\n') || '(none; use the cited page and section text)'}${visibleEntries.size ? '\nThese visible Cue aliases are listed in evidence.md.' : ''}`,
-  'Use read_wiki(ref) for complete pages and sections. Search accepts exactly one of query (an exact phrase) or terms (a list of phrases); terms use mode="any" for alternatives or mode="all" for intersection. Do not concatenate alternative terms into one query. Results provide matched fields and short candidate snippets, total and next_offset; request the next offset or narrow scope="body", kind, or page_ref when needed. Search does not prove absence beyond the terms and fields tried, and snippets do not replace complete selected content. N detail reads are restricted to the available Cue list above. Read each assigned page before concept consideration; read every consumed member before merging. Reading every section of a page counts as reading that page. Raw file reads do not create reading receipts. Choose either object or concept candidates from the supplied catalog. To expand one page, run from pathlib import Path; print(Path("../input/indexes/P1.json").read_text()) in IPython using its actual P alias. This overview contains chapter references and incoming/outgoing links to available pages, never body text. Follow either page kind or related pages as needed; an absent concept never blocks access to objects. read_wiki accepts only P/S/N aliases, never file paths. Catalog files are navigational aids; page/section bodies must be read with read_wiki for receipts.',
- ];
- if (input.stage === 'merge-objects') context.push('First read every unplaced Cue in full through read_wiki(N...), whether you ultimately adopt or discard it. Treat the upstream reason as a placement opinion, not a judgment that the Cue is worthless. Use its source provenance and scope to find existing objects from the same source or the object it describes; read relevant object pages before deciding where it belongs. Abstract or reusable content alone is not a reason for final discard: source-supported methods, findings, explanations and limitations can belong on an existing object page without defining a separate object. Resolve each Cue by adopting it into an appropriate object or returning deferred_entries with a specific final-discard reason grounded in its full text and considered placement. A new object may use member_refs:[] only when it adopts unplaced Cues. Historical concept pages are read-only context and their cited Cues cannot be discarded.');
- if (input.stage === 'concepts' || input.stage === 'merge-concepts') context.push('Cite only Cues already accepted by the supplied entity pages. Object merging owns final Cue disposition; do not submit deferred_entries in this stage.');
- if (input.stage === 'objects') context.push('pages rows contain only file. Each Note Cue must appear in an authored object or deferred_entries with a reason. Do not submit member_refs, retained_refs, discarded_refs or considered_pages.');
- if (input.stage === 'concepts') context.push('pages rows contain only file. considered_pages lists every assigned primary page exactly once with a reason after complete reading. References used as source material are not merge members; do not submit member_refs, retained_refs or discarded_refs.');
- if (input.stage === 'merge-objects' || input.stage === 'merge-concepts') context.push('Every member page must be disposed of exactly once: member_refs of one rewritten page, retained_refs, or discarded_refs with a reason. member_refs means pages consumed/replaced by the rewrite, not supporting references. To keep a page unchanged, put its P alias string in retained_refs; Runtime preserves it, so do not copy its file or submit it in pages. retained_refs is a string array such as ["P1"], not reason objects. Do not submit considered_pages.');
- if (input.stage === 'plan-concepts') context.push('Objects may support multiple questions; objects without jobs require a full-read object_only decision. Each existing target has at most one writer. No Topics or Cue lists.');
- if (input.stage === 'objects') {
-  const note = [...entries.keys()].map(entryText).join('\n\n');
-  if (note.length <= 60_000) {
-   context.push(`## Complete Cornell Note\n${note}`);
-   entries.forEach((_row, ref) => readEntries.add(ref));
-  } else context.push(`The complete Cornell Note exceeds inline context size. Read ALL entries with read_wiki: ${[...entries.keys()].join(', ')}. Each entry includes its full chapter summary, Cue and detail; no text was truncated.`);
- }
  mkdirSync(join(inputRoot, 'pages'), { recursive: true });
  mkdirSync(join(inputRoot, 'indexes'), { recursive: true });
  for (const [ref, overview] of Object.entries(overviews)) writeFileSync(join(inputRoot, 'indexes', `${ref}.json`), JSON.stringify(overview));
@@ -228,7 +192,6 @@ export function createWikiStageWorkspace(input: WikiStageInput, inputRoot: strin
  for (const ref of visibleEntries) writeFileSync(join(inputRoot, 'evidence', `${ref}.md`), entryText(ref));
  writeFileSync(join(inputRoot, 'sections.md'), sectionIndex);
  if (visibleEntries.size) writeFileSync(join(inputRoot, 'evidence.md'), [...visibleEntries].map(ref => { const row = entry(ref); return `${ref} | ${row.sourceTitle} | ${row.section} | ${row.cue}`; }).join('\n'));
- writeFileSync(join(inputRoot, 'index.md'), context.join('\n\n'));
 
  function reasonRows(value: unknown, field: string, expected: string[], requireRead: boolean): Array<{ pageRef: string; reason: string }> {
   const result = rows(value, field).map((row, index) => {
@@ -400,7 +363,7 @@ export function createWikiStageWorkspace(input: WikiStageInput, inputRoot: strin
   return { kind: 'pages', value: { pages: authored, retained_refs: retained.map(ref => page(ref).ref), discarded_refs: discarded, deferred_entries: deferred, relations: [] }, consideredPages };
  }
  return {
-  userContext: context.join('\n\n'), searchIndex, overviews,
+  searchIndex, overviews,
   validate(output, workRoot, options) {
    try { return validate(output, workRoot, options); }
    catch (error) {
@@ -420,7 +383,7 @@ export function createWikiStageWorkspace(input: WikiStageInput, inputRoot: strin
     if (!visibleEntries.has(ref)) fail(`Cue details are not available in ${input.stage}: ${ref}`);
     readEntries.add(ref); return entryText(ref);
    }
-   return fail(`[stage=${input.stage}] read_wiki.ref: expected an available P/S/N alias, received ${JSON.stringify(ref)}. File paths are not accepted. For page metadata use IPython: from pathlib import Path; print(Path("../input/indexes/P1.json").read_text()) with the actual P alias. Then read page or section bodies with read_wiki(P... or S...) to record complete reads.`);
+   return fail(`[stage=${input.stage}] read.ref: expected an available P/S/N alias, received ${JSON.stringify(ref)}. File paths are not accepted as aliases. Native read accesses the page files and indexes through this task's mounted input paths.`);
   },
  search(query) {
    return JSON.stringify(searchRows(searchIndex, typeof query === 'string' ? { query } : query));

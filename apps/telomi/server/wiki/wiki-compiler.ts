@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:f
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
+import { trackTaskModelSelection } from "../agent-runtime/model-policy.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { validateSourceNotesSnapshot } from "../notes/contracts.js";
 import { hashJson } from "../lib/hash.js";
@@ -166,6 +167,7 @@ export class WikiCompiler {
     throw error;
    }
   };
+  const untrack = trackTaskModelSelection(['wikiCompilation'], env, ['wikiCompilation.maintenance']);
   try {
    writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-note', concurrency: 4,
     scheduling: 'dynamic-queue', cueDispositionOwner: 'merge-objects', conceptEvidence: 'accepted-objects-only',
@@ -341,7 +343,7 @@ export class WikiCompiler {
     usage: sumUsage([...outcomes, ...failedAttempts]),
     sessionPaths: [...new Set([...outcomes.flatMap(outcome => outcome.sessionPaths), ...failedAttempts.flatMap(attempt => attempt.sessionPaths)])],
    });
-  }
+  } finally { untrack(); }
  }
 
  private async index(input: { make: (stage: WikiStageInput['stage'], key: string, patch?: Partial<WikiStageInput>) => WikiStageInput;
@@ -389,25 +391,28 @@ export class WikiCompiler {
   const make = (stage: WikiStageInput['stage'], key: string, patch: Partial<WikiStageInput> = {}): WikiStageInput => ({ stage, key,
    language: wikiLanguage(goal), goal, entries: previous.entries, pages: [], requiredEntries: [], requiredPages: [], topics: [], sections: [], instructions: '', previousRelations: [], ...patch });
   const sections = sectionEvidence(previous.pages);
-  const index = await this.index({ make, pages: previous.pages, sections, topics, knowledgeHash: hashJson({ pages: previous.pages, entries: previous.entries }),
-   run: async stage => {
-    try {
-     const outcome = await (this.options.runStage ?? runWikiStageKind)({ input: stage, workRoot: join(input.workRoot, stage.key), env, signal: input.signal });
-     input.signal.throwIfAborted(); outcomes.push(outcome); return outcome;
-    } catch (error) {
-     const details = error as { usage?: ResearchModelUsage; sessionPaths?: string[] };
-     failedAttempts.push({ usage: details?.usage ?? zero(), sessionPaths: details?.sessionPaths ?? [] });
-     throw error;
-    }
-   },
-   onFailure: (_index, topicId, error) => failedTopics.push({ topicId, error: toErrorMessage(error) }), signal: input.signal });
-  input.signal.throwIfAborted();
-  if (hashWikiDirectory(input.knowledgeRoot) !== before) throw new Error('Wiki changed during Topic reindex');
-  const knowledgeRoot = mkdtempSync(join(input.workRoot, 'knowledge-'));
-  cpSync(input.knowledgeRoot, knowledgeRoot, { recursive: true });
-  if (hashWikiDirectory(knowledgeRoot) !== before) throw new Error('Wiki changed while copying Topic input');
-  writeWikiIndex(knowledgeRoot, previous.pages, index, sections, topics, previous);
-  return { knowledgeRoot, pageCount: previous.pages.length, usage: sumUsage([...outcomes, ...failedAttempts]), sessionPaths: [...outcomes, ...failedAttempts].flatMap(o => o.sessionPaths), failedTopics };
+  const untrack = trackTaskModelSelection(['wikiCompilation'], env, ['wikiCompilation.maintenance']);
+  try {
+   const index = await this.index({ make, pages: previous.pages, sections, topics, knowledgeHash: hashJson({ pages: previous.pages, entries: previous.entries }),
+    run: async stage => {
+     try {
+      const outcome = await (this.options.runStage ?? runWikiStageKind)({ input: stage, workRoot: join(input.workRoot, stage.key), env, signal: input.signal });
+      input.signal.throwIfAborted(); outcomes.push(outcome); return outcome;
+     } catch (error) {
+      const details = error as { usage?: ResearchModelUsage; sessionPaths?: string[] };
+      failedAttempts.push({ usage: details?.usage ?? zero(), sessionPaths: details?.sessionPaths ?? [] });
+      throw error;
+     }
+    },
+    onFailure: (_index, topicId, error) => failedTopics.push({ topicId, error: toErrorMessage(error) }), signal: input.signal });
+   input.signal.throwIfAborted();
+   if (hashWikiDirectory(input.knowledgeRoot) !== before) throw new Error('Wiki changed during Topic reindex');
+   const knowledgeRoot = mkdtempSync(join(input.workRoot, 'knowledge-'));
+   cpSync(input.knowledgeRoot, knowledgeRoot, { recursive: true });
+   if (hashWikiDirectory(knowledgeRoot) !== before) throw new Error('Wiki changed while copying Topic input');
+   writeWikiIndex(knowledgeRoot, previous.pages, index, sections, topics, previous);
+   return { knowledgeRoot, pageCount: previous.pages.length, usage: sumUsage([...outcomes, ...failedAttempts]), sessionPaths: [...outcomes, ...failedAttempts].flatMap(o => o.sessionPaths), failedTopics };
+  } finally { untrack(); }
  }
 }
 function assertPartition(actual: string[], expected: string[], label: string) {

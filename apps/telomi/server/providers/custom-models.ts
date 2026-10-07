@@ -141,36 +141,52 @@ const anonymousRegistrations = new WeakMap<ModelRuntime, string[]>();
 
 /** Use native Provider auth for both AgentSession preflight and request resolution. */
 export async function refreshConnectionRuntime(runtime: ModelRuntime): Promise<void> {
-	for (const id of anonymousRegistrations.get(runtime) ?? []) runtime.unregisterProvider(id);
-	await runtime.refresh({ allowNetwork: false });
+	const refresh = runtime.refresh;
+	const pending: Array<ReturnType<ModelRuntime['refresh']>> = [];
 	const registered: string[] = [];
-	for (const [id, entry] of Object.entries(loadCustomProviders().providers ?? {})) {
-		if (!anonymousConnectionKeyFor(entry)) continue;
-		const provider = runtime.getProvider(id);
-		if (!provider?.auth.apiKey) continue;
-		const inherited = provider.auth.apiKey;
-		runtime.registerNativeProvider({
-			...provider,
-			auth: {
-				...provider.auth,
-				apiKey: {
-					...inherited,
-					async check(input) {
-						return await inherited.check?.(input) ?? (anonymousConnectionApiKey(id)
-							? { type: "api_key", source: "declared anonymous connection" } : undefined);
-					},
-					async resolve(input) {
-						const resolved = await inherited.resolve(input);
-						if (resolved) return resolved;
-						const apiKey = anonymousConnectionApiKey(id);
-						return apiKey ? { auth: { apiKey }, source: "declared anonymous connection" } : undefined;
+	// Native registration starts refresh without returning its Promise. Await those passes
+	// before the final refresh so a late pass cannot invalidate its availability snapshot.
+	runtime.refresh = (...args) => {
+		const operation = refresh.apply(runtime, args);
+		pending.push(operation);
+		void operation.catch(() => {}); // SDK callers discard it; errors are awaited below.
+		return operation;
+	};
+	try {
+		for (const id of anonymousRegistrations.get(runtime) ?? []) runtime.unregisterProvider(id);
+		await runtime.refresh({ allowNetwork: false });
+		for (const [id, entry] of Object.entries(loadCustomProviders().providers ?? {})) {
+			if (!anonymousConnectionKeyFor(entry)) continue;
+			const provider = runtime.getProvider(id);
+			if (!provider?.auth.apiKey) continue;
+			const inherited = provider.auth.apiKey;
+			runtime.registerNativeProvider({
+				...provider,
+				auth: {
+					...provider.auth,
+					apiKey: {
+						...inherited,
+						async check(input) {
+							return await inherited.check?.(input) ?? (anonymousConnectionApiKey(id)
+								? { type: "api_key", source: "declared anonymous connection" } : undefined);
+						},
+						async resolve(input) {
+							const resolved = await inherited.resolve(input);
+							if (resolved) return resolved;
+							const apiKey = anonymousConnectionApiKey(id);
+							return apiKey ? { auth: { apiKey }, source: "declared anonymous connection" } : undefined;
+						},
 					},
 				},
-			},
-		});
-		registered.push(id);
+			});
+			registered.push(id);
+		}
+		anonymousRegistrations.set(runtime, registered);
+	} finally {
+		runtime.refresh = refresh;
+		await Promise.all(pending);
 	}
-	anonymousRegistrations.set(runtime, registered);
+	await runtime.refresh({ allowNetwork: false });
 }
 
 export function saveCustomProviders(file: CustomProvidersFile, path: string = CUSTOM_MODELS_PATH): void {

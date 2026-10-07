@@ -1,9 +1,11 @@
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import type { AssistantMessage } from '@earendil-works/pi-ai';
+import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { completeRegistryModel } from '../agent-runtime/pi-ai.js';
-import { createPrimeModelRegistry, PRIME_CREDENTIAL_SOURCE_ENV, primeAgentDir, primeAgentModulePath, primeModelDefinitions, removeStagedPrimeCredentials, stagePrimeAgentDirectory } from '../agent-runtime/prime-agent-paths.js';
+import { completeRegistryModel } from '../agent-runtime/pi-ai.js';
+import { modelDefinitionHash } from '../agent-runtime/model-policy.js';
+import { createWikiModelRuntime, wikiModelSelection } from './wiki-pi-runtime.js';
 import { renderAgentPrompt } from '../agent-runtime/prompt-registry.js';
 import { scrubResearchModelError } from '../agent-runtime/models/error-classifier.js';
 import { listJsonl, writeJsonAtomic } from '../lib/fs.js';
@@ -13,13 +15,8 @@ import type { WikiStageOutcome, WikiStageRequest } from './wiki-stage-contract.j
 import { wikiStageTraceUsage, readWikiStageOutput } from './wiki-stage.js';
 import { createPageTopicTask } from './page-topic-contract.js';
 
-export type PageTopicCompletion = (...args: Parameters<typeof completeRegistryModel>) => Promise<
- Extract<Parameters<import('prime-agent').SessionManager['appendMessage']>[0], { role: 'assistant' }>
->;
+export type PageTopicCompletion = (...args: Parameters<typeof completeRegistryModel>) => Promise<AssistantMessage>;
 
-export const PAGE_TOPIC_MODEL = 'openai-codex/gpt-5.6-terra';
-export const PAGE_TOPIC_THINKING = 'medium';
-const thinking = PAGE_TOPIC_THINKING;
 const executionMode = 'bounded-validation-completion';
 const completionLimit = 2;
 const transportAttemptLimit = 3;
@@ -30,15 +27,12 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
  request.signal.throwIfAborted();
  const task = createPageTopicTask(request.input);
  const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, 'page-topics');
- const definitions = primeModelDefinitions(request.env);
- const primePath = primeAgentModulePath(request.env);
- const aiPath = createRequire(primePath).resolve.paths('@earendil-works/pi-ai')
-  ?.map(directory => join(directory, '@earendil-works/pi-ai/dist/index.js')).find(existsSync);
- if (!aiPath) throw new Error('Prime native model SDK is missing');
+ const { selector, thinking } = wikiModelSelection(request.env);
  const identity = hashJson({ input: request.input, system: prompt.content, user: task.userContext,
-  registration: prompt.configSha256, model: PAGE_TOPIC_MODEL, thinking, definitions, executionMode, completionLimit, transportRetryPolicy, transportAttemptLimit,
-  code: ['page-topic-stage.ts', 'page-topic-contract.ts'].map(file => sha256(readFileSync(fileURLToPath(new URL(file, import.meta.url))))),
-  sdk: [primePath, aiPath].map(file => sha256(readFileSync(file))) });
+  registration: prompt.configSha256, model: selector, thinking, definition: modelDefinitionHash(selector, request.env),
+  executionMode, completionLimit, transportRetryPolicy, transportAttemptLimit,
+  code: ['page-topic-stage.ts', 'page-topic-contract.ts', 'wiki-pi-runtime.ts', '../providers/custom-models.ts', '../agent-runtime/pi-ai.ts']
+   .map(file => sha256(readFileSync(fileURLToPath(new URL(file, import.meta.url))))) });
  const checkpoint = join(request.workRoot, 'checkpoint.json');
  if (existsSync(checkpoint)) {
   const saved = JSON.parse(readWikiStageOutput(checkpoint).toString('utf8'));
@@ -60,7 +54,6 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
  const work = join(attemptRoot, 'work');
  const sessions = join(runtime, 'sessions');
  for (const directory of [runtime, work, sessions]) mkdirSync(directory, { recursive: true });
- const agentDirectory = join(runtime, 'agent');
  writeJsonAtomic(join(runtime, 'input.json'), request.input);
  writeJsonAtomic(join(runtime, 'agent-context.json'), { user: task.userContext, executionMode });
  writeJsonAtomic(join(runtime, 'tool-definitions.json'), []);
@@ -71,15 +64,8 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
  writeJsonAtomic(checkpoint, { identity, status: 'running', attemptRoot });
  request.onAttemptStarted?.(attemptRoot);
  try {
-  stagePrimeAgentDirectory(agentDirectory, request.env);
-  const prime: typeof import('prime-agent') = await import(primePath);
-  const { modelRegistry } = createPrimeModelRegistry(prime, agentDirectory, {
-   ...request.env, [PRIME_CREDENTIAL_SOURCE_ENV]: primeAgentDir(request.env),
-  });
-  const [provider, modelId] = PAGE_TOPIC_MODEL.split('/');
-  const model = modelRegistry.find(provider!, modelId!);
-  if (!model) throw new Error(`Unknown Page Topic model ${PAGE_TOPIC_MODEL}`);
-  const session = prime.SessionManager.create(work, sessions);
+  const { model, modelRegistry } = await createWikiModelRuntime(request.env, request.signal);
+  const session = SessionManager.create(work, sessions);
   session.appendModelChange(model.provider, model.id);
   session.appendThinkingLevelChange(thinking);
   session.appendCustomEntry('execution', { executionMode, tools: [], completionLimit, transportRetryPolicy, transportAttemptLimit });
@@ -88,14 +74,10 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
    applicability: 'not-applicable', reason: 'stateless-no-file-tools' });
   const user = { role: 'user' as const, content: task.userContext, timestamp: Date.now() };
   session.appendMessage(user);
-  session.flushNow();
   writeJsonAtomic(join(runtime, 'model-metadata.json'), { id: model.id, provider: model.provider, api: model.api,
-   baseUrl: model.baseUrl, cost: model.cost, thinking, executionMode, completionLimit, requestedModel: PAGE_TOPIC_MODEL, transportRetryPolicy, transportAttemptLimit });
+   baseUrl: model.baseUrl, cost: model.cost, thinking, executionMode, completionLimit, requestedModel: selector, transportRetryPolicy, transportAttemptLimit });
   request.signal.throwIfAborted();
-  const auth = await modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok) throw new Error(auth.error);
-  request.signal.throwIfAborted();
-  const complete: PageTopicCompletion = completeOverride ?? (await import(aiPath)).completeSimple;
+  const complete: PageTopicCompletion = completeOverride ?? completeRegistryModel;
   const responseFiles: string[] = [];
   const messages: Parameters<PageTopicCompletion>[1]['messages'] = [user];
   let responseAttempt = 0;
@@ -108,8 +90,14 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
     const context = { systemPrompt: prompt.content, messages: [...messages], tools: [] };
     const contextFile = `runtime/agent-context-attempt-${++responseAttempt}.json`;
     writeJsonAtomic(join(attemptRoot, contextFile), { ...context, validationAttempt, transportAttempt: attempt }); responseFiles.push(contextFile);
-    response = await complete(model, context, {
-     apiKey: auth.apiKey, headers: auth.headers, signal: request.signal, reasoning: thinking,
+    const auth = await modelRegistry.getApiKeyAndHeaders(model);
+    if (!auth.ok) throw new Error(auth.error);
+    request.signal.throwIfAborted();
+    const requestModel = auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model;
+    writeJsonAtomic(join(attemptRoot, contextFile), { ...context, validationAttempt, transportAttempt: attempt,
+     model: { provider: requestModel.provider, id: requestModel.id, baseUrl: requestModel.baseUrl } });
+    response = await complete(requestModel, context, {
+     apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal: request.signal, ...(thinking === 'off' ? {} : { reasoning: thinking }),
      sessionId: session.getSessionId(),
      onResponse: response => {
       // HTTP statuses expose native retries without persisting credential-bearing headers.
@@ -117,22 +105,21 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
      },
     });
     session.appendMessage(response);
-    session.flushNow();
     const responseFile = `runtime/response-attempt-${responseAttempt}.json`;
     writeJsonAtomic(join(attemptRoot, responseFile), response); responseFiles.push(responseFile);
     writeJsonAtomic(join(runtime, 'response.json'), response);
-    const emptyWebSocketFailure = `${response.provider}/${response.model}` === PAGE_TOPIC_MODEL
+    const emptyWebSocketFailure = `${response.provider}/${response.model}` === selector
      && response.stopReason === 'error' && response.errorMessage === 'WebSocket error'
      && response.usage.input + response.usage.cacheRead + response.usage.cacheWrite + response.usage.output === 0
      && response.content.every(block => block.type === 'text' ? !block.text : block.type === 'thinking' ? !block.thinking : false);
     if (!emptyWebSocketFailure || attempt >= transportAttemptLimit) break;
    }
 
-   writeJsonAtomic(join(runtime, 'result.json'), { executionMode, requestedModel: PAGE_TOPIC_MODEL,
+   writeJsonAtomic(join(runtime, 'result.json'), { executionMode, requestedModel: selector,
     actualModel: `${response.provider}/${response.model}`, stopReason: response.stopReason, usage: response.usage, validationAttempt, responseAttempt });
    request.signal.throwIfAborted();
-   if (`${response.provider}/${response.model}` !== PAGE_TOPIC_MODEL) throw new Error('Page Topic completion returned a different model');
-   if (response.stopReason !== 'stop') throw new Error(`model '${PAGE_TOPIC_MODEL}' failed: ${response.errorMessage || response.stopReason}`);
+   if (`${response.provider}/${response.model}` !== selector) throw new Error('Page Topic completion returned a different model');
+   if (response.stopReason !== 'stop') throw new Error(`model '${selector}' failed: ${response.errorMessage || response.stopReason}`);
    if (response.content.some(block => block.type === 'toolCall')) throw new Error('Page Topic completion must not call tools');
    if (!(response.usage.input + response.usage.cacheRead + response.usage.cacheWrite > 0) || !(response.usage.output > 0)) throw new Error('Page Topic completion is missing token usage');
    const text = response.content.filter(block => block.type === 'text').map(block => block.text).join('\n').trim();
@@ -147,7 +134,7 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
      content: `Runtime rejected your classification JSON. This is completion ${validationAttempt + 1} of ${completionLimit}, including the initial reply. Return one complete JSON object for the original input, preserving valid matches and reasons and correcting every named violation. Use only supplied references, return every section exactly once and each Topic at most once per section. Do not add Markdown or surrounding text. Exact validation feedback:\n${message}` };
     messages.push({ role: 'assistant', content: response.content.filter(block => block.type === 'text'),
      provider: response.provider, model: response.model, api: response.api, usage: response.usage, stopReason: response.stopReason, timestamp: response.timestamp }, feedback);
-    session.appendMessage(feedback); session.flushNow();
+    session.appendMessage(feedback);
     continue;
    }
    break;
@@ -167,7 +154,7 @@ export async function runPageTopicStage(request: WikiStageRequest, completeOverr
   writeJsonAtomic(join(runtime, 'failure.json'), { executionMode, error: message, cancelled: request.signal.aborted });
   writeJsonAtomic(checkpoint, { identity, status: request.signal.aborted ? 'cancelled' : 'failed', attemptRoot, error: message, usage, sessionPaths: paths });
   throw Object.assign(new Error(message), { usage, sessionPaths: paths });
- } finally { removeStagedPrimeCredentials(agentDirectory); }
+ }
 }
 
 function sessionPaths(root: string): string[] {

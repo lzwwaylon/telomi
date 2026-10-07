@@ -90,15 +90,15 @@ export const TASK_MODEL_ROLE_INFO = {
 	},
 	primeChild: {
 		label: TASK_MODEL_ROLE_LABELS.primeChild,
-		description: "搜索、报告、Podcast 文稿与 Wiki 共享的 RLM child；thinking 跟随对应 Root 环节",
+		description: "搜索、报告与 Podcast 文稿共享的 RLM child；thinking 跟随对应 Root 环节",
 		modelEnvVar: "TELOMI_PRIME_AGENT_CHILD_MODEL",
 		stages: {},
 	},
 	wikiCompilation: {
 		label: TASK_MODEL_ROLE_LABELS.wikiCompilation,
-		description: "Wiki Root 维护；RLM child 使用共享 Prime Child 模型",
+		description: "Wiki 对象页、概念页与 Topic 分类使用的模型",
 		modelEnvVar: "TELOMI_WIKI_COMPILATION_MODEL",
-		stages: { maintenance: { usesRlmChild: true, label: "Wiki 维护", envVar: "TELOMI_WIKI_COMPILATION_THINKING_LEVEL" } },
+		stages: { maintenance: { label: "Wiki 编译", envVar: "TELOMI_WIKI_COMPILATION_THINKING_LEVEL" } },
 	},
 	browserEvolution: {
 		label: TASK_MODEL_ROLE_LABELS.browserEvolution,

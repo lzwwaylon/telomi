@@ -8,6 +8,7 @@ import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
 import type { GoalTopicPlan, WikiCompilationRequest } from "../../server/wiki/contracts.js";
+import { modelDefinitionHash, pendingTaskModelSelections } from "../../server/agent-runtime/model-policy.js";
 import { hashJson } from "../../server/lib/hash.js";
 import { hashWikiDirectory } from "../../server/wiki/files.js";
 import { WikiCompiler } from "../../server/wiki/wiki-compiler.js";
@@ -34,6 +35,7 @@ function request(name: string, snapshot = evidence(6), previous?: string): WikiC
  const notes = store.publishText(JSON.stringify(snapshot), "input/notes.json");
  return { goalDir, runId: name, runDirectory: store.root, controlDirectory: join(base, "control"), notesSnapshot: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength }, goalContext: { title: "Models", description: "Compare model training and evaluation" }, topicPlan: plan, env, signal: new AbortController().signal };
 }
+const pendingWiki = () => pendingTaskModelSelections("wikiCompilation", "test/changed", [{ key: "wikiCompilation.maintenance", thinkingLevel: "high" }], modelDefinitionHash("test/changed", env));
 const empty = (): WikiPagesResult => ({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] });
 const read = (path: string) => readFileSync(path, "utf8");
 function result(input: WikiStageInput, rename = false): WikiStageResult {
@@ -90,7 +92,9 @@ try {
  const objectsStarted: string[] = [], stages: string[] = [];
  const initialInputs: WikiStageInput[] = [];
  let active = 0, maximum = 0;
- const compiler = new WikiCompiler({ runStage: async ({ input, workRoot, onAttemptStarted }) => {
+ const compiler = new WikiCompiler({ runStage: async ({ input, env: stageEnv, workRoot, onAttemptStarted }) => {
+  assert.equal(stageEnv.TELOMI_WIKI_COMPILATION_MODEL, "test/root", "every compilation stage receives the frozen role model");
+  assert.equal(stageEnv.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, "low", "every compilation stage receives the frozen role thinking depth");
   stages.push(input.stage);
   initialInputs.push(input);
   if (input.stage === "objects") {
@@ -118,10 +122,11 @@ try {
  // A stuck first task must not prevent slot replenishment when another task finishes.
  let timeout: ReturnType<typeof setTimeout> | undefined;
  let queueError: unknown;
- try { await Promise.race([fifthStarted.promise, compiling.then(() => { throw new Error("Compiler finished before fifth Note started"); }), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Queue did not replenish a free slot")), 3000); })]); }
+ try { await Promise.race([fifthStarted.promise, compiling.then(() => { throw new Error("Compiler finished before fifth Note started"); }), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Queue did not replenish a free slot")), 3000); })]); assert.equal(pendingWiki(), 1, "Settings reports the active Wiki Update still using its starting selection"); }
  catch (error) { queueError = error; }
  finally { clearTimeout(timeout); holdFirst.release(); }
  const initial = await compiling;
+ assert.equal(pendingWiki(), 0, "finished Wiki Updates release pending configuration tracking");
  assert.deepEqual(await readPreviousWikiEdition(join(initialRequest.goalDir, "wiki/knowledge")), { pages: [], entries: [], files: new Map(), relations: [] }, "A newly created Goal has an empty Wiki skeleton, not a corrupt published Edition");
  if (queueError) throw queueError;
  assert.equal(maximum, 4);
@@ -370,10 +375,11 @@ try {
   finally { activePages--; }
  } }).reindex(reindexRequest);
  let pageQueueError: unknown;
- try { await Promise.race([pageFive.promise, reindexing.then(() => { throw new Error("Reindex finished before fifth page started"); }), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Page queue did not replenish a free slot")), 3000); })]); }
+ try { await Promise.race([pageFive.promise, reindexing.then(() => { throw new Error("Reindex finished before fifth page started"); }), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Page queue did not replenish a free slot")), 3000); })]); assert.equal(pendingWiki(), 1, "Settings also tracks active Topic reindex configuration"); }
  catch (error) { pageQueueError = error; }
  finally { clearTimeout(timeout); holdPage.release(); }
  const indexed = await reindexing;
+ assert.equal(pendingWiki(), 0, "finished reindex releases pending configuration tracking");
  if (pageQueueError) throw pageQueueError;
  assert.equal(maximumPages, 4, "page matching uses the bounded fair queue");
  assert.deepEqual(reindexStages.map(input => input.stage), Array(7).fill("page-topics"));

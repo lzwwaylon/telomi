@@ -63,7 +63,7 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 interface ConfigResponse {
 	taskModels: Record<string, string>;
 	stageThinkingLevels: Record<string, string>;
-	taskModelRoles: Array<{ id: string; modelEnvVar: string; stages: Record<string, { envVar: string }> }>;
+	taskModelRoles: Array<{ id: string; modelEnvVar: string; stages: Record<string, { envVar: string; usesRlmChild?: boolean }> }>;
 	consumers: Array<{
 		id: string;
 		effectiveModel: string;
@@ -132,6 +132,7 @@ try {
 	assert.ok(wikiRole);
 	assert.equal(wikiRole.modelEnvVar, "TELOMI_WIKI_COMPILATION_MODEL");
 	assert.equal(wikiRole.stages.maintenance?.envVar, "TELOMI_WIKI_COMPILATION_THINKING_LEVEL");
+	assert.equal(wikiRole.stages.maintenance?.usesRlmChild, undefined, "Wiki compilation no longer shares the Prime Child configuration");
 	assert.equal((await patchConfig({ taskModels: { wikiCompilation: "telomi-test/large-1" },
 		stageThinkingLevels: { "wikiCompilation.maintenance": "high" } })).status, 200);
 	const selectedWiki = await readConfig();
@@ -158,7 +159,7 @@ try {
 		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.scheduleReview", "primeRoot.reportWriter"]);
 
 	assert.deepEqual(roleConsumer(applied, "primeChild").stages.map((stage) => stage.key),
-		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.reportWriter", "wikiCompilation.maintenance"]);
+		["primeRoot.searchAcquisition", "primeRoot.podcastWriter", "primeRoot.reportWriter"]);
 
 	// A Stage the user chose a depth for keeps it, and restoring inheritance follows the default again.
 	assert.equal((await patchConfig({ stageThinkingLevels: { "primeRoot.reportWriter": "xhigh" } })).status, 200);

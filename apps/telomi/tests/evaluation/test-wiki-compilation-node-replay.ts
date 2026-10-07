@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pinWikiModelSelection } from "../../server/wiki/compilation-runtime.js";
 import { hashWikiDirectory } from "../../server/wiki/files.js";
 import { NodeBacktestService } from "../../server/evaluation/node-backtest.js";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
@@ -75,6 +76,8 @@ async function compile(input: WikiCompilationRequest): Promise<WikiCompilationRe
 		sessionPaths: [trace(input.controlDirectory)], failedBatches: [] };
 }
 async function reindex(input: WikiReindexRequest): Promise<WikiReindexResult> {
+ assert.equal(input.env?.TELOMI_WIKI_COMPILATION_MODEL, "test/root", "reindex uses the same frozen Wiki role model");
+ assert.equal(input.env?.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, "low", "reindex uses the same frozen Wiki role depth");
 	assert.deepEqual(input.goalContext, goalContext);
 	assert.deepEqual(input.topicPlan, topicPlan);
 	assert.equal(readFileSync(join(input.knowledgeRoot, "existing.md"), "utf8"), "Frozen existing page\n");
@@ -96,9 +99,16 @@ try {
 	const observed = await runWikiCompilationNodeEvaluation(observedRequest, { execute: compile });
 	assert.equal(observed.pageCount, 1);
 	const selected = json(join(observedRequest.controlDirectory, "wiki-model-selection.json"));
-	assert.deepEqual(Object.keys(selected).sort(), ["TELOMI_PRIME_AGENT_CHILD_MODEL", "TELOMI_WIKI_COMPILATION_MODEL", "TELOMI_WIKI_COMPILATION_THINKING_LEVEL"]);
+	assert.deepEqual(Object.keys(selected).sort(), ["TELOMI_WIKI_COMPILATION_MODEL", "TELOMI_WIKI_COMPILATION_THINKING_LEVEL"]);
 	assert.equal(selected.TELOMI_WIKI_COMPILATION_MODEL, "test/root");
 	assert.equal(selected.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, "low");
+ const legacyControl = join(root, "legacy-model-selection");
+ write(join(legacyControl, "wiki-model-selection.json"), JSON.stringify(env));
+ const restored = pinWikiModelSelection(legacyControl, { ...env, TELOMI_WIKI_COMPILATION_MODEL: "test/changed", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "high" });
+ assert.equal(restored.TELOMI_WIKI_COMPILATION_MODEL, "test/root", "legacy saved selections preserve the original Wiki model");
+ assert.equal(restored.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, "low", "legacy saved selections preserve the original Wiki depth");
+ assert.deepEqual(Object.keys(json(join(legacyControl, "wiki-model-selection.json"))).sort(), ["TELOMI_WIKI_COMPILATION_MODEL", "TELOMI_WIKI_COMPILATION_THINKING_LEVEL"], "retired child configuration is removed from persisted Wiki selections");
+
 	const [source] = cases(observedRequest.controlDirectory);
 	assert.ok(source);
 	assert.equal(source.value.agentId, "wiki-compilation");
@@ -138,8 +148,8 @@ try {
 	await runWikiReindexNodeEvaluation({ knowledgeRoot: join(observedRequest.goalDir, "wiki", "knowledge"), topicPlan, goalContext, env, signal, workRoot: join(root, "reindex-work") },
 		{ recordDirectory: reindexRecord, runId: "reindex", execute: reindex });
 	const reindexCase = cases(reindexRecord)[0]!;
-	assert.equal(reindexCase.value.request.actualModel, "openai-codex/gpt-5.6-terra");
-	assert.deepEqual(reindexCase.value.request.modelPolicy?.preferred, ["openai-codex/gpt-5.6-terra"]);
+	assert.equal(reindexCase.value.request.actualModel, "test/root");
+	assert.deepEqual(reindexCase.value.request.modelPolicy?.preferred, ["test/root"]);
 	assert.equal(readWikiCompilationCaseInput(join(dirname(reindexCase.path), "input")).request.operation, "reindex");
 	assert.equal(existsSync(join(dirname(reindexCase.path), "input", "evidence.json")), false);
 	await recipe.replay(replayInput(reindexCase, join(root, "reindex-candidate")));
@@ -214,7 +224,12 @@ try {
 	await runWikiCompilationNodeEvaluation({ ...retry, env: { ...env, TELOMI_WIKI_COMPILATION_MODEL: "test/changed", TELOMI_WIKI_COMPILATION_THINKING_LEVEL: "high" } }, { execute: compile });
 	assert.equal(cases(retry.controlDirectory).length, 2, "a resumed execution captures a new Case instead of overwriting its Recovery Case");
 	assert.deepEqual(cases(retry.controlDirectory).map(item => item.value.status).sort(), ["failed", "succeeded"]);
-	for (const item of cases(retry.controlDirectory)) assert.equal(readWikiCompilationCaseInput(join(dirname(item.path), "input")).request.models.root, "test/root", "Capture must record the resumed model pin, not current settings");
+	for (const item of cases(retry.controlDirectory)) {
+  const pinned = readWikiCompilationCaseInput(join(dirname(item.path), "input")).request.models;
+  assert.equal(pinned.root, "test/root", "Capture must record the resumed model pin, not current settings");
+  assert.equal(pinned.thinking, "low", "Resume preserves the original Wiki thinking depth");
+  assert.equal(Object.hasOwn(pinned, "child"), false, "Wiki capture no longer freezes a Prime child model");
+ }
 	resetCaseCaptureForTest();
 	const failOpen = request("capture-fails");
 	write(join(failOpen.controlDirectory, "node-evaluation"), "not a directory");
