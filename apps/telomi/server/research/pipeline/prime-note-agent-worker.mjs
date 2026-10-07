@@ -1,6 +1,9 @@
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+const { createPrimeWorkerControl, requestPrimeOutputValidation } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH"));
+const control = createPrimeWorkerControl();
+
 const cwd = required("PRIME_AGENT_EVIDENCE_CWD");
 const runtimeRoot = required("PRIME_AGENT_EVIDENCE_RUNTIME");
 const agentDir = required("PRIME_AGENT_CODING_AGENT_DIR");
@@ -54,6 +57,7 @@ const { session } = await prime.createAgentSession({
 	executionMode: "print",
 	telemetryDisabled: true,
 });
+control.registerSession(session);
 const usage = { input_tokens: 0, output_tokens: 0, cost_usd: 0, model_calls: 0 };
 let toolCalls = 0;
 let terminalValidationError;
@@ -71,9 +75,10 @@ session.subscribe((event) => {
 });
 
 try {
-	await session.prompt(userPrompt);
+	await session.prompt(userPrompt, { signal: control.signal });
+	control.signal.throwIfAborted();
 	for (let submission = 1; submission <= 3; submission += 1) {
-		const validation = await requestRuntimeValidation(submission);
+		const validation = await requestPrimeOutputValidation(submission, control.signal);
 		if (validation.accepted) break;
 		// Only a model call Prime's own retries could not recover ends the note; a recovered one still gets its repair.
 		assertPrimeModelAnswered(session);
@@ -82,7 +87,8 @@ try {
 			terminalValidationError = validationError;
 			throw new Error(validationError);
 		}
-		await session.prompt(`${repairPrompt}\n${validationError}`);
+		await session.prompt(`${repairPrompt}\n${validationError}`, { signal: control.signal });
+		control.signal.throwIfAborted();
 	}
 } catch (error) {
 	await reportWorkerFailure(
@@ -91,8 +97,7 @@ try {
 	);
 	throw error;
 } finally {
-	await session.abort().catch(() => undefined);
-	session.dispose();
+	await control.dispose();
 }
 
 writeFileSync(join(runtimeRoot, "result.json"), `${JSON.stringify({
@@ -102,19 +107,6 @@ writeFileSync(join(runtimeRoot, "result.json"), `${JSON.stringify({
 	tool_calls: toolCalls,
 	turns: usage.model_calls,
 }, null, 2)}\n`);
-
-function requestRuntimeValidation(submission) {
-	if (!process.send) throw new Error("Note Agent requires a Runtime validation channel");
-	return new Promise((resolvePromise) => {
-		const onMessage = (message) => {
-			if (!message || message.type !== "stage_output_validation" || message.submission !== submission) return;
-			process.off("message", onMessage);
-			resolvePromise(message);
-		};
-		process.on("message", onMessage);
-		process.send({ type: "stage_output_candidate", submission });
-	});
-}
 
 async function reportWorkerFailure(failureClass, error) {
 	if (!process.send) return;

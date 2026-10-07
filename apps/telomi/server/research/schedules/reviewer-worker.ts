@@ -13,6 +13,9 @@ import {
 import { listJsonl } from "../../lib/fs.js";
 import { isRecord, toErrorMessage } from "../../lib/values.js";
 
+const { createPrimeWorkerControl } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH")) as typeof import("../../agent-runtime/prime-worker-control.js");
+const control = createPrimeWorkerControl();
+
 const thinkingLevel = required("PRIME_SCHEDULE_REVIEW_THINKING_LEVEL");
 if (!isThinkingLevel(thinkingLevel)) throw new Error("Invalid configured thinking level");
 const cwd = required("PRIME_SCHEDULE_REVIEW_CWD");
@@ -71,6 +74,7 @@ const { session } = await prime.createAgentSession({
 	executionMode: "print",
 	telemetryDisabled: true,
 });
+control.registerSession(session);
 
 const shouldRecordTraceEvent = createPrimeTraceEventFilter();
 session.subscribe((event: unknown) => {
@@ -81,14 +85,14 @@ session.subscribe((event: unknown) => {
 });
 
 try {
-	await session.prompt(renderAgentPrompt("research", "schedule-reviewer", "user").content);
+	await session.prompt(renderAgentPrompt("research", "schedule-reviewer", "user").content, { signal: control.signal });
 	checkProvider();
 	// Worker 只检查"有没有一份可读的 JSON 决定"，语义契约由 Runtime 在进程外校验并 fail closed。
 	const readable = readableDecision();
 	if (readable) {
 		await session.prompt(renderAgentPrompt("research", "schedule-reviewer", "user", {
 			validation_error: readable,
-		}, "repair").content, { streamingBehavior: "followUp" });
+		}, "repair").content, { streamingBehavior: "followUp", signal: control.signal });
 		checkProvider();
 		const stillUnreadable = readableDecision();
 		if (stillUnreadable) throw new Error(stillUnreadable);
@@ -97,8 +101,7 @@ try {
 	await reportWorkerFailure(toErrorMessage(error));
 	throw error;
 } finally {
-	await session.abort().catch(() => undefined);
-	session.dispose();
+	await control.dispose();
 }
 
 writeFileSync(join(runtimeRoot, "result.json"), `${JSON.stringify({
@@ -122,6 +125,7 @@ function readableDecision(): string | undefined {
 
 /** A model call that failed after Prime's own retries ends the review; one a retry recovered does not. */
 function checkProvider(): void {
+	control.signal.throwIfAborted();
 	assertPrimeModelAnswered(session);
 }
 

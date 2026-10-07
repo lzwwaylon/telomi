@@ -11,7 +11,9 @@ try {
 	const runtimeRoot = join(root, "workspaces", "writer-report", "runtime");
 	mkdirSync(runtimeRoot, { recursive: true });
 	const worker = stagePrimeReportWriterWorker(runtimeRoot);
-	const env = { ...process.env };
+	const env: NodeJS.ProcessEnv = { ...process.env,
+		PRIME_WORKER_CONTROL_MODULE_PATH: fileURLToPath(new URL("../../server/agent-runtime/prime-worker-control.ts", import.meta.url)),
+	};
 	delete env.PRIME_AGENT_PATHS_MODULE_PATH;
 	// Stop at the first configuration guard, before importing Prime or calling a model.
 	const result = spawnSync(process.execPath, ["--import", fileURLToPath(import.meta.resolve("tsx")), worker], {

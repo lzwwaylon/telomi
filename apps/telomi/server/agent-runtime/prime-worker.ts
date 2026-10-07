@@ -22,7 +22,7 @@ import { ResearchNodeError } from "./retry-policy.js";
 /**
  * 项目里启动 Prime Agent 子进程的唯一入口。它负责：短路径临时目录、Kernel 沙箱环境变量、
  * staged Agent Directory（Auto Refine 关闭、rlmMaxDepth 固定）、输出收集、退出码转错误、
- * usage 读取，以及 abort 时终止子进程。业务 Worker 自身的变量通过 `extraEnv` 传入。
+ * usage 读取，以及 abort 时协作式取消 Session 并等待 Worker 清理。业务 Worker 自身的变量通过 `extraEnv` 传入。
  */
 export interface PrimeWorkerLaunch {
 	/** 用于错误文案，例如 "Note Agent"。 */
@@ -44,7 +44,7 @@ export interface PrimeWorkerLaunch {
 	extraEnv?: NodeJS.ProcessEnv;
 	signal: AbortSignal;
 	onStdoutLine?: (line: string) => void;
-	/** 提供时以 IPC 通道启动；`stage_worker_failure` 由启动器自己处理，不会转发。 */
+	/** 业务 IPC 消息；启动器自己的控制消息与 `stage_worker_failure` 不会转发。 */
 	onMessage?: (message: unknown, reply: (value: Serializable) => void) => void;
 }
 
@@ -64,6 +64,7 @@ interface StageWorkerFailure {
 }
 
 const TSX_LOADER = fileURLToPath(import.meta.resolve("tsx"));
+const WORKER_CONTROL_MODULE = fileURLToPath(new URL("./prime-worker-control.ts", import.meta.url));
 
 export async function spawnPrimeWorker(launch: PrimeWorkerLaunch): Promise<PrimeWorkerOutcome> {
 	if (launch.signal.aborted) throw new ResearchNodeError(`${launch.name} cancelled`, "cancelled", false);
@@ -110,20 +111,34 @@ export async function spawnPrimeWorker(launch: PrimeWorkerLaunch): Promise<Prime
 				[PRIME_CREDENTIAL_SOURCE_ENV]: primeAgentDir(env),
 				PRIME_AGENT_MODULE_PATH: primeAgentModulePath(env),
 				...launch.extraEnv,
+				PRIME_WORKER_CONTROL_MODULE_PATH: WORKER_CONTROL_MODULE,
 			},
-			stdio: ["ignore", "pipe", "pipe", ...(launch.onMessage ? ["ipc" as const] : [])],
+			stdio: ["ignore", "pipe", "pipe", "ipc"],
 		});
 		child.stdout!.on("data", stdout.push);
 		child.stderr!.on("data", stderr.push);
 		if (launch.onStdoutLine) createInterface({ input: child.stdout! }).on("line", launch.onStdoutLine);
-		if (launch.onMessage) {
-			const onMessage = launch.onMessage;
-			child.on("message", (message: unknown) => {
-				if (isStageWorkerFailure(message)) failure = message;
-				else onMessage(message, (value) => child.send(value));
+		let cooperative = false;
+		const abort = () => {
+			if (cooperative && child.connected) {
+				child.send({ type: "prime_worker_cancel" }, (error) => {
+					if (error) child.kill("SIGTERM");
+				});
+			} else child.kill("SIGTERM");
+		};
+		child.on("message", (message: unknown) => {
+			if (isRecord(message) && message.type === "prime_worker_ready") {
+				cooperative = true;
+				if (launch.signal.aborted) abort();
+			} else if (isStageWorkerFailure(message)) failure = message;
+			else launch.onMessage?.(message, (value) => {
+				// Host validation may finish after a cancelled Worker has already exited.
+				if (!child.connected || launch.signal.aborted) return;
+				child.send(value, (error) => {
+					if (error && child.connected && !launch.signal.aborted) child.emit("error", error);
+				});
 			});
-		}
-		const abort = () => child.kill("SIGTERM");
+		});
 		launch.signal.addEventListener("abort", abort, { once: true });
 		const ipcDisconnected = child.connected
 			? new Promise<void>((resolveDisconnect) => child.once("disconnect", resolveDisconnect))

@@ -56,6 +56,7 @@ export async function createAgentSession(options) {
 			messages.push(answered);
 		},
 		async abort() {},
+		async disposeAsync() {},
 		dispose() {},
 	} };
 }

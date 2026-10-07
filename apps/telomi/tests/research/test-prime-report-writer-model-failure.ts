@@ -45,6 +45,7 @@ export async function createAgentSession() {
 		},
 		async waitForRlmQuiescence() {},
 		async abort() {},
+		async disposeAsync() {},
 		dispose() {},
 	} };
 }
@@ -74,6 +75,7 @@ export async function createAgentSession() {
 				PRIME_AGENT_REPORT_KNOWLEDGE_MODE: "notes",
 				PRIME_AGENT_MODULE_PATH: fakePrime,
 				PRIME_AGENT_PATHS_MODULE_PATH: resolve("server/agent-runtime/prime-agent-paths.ts"),
+				PRIME_WORKER_CONTROL_MODULE_PATH: fileURLToPath(new URL("../../server/agent-runtime/prime-worker-control.ts", import.meta.url)),
 				FAKE_MODEL_ERROR: modelError ?? "",
 			},
 			stdio: ["ignore", "ignore", "ignore", "ipc"],

@@ -52,6 +52,7 @@ export async function createAgentSession(options) {
 		},
 		async waitForRlmQuiescence() {},
 		async abort() {},
+		async disposeAsync() {},
 		dispose() {},
 	} };
 }
@@ -74,6 +75,7 @@ export async function createAgentSession(options) {
 					PRIME_AGENT_CODING_AGENT_DIR: agentDir,
 					TELOMI_PRIME_CREDENTIAL_SOURCE: agentDir,
 					PRIME_AGENT_MODULE_PATH: fakePrime,
+					PRIME_WORKER_CONTROL_MODULE_PATH: fileURLToPath(new URL("../../server/agent-runtime/prime-worker-control.ts", import.meta.url)),
 					FAKE_PROMPT_LOG: promptLog,
 					FAKE_MODEL_ERROR: mode,
 					...Object.fromEntries(Object.entries(env).map(([key, value]) => [key, value.replace("{cwd}", cwd).replace("{runtime}", runtime)])),

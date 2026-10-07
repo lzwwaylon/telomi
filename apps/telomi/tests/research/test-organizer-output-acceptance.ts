@@ -53,6 +53,7 @@ export async function createAgentSession(options) {
 			scopedModels: [], rlmMaxDepth: 0 }));
 		const run = () => execFileSync(process.execPath, ["--import", "tsx", fileURLToPath(new URL("../../server/research/pipeline/prime-search-sdk-worker.ts", import.meta.url))], {
 			env: { ...process.env, PRIME_SEARCH_SDK_INPUT: inputPath, PRIME_AGENT_CODING_AGENT_DIR: credentials,
+				PRIME_WORKER_CONTROL_MODULE_PATH: fileURLToPath(new URL("../../server/agent-runtime/prime-worker-control.ts", import.meta.url)),
 				TELOMI_PRIME_CREDENTIAL_SOURCE: credentials, PRIME_AGENT_MODULE_PATH: fakePrime, ORGANIZER_FIXTURE_SCENARIO: scenario },
 			encoding: "utf8", stdio: "pipe",
 		});

@@ -48,6 +48,54 @@ if (mode === "ok") {
 	process.exit(3);
 } else if (mode === "hang") {
 	setInterval(() => undefined, 1000);
+} else if (mode.startsWith("cooperative")) {
+	const { createPrimeWorkerControl, requestPrimeOutputValidation } = await import(process.env.PRIME_WORKER_CONTROL_MODULE_PATH);
+	const control = createPrimeWorkerControl();
+	const events = [];
+	let finishPrompt;
+	const session = {
+		async abort() { events.push("abort"); finishPrompt?.(); },
+		async disposeAsync() {
+			events.push("dispose:start");
+			await new Promise(resolve => setTimeout(resolve, 25));
+			events.push("dispose:end");
+		},
+	};
+	try {
+	try {
+		if (mode === "cooperative-startup") {
+			const cancelled = new Promise(resolve => control.signal.addEventListener("abort", resolve, { once: true }));
+			process.send({ type: "fixture_running" });
+			await cancelled;
+			events.push("cancel-before-session");
+		}
+		control.registerSession(session);
+		if (mode === "cooperative-failure-after-dispose") throw new Error("bad output after cleanup");
+		control.signal.throwIfAborted();
+		if (mode === "cooperative-validation") {
+			await requestPrimeOutputValidation(1, control.signal);
+		} else {
+			events.push("prompt");
+			const prompting = new Promise(resolve => { finishPrompt = resolve; });
+			process.send({ type: "fixture_running" });
+			await prompting;
+		}
+		control.signal.throwIfAborted();
+		events.push("repair-prompt");
+	} catch (error) {
+		if (!control.signal.aborted) throw error;
+		events.push("cancelled");
+	} finally {
+		await Promise.all([control.abort(), control.abort()]);
+		await control.dispose();
+		events.push("finally");
+		writeFileSync(join(process.env.PRIME_FAKE_RUNTIME, "cleanup.json"), JSON.stringify(events));
+	}
+	} catch (error) {
+		if (mode !== "cooperative-failure-after-dispose") throw error;
+		await new Promise(resolve => process.send({ type: "stage_worker_failure", failure_class: "validation", error: error.message }, resolve));
+		process.exitCode = 1;
+	}
 }
 `);
 
@@ -110,6 +158,41 @@ if (mode === "ok") {
 	await assert.rejects(hanging.run, (error: unknown) =>
 		error instanceof ResearchNodeError && error.failureClass === "cancelled" && !error.retryable);
 	assert.equal(existsSync(join(hanging.runtimeRoot, "agent", "auth.json")), false);
+
+	// Cooperative cancellation reaches the native Session, releases host validation and runs normal async teardown.
+	for (const mode of ["cooperative-prompt", "cooperative-startup", "cooperative-validation"]) {
+		const stop = new AbortController();
+		let replyAfterCleanup: (() => void) | undefined;
+		const cooperative = launch(mode, stop.signal, (message, reply) => {
+			const type = (message as { type?: string }).type;
+			if (type === "stage_output_candidate") {
+				replyAfterCleanup = () => reply({ type: "stage_output_validation", submission: 1, accepted: true });
+			}
+			if (type === "fixture_running" || type === "stage_output_candidate") stop.abort();
+		});
+		await assert.rejects(cooperative.run, (error: unknown) =>
+			error instanceof ResearchNodeError && error.failureClass === "cancelled" && !error.retryable);
+		const cleanup = JSON.parse(readFileSync(join(cooperative.runtimeRoot, "cleanup.json"), "utf8")) as string[];
+		assert.deepEqual(cleanup, [
+			...(mode === "cooperative-startup" ? ["cancel-before-session"] : mode === "cooperative-prompt" ? ["prompt"] : []),
+			"abort", "cancelled", "dispose:start", "dispose:end", "finally",
+		], `${mode}: cancellation happens once, prevents repair and awaits native disposal before completing finally`);
+		assert.equal(existsSync(join(cooperative.runtimeRoot, "agent", "auth.json")), false);
+		if (mode === "cooperative-validation") {
+			assert.ok(replyAfterCleanup, "the Host still holds the pending validation reply after Worker cleanup");
+			replyAfterCleanup();
+			replyAfterCleanup();
+			await new Promise<void>((resolve) => setImmediate(resolve));
+		}
+	}
+
+	// Wiki reports validation failures from its outer catch, after the inner finally finishes native disposal.
+	const disposedFailure = launch("cooperative-failure-after-dispose");
+	await assert.rejects(disposedFailure.run, (error: unknown) =>
+		error instanceof ResearchNodeError && error.failureClass === "validation" && error.retryable
+		&& error.message === "bad output after cleanup");
+	assert.deepEqual(JSON.parse(readFileSync(join(disposedFailure.runtimeRoot, "cleanup.json"), "utf8")),
+		["abort", "dispose:start", "dispose:end", "finally"]);
 
 	// A runtime directory inside the Agent workspace would expose staged credentials to workspace snapshots.
 	await assert.rejects(spawnPrimeWorker({

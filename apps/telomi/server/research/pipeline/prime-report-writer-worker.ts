@@ -8,6 +8,9 @@ import {
 } from "./report-writer-children.js";
 import { isRecord, toErrorMessage } from "../../lib/values.js";
 import { listFilesRecursive } from "../../lib/fs.js";
+const { createPrimeWorkerControl, requestPrimeOutputValidation } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH")) as typeof import("../../agent-runtime/prime-worker-control.js");
+const control = createPrimeWorkerControl();
+
 const {
 	assertPrimeModelAnswered,
 	createPrimeModelRegistry,
@@ -109,6 +112,7 @@ const { session } = await prime.createAgentSession({
 	executionMode: "print",
 	telemetryDisabled: true,
 });
+control.registerSession(session);
 const logicalWorkspace = {
 	guestCwd: "/workspace",
 	mounts: [
@@ -158,6 +162,7 @@ session.subscribe((event: unknown) => {
 
 let terminalValidationError: string | undefined;
 try {
+	control.signal.throwIfAborted();
 	console.log("[report-writer-root] root planning started");
 	if (!existsSync(authoredOutlinePath)) {
 		await prompt(initialPrompt);
@@ -188,7 +193,7 @@ try {
 	await prompt(finalPrompt, { streamingBehavior: "followUp" });
 	materializeFinalOutput();
 	for (let submission = 1; submission <= 2; submission += 1) {
-		const validation = await requestRuntimeValidation(submission);
+		const validation = await requestPrimeOutputValidation(submission, control.signal);
 		if (validation.accepted) break;
 		const validationError = validation.error || "Runtime rejected writer-output without an error description";
 		if (submission === 2) {
@@ -205,8 +210,7 @@ try {
 	);
 	throw error;
 } finally {
-	await session.abort().catch(() => undefined);
-	session.dispose();
+	await control.dispose();
 }
 
 const childMetrics = readChildMetrics(rlmSessionDir);
@@ -223,7 +227,8 @@ writeFileSync(join(runtimeRoot, "result.json"), `${JSON.stringify({
 }, null, 2)}\n`);
 
 async function prompt(text: string, options?: { streamingBehavior: "followUp" }): Promise<void> {
-	await session.prompt(text, options);
+	await session.prompt(text, { ...options, signal: control.signal });
+	control.signal.throwIfAborted();
 	assertPrimeModelAnswered(session);
 }
 
@@ -234,7 +239,9 @@ async function prompt(text: string, options?: { streamingBehavior: "followUp" })
  */
 async function waitForSectionChildren(): Promise<void> {
 	const expected = outline.sections.filter((section) => !completedSections.has(section.section_id)).length;
+	control.signal.throwIfAborted();
 	await session.waitForRlmQuiescence();
+	control.signal.throwIfAborted();
 	assertPrimeModelAnswered(session);
 	const decision = decideSectionChildren({
 		children: [...childrenById.values()],
@@ -337,22 +344,6 @@ function materializeFinalOutput(): void {
 		})),
 	}, null, 2)}\n`);
 	writeFileSync(marker, "");
-}
-
-function requestRuntimeValidation(submission: number): Promise<{ accepted: boolean; error?: string }> {
-	if (!process.send) throw new Error("Report Writer Root requires a Runtime validation channel");
-	return new Promise((resolvePromise) => {
-		const onMessage = (message: unknown) => {
-			if (!isRecord(message) || message.type !== "stage_output_validation" || message.submission !== submission) return;
-			process.off("message", onMessage);
-			resolvePromise({
-				accepted: message.accepted === true,
-				...(typeof message.error === "string" ? { error: message.error } : {}),
-			});
-		};
-		process.on("message", onMessage);
-		process.send!({ type: "stage_output_candidate", submission });
-	});
 }
 
 async function reportWorkerFailure(failureClass: "validation" | "provider", error: string): Promise<void> {
