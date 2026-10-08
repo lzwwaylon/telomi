@@ -7,9 +7,7 @@ import { publishInvestigationReport } from "../../research/investigation-report.
 import { reportPublishedResponse, reportReceiptText } from "../../research/reports/delivery.js";
 import { publishedReportGuestPath } from "../../media/report-view.js";
 import { inferOutputLanguage } from "../../../shared/languages.js";
-import { resolveGoalOutputLanguage } from "../../../shared/languages.js";
-import { dirname } from "node:path";
-import { registerSavedInvestigationCues, startGoalCueWikiUpdates } from "../../research/cue-wiki-trigger.js";
+import { sha256 } from "../../lib/hash.js";
 import type { CreateMainAgentToolsOptions } from "./index.js";
 
 const schema = Type.Object({
@@ -40,26 +38,9 @@ export function createInvestigateTool(goalDir: string, options: CreateMainAgentT
 				threadId: input.thread_id, title: input.title,
 				allowExternal: input.source_scope === "external_allowed",
 				outputLanguage: options.getOutputLanguage?.(), env: options.getExtraEnv?.(), signal,
-				onCuesPersisted: (origin) => {
-					const title = options.getGoalTitle?.() ?? options.title ?? options.goalId;
-					const description = options.getGoalDescription?.() ?? options.description ?? "";
-					const target = { goalDir, goalId: options.goalId, workspaceDir: options.workspaceDir ?? dirname(goalDir) };
-					registerSavedInvestigationCues(target, origin);
-					if (options.deferCueWikiUpdates) return;
-					try {
-						startGoalCueWikiUpdates({ ...target, goalContext: { title, description,
-							language: resolveGoalOutputLanguage(options.getOutputLanguage?.() ?? "auto", { title, description }) },
-							getGoalContext: () => {
-								const title = options.getGoalTitle?.() ?? options.title ?? options.goalId;
-								const description = options.getGoalDescription?.() ?? options.description ?? "";
-								return { title, description, language: resolveGoalOutputLanguage(options.getOutputLanguage?.() ?? "auto", { title, description }) };
-							},
-							env: { ...process.env, ...options.getExtraEnv?.() } });
-					} catch (error) { console.warn(`[telomi][cue-wiki] could not start background update`, error); }
-				},
 				onActivity: (activity) => onUpdate?.({
 					content: [{ type: "text", text: activity.text || "Prime is checking saved Goal knowledge" }],
-					details: { agentOutput: activity },
+					details: { investigationId: sha256(`${options.goalId}\0${toolCallId}`).slice(0, 24), agentOutput: activity },
 				}),
 			});
 			const { artifact, receipt } = publishInvestigationHandoff(goalDir, result);
@@ -71,6 +52,13 @@ export function createInvestigateTool(goalDir: string, options: CreateMainAgentT
 
 const deliverySchema = Type.Object({
 	investigation_id: Type.String({ pattern: "^[a-f0-9]{24}$" }),
+	wiki_review: Type.Optional(Type.Object({
+		useful_findings: Type.Array(Type.String({ minLength: 1, maxLength: 2000 }), { maxItems: 24 }),
+		excluded_findings: Type.Array(Type.Object({
+			finding: Type.String({ minLength: 1, maxLength: 2000 }),
+			reason: Type.String({ minLength: 1, maxLength: 1000 }),
+		}, { additionalProperties: false }), { maxItems: 24 }),
+	}, { additionalProperties: false, description: "Legacy editorial review input. Omit during ordinary delivery: Runtime performs evidence selection in an independent background Main branch after delivery. Historical findings remain non-evidence context and never rewrite the answer or change the Topic Plan." })),
 	report_title: Type.Optional(Type.String({ minLength: 1, maxLength: 120, pattern: "^[^\\r\\n]+$",
 		description: "Publish the reviewed saved answer as a report with this title when the user requests a report. Omit for ordinary chat delivery." })),
 }, { additionalProperties: false });
@@ -86,10 +74,10 @@ export function createDeliverInvestigationTool(goalDir: string): AgentTool<typeo
 			if (input.report_title !== undefined) {
 				const published = await publishInvestigationReport(goalDir, input.investigation_id, input.report_title, signal);
 				return { content: [{ type: "text", text: reportReceiptText(published.reportTitle, publishedReportGuestPath(goalDir, published.runId)) }],
-					details: { ...published, investigation_id: result.id, userResponse: reportPublishedResponse(inferOutputLanguage(result.answer)) } };
+					details: { ...published, investigation_id: result.id, ...(input.wiki_review ? { wiki_review: input.wiki_review } : {}), userResponse: reportPublishedResponse(inferOutputLanguage(result.answer)) } };
 			}
 			return { content: [{ type: "text", text: result.answer }],
-				details: { userResponse: result.answer, investigation_id: result.id } };
+				details: { userResponse: result.answer, investigation_id: result.id, ...(input.wiki_review ? { wiki_review: input.wiki_review } : {}) } };
 		},
 	};
 }

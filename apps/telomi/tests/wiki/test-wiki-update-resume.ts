@@ -12,7 +12,7 @@ import {
 import { runRecordsDir } from "../../server/observability/run-records.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import type { SourceNotesSnapshot } from "../../server/notes/contracts.js";
-import type { GoalTopicPlan, WikiCompilationResult } from "../../server/wiki/contracts.js";
+import type { GoalTopicPlan, WikiCompilationRequest, WikiCompilationResult } from "../../server/wiki/contracts.js";
 import type { WikiPublicationResult } from "../../server/wiki/publication.js";
 import { subscribe } from "../../server/events/event-bus.js";
 import { createWikiUpdateTool } from "../../server/main-agent/tools/wiki-update.js";
@@ -42,6 +42,7 @@ try {
 	await testInterruptedJobResume();
 	await testRetiredCompilerResume();
 	await testStandaloneWikiUpdateActivity();
+	await testReportContextFrozenForRetry();
 	await testStandaloneWikiUpdateIdempotency();
 	await testStandaloneWikiUpdateRebuildAndRetry();
 	await testPartialWikiUpdateActivity();
@@ -108,6 +109,8 @@ async function testStandaloneWikiUpdateActivity(): Promise<void> {
 	const sourceRunDirectory = join(goalDir, "wiki", "runs", sourceRunId);
 	const source = new RunArtifactStore(sourceRunDirectory)
 		.publishText(`${JSON.stringify(buildEvidence(1), null, 2)}\n`, "artifacts/notes/snapshot.json");
+	const report = '## Published report\nA supported result and its limitations.\n';
+	new RunArtifactStore(sourceRunDirectory).publishText(report, 'report/final.md');
 	const started = startWikiUpdateActivity({
 		workspaceDir,
 		goalId,
@@ -124,6 +127,7 @@ async function testStandaloneWikiUpdateActivity(): Promise<void> {
 		env: {},
 		dependencies: {
 			compile: async (request) => {
+				assert.deepEqual(request.reportContext, { runId: sourceRunId, markdown: report }, 'Background selection receives the actual published report');
 				assert.equal(request.topicPlan?.revision, topicPlan.revision);
 				assert.deepEqual(request.goalContext, { title: "Goal title", description: "Goal description" });
 				request.onStarted?.(2);
@@ -149,12 +153,40 @@ async function testStandaloneWikiUpdateActivity(): Promise<void> {
 	assert.deepEqual(job.goal_context, { title: "Goal title", description: "Goal description" });
 	assert.equal(job.wiki_update_id, started.wikiUpdateId);
 	assert.equal(job.source_run_id, sourceRunId);
+	assert.deepEqual(job.report_context, { runId: sourceRunId, markdown: report });
 	assert.equal(job.parent_activity_id, `research:${sourceRunId}`);
 	assert.equal(job.topic_plan?.revision, topicPlan.revision);
 	assert.equal(job.progress?.completed_batches, 1);
 	assert.equal(job.progress?.stages?.find((stage) => stage.kind === "publication")?.status, "succeeded");
 	assert.ok(existsSync(join(artifactDirectory, "artifacts", "input", "notes.json")));
 	assert.ok(existsSync(join(artifactDirectory, "artifacts", "wiki-update", "result.json")));
+}
+
+async function testReportContextFrozenForRetry(): Promise<void> {
+	const workspaceDir = join(root, 'report-retry'), goalId = 'goal-report-retry', goalDir = join(workspaceDir, goalId);
+	const sourceRunId = 'report-source', sourceRunDirectory = join(goalDir, 'wiki/runs', sourceRunId);
+	const store = new RunArtifactStore(sourceRunDirectory);
+	const notes = store.publishText(JSON.stringify(buildEvidence(1)), 'notes.json');
+	const reportContext = { runId: sourceRunId, markdown: 'The original published report.' };
+	store.publishText(reportContext.markdown, 'report/final.md');
+	let attempts = 0;
+	const dependencies = { compile: async (request: WikiCompilationRequest) => {
+		assert.deepEqual(request.reportContext, reportContext, 'Retry retains the first report bytes rather than reading later live files');
+		if (++attempts === 1) throw new Error('Controlled retry');
+		return fakeCompilation();
+	}, publish: async () => fakePublication() };
+	const input = { workspaceDir, goalId, goalDir, sourceRunId, sourceRunDirectory, goal: 'Report retry',
+		goalContext: { title: 'Report goal', description: '' }, topicPlan,
+		sourceNotes: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength },
+		trigger: { kind: 'schedule' as const, schedule_id: 'schedule-report' }, reason: 'Published report', env: {}, dependencies };
+	assert.throws(() => startWikiUpdateActivity({ ...input, reportContext: { ...reportContext, runId: 'another-run' } }), /another Source Run/u);
+	const started = startWikiUpdateActivity(input);
+	assert.equal(started.reused, false);
+	if (started.reused) throw new Error('Expected a new report update');
+	await assert.rejects(started.execution, /Controlled retry/u);
+	writeFileSync(join(sourceRunDirectory, 'report/final.md'), 'Later live report bytes.');
+	await resumeWikiUpdate({ workspaceDir, goalId, goalDir, runId: started.wikiUpdateId, env: {}, dependencies });
+	assert.deepEqual(new WikiUpdateJobStore(wikiUpdateRecordDir(workspaceDir, goalId, started.wikiUpdateId)).load()?.report_context, reportContext);
 }
 
 async function testStandaloneWikiUpdateIdempotency(): Promise<void> {

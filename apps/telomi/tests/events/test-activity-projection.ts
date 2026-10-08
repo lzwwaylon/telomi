@@ -583,6 +583,41 @@ try {
 		?.dependsOnStepIds, ["wiki-objects:2", "wiki-stage:merge-objects:0"]);
 	assert.deepEqual(publishedWiki?.steps.find((step) => step.stepId === "wiki-stage:publication:0")
 		?.dependsOnStepIds, ["wiki-stage:merge-objects:0", "wiki-stage:merge-objects:1"]);
+	const curatedId = "wiki_curated_summary";
+	const curatedControl = wikiUpdateRecordDir(workspaceDir, goalId, curatedId);
+	mkdirSync(curatedControl, { recursive: true });
+	const publishedJob = wikiJobs.load()!;
+	writeFileSync(join(curatedControl, "wiki-update-job.json"), JSON.stringify({
+		...publishedJob, run_id: curatedId, wiki_update_id: curatedId, curation: { adopted: 3, deferred: 2, skipped: 4 },
+		progress: { ...publishedJob.progress!, stages: [
+			...publishedJob.progress!.stages!,
+			{ ...publishedJob.progress!.stages![0]!, kind: "curate-evidence", stage_index: 2, page_count: 0 },
+			{ ...publishedJob.progress!.stages![0]!, kind: "page-topics", stage_index: 3, page_count: 0 },
+		] },
+	}));
+	const curatedWiki = service.getGoal(goalId).history.items.find((item) => item.activityId === `wiki-update:${curatedId}`)!;
+	assert.match(text(curatedWiki.summary), /收录 3 项 · 暂缓 2 项 · 跳过 4 项/u);
+	assert.equal(curatedWiki.steps[0]?.stepId, "wiki-stage:curate-evidence:2", "selection precedes object construction in the presentation");
+	assert.deepEqual(curatedWiki.steps[0]?.dependsOnStepIds, [], "selection never depends on the objects it selects inputs for");
+	assert.doesNotMatch(text(curatedWiki.steps.find((step) => step.stepId === "wiki-stage:page-topics:3")?.summary), /0 个页面/u,
+		"classification does not pretend to have produced zero Wiki pages");
+	const liveCuratedId = 'wiki_live_curated_progress';
+	const liveCuratedControl = wikiUpdateRecordDir(workspaceDir, goalId, liveCuratedId);
+	mkdirSync(liveCuratedControl, { recursive: true });
+	const prototypeStage = publishedJob.progress!.stages![0]!;
+	writeFileSync(join(liveCuratedControl, 'wiki-update-job.json'), JSON.stringify({
+		...publishedJob, run_id: liveCuratedId, wiki_update_id: liveCuratedId, status: 'running', finished_at: undefined,
+		progress: { ...publishedJob.progress!, total_batches: 1, completed_batches: 1,
+			batches: [publishedJob.progress!.batches[0]!], stages: [
+				{ ...prototypeStage, kind: 'curate-evidence', stage_index: 0, total_stages: 8, status: 'succeeded', page_count: 0 },
+				{ ...prototypeStage, kind: 'merge-objects', stage_index: 1, total_stages: 8, status: 'succeeded', page_count: 19 },
+				{ ...prototypeStage, kind: 'concepts', stage_index: 3, total_stages: 8, status: 'running', finished_at: undefined, page_count: 0 },
+			] },
+	}));
+	const liveCurated = service.getGoal(goalId).liveActivities.find(item => item.activityId === `wiki-update:${liveCuratedId}`)!;
+	assert.equal(liveCurated.progress?.completed, 3);
+	assert.equal(liveCurated.progress?.total, 10, 'overall progress includes planned compilation stages and publication, not just finished object batches');
+	assert.doesNotMatch(text(liveCurated.summary), /0 个页面|1\/1 批/u, 'a completed Note batch never suggests the whole Wiki update is done');
 	const retiredId = "wiki_retired_checkpoint";
 	const retiredControl = wikiUpdateRecordDir(workspaceDir, goalId, retiredId);
 	mkdirSync(retiredControl, { recursive: true });
@@ -862,6 +897,19 @@ try {
 	assert.equal(text(confirmedTopicHistory[0]?.title), "确认 Goal Topic Plan");
 	assert.equal(text(confirmedTopicHistory[0]?.summary), "已确认 1 个长期关注方向");
 	assert.doesNotMatch(text(confirmedTopicHistory[0]?.summary), /Confirm the refined|没有.*Wiki/u);
+	assert.equal(confirmedTopicHistory[0]?.outcome, "succeeded", "confirmation succeeds before the first Wiki exists");
+	assert.equal(confirmedTopicHistory[0]?.steps.find((step) => step.stepId === "wiki-reframe")?.outcome, "skipped",
+		"only the navigation update is skipped when there is no Wiki");
+	confirmedTopicStore.recordReframe(confirmedTopicProposal.proposal_id, {
+		status: "succeeded", message: "no_change", updated_at: new Date().toISOString(),
+	});
+	const unchangedNavigation = topicProjection.project(goalId)[0]!.items[0]!;
+	assert.equal(unchangedNavigation.outcome, "succeeded");
+	assert.equal(unchangedNavigation.steps.find((step) => step.stepId === "wiki-reframe")?.outcome, "no-change");
+	assert.equal(text(unchangedNavigation.summary), "已确认 1 个长期关注方向");
+	confirmedTopicStore.recordReframe(confirmedTopicProposal.proposal_id, {
+		status: "no_wiki", updated_at: new Date().toISOString(),
+	});
 	const interruptedStatePath = join(interruptedRunDir, "run-state.json");
 	const interruptedState = readFileSync(interruptedStatePath, "utf8");
 	writeFileSync(interruptedStatePath, JSON.stringify({ ...JSON.parse(interruptedState), workflow_version: 1 }));

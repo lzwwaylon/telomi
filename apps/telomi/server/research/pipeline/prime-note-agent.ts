@@ -8,7 +8,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { sha256 } from "../../lib/hash.js";
@@ -42,6 +42,7 @@ import { ResearchNodeError } from "../../agent-runtime/retry-policy.js";
 import { renderPrimeNoteAgentUserPrompt } from "./note-agent-prompt.js";
 import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../../agent-runtime/workspace-snapshot.js";
 import { toErrorMessage } from "../../lib/values.js";
+import { writeJsonAtomic } from "../../lib/fs.js";
 
 const WORKER = fileURLToPath(new URL("./prime-note-agent-worker.mjs", import.meta.url));
 const PRIME_AGENT_PATHS_MODULE = fileURLToPath(new URL("../../agent-runtime/prime-agent-paths.ts", import.meta.url));
@@ -155,6 +156,8 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				reason: toErrorMessage(error),
 			};
 		}
+		writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1,
+			sessions: [{ path: relative(recordDirectory, join(runtimeRoot, "session.jsonl")), label: "Note Agent" }] });
 		appendRuntimeContext(recordDirectory, recordKind, {
 			type: "runtime.agent_bound",
 			stage_id: request.stageId,
@@ -373,6 +376,8 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				? new AgentStageExecutionError(error.message, error.failureClass, { cause: error })
 				: error;
 		} finally {
+			if (existsSync(sessionPath)) writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1,
+				sessions: [{ path: basename(sessionPath), label: "Note Agent" }] });
 			// 会话轨迹已经另存到 Run 记录里；成功后回收体积大的 Source 快照与 Agent 现场，
 			// 失败或中断则整体保留，供排查。
 			if (completed) rmSync(stageRoot, { recursive: true, force: true });

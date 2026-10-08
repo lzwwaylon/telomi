@@ -14,6 +14,7 @@ export type ActivityOutcome =
 
 export type ActivityKind =
 	| "research"
+	| "investigation"
 	| "scheduled-research"
 	| "wiki-update"
 	| "topic-plan"

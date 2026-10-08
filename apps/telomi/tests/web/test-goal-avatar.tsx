@@ -48,6 +48,7 @@ assert.equal(goalAvatarEmotion({ ...idle, signals: { ...running("research"), att
 assert.equal(goalAvatarEmotion({ ...idle, signals: { ...running("research"), attention: "credential" }, isStreaming: true }), EMOTION.waitingForUser);
 assert.equal(goalAvatarEmotion({ ...idle, signals: running("research"), moment: "started" }), EMOTION.started, "a moment plays on top of work");
 assert.equal(goalAvatarEmotion({ ...idle, signals: running("research"), isStreaming: true }), EMOTION.researching, "a turn that waits on research shows the research");
+assert.equal(goalAvatarEmotion({ ...idle, signals: running("investigation"), isStreaming: true }), EMOTION.researching);
 assert.equal(goalAvatarEmotion({ ...idle, isStreaming: true }), EMOTION.thinking);
 assert.equal(goalAvatarEmotion({ ...idle, signals: running("wiki-update", "research") }), EMOTION.researching, "research outranks other work");
 assert.equal(goalAvatarEmotion({ ...idle, signals: running("signal-evaluation") }), EMOTION.researching);

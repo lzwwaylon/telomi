@@ -2,6 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readd
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import type { InlineExtension, Skill } from '@earendil-works/pi-coding-agent';
+import type { WikiMainSessionContext } from '../main-agent/wiki-context.js';
 import { snapshotLogicalWorkspace } from '../agent-runtime/logical-workspace-snapshot.js';
 import { createSrtAgentSandbox } from '../agent-runtime/srt-agent-sandbox.js';
 import type { SrtAgentSandboxOptions } from '../agent-runtime/srt-agent-sandbox.js';
@@ -32,6 +34,11 @@ interface PiFileStageOptions {
  observeRead?(inputRoot: string, runtime: string, parameters: PiReadParameters, result: PiReadResult): void;
  validate(inputRoot: string, work: string, runtime: string): WikiStageResult;
  maxAttempts?: number;
+ mainSession?: WikiMainSessionContext;
+ systemPrefix?: string;
+ skills?: Skill[];
+ extensions?(runtime: string): InlineExtension[];
+ assertExternalInteractions?(): void;
 }
 
 function piSessionPaths(root: string): string[] {
@@ -46,7 +53,7 @@ function acceptedArtifactHash(runtime: string): string {
   const sources = JSON.parse(readWikiStageOutput(sourcePath).toString('utf8')) as Array<{ path: string; sha256: string }>;
   for (const source of sources) if (sha256(readWikiStageOutput(source.path)) !== source.sha256) throw new Error('Accepted Pi source changed');
  }
- return hashJson({ logicalWorkspace: hashWikiDirectory(join(runtime, 'logical-workspaces')), metadata: ['input.json', 'receipts.json', 'read-coverage.json', 'complete-page-reads.json', 'source-hashes.json']
+ return hashJson({ logicalWorkspace: hashWikiDirectory(join(runtime, 'logical-workspaces')), metadata: ['input.json', 'receipts.json', 'read-coverage.json', 'complete-page-reads.json', 'source-hashes.json', 'main-session-fork.json', 'memory-searches.jsonl', 'effective-system-prompt.md', 'user-prompt.md', 'model-metadata.json']
   .filter(file => existsSync(join(runtime, file)))
   .map(file => ({ file, sha256: sha256(readWikiStageOutput(join(runtime, file))) })) });
 }
@@ -73,16 +80,22 @@ export async function acceptPiFiles(
 export async function runPiFileStage(request: WikiStageRequest, options: PiFileStageOptions): Promise<WikiStageOutcome> {
  request.signal.throwIfAborted();
  mkdirSync(request.workRoot, { recursive: true });
- const { selector: modelId, thinking } = wikiModelSelection(request.env);
+ const main = options.mainSession;
+ if (main && request.input.stage !== 'curate-evidence') throw new Error('Only Wiki evidence selection may fork Main context');
+ const selection = main ? { selector: main.model, provider: main.model.slice(0, main.model.indexOf('/')),
+  modelId: main.model.slice(main.model.indexOf('/') + 1), thinking: main.thinking } : wikiModelSelection(request.env);
+ const { selector: modelId, thinking } = selection;
  const { user } = options;
- const tools = options.grepRoot ? [...fileTools, 'grep' as const] : fileTools;
+ const fileToolNames = options.grepRoot ? [...fileTools, 'grep' as const] : fileTools;
+ const tools = main ? [...fileToolNames, 'search_user_memory'] : [...fileToolNames];
  const prompt = renderAgentPrompt('wiki', 'wiki-compilation', 'system', {}, options.promptVariant);
  const prefix = options.referenceVariant ? renderAgentPrompt('wiki', 'wiki-compilation', 'reference', {}, options.referenceVariant).content + '\n' : '';
- const systemPrompt = prefix + prompt.content + (options.grepRoot
-  ? `\nNative grep is also available for discovering relevant passages in ${options.grepRoot}. Search exact terms or patterns when catalog summaries leave uncertainty. Search matches do not establish complete reading: use native read on selected pages, and retain all existing full-read requirements. No outside material or other tools are available.\n`
+ const systemPrompt = (options.systemPrefix ?? '') + prefix + prompt.content + (options.grepRoot
+  ? `\nNative grep is also available for discovering relevant passages in ${options.grepRoot}. Search exact terms or patterns when catalog summaries leave uncertainty. Search matches do not establish complete reading: use native read on selected pages, and retain all existing full-read requirements.\n`
   : '');
  const identity = hashJson({ input: request.input, user, systemPrompt, registration: prompt.configSha256,
   model: modelId, thinking, tools, role: options.role, executionMode: options.executionMode,
+  mainSession: main, memoryReplay: request.memoryReplay, skills: options.skills,
   maxAttempts: options.maxAttempts ?? 2, definition: modelDefinitionHash(modelId, request.env),
   code: [...options.codeFiles, './pi-file-stage.ts', './wiki-pi-runtime.ts', './wiki-stage.ts', './wiki-stage-workspace.ts',
    '../agent-runtime/srt-agent-sandbox.ts', '../agent-runtime/logical-workspace-snapshot.ts', '../../../extensions/telomi-srt/sandbox-spec.ts',
@@ -118,18 +131,26 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
  const executionMode = options.executionMode;
  writeJsonAtomic(join(runtime, 'agent-context.json'), { user, executionMode });
  writeFileSync(join(runtime, 'user-prompt.md'), user);
+ const manager = SessionManager.create(work, sessions);
+ if (main) {
+  const initialEntryIds = main.messages.map(message => manager.appendMessage(structuredClone(message)));
+  writeJsonAtomic(join(runtime, 'main-session-fork.json'), { sourceSessionId: main.sessionId,
+   forkSessionId: manager.getSessionId(), goalId: main.goalId, initialEntryIds });
+ }
  writeJsonAtomic(checkpoint, { identity, status: 'running', attemptRoot });
  request.onAttemptStarted?.(attemptRoot);
  let session: Awaited<ReturnType<typeof createAgentSession>>['session'] | undefined;
  let sandbox: ReturnType<typeof createSrtAgentSandbox> | undefined;
  try {
-  const { modelRuntime, model } = await createWikiModelRuntime(request.env, request.signal);
+  const { modelRuntime, model } = await createWikiModelRuntime(request.env, request.signal, selection);
   sandbox = createSrtAgentSandbox({ id: request.input.key, role: options.role, workDirectory: work,
    readonlyMounts,
-   activeTools: tools, network: 'deny' });
+   activeTools: fileToolNames, network: 'deny' });
   const settingsManager = SettingsManager.inMemory();
   const loader = new DefaultResourceLoader({ cwd: work, agentDir: agentDirectory, settingsManager,
-   systemPrompt, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
+   systemPrompt, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+   extensionFactories: options.extensions?.(runtime),
+   skillsOverride: options.skills ? () => ({ skills: options.skills!, diagnostics: [] }) : undefined });
   await loader.reload();
   const customTools = sandbox.toolDefinitions.map(tool => !options.observeRead || tool.name !== 'read' ? tool : {
    ...tool, async execute(...args: Parameters<typeof tool.execute>) {
@@ -140,12 +161,12 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
   });
   ({ session } = await createAgentSession({ cwd: '/work', agentDir: agentDirectory, modelRuntime, model,
    thinkingLevel: thinking, scopedModels: [{ model, thinkingLevel: thinking }], settingsManager,
-   resourceLoader: loader, sessionManager: SessionManager.create(work, sessions),
+   resourceLoader: loader, sessionManager: manager,
    tools: [...tools], customTools }));
   if (new Set(session.getActiveToolNames()).size !== tools.length
    || tools.some(tool => !session!.getActiveToolNames().includes(tool))) throw new Error('Pi file tool allowlist changed');
   writeFileSync(join(runtime, 'effective-system-prompt.md'), session.systemPrompt);
-  writeJsonAtomic(join(runtime, 'tool-definitions.json'), sandbox.toolDefinitions.map(({ name, description }) => ({ name, description })));
+  writeJsonAtomic(join(runtime, 'tool-definitions.json'), session.agent.state.tools.map(({ name, description }) => ({ name, description })));
   writeJsonAtomic(join(runtime, 'model-metadata.json'), { provider: model.provider, id: model.id, thinking, tools, executionMode });
   writeJsonAtomic(join(runtime, 'mounted-skills.json'), loader.getSkills());
   snapshotLogicalWorkspace({ ...sandbox.logicalWorkspace, sessionId: session.sessionId, sessionRole: 'root',
@@ -159,6 +180,7 @@ export async function runPiFileStage(request: WikiStageRequest, options: PiFileS
     request.signal.throwIfAborted();
     await active.prompt(text, repair ? { expandPromptTemplates: false, streamingBehavior: 'followUp' } : undefined);
     request.signal.throwIfAborted();
+    options.assertExternalInteractions?.();
     const last = [...active.messages].reverse().find(row => row.role === 'assistant');
     if (!last || last.stopReason === 'error') throw new Error(`model '${modelId}' failed: ${last?.errorMessage ?? 'no assistant response'}`);
     if (`${last.provider}/${last.model}` !== modelId) throw new Error('Pi file session returned a different model');

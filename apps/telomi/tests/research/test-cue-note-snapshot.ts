@@ -79,7 +79,9 @@ try {
 	const compiler = new WikiCompiler({ runStage: async ({ input }): Promise<WikiStageOutcome> => {
 		let result: WikiStageResult;
 		const pages = { pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] };
-		if (input.stage === "objects") {
+		if (input.stage === 'curate-evidence') {
+			result = { kind: 'evidence-curation', decisions: input.requiredEntries.map(entryId => ({ entryId, action: 'adopt', reason: 'Useful evidence for the Goal' })) };
+		} else if (input.stage === "objects") {
 			seenObjects.push(input);
 			assert.equal(input.entries.length, 1, "a worker must not mix the same Source ID from different Runs");
 			const entry = input.entries[0]!;

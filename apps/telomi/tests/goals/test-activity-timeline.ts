@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import type { ActivityProjectionItem, ActivityStep } from "../../shared/events/activity-projection.js";
-import { activityState, activityStateLabel, activityTimeline, type ActivityFilter, type TimelineEntry } from "../../web/src/features/goals/activity-timeline.js";
+import { activityKindLabel, activityState, activityStateLabel, activityTimeline, type ActivityFilter, type TimelineEntry } from "../../web/src/features/goals/activity-timeline.js";
 import i18n from "../../web/src/app/i18n.js";
 
 await i18n.changeLanguage("zh-CN");
@@ -180,6 +180,13 @@ assert.deepEqual(shape(timeline("system")), [
 ]);
 
 assert.deepEqual(activityTimeline([], [], { filter: "all", now, locale: "zh-CN" }), []);
+
+const investigation = activity({ activityId: "investigation:fact_question", kind: "investigation" });
+assert.equal(activityKindLabel(investigation.kind), "调查");
+assert.ok(activityTimeline([], [investigation], { filter: "research", now, locale: "zh-CN" })
+	.some((entry) => entry.kind === "row" && entry.item.activityId === investigation.activityId));
+assert.deepEqual(activityTimeline([], [investigation], { filter: "system", now, locale: "zh-CN" }), [],
+	"factual investigation belongs in the research filter");
 
 // Activity Steps and Agent Activities in the detail pane use the same state mapping as rows.
 const detailStates: Array<Parameters<typeof activityState>[0]> = [

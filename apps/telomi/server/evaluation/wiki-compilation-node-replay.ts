@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { RunArtifactStore, type PublishedArtifactDirectoryRef } from "../agent-runtime/artifact-store.js";
 import type { AgentStageRequest, ValidatedStageArtifact } from "../agent-runtime/agent-stage-runtime.js";
-import { beginNodeEvaluationCase, finishNodeEvaluationCase, type NodeReplayRecipe } from "../agent-runtime/node-evaluation.js";
+import { beginNodeEvaluationCase, finishNodeEvaluationCase, readNodeEvaluationFile, type NodeEvaluationInteraction, type NodeReplayRecipe } from "../agent-runtime/node-evaluation.js";
 import { pinWikiModelSelection } from "../wiki/compilation-runtime.js";
 import { isThinkingLevel, resolveLLMConfig, resolveStageThinkingLevel, type ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { TASK_MODEL_ROLE_INFO } from "../config/settings.js";
@@ -17,8 +17,13 @@ import { hashJson } from "../lib/hash.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
 import { recordCaseCaptureFailure } from "../observability/case-capture.js";
-import { WikiCueOriginSchema, type WikiCueOrigin } from "../wiki/wiki-update-job.js";
+import { WikiCueOriginSchema, validateWikiReportContext, type WikiCueOrigin } from "../wiki/wiki-update-job.js";
 import { validateJsonSchema } from "../agent-runtime/structured-output.js";
+import { validateWikiInvestigationReviews } from "../wiki/pi-evidence-curation.js";
+import type { WikiInvestigationReview, WikiReportContext } from "../wiki/wiki-stage-contract.js";
+import { pinDeferredWikiEvidence, validateDeferredWikiEvidence, type WikiDeferredEvidence } from "../wiki/deferred-evidence.js";
+import { validateWikiMainSessionContext, type WikiMainSessionContext } from "../main-agent/wiki-context.js";
+import { sessionExecutionEntries } from '../observability/session-traces.js';
 
 const RECIPE = { id: "wiki-compilation", version: 1 };
 interface FrozenWikiModels { root: string; thinking: ThinkingLevel }
@@ -43,6 +48,8 @@ interface FrozenRequest {
 	goal?: string;
 	rebuild: boolean;
 	has_previous_edition: boolean;
+	curationReviews?: WikiInvestigationReview[];
+	curationInstructions?: string;
 }
 interface Execution {
 	baseKnowledgeSha256: string;
@@ -60,20 +67,46 @@ export function readWikiCompilationCaseInput(directory: string) {
 	const raw: unknown = JSON.parse(readFileSync(join(directory, "request.json"), "utf8"));
 	if (!isRecord(raw) || raw.schema_version !== 1 || !["compile", "reindex"].includes(String(raw.operation))
 		|| typeof raw.rebuild !== "boolean" || typeof raw.has_previous_edition !== "boolean"
-		|| (raw.goal !== undefined && typeof raw.goal !== "string") || !isRecord(raw.models)
+		|| (raw.goal !== undefined && typeof raw.goal !== "string")
+		|| (raw.curationInstructions !== undefined && typeof raw.curationInstructions !== "string") || !isRecord(raw.models)
 		|| typeof raw.models.root !== "string" || !/^[^/]+\/.+$/u.test(raw.models.root)
 		|| (raw.models.child !== undefined && (typeof raw.models.child !== "string" || !/^[^/]+\/.+$/u.test(raw.models.child)))
 		|| !isThinkingLevel(raw.models.thinking)) throw new Error("Invalid Wiki compilation frozen request");
 	const request: FrozenRequest = { schema_version: 1, operation: raw.operation as FrozenRequest["operation"],
 		goalContext: requireWikiGoalContext(raw.goalContext), models: { root: raw.models.root, thinking: raw.models.thinking },
-		rebuild: raw.rebuild, has_previous_edition: raw.has_previous_edition, ...(typeof raw.goal === "string" ? { goal: raw.goal } : {}) };
-	if (request.has_previous_edition !== existsSync(join(directory, "previous-edition"))
+		rebuild: raw.rebuild, has_previous_edition: raw.has_previous_edition, ...(typeof raw.goal === "string" ? { goal: raw.goal } : {}),
+		...(raw.curationReviews !== undefined ? { curationReviews: validateWikiInvestigationReviews(raw.curationReviews) } : {}),
+		...(raw.curationInstructions !== undefined ? { curationInstructions: raw.curationInstructions } : {}) };
+	if (request.operation === "reindex" && (request.curationReviews !== undefined || request.curationInstructions !== undefined)) throw new Error("Wiki reindex does not curate investigation evidence");
+	const previousExists = existsSync(join(directory, "previous-edition"));
+	// CAS transports files, so an existing empty Wiki directory has no asset to restore.
+	// The verified manifest proves that no previous content is being invented or omitted.
+	const transportedEmptyBase = request.has_previous_edition && !previousExists
+		&& !files.some(file => file.relativePath === "previous-edition" || file.relativePath.startsWith("previous-edition/"));
+	if ((request.has_previous_edition !== previousExists && !transportedEmptyBase)
 		|| (request.operation === "reindex" && (!request.has_previous_edition || request.rebuild))
 		|| (request.operation === "compile") !== existsSync(join(directory, "evidence.json"))) throw new Error("Wiki compilation operation/input mismatch");
 	const originsPath = join(directory, "cue-origins.json");
 	const cueOrigins = existsSync(originsPath) ? readCueOrigins(originsPath) : undefined;
-	return { request, topicPlan: validateGoalTopicPlan(JSON.parse(readFileSync(join(directory, "topic-plan.json"), "utf8"))),
+	const deferredPath = join(directory, "deferred-evidence.json");
+	const deferredEvidence = existsSync(deferredPath)
+		? validateDeferredWikiEvidence(JSON.parse(readFileSync(deferredPath, "utf8"))) : undefined;
+	if (request.operation === "reindex" && deferredEvidence !== undefined) throw new Error("Wiki reindex does not curate deferred evidence");
+	const topicPlan = validateGoalTopicPlan(JSON.parse(readFileSync(join(directory, "topic-plan.json"), "utf8")));
+	const mainSessionPath = join(directory, "main-session.json");
+	const mainSession = existsSync(mainSessionPath)
+		? validateWikiMainSessionContext(JSON.parse(readFileSync(mainSessionPath, "utf8"))) : undefined;
+	if (mainSession && (request.operation !== "compile" || mainSession.goalId !== topicPlan.goal_id)) {
+		throw new Error("Wiki Main session must belong to the compile Case Goal");
+	}
+	const reportPath = join(directory, 'report-context.json');
+	const reportContext = existsSync(reportPath) ? validateWikiReportContext(JSON.parse(readFileSync(reportPath, 'utf8'))) : undefined;
+	if (request.operation === 'reindex' && reportContext) throw new Error('Wiki reindex does not read Research reports');
+	return { request, topicPlan,
+		...(mainSession ? { mainSession } : {}),
+		...(reportContext ? { reportContext } : {}),
 		...(cueOrigins ? { cueOrigins } : {}),
+		...(deferredEvidence !== undefined ? { deferredEvidence } : {}),
 		...(request.operation === "compile" ? { evidence: validateSourceNotesSnapshot(JSON.parse(readFileSync(join(directory, "evidence.json"), "utf8"))) } : {}) };
 }
 
@@ -81,12 +114,21 @@ export async function runWikiCompilationNodeEvaluation(request: WikiCompilationR
 	execute: (request: WikiCompilationRequest) => Promise<WikiCompilationResult>;
 }): Promise<WikiCompilationResult> {
 	const env = pinWikiModelSelection(request.controlDirectory, request.env ?? process.env);
+	const deferredEvidence = validateDeferredWikiEvidence(request.deferredEvidence
+		?? pinDeferredWikiEvidence(request.controlDirectory, request.goalDir));
+	const curationReviews = request.curationReviews !== undefined ? validateWikiInvestigationReviews(request.curationReviews) : undefined;
+	const mainSession = request.mainSession !== undefined ? validateWikiMainSessionContext(request.mainSession) : undefined;
+	if (mainSession && mainSession.goalId !== request.topicPlan.goal_id) throw new Error("Wiki Main session belongs to another Goal");
+	const reportContext = request.reportContext !== undefined ? validateWikiReportContext(request.reportContext) : undefined;
 	return captureProduction({ recordDirectory: request.controlDirectory, runId: request.runId, signal: request.signal,
 		freeze: destination => freezeInput(destination, { operation: "compile", goalContext: request.goalContext, models: wikiModels(env),
-			goal: request.goal, rebuild: request.rebuild ?? false, has_previous_edition: existsSync(join(request.goalDir, "wiki", "knowledge")) },
+			goal: request.goal, rebuild: request.rebuild ?? false, has_previous_edition: existsSync(join(request.goalDir, "wiki", "knowledge")),
+			...(curationReviews !== undefined ? { curationReviews } : {}),
+			...(request.curationInstructions !== undefined ? { curationInstructions: request.curationInstructions } : {}) },
 			request.topicPlan, join(request.goalDir, "wiki", "knowledge"),
-			new RunArtifactStore(request.runDirectory).openFile(request.notesSnapshot).absolutePath, request.cueOrigins),
-		execute: () => options.execute({ ...request, env }),
+			new RunArtifactStore(request.runDirectory).openFile(request.notesSnapshot).absolutePath, request.cueOrigins, deferredEvidence, mainSession, reportContext),
+		execute: () => options.execute({ ...request, env, deferredEvidence, ...(curationReviews !== undefined ? { curationReviews } : {}),
+			...(mainSession !== undefined ? { mainSession } : {}), ...(reportContext !== undefined ? { reportContext } : {}) }),
 		result: result => ({ baseKnowledgeSha256: result.baseKnowledgeSha256, knowledgeRoot: result.knowledge.absolutePath, usage: result.usage,
 			sessionPaths: result.sessionPaths, failureCount: result.failedBatches.length }), traceRoot: request.controlDirectory });
 }
@@ -104,13 +146,16 @@ export async function runWikiReindexNodeEvaluation(request: WikiReindexRequest, 
 		result: result => ({ ...result, baseKnowledgeSha256: hashWikiDirectory(request.knowledgeRoot), failureCount: result.failedTopics.length }), traceRoot: request.workRoot });
 }
 
-function freezeInput(directory: string, request: Omit<FrozenRequest, "schema_version">, topicPlan: GoalTopicPlan, previousRoot: string, notesPath?: string, cueOrigins?: WikiCueOrigin[]): void {
+function freezeInput(directory: string, request: Omit<FrozenRequest, "schema_version">, topicPlan: GoalTopicPlan, previousRoot: string, notesPath?: string, cueOrigins?: WikiCueOrigin[], deferredEvidence?: WikiDeferredEvidence, mainSession?: WikiMainSessionContext, reportContext?: WikiReportContext): void {
 	const store = new RunArtifactStore(directory);
 	writeJsonAtomic(join(directory, "request.json"), { schema_version: 1, ...request });
 	writeJsonAtomic(join(directory, "topic-plan.json"), validateGoalTopicPlan(topicPlan));
 	if (request.has_previous_edition) store.publishDirectory(previousRoot, "previous-edition");
 	if (notesPath) store.publishFile(notesPath, "evidence.json");
 	if (cueOrigins) writeJsonAtomic(join(directory, "cue-origins.json"), cueOrigins);
+	if (deferredEvidence !== undefined) writeJsonAtomic(join(directory, "deferred-evidence.json"), validateDeferredWikiEvidence(deferredEvidence));
+	if (mainSession !== undefined) writeJsonAtomic(join(directory, "main-session.json"), validateWikiMainSessionContext(mainSession));
+	if (reportContext !== undefined) writeJsonAtomic(join(directory, 'report-context.json'), validateWikiReportContext(reportContext));
 	writeJsonAtomic(join(directory, "input-manifest.json"), { schema_version: 1, files: describe(directory).files });
 	readWikiCompilationCaseInput(directory);
 }
@@ -198,6 +243,7 @@ function finishCapture(prepared: ReturnType<typeof prepareCapture>, input: { res
 	}
 	const captured = finishNodeEvaluationCase(prepared.draft, { status, workDirectory: prepared.evidence, sessionPath: prepared.trace,
 		...(result ? { result } : {}), validationErrors: [], ...(error ? { error: toErrorMessage(error) } : {}),
+		interactions: readWikiMemoryInteractions(prepared.evidence),
 		traceDirectories: [prepared.evidence], durationMs: Date.now() - prepared.startedAt });
 	if (captured.status !== "captured") throw new Error(`Wiki compilation Case capture failed: ${captured.reason}`);
 	return { captured, result, error, inputDrift };
@@ -211,9 +257,15 @@ export function createWikiCompilationReplayRecipe(compiler: Pick<WikiCompiler, "
 		const store = new RunArtifactStore(directory);
 		store.publishDirectory(join(dirname(input.casePath), "input"), "input");
 		const frozen = readWikiCompilationCaseInput(join(directory, "input"));
+		const memoryReplay = input.value.request.interactions
+			? validateWikiMemoryInteractions(JSON.parse(readNodeEvaluationFile(input.casePath, input.value.request.interactions))) : [];
 		const goalDir = join(directory, "goal");
 		mkdirSync(goalDir);
-		if (frozen.request.has_previous_edition) new RunArtifactStore(goalDir).publishDirectory(join(directory, "input", "previous-edition"), "wiki/knowledge");
+			if (frozen.request.has_previous_edition) {
+				const previousRoot = join(directory, "input", "previous-edition");
+				if (existsSync(previousRoot)) new RunArtifactStore(goalDir).publishDirectory(previousRoot, "wiki/knowledge");
+				else mkdirSync(join(goalDir, "wiki", "knowledge"), { recursive: true });
+			}
 		const traceRoot = join(directory, "control");
 		mkdirSync(traceRoot);
 		const prepared = prepareCapture({ recordDirectory: input.recordDirectory, directory,
@@ -225,8 +277,15 @@ export function createWikiCompilationReplayRecipe(compiler: Pick<WikiCompiler, "
 			const common = { goalContext: frozen.request.goalContext, topicPlan: frozen.topicPlan, env: frozenWikiEnv(frozen.request.models), signal: input.signal };
 			if (frozen.request.operation === "compile") {
 				const notes = store.publishFile(join(directory, "input", "evidence.json"), "notes.json");
-				const result = await compiler.compile({ ...common, goalDir, runId: prepared.runId, runDirectory: directory, controlDirectory: traceRoot,
-					goal: frozen.request.goal, rebuild: frozen.request.rebuild, cueOrigins: frozen.cueOrigins, notesSnapshot: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength } });
+					const result = await compiler.compile({ ...common, goalDir, runId: prepared.runId, runDirectory: directory, controlDirectory: traceRoot,
+						goal: frozen.request.goal, rebuild: frozen.request.rebuild, cueOrigins: frozen.cueOrigins,
+						...(frozen.request.curationReviews !== undefined ? { curationReviews: frozen.request.curationReviews } : {}),
+						...(frozen.request.curationInstructions !== undefined ? { curationInstructions: frozen.request.curationInstructions } : {}),
+						...(frozen.mainSession !== undefined ? { mainSession: frozen.mainSession } : {}),
+						...(frozen.reportContext !== undefined ? { reportContext: frozen.reportContext } : {}),
+						memoryReplay,
+						...(frozen.deferredEvidence !== undefined ? { deferredEvidence: frozen.deferredEvidence } : {}),
+						notesSnapshot: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength } });
 				outcome = { baseKnowledgeSha256: result.baseKnowledgeSha256, knowledgeRoot: result.knowledge.absolutePath, usage: result.usage, sessionPaths: result.sessionPaths, failureCount: result.failedBatches.length };
 			} else {
 				const result = await compiler.reindex({ ...common, knowledgeRoot: join(goalDir, "wiki", "knowledge"), workRoot: traceRoot });
@@ -246,6 +305,24 @@ export function createWikiCompilationReplayRecipe(compiler: Pick<WikiCompiler, "
 
 export const wikiCompilationReplayRecipe = createWikiCompilationReplayRecipe();
 
+function validateWikiMemoryInteractions(value: unknown): NodeEvaluationInteraction[] {
+	if (!Array.isArray(value)) throw new Error("Invalid frozen Wiki memory interactions");
+	for (const item of value) {
+		if (!isRecord(item) || item.kind !== "tool" || item.name !== "search_user_memory"
+			|| typeof item.label !== "string" || typeof item.description !== "string" || !isRecord(item.arguments)
+			|| !isRecord(item.result) || !Array.isArray(item.result.content)) {
+			throw new Error("Invalid frozen Wiki memory interaction");
+		}
+	}
+	return value as NodeEvaluationInteraction[];
+}
+
+function readWikiMemoryInteractions(evidenceRoot: string): NodeEvaluationInteraction[] {
+	return describe(evidenceRoot).files.filter(file => file.relativePath.endsWith("/memory-searches.jsonl"))
+		.flatMap(file => validateWikiMemoryInteractions(readFileSync(join(evidenceRoot, file.relativePath), "utf8")
+			.split("\n").filter(Boolean).map(line => JSON.parse(line) as unknown)));
+}
+
 function describe(directory: string): PublishedArtifactDirectoryRef {
 	return new RunArtifactStore(dirname(directory)).describeDirectory(basename(directory));
 }
@@ -255,9 +332,11 @@ function countRecordedToolCalls(root: string, files: PublishedArtifactDirectoryR
 	let sessionMessages = 0;
 	let missingCallIds = false;
 	for (const file of files.filter((item) => item.relativePath.endsWith(".jsonl"))) {
-		for (const line of readFileSync(join(root, file.relativePath), "utf8").split("\n").filter(Boolean)) {
-			let value: unknown;
-			try { value = JSON.parse(line); } catch { continue; }
+		const path = join(root, file.relativePath);
+		const records = readFileSync(path, 'utf8').split('\n').filter(Boolean).flatMap(line => {
+			try { return [JSON.parse(line) as unknown]; } catch { return []; }
+		});
+		for (const value of sessionExecutionEntries(path, records)) {
 			if (!isRecord(value) || !["message", "message_end"].includes(String(value.type)) || !isRecord(value.message)
 				|| value.message.role !== "assistant" || !Array.isArray(value.message.content)) continue;
 			sessionMessages += 1;
@@ -280,7 +359,11 @@ function collectEvidence(root: string, store: RunArtifactStore, prefix: string):
 	if (stat.isSymbolicLink()) throw new Error("Wiki compilation trace root must not be a symlink");
 	if (stat.isFile()) {
 		if (!root.endsWith(".jsonl")) throw new Error("Wiki compilation session file must be JSONL");
-		store.publishFile(root, `${prefix}/${basename(root)}`);
+		const forkMarker = join(dirname(dirname(root)), 'main-session-fork.json');
+		if (basename(dirname(root)) === 'sessions' && existsSync(forkMarker)) {
+			store.publishFile(forkMarker, `${prefix}/main-session-fork.json`);
+			store.publishFile(root, `${prefix}/sessions/${basename(root)}`);
+		} else store.publishFile(root, `${prefix}/${basename(root)}`);
 		return;
 	}
 	const walk = (directory: string) => {
@@ -296,10 +379,15 @@ function collectEvidence(root: string, store: RunArtifactStore, prefix: string):
 			}
 			const rel = relative(root, path);
 			if (!entry.isFile() || !/\.(?:json|jsonl|md)$/u.test(entry.name)) continue;
-			if (entry.name.endsWith(".jsonl") || /^(?:result|accepted|accepted-result|submitted-result|agent-context(?:-attempt-\d+)?|response(?:-attempt-\d+)?|failure|receipts|input|failures|partial-result|checkpoint|plan|effective-system-prompt|tool-definitions|mounted-skills|model-metadata|workspace-capture|.*contract|.*prompt)\.(?:json|md)$/u.test(entry.name)
+			if (entry.name.endsWith(".jsonl") || /^(?:result|accepted|accepted-result|submitted-result|agent-context(?:-attempt-\d+)?|response(?:-attempt-\d+)?|failure|receipts|input|failures|partial-result|checkpoint|plan|effective-system-prompt|tool-definitions|mounted-skills|model-metadata|workspace-capture|main-session-fork|.*contract|.*prompt)\.(?:json|md)$/u.test(entry.name)
 				|| rel.split("/").some((part) => ["input", "work", "decisions", "results"].includes(part))) store.publishFile(path, `${prefix}/${rel}`);
 		}
 	};
 	if (!stat.isDirectory()) throw new Error("Wiki compilation trace root must be a directory or JSONL file");
+	const forkMarker = join(dirname(root), 'main-session-fork.json');
+	if (basename(root) === 'sessions' && existsSync(forkMarker)) {
+		store.publishFile(forkMarker, `${prefix}/main-session-fork.json`);
+		prefix = `${prefix}/sessions`;
+	}
 	walk(root);
 }

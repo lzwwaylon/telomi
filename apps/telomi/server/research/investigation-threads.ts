@@ -8,10 +8,12 @@ import { sha256 } from "../lib/hash.js";
 import { readJson, writeJsonAtomic } from "../lib/fs.js";
 import { isRecord, toErrorMessage } from "../lib/values.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
+import { publish } from "../events/event-bus.js";
 
 
 const ID = /^[a-f0-9]{24}$/u;
 const RECENT_LIMIT = 5;
+const activeExecutions = new Set<string>();
 
 export interface InvestigationProgress {
 	summary: string;
@@ -39,7 +41,7 @@ export interface InvestigationThreadExecutionRecord {
 	question: string;
 	context?: string;
 	allow_external: boolean;
-	status: "running" | "completed" | "failed";
+	status: "running" | "completed" | "failed" | "cancelled";
 	owner_pid: number;
 	started_at: string;
 	finished_at?: string;
@@ -132,7 +134,7 @@ function readExecution(goalDir: string, threadId: string, id: string): Investiga
 	const value = store.readJson<unknown>(store.describeFile(`executions/${assertId(id)}.json`));
 	if (!isRecord(value) || value.schema_version !== 1 || value.thread_id !== threadId || value.execution_id !== id
 		|| typeof value.question !== "string" || typeof value.allow_external !== "boolean"
-		|| !["running", "completed", "failed"].includes(String(value.status))
+		|| !["running", "completed", "failed", "cancelled"].includes(String(value.status))
 		|| !Number.isSafeInteger(value.owner_pid) || Number(value.owner_pid) < 1 || typeof value.started_at !== "string") {
 		throw new Error("Invalid investigation thread execution");
 	}
@@ -145,6 +147,15 @@ function readExecution(goalDir: string, threadId: string, id: string): Investiga
 	if (value.context !== undefined && (typeof value.context !== "string" || value.context.length > 40_000)) throw new Error("Invalid investigation context");
 	if (value.progress !== undefined) validateInvestigationProgress(value.progress);
 	return value as unknown as InvestigationThreadExecutionRecord;
+}
+
+/** All retained executions, including history outside the bounded Agent catalog. */
+export function listInvestigationExecutions(goalDir: string) {
+	return allThreads(goalDir).flatMap(thread => thread.execution_ids.map(id => ({
+		title: thread.title,
+		execution: readExecution(goalDir, thread.thread_id, id),
+		active: activeExecutions.has(`${goalDir}\0${id}`),
+	})));
 }
 
 /** Catalogs are derived views; the five recent rows never evict durable threads or their evidence. */
@@ -210,6 +221,7 @@ export function writeInvestigationThreadInput(goalDir: string, context: Investig
 /** One live execution per thread; logs and artifacts outlive every Worker and Kernel. */
 export async function runInInvestigationThread(input: {
 	goalDir: string; executionId: string; question: string; context?: string; threadId?: string; title?: string; allowExternal?: boolean;
+	signal?: AbortSignal;
 }, operation: (context: InvestigationThreadContext) => Promise<InvestigationResult>): Promise<InvestigationResult> {
 	if (input.context !== undefined && input.context.length > 40_000) throw new Error("Investigation context exceeds 40000 characters");
 	assertId(input.executionId);
@@ -274,6 +286,8 @@ export async function runInInvestigationThread(input: {
 		thread.updated_at = execution.started_at;
 		writeJsonAtomic(join(threadDirectory(input.goalDir, thread.thread_id), "thread.json"), thread);
 		publishInvestigationThreadCatalog(input.goalDir);
+		activeExecutions.add(`${input.goalDir}\0${input.executionId}`);
+		publish({ type: "activity-projection:changed", goalId: basename(input.goalDir) });
 		try {
 			const value = await operation({ threadId: thread.thread_id, number: thread.number, title: thread.title,
 				progress: thread.progress, context, executions: prior.filter((row) => row.execution_id !== input.executionId) });
@@ -297,6 +311,7 @@ export async function runInInvestigationThread(input: {
 			execution.result = { relative_path: ref, sha256: artifact.sha256, byte_length: artifact.byteLength };
 			execution.finished_at = new Date().toISOString();
 			writeJsonAtomic(executionPath, execution);
+			publish({ type: "activity-projection:changed", goalId: basename(input.goalDir) });
 			thread.updated_at = execution.finished_at ?? execution.started_at;
 			writeJsonAtomic(join(threadDirectory(input.goalDir, thread.thread_id), "thread.json"), thread);
 			publishInvestigationThreadCatalog(input.goalDir);
@@ -304,15 +319,20 @@ export async function runInInvestigationThread(input: {
 		} catch (error) {
 			// A derived catalog failure must not turn a committed result back into a failed execution.
 			if (execution.status !== "completed") {
-				execution.status = "failed"; execution.finished_at = new Date().toISOString(); execution.error = toErrorMessage(error);
+				execution.status = input.signal?.aborted ? "cancelled" : "failed";
+				execution.finished_at = new Date().toISOString(); execution.error = toErrorMessage(error);
 				writeJsonAtomic(executionPath, execution);
+				publish({ type: "activity-projection:changed", goalId: basename(input.goalDir) });
 			}
 			thread.updated_at = execution.finished_at ?? execution.started_at;
 			writeJsonAtomic(join(threadDirectory(input.goalDir, thread.thread_id), "thread.json"), thread);
 			publishInvestigationThreadCatalog(input.goalDir);
 			throw error;
 		}
-	} finally { await releaseThread(); }
+	} finally {
+		activeExecutions.delete(`${input.goalDir}\0${input.executionId}`);
+		await releaseThread();
+	}
 }
 
 function processIsAlive(pid: number): boolean {

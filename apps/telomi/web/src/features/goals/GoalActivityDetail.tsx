@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { DocumentIcon as FileText, CloseIcon as X } from "@/shared/ui/icons";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -24,6 +25,7 @@ import { ActivityRow } from "@/features/chat/TurnCard";
 import { activityOutputItems, activityOutputLineItem } from "@/features/goals/activity-output-adapter";
 import {
 	groupActivitySteps,
+	type ActivityStepGroup,
 	type ActivityWorker,
 } from "@/features/goals/activity-step-groups";
 import {
@@ -177,11 +179,7 @@ export function ActivityDetail({
 				<LiveAgentStages item={item} outputs={liveAgentOutputs} />
 			)}
 			{groupActivitySteps(item.steps, item.recovery?.round).map((group) => (
-				<section className="goal-activity-step-group" key={group.id} aria-labelledby={`activity-phase-${item.activityId}-${group.id}`}>
-					<header className="goal-activity-step-group-head">
-						<b id={`activity-phase-${item.activityId}-${group.id}`}>{activityText(group.label)}</b>
-						<span>{uiText("goalActivity.stepCount", { count: group.steps.length })}</span>
-					</header>
+				<ActivityPhaseGroup key={`${item.activityId}:${group.id}`} group={group} collapsible={item.kind === "wiki-update"}>
 					{group.steps.length === 0 && <p className="goal-activity-detail-summary">{uiText("goalActivity.preparingSteps")}</p>}
 					{group.entries.map((entry) => entry.kind === "worker-pool" ? (
 						<ActivityWorkerPool
@@ -201,7 +199,7 @@ export function ActivityDetail({
 							onOpen={openReplay}
 						/>
 					))}
-				</section>
+				</ActivityPhaseGroup>
 			))}
 			{results.length > 0 && (
 				<div className="goal-activity-results">
@@ -239,6 +237,48 @@ export function ActivityDetail({
 				testId="activity-action-dialog"
 			/>
 		</div>
+	);
+}
+
+function ActivityPhaseGroup({ group, collapsible, children }: {
+	group: ActivityStepGroup;
+	collapsible: boolean;
+	children: ReactNode;
+}) {
+	const label = activityText(group.label);
+	if (!collapsible) return (
+		<section className="goal-activity-step-group" aria-label={label}>
+			<header className="goal-activity-step-group-head">
+				<b>{label}</b><span>{uiText("goalActivity.stepCount", { count: group.steps.length })}</span>
+			</header>
+			{children}
+		</section>
+	);
+	const states = group.steps.map(activityState);
+	const count = (state: string) => states.filter((value) => value === state).length;
+	const failed = count("failed") + count("attention");
+	const waiting = count("waiting");
+	const running = count("running");
+	const completed = group.steps.filter((step) => step.lifecycle === "finished"
+		&& step.outcome !== "failed" && step.outcome !== "cancelled" && step.outcome !== "partial").length;
+	const state = failed ? "failed" : waiting ? "waiting" : running ? "running"
+		: group.steps.some((step) => step.lifecycle === "queued") ? "queued"
+			: completed === group.steps.length ? "succeeded" : "quiet";
+	const counts = [
+		uiText("goalActivity.phaseProgress", { completed, total: group.steps.length }),
+		running > 0 && uiText("goals.goalactivitypanel.countRunning", { count: running }),
+		waiting > 0 && uiText("goals.goalactivitypanel.countWaiting", { count: waiting }),
+		failed > 0 && uiText("goals.goalactivitypanel.countFailed", { count: failed }),
+	].filter(Boolean).join(" · ");
+	return (
+		<details className="goal-activity-step-group goal-activity-phase" data-testid="activity-wiki-phase" open={failed > 0 || waiting > 0}>
+			<summary className="goal-activity-step-group-head" aria-label={`${label} · ${counts}`}>
+				<i className={cn("activity-glyph", `is-${state}`)} aria-hidden />
+				<b>{label}</b><span className={failed ? "is-failed" : waiting ? "is-waiting" : undefined}>{counts}</span>
+				<ChevronDown size={12} aria-hidden className="goal-activity-phase-chevron" />
+			</summary>
+			{children}
+		</details>
 	);
 }
 

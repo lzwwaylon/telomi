@@ -10,6 +10,7 @@ import type { ActivityAction, ActivityLifecycle, ActivityMessage, ActivityOutcom
 import { chrome } from "../../shared/events/activity-text.js";
 
 const stageTitles = {
+	"curate-evidence": "activityChrome.wiki.stage.curateEvidence",
 	"objects": "activityChrome.wiki.stage.objects",
 	"merge-objects": "activityChrome.wiki.stage.mergeObjects",
 	"plan-concepts": "activityChrome.wiki.stage.planConcepts",
@@ -146,13 +147,14 @@ export class WikiActivityProjection {
 						: stage.status === "failed"
 							? failureText(compilation ? "activityChrome.wiki.compilationFailed" : "activityChrome.wiki.publishFailed", stage.message)
 							: [
-								...chrome("activityChrome.wiki.pageCount", { count: stage.page_count }),
+								...(stage.page_count > 0 || stage.kind === "publication"
+									? chrome("activityChrome.wiki.pageCount", { count: stage.page_count }) : []),
 								...chrome("activityChrome.usage.modelCalls", { count: stage.usage.model_calls }),
 							],
 				lifecycle: stageLifecycle,
 				...(stageOutcome ? { outcome: stageOutcome } : {}),
 				timing,
-				dependsOnStepIds: stage.kind === "publication"
+				dependsOnStepIds: stage.kind === "curate-evidence" ? [] : stage.kind === "publication"
 					? compilationStages.map((candidate) => `wiki-stage:${candidate.kind}:${candidate.stage_index}`)
 					: [
 						...(batchStepIds.has(ownBatchStepId) ? [ownBatchStepId] : []),
@@ -178,7 +180,12 @@ export class WikiActivityProjection {
 				}],
 			};
 		});
-		const steps = [...batchSteps, ...stageSteps];
+		const steps = [
+			...stageSteps.filter((step) => step.stepId.startsWith("wiki-stage:curate-evidence:")),
+			...batchSteps,
+			...stageSteps.filter((step) => !step.stepId.startsWith("wiki-stage:curate-evidence:")),
+		];
+		const executionProgress = wikiExecutionProgress(job, steps);
 		const resumeAction: ActivityAction = {
 			actionId: `resume-wiki:${id}`,
 			kind: "continue",
@@ -202,7 +209,10 @@ export class WikiActivityProjection {
 			trigger,
 			...(job.parent_activity_id ? { parentActivityId: job.parent_activity_id } : {}),
 			title: chrome("activityChrome.wiki.updateTitle"),
-			summary: wikiUpdateSummary(job),
+			summary: [
+				...wikiUpdateSummary(job, executionProgress),
+				...(job.curation ? chrome("activityChrome.wiki.curationCounts", job.curation) : []),
+			],
 			lifecycle,
 			...(outcome ? { outcome } : {}),
 			...(job.status === "interrupted" ? {
@@ -232,7 +242,7 @@ export class WikiActivityProjection {
 					actions: [resumeAction],
 				},
 			} : {}),
-			...(progress ? { progress: { completed: progress.completed_batches, total: progress.total_batches, label: chrome("activityChrome.wiki.batches") } } : {}),
+			...(executionProgress ? { progress: executionProgress } : {}),
 			timing: activityTiming(job.started_at, job.updated_at, job.finished_at),
 			resultLinks: job.status === "succeeded" || job.status === "partial" ? [{
 				kind: "artifact",
@@ -262,7 +272,21 @@ function failureText(key: Parameters<typeof chrome>[0], message?: string): Activ
 	return [...chrome(key), ...(message ? [{ text: message }] : [])];
 }
 
-function wikiUpdateSummary(job: NonNullable<ReturnType<WikiUpdateJobStore["load"]>>): ActivityMessage[] {
+function wikiExecutionProgress(job: NonNullable<ReturnType<WikiUpdateJobStore['load']>>, steps: ActivityStep[]): ActivityProjectionItem['progress'] {
+	const progress = job.progress;
+	if (!progress) return undefined;
+	const stages = progress.stages ?? [];
+	if (!stages.some(stage => stage.kind === 'curate-evidence')) return {
+		completed: progress.completed_batches, total: progress.total_batches, label: chrome('activityChrome.wiki.batches'),
+	};
+	const finished = job.status === 'succeeded' || stages.some(stage => stage.kind === 'publication');
+	const planned = Math.max(0, ...stages.filter(stage => stage.kind !== 'publication').map(stage => stage.total_stages));
+	return { completed: steps.filter(step => step.lifecycle === 'finished' && step.outcome === 'succeeded').length,
+		total: finished ? steps.length : Math.max(steps.length, progress.total_batches + planned + 1),
+		label: chrome('activityChrome.wiki.steps') };
+}
+
+function wikiUpdateSummary(job: NonNullable<ReturnType<WikiUpdateJobStore["load"]>>, executionProgress: ActivityProjectionItem['progress']): ActivityMessage[] {
 	const progress = job.progress;
 	const stages = progress?.stages ?? [];
 		const finalStage = stages.find((stage) => stage.kind === "publication" && stage.status === "succeeded")
@@ -294,6 +318,11 @@ function wikiUpdateSummary(job: NonNullable<ReturnType<WikiUpdateJobStore["load"
 			] : []),
 		];
 	}
+	if (stages.some(stage => stage.kind === 'curate-evidence') && executionProgress) return [
+		...chrome('activityChrome.wiki.creating'),
+		...chrome('activityChrome.wiki.stepProgress', { completed: executionProgress.completed, total: executionProgress.total }),
+		...chrome('activityChrome.usage.cost', { cost: costUsd.toFixed(4) }),
+	];
 	return [
 		...chrome("activityChrome.wiki.creating"),
 		...(progress ? [

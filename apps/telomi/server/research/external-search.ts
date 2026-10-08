@@ -87,7 +87,7 @@ export async function readExternalSources(input: {
 		originalQuestion: input.originalQuestion, taskContextFile: input.taskContextFile, knownCues: input.knownCues,
 		invocationId: `${input.investigationId}-external-${input.sequence}`,
 		preferredSourceRunId: sourceRunId,
-		signal: input.signal, env: input.env, stageRunner: input.stageRunner,
+		signal: input.signal, env: input.env, stageRunner: input.stageRunner, onActivity: input.onActivity,
 	});
 	return { ...reading, sources: sources.map((source) => ({ id: source.id, title: source.title,
 		revision_sha256: source.revisionSha256, url: source.url })) };

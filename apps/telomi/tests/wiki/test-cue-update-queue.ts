@@ -9,12 +9,18 @@ import { enqueueCueWikiUpdate, drainCueWikiUpdates, getCueWikiQueueStatus } from
 import { WikiUpdateJobStore } from "../../server/wiki/wiki-update-job.js";
 import { executeWikiUpdate, resumeWikiUpdate, wikiUpdateRecordDir, type WikiUpdateDependencies } from "../../server/wiki/update-runner.js";
 import type { GoalTopicPlan, WikiCompilationResult } from "../../server/wiki/contracts.js";
+import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
+import { writeGoalWikiMainContext, type WikiMainSessionContext } from '../../server/main-agent/wiki-context.js';
 
 const root = mkdtempSync(join(tmpdir(), "cue-wiki-queue-"));
 const context = { title: "Model training", description: "Understand original training code", language: "en" as const };
 try {
 	await testConfirmedBatchAndNextBatch();
+	await testMainBranchFrozenAtBatchStart();
+	await testQuietWindowMergesDeliveredInvestigations();
+	await testUnreviewedLegacyEntriesStayUnreleased();
 	await testFailureNeedsExplicitRetryAndUiResume();
+	await testNewCandidatesBypassStoppedBatches();
 	await testInterruptedAndOrphanRecovery();
 	await testExplicitRetryRefreshesChangedTopicPlan();
 	await testRefreshReadinessBetweenBatches();
@@ -39,7 +45,29 @@ function fixture(name: string) {
 	}] }));
 	const topicPlan: GoalTopicPlan = { schema_version: 1, goal_id: goalId, revision: "plan-1", status: "active",
 		topics: [{ id: "training", title: "Training", intent: "Explain training", questions: [], include: [], exclude: [] }] };
-	return { workspaceDir, goalId, goalDir, goalContext: context, topicPlan, env: {} };
+	let now = Date.now();
+	const clock = { now: () => now, wait: async (milliseconds: number) => { now += milliseconds; } };
+	return { workspaceDir, goalId, goalDir, goalContext: context, topicPlan, env: {}, clock };
+}
+
+async function testMainBranchFrozenAtBatchStart() {
+	const input = fixture('main-branch');
+	const main: WikiMainSessionContext = { schema_version: 1, goalId: input.goalId, sessionId: 'main-history',
+		systemPrompt: 'Understand training', model: 'provider/main-model', thinking: 'medium',
+		messages: [{ role: 'user', content: 'Keep mechanisms, exclude temporary benchmark numbers.', timestamp: 1 }] };
+	writeGoalWikiMainContext(input.workspaceDir, main);
+	enqueueCueWikiUpdate(cue(input, 'main-branch-cue'));
+	await drainCueWikiUpdates({ ...input, dependencies: dependencies(async request => {
+		assert.deepEqual(request.mainSession, main, 'new background work receives the completed Main context');
+		writeGoalWikiMainContext(input.workspaceDir, { ...main, messages: [{ role: 'user', content: 'Later unrelated turn', timestamp: 2 }] });
+		throw new Error('interrupted after context capture');
+	}) });
+	const failed = getCueWikiQueueStatus(input);
+	await resumeWikiUpdate({ ...input, runId: failed.wikiUpdateId!, dependencies: dependencies(async request => {
+		assert.deepEqual(request.mainSession, main, 'resume keeps its original branch instead of reading newer chat');
+		return compilation();
+	}) });
+	assert.equal(getCueWikiQueueStatus(input).status, 'idle');
 }
 function cue(input: ReturnType<typeof fixture>, id: string, line: 1 | 2 = 1) {
 	const excerpt = line === 1 ? "loss = cross_entropy(labels)" : "optimizer.step()";
@@ -49,7 +77,10 @@ function cue(input: ReturnType<typeof fixture>, id: string, line: 1 | 2 = 1) {
 				source_path: "members/github/candidate-one/train.py", start_line: line, end_line: line,
 				content_sha256: sha256(`${excerpt}\n`), excerpt }] }] };
 	const artifact = new RunArtifactStore(input.goalDir).publishText(`${JSON.stringify(result, null, 2)}\n`, `artifacts/deep-search/${id}.json`);
-	return { ...input, artifactRef: { path: artifact.relativePath, sha256: artifact.sha256 }, investigationId: `investigation-${id}`, threadId: "thread-1" };
+	const investigationId = sha256(`investigation-${id}`).slice(0, 24);
+	return { ...input, artifactRef: { path: artifact.relativePath, sha256: artifact.sha256 }, investigationId, threadId: "thread-1",
+		curationReview: { investigationId, question: result.question, answer: result.summary,
+			usefulFindings: [excerpt], excludedFindings: [] } };
 }
 function dependencies(compile?: WikiUpdateDependencies["compile"]): WikiUpdateDependencies {
 	return { compile: compile ?? (async () => compilation()), publish: async () => ({ status: "promoted", compilationId: "compiled",
@@ -78,14 +109,15 @@ async function testConfirmedBatchAndNextBatch() {
 		if (calls === 1) { entered(); await gate; }
 		return compilation();
 	}) });
+	await compiling;
 	const receipt = getCueWikiQueueStatus(input);
 	assert.equal(receipt.status, "running");
 	assert.ok(receipt.wikiUpdateId, "activity receipt exists before model execution finishes");
-	await compiling;
 	const firstJob = new WikiUpdateJobStore(wikiUpdateRecordDir(input.workspaceDir, input.goalId, receipt.wikiUpdateId!)).load()!;
 	assert.equal(firstJob.source_run_id, undefined, "Cue updates never impersonate a Research Run");
 	assert.equal(firstJob.cue_origins?.[0]?.investigation_id, first.investigationId);
 	assert.equal(firstJob.cue_origins?.[0]?.thread_id, "thread-1");
+	assert.equal(firstJob.curation_reviews?.[0]?.investigationId, first.investigationId);
 	enqueueCueWikiUpdate(cue(input, "second", 2));
 	release();
 	assert.equal((await execution).status, "idle");
@@ -95,6 +127,56 @@ async function testConfirmedBatchAndNextBatch() {
 	await drainCueWikiUpdates({ ...input, dependencies: dependencies(async () => { calls++; return compilation(); }) });
 	assert.equal(calls, 2, "restart observation does not rerun published Cues");
 	assert.throws(() => enqueueCueWikiUpdate({ ...first, artifactRef: { ...first.artifactRef, sha256: "f".repeat(64) } }), /hash changed/u);
+}
+async function testQuietWindowMergesDeliveredInvestigations() {
+	const base = fixture("quiet-batching");
+	let now = base.clock.now();
+	let release!: () => void;
+	let entered!: () => void;
+	const waiting = new Promise<void>(resolve => { entered = resolve; });
+	let waits = 0;
+	const input = { ...base, clock: { now: () => now, wait: async (milliseconds: number) => {
+		waits++;
+		if (waits === 1) { entered(); await new Promise<void>(resolve => { release = resolve; }); }
+		now += milliseconds;
+	} } };
+	enqueueCueWikiUpdate(cue(input, "quiet-first"));
+	let calls = 0;
+	const execution = drainCueWikiUpdates({ ...input, dependencies: dependencies(async request => {
+		calls++;
+		assert.equal(request.curationReviews?.length, 2, "one frozen Wiki batch carries both delivered reviews");
+		const snapshot = JSON.parse(readFileSync(new RunArtifactStore(request.runDirectory).openFile(request.notesSnapshot).absolutePath, "utf8"));
+		assert.equal(snapshot.notes[0].note.sections.length, 2, "both complete Cue inputs survive batching");
+		return compilation();
+	}) });
+	await waiting;
+	now += 1_000;
+	enqueueCueWikiUpdate(cue(input, "quiet-second", 2));
+	assert.equal(getCueWikiQueueStatus(input).status, "pending");
+	assert.equal(calls, 0, "no job is frozen while the durable quiet window is open");
+	release();
+	assert.equal((await execution).status, "idle");
+	assert.equal(calls, 1, "two delivered investigations coalesce before compilation starts");
+}
+async function testUnreviewedLegacyEntriesStayUnreleased() {
+	const input = fixture("legacy-unreviewed");
+	const released = cue(input, "legacy");
+	enqueueCueWikiUpdate(released);
+	const path = join(serverRuntimeDirForGoal(input.goalId, input.workspaceDir), "cue-wiki-queue.json");
+	const old = JSON.parse(readFileSync(path, "utf8"));
+	delete old.entries[0].curation_review;
+	delete old.entries[0].ready_at;
+	old.entries[0].key = sha256(`${old.entries[0].origin.artifact_ref.relative_path}\n${old.entries[0].origin.artifact_ref.sha256}`);
+	const batchId = sha256(JSON.stringify([old.entries[0].key]));
+	old.entries[0].batch_id = batchId;
+	old.batches = [{ id: batchId, keys: [old.entries[0].key], status: "pending", wiki_update_id: `wiki_cue_${batchId}` }];
+	writeFileSync(path, JSON.stringify(old));
+	let calls = 0;
+	assert.equal((await drainCueWikiUpdates({ ...input, dependencies: dependencies(async () => { calls++; return compilation(); }) })).status, "idle");
+	assert.equal(calls, 0, "old saved but unreviewed entries cannot bypass the delivery admission gate");
+	assert.equal(enqueueCueWikiUpdate(released).pendingCount, 1, "a later proven delivery releases the existing artifact once");
+	assert.equal((await drainCueWikiUpdates({ ...input, dependencies: dependencies(async () => { calls++; return compilation(); }) })).status, "idle");
+	assert.equal(calls, 1, "the old unreviewed frozen batch stays dormant while a proven delivery makes a new reviewed batch");
 }
 async function testFailureNeedsExplicitRetryAndUiResume() {
 	const input = fixture("failure");
@@ -109,6 +191,44 @@ async function testFailureNeedsExplicitRetryAndUiResume() {
 	assert.equal(retry.status, "idle");
 	assert.equal(calls, 3, "explicit retry restores the frozen failed batch, then drains next pending batch");
 	assert.equal(new WikiUpdateJobStore(wikiUpdateRecordDir(input.workspaceDir, input.goalId, failed.wikiUpdateId!)).load()!.attempts, 2);
+}
+async function testNewCandidatesBypassStoppedBatches() {
+	for (const status of ['failed', 'interrupted'] as const) {
+		const input = fixture(`past-${status}`);
+		const old = cue(input, `past-${status}`);
+		enqueueCueWikiUpdate(old);
+		let calls = 0;
+		const stopped = await drainCueWikiUpdates({ ...input, dependencies: dependencies(async () => { calls++; throw new Error('old failure'); }) });
+		const jobs = new WikiUpdateJobStore(wikiUpdateRecordDir(input.workspaceDir, input.goalId, stopped.wikiUpdateId!));
+		if (status === 'interrupted') {
+			const saved = jobs.load()!;
+			jobs.start({ ...input, runId: saved.run_id, goal: saved.goal, sourceNotes: saved.notes, cueOrigins: saved.cue_origins });
+			jobs.markInterrupted();
+		}
+		const attempts = jobs.load()!.attempts;
+		const fresh = cue(input, `fresh-after-${status}`, 2);
+		enqueueCueWikiUpdate(fresh);
+		const ready = getCueWikiQueueStatus(input);
+		assert.equal(ready.status, 'pending');
+		assert.equal(ready.wikiUpdateId, undefined, 'unfrozen new candidates do not point users at an unrelated stopped Activity');
+		let newId = '';
+		await drainCueWikiUpdates({ ...input, dependencies: dependencies(async request => {
+			calls++;
+			assert.deepEqual(request.cueOrigins?.map(origin => origin.investigation_id), [fresh.investigationId], 'automatic maintenance uses only the new delivered batch');
+			newId = request.runId;
+			return compilation();
+		}) });
+		assert.equal(calls, 2, `${status} history must not block a later independent delivered batch`);
+		assert.notEqual(newId, stopped.wikiUpdateId);
+		assert.equal(new WikiUpdateJobStore(wikiUpdateRecordDir(input.workspaceDir, input.goalId, newId)).load()!.status, 'succeeded');
+		assert.equal(jobs.load()!.status, status, 'the stopped historical Activity stays inspectable');
+		assert.equal(jobs.load()!.attempts, attempts, 'the historical execution is never automatically retried');
+		assert.equal(getCueWikiQueueStatus(input).pendingCount, 1, 'only the old unresolved evidence remains');
+		await drainCueWikiUpdates({ ...input, dependencies: dependencies(async () => { calls++; return compilation(); }) });
+		assert.equal(calls, 2, 'an automatic rescan reruns neither the old stopped batch nor the new completed batch');
+		assert.equal((await drainCueWikiUpdates({ ...input, retry: true, dependencies: dependencies(async () => { calls++; return compilation(); }) })).status, 'idle');
+		assert.equal(calls, 3, 'explicit retry can still recover the original stopped batch');
+	}
 }
 async function testInterruptedAndOrphanRecovery() {
 	const input = fixture("interrupted");

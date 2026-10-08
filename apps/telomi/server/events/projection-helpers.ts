@@ -115,11 +115,14 @@ export function humanize(value: unknown): string {
  * the Node Execution Record and the Stage traces.
  */
 export function stageTitle(stageId: string): ActivityText {
+	if (stageId.startsWith("note-reading-")) return chrome("activityChrome.stage.noteAgentGeneric");
+	if (stageId.startsWith("writer-answer-")) return chrome("activityChrome.stage.answerWriter");
 	const batch = /^(?:prime-)?search-batch-(\d+)$/u.exec(stageId);
 	if (batch) return chrome("activityChrome.stage.primeSearchBatch", { sequence: Number(batch[1]) });
 	const note = /^note-agent-(\d+)-(.+)$/u.exec(stageId);
 	if (note) return chrome("activityChrome.stage.noteAgent", { sequence: note[1]!, source: note[2]! });
 	switch (stageId) {
+		case "prime-investigation": return chrome("activityChrome.stage.investigation");
 		case "input-resolution": return chrome("activityChrome.stage.inputResolution");
 		case "research-pipeline-start": return chrome("activityChrome.stage.pipelineStart");
 		case "research-pipeline-finish": return chrome("activityChrome.stage.pipelineFinish");

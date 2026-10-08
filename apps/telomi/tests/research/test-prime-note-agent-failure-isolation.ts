@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { sha256 } from "../../server/lib/hash.js";
 import { RuntimeNoteAgentProcessor } from "../../server/research/note-agent.js";
 import type { AgentStageRunner } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { PrimeNoteAgentStageRunner } from "../../server/research/pipeline/prime-note-agent.js";
+import { agentSessionPath } from "../../server/observability/run-records.js";
+import { ObservabilityActivityProjection } from "../../server/observability/activity-projection.js";
 
 // A provider failure inside one Note Agent must stay that Source's failure, not end the Research Run.
 const root = realpathSync(mkdtempSync(join(tmpdir(), "prime-note-agent-failure-isolation-")));
@@ -51,7 +53,7 @@ export async function createAgentSession(options) {
 					{ source_path: "paper.md", start_line: 1, end_line: 1 },
 				] }],
 			}] }));
-			const answered = { role: "assistant", stopReason: "stop", usage: { input: 1, output: 1, cost: { total: 0 } } };
+			const answered = { role: "assistant", content: [{ type: "text", text: "Finished reading the stable evidence." }], stopReason: "stop", usage: { input: 1, output: 1, cost: { total: 0 } } };
 			subscriber({ type: "message_end", message: answered });
 			messages.push(answered);
 		},
@@ -92,10 +94,30 @@ export async function createAgentSession(options) {
 	} });
 	// Evaluation records run the same Prime Stage without the Research workspace snapshot, which needs the
 	// Source Service; how a Worker failure is reported does not depend on the record kind.
+	let liveRead = false;
 	const evaluationRecords: AgentStageRunner = {
-		runStage: (request) => primeRunner.runStage({ ...request, recordKind: "evaluation" }),
+		runStage: async (request) => {
+			const executionId = `${request.session.key}-${request.attemptId}`;
+			const session = agentSessionPath(request.controlDirectory, request.role, executionId);
+			const result = await primeRunner.runStage({ ...request, recordKind: "evaluation", onActivity: (activity) => {
+				const manifest = JSON.parse(readFileSync(`${session}.sessions.json`, "utf8"));
+				assert.equal(manifest.sessions.length, 1, "the running Reader indexes exactly one trace");
+				if (activity.status !== "succeeded") return;
+				const projection = new ObservabilityActivityProjection();
+				const ref = projection.registerOutput({ kind: "recorded-agent", goalId: "goal-reader", runId: request.runId,
+					runDirectory: request.controlDirectory, agent: "note_agent", executionId,
+					sessionFile: basename(session), lifecycle: "running" });
+				const live = projection.readOutput("goal-reader", ref)!;
+				assert.equal(live.lines.filter((line) => line.text.includes("Finished reading the stable evidence.")).length, 1,
+					"Reader output is visible before its workspace is removed, without duplicate native and merged messages");
+				liveRead = true;
+			} });
+			assert.deepEqual(JSON.parse(readFileSync(`${session}.sessions.json`, "utf8")).sessions,
+				[{ path: basename(session), label: "Note Agent" }], "the finished Reader points at its retained trace");
+			return result;
+		},
 	};
-	const runRoot = join(root, "run");
+	const runRoot = join(root, "control", "run");
 	const produced = await new RuntimeNoteAgentProcessor({
 		outputLanguage: "en",
 		documentConcurrency: 2,
@@ -117,6 +139,7 @@ export async function createAgentSession(options) {
 	assert.deepEqual(produced.notes.map((item) => item.source.id), ["source:stable"]);
 	assert.deepEqual(produced.failures.map((item) => item.source.id), ["source:overloaded"]);
 	assert.match(produced.failures[0]!.message, /server_is_overloaded/u);
+	assert.equal(liveRead, true);
 } finally {
 	rmSync(root, { recursive: true, force: true });
 }

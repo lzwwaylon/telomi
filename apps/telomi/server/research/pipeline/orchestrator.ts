@@ -238,6 +238,13 @@ export class Run {
 				report_ref: report.relativePath,
 				report_sha256: report.sha256,
 			});
+			if (state.report_flow?.notes_snapshot && state.report_flow.knowledge_input?.mode !== 'wiki') {
+				try {
+					const notesArtifact = artifactStore.openFile(state.report_flow.notes_snapshot);
+					this.startWikiUpdate({ request, notesArtifact,
+						evidence: validateSourceNotesSnapshot(readJson(notesArtifact.absolutePath)) });
+				} catch (error) { trace(request, { type: 'runtime.wiki_update_start_failed', run_id: request.runId, message: toErrorMessage(error) }); }
+			}
 			return this.result(request, state, {});
 		}
 		if (state?.status === "skipped") {
@@ -344,12 +351,7 @@ export class Run {
 			for (const reference of currentEvidence.source_bundle_refs) {
 				if (!cumulativeBundleRefs.includes(reference)) cumulativeBundleRefs.push(reference);
 			}
-			this.startWikiUpdate({
-				request,
-				evidence: currentEvidence,
-				notesArtifact: currentEvidenceArtifact,
-			});
-			return await this.runReportFlow({
+			const report = await this.runReportFlow({
 				request,
 				artifactStore,
 				state,
@@ -360,6 +362,7 @@ export class Run {
 				cumulativeBundleRefs,
 					nodeStatuses,
 			});
+			return report;
 		} catch (error) {
 			if (error instanceof ScheduledResearchSkipped) {
 				return this.result(request, state, nodeStatuses);
@@ -750,6 +753,10 @@ export class Run {
 			knowledge_ref: knowledgeSnapshot.relativePath,
 		});
 		emit("complete", "succeeded");
+		if (!args.wikiCompilation) {
+			try { this.startWikiUpdate({ request, evidence, notesArtifact: args.notesArtifact }); }
+			catch (error) { trace(request, { type: 'runtime.wiki_update_start_failed', run_id: request.runId, message: toErrorMessage(error) }); }
+		}
 		return this.result(request, state, args.nodeStatuses);
 	}
 

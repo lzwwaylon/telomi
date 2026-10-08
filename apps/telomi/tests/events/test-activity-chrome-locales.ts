@@ -49,6 +49,7 @@ assert.equal(render(stageTitle("prime-search-batch-2")), "Prime Search 第 2 批
 await en();
 assert.equal(render(chrome("activityChrome.usage.modelCalls", { count: 1 })), "Model calls: 1");
 assert.equal(render(chrome("activityChrome.usage.toolCalls", { count: 0 })), "Tool calls: 0");
+assert.equal(render(chrome("activityChrome.wiki.stepProgress", { completed: 1, total: 5 })), "1/5 execution steps");
 assert.equal(render(chrome("activityChrome.step.parallel", { count: 1 })), "1 Activity Step in parallel");
 assert.equal(render(chrome("activityChrome.step.parallel", { count: 4 })), "4 Activity Steps in parallel");
 assert.equal(render(chrome("activityChrome.research.sourceNoteFailures", { count: 1 })), "1 Source Note failed");
@@ -62,6 +63,7 @@ assert.equal(i18n.t("goalActivity.stepCount", { count: 1 }), "1 step");
 assert.equal(i18n.t("goalActivity.stepCount", { count: 51 }), "51 steps");
 await zh();
 assert.equal(render(chrome("activityChrome.step.parallel", { count: 4 })), "并行执行 4 个步骤");
+assert.equal(render(chrome("activityChrome.wiki.stepProgress", { completed: 1, total: 5 })), "1/5 个执行步骤");
 assert.equal(render(chrome("activityChrome.usage.modelCalls", { count: 556 })), "556 次模型调用");
 assert.equal(render(chrome("activityChrome.research.sourceNoteFailures", { count: 1 })), "1 个 Source Note 失败");
 assert.equal(i18n.t("goalActivity.stepCount", { count: 1 }), "1 个步骤");
@@ -250,11 +252,11 @@ const groups = groupActivitySteps([
 const pools = groups.flatMap((group) => group.entries.flatMap((entry) => entry.kind === "worker-pool" ? [entry] : []));
 assert.equal(pools.length, 2);
 await en();
-assert.deepEqual(groups.map((group) => render(group.label)), ["Execution phase", "Object construction"]);
+assert.deepEqual(groups.map((group) => render(group.label)), ["Execution phase", "Organize objects"]);
 assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki workers"]);
 assert.equal(render(pools[0]!.workers[0]!.title), "Note Agent 1 · source_a");
 await zh();
-assert.deepEqual(groups.map((group) => render(group.label)), ["执行阶段", "对象构建"]);
+assert.deepEqual(groups.map((group) => render(group.label)), ["执行阶段", "对象整理"]);
 assert.deepEqual(pools.map((pool) => render(pool.label)), ["Note Agent", "Wiki Worker"]);
 
 // A failed Stage says why on the Stage itself; a Provider's HTTP error reads as its status and its

@@ -1,9 +1,13 @@
-import type { WikiStageKind } from "./wiki-stage-contract.js";
+import type { WikiStageKind, WikiInvestigationReview, WikiReportContext } from "./wiki-stage-contract.js";
+export type { WikiInvestigationReview } from "./wiki-stage-contract.js";
 import { inferOutputLanguage, type ResolvedOutputLanguage } from "../../shared/languages.js";
 import type { PublishedArtifactDirectoryRef, RunArtifactRef } from "../agent-runtime/artifact-store.js";
 import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import type { WikiCueOrigin } from "./wiki-update-job.js";
 import type { GoalTopicPlan } from "../goals/topic-plan/contracts.js";
+import type { WikiDeferredEvidence } from './deferred-evidence.js';
+import type { WikiMainSessionContext } from '../main-agent/wiki-context.js';
+import type { NodeEvaluationInteraction } from '../agent-runtime/node-evaluation.js';
 
 /**
  * `language` is the Goal-level output language the Wiki is written in. It is resolved once per Goal
@@ -47,6 +51,18 @@ export interface WikiCompilationRequest {
 	notesSnapshot: RunArtifactRef;
 	/** Frozen investigation origins, retained for Case lineage rather than Agent instructions. */
 	cueOrigins?: WikiCueOrigin[];
+	/** Main's delivered findings and exclusions are editorial context, never Source evidence. */
+	curationReviews?: WikiInvestigationReview[];
+	/** Explicit maintenance intent is editorial context and cannot establish facts. */
+	curationInstructions?: string;
+	/** The published report provides editorial context, never new Source evidence. */
+	reportContext?: WikiReportContext;
+	/** Frozen Main conversation used only by the background selection branch. */
+	mainSession?: WikiMainSessionContext;
+	/** Replay resolves memory only from recorded reads, never live user memory. */
+	memoryReplay?: NodeEvaluationInteraction[];
+	/** Pending Cues are reconsidered alongside fresh evidence, without changing their identities. */
+	deferredEvidence?: WikiDeferredEvidence;
 	/** Frozen Goal Topic Plan used to organize the resulting Wiki. */
 	topicPlan: GoalTopicPlan;
 	/** Build from an empty candidate Wiki, while still publishing against the current Wiki revision. */
@@ -98,4 +114,6 @@ export interface WikiCompilationResult {
 	agentStages: number;
 	sessionPaths: string[];
 	failedBatches: WikiCompilationBatchFailure[];
+	curation?: { adopted: number; deferred: number; skipped: number };
+	deferredEvidence?: WikiDeferredEvidence;
 }

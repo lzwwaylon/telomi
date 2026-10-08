@@ -225,7 +225,7 @@ export function GoalActivityPanelView({
 					</header>
 					{banner}
 					{selected ? (
-						<ActivityDetail item={selected} now={now} liveAgentOutputs={liveAgentOutputs.get(researchRunId(selected)) ?? []} />
+						<ActivityDetail item={selected} now={now} liveAgentOutputs={liveAgentOutputs.get(executionId(selected)) ?? []} />
 					) : (
 						<div className="goal-activity-empty">{t("goalActivity.detailMissing")}</div>
 					)}
@@ -303,8 +303,9 @@ function Annotation({ annotation }: { annotation: TimelineAnnotation }) {
 	return <span className="goal-activity-annotation is-label">{annotation.text}</span>;
 }
 
-function researchRunId(item: ActivityProjectionItem): string {
-	return item.sourceRef.startsWith("research:") ? item.sourceRef.slice("research:".length) : "";
+function executionId(item: ActivityProjectionItem): string {
+	return item.sourceRef.startsWith("research:") || item.sourceRef.startsWith("investigation:")
+		? item.sourceRef.slice(item.sourceRef.indexOf(":") + 1) : "";
 }
 
 // The panel grows with its content, so the list scrolls inside whichever host holds the panel.

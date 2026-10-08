@@ -1,9 +1,25 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isInsideRoot } from "../lib/paths.js";
 
 export interface SessionSection { key: string; label: string; path: string }
 interface SessionSource { path: string; label: string }
+
+/** A background fork keeps inherited entries for replay, but they are not work performed by this stage. */
+export function sessionExecutionEntries<T>(path: string, entries: T[]): T[] {
+	if (basename(dirname(path)) !== "sessions") return entries;
+	const runtime = dirname(dirname(path));
+	const marker = safeSessionPath(runtime, "main-session-fork.json");
+	if (!marker) return entries;
+	const fork = JSON.parse(readFileSync(marker, "utf8")) as { forkSessionId?: unknown; initialEntryIds?: unknown };
+	if (!fork || typeof fork.forkSessionId !== "string" || !Array.isArray(fork.initialEntryIds)
+		|| !fork.initialEntryIds.every(id => typeof id === "string")) throw new Error("Invalid Main session fork trace marker");
+	const header = entries.find(entry => entry && typeof entry === "object" && "type" in entry && entry.type === "session") as { id?: unknown } | undefined;
+	if (header?.id !== fork.forkSessionId) return entries;
+	const inherited = new Set(fork.initialEntryIds);
+	return entries.filter(entry => !entry || typeof entry !== "object" || !("id" in entry)
+		|| typeof entry.id !== "string" || !inherited.has(entry.id));
+}
 
 /** Resolve Runtime-owned references within this Goal, rejecting symlinks at every level. */
 export function safeSessionPath(root: string, ref: string, boundary = root): string | undefined {

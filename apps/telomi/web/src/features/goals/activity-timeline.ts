@@ -114,9 +114,9 @@ export function lastUpdateLabel(timing: ActivityTiming, now: number): string {
 function matchesFilter(item: ActivityProjectionItem, filter: ActivityFilter): boolean {
 	if (filter === "all") return true;
 	if (filter === "attention") return Boolean(item.attention);
-	if (filter === "research") return item.kind === "research" || item.kind === "scheduled-research";
+	if (filter === "research") return item.kind === "research" || item.kind === "scheduled-research" || item.kind === "investigation";
 	if (filter === "wiki") return item.kind === "wiki-update";
-	return item.kind !== "research" && item.kind !== "scheduled-research" && item.kind !== "wiki-update";
+	return item.kind !== "research" && item.kind !== "scheduled-research" && item.kind !== "investigation" && item.kind !== "wiki-update";
 }
 
 /** The fields of an Activity, Activity Step or Agent Activity that decide its state glyph. */
@@ -166,6 +166,7 @@ function dayLabel(date: Date, now: number, locale: string): string {
 export function activityKindLabel(kind: ActivityProjectionItem["kind"]): string {
 	switch (kind) {
 		case "research": return uiText("goalActivity.research");
+		case "investigation": return uiText("goalActivity.investigation");
 		case "scheduled-research": return uiText("goals.goalresearchschedulepanel.researchSchedule");
 		case "wiki-update": return uiText("common.wikiUpdate");
 		case "signal-evaluation": return uiText("common.signalEvaluation");

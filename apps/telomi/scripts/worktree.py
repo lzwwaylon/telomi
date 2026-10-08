@@ -285,6 +285,8 @@ def process_records(state):
 
 
 def group_alive(record):
+    if type(record["pid"]) is not int or record["pid"] <= 1:
+        raise RuntimeError("Refusing an unsafe process group identity")
     stamp = process_stamp(record["pid"])
     if stamp and stamp != record["started"]:
         return False  # Reused PID, no longer our process group.
@@ -299,6 +301,12 @@ def terminate_group(record, force=False):
         os.killpg(record["pid"], signal.SIGTERM)
     except ProcessLookupError:
         return True
+    except PermissionError:
+        # macOS reports EPERM for a group containing only unreaped zombies.
+        # Another supervisor may have completed shutdown after the first inspection.
+        if not group_alive(record):
+            return True
+        raise
     for _ in range(100):
         if not group_alive(record):
             return True
@@ -312,6 +320,10 @@ def terminate_group(record, force=False):
             os.killpg(record["pid"], signal.SIGKILL)
         except ProcessLookupError:
             return True
+        except PermissionError:
+            if not group_alive(record):
+                return True
+            raise
         for _ in range(100):
             if not group_alive(record):
                 return True
