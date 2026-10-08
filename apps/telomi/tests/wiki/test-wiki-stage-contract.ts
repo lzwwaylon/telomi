@@ -202,7 +202,10 @@ try {
   const base = join(root, name), goalDir = join(base, 'goal');
   if (previous) cpSync(previous, join(goalDir, 'wiki', 'knowledge'), { recursive: true });
   const store = new RunArtifactStore(join(base, 'run'));
-  const artifact = store.publishText(JSON.stringify(snapshot), 'input/notes.json');
+  const incoming = structuredClone(snapshot);
+  if (previous) incoming.notes[0]!.note.sections[0]!.cue_notes.push({ ...incoming.notes[0]!.note.sections[0]!.cue_notes[0]!,
+   cue: 'Qualification', note: 'The measured rate is supported only under condition A.' });
+  const artifact = store.publishText(JSON.stringify(incoming), 'input/notes.json');
   return { goalDir, runId: name, runDirectory: store.root, controlDirectory: join(base, 'control'),
    notesSnapshot: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
    goalContext: { title: 'Methods', description: 'Understand methods' },
@@ -211,6 +214,8 @@ try {
  };
  const proposals: string[] = [];
  const compiler = new WikiCompiler({ runStage: async ({ input: stage, workRoot }) => {
+  if (stage.stage === 'curate-evidence') return { result: { kind: 'evidence-curation', decisions: stage.requiredEntries.map(entryId => ({ entryId, action: 'adopt', reason: 'Supported method evidence' })) },
+   usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, calls: 1 }, sessionPaths: [] };
   if (stage.stage === 'page-topics') {
    const task = createPageTopicTask(stage);
    const result = { kind: 'page-topics' as const, sections: task.validate({ sections: stage.sections.map((_, index) => ({
@@ -230,7 +235,7 @@ try {
   if (stage.stage === 'merge-objects') {
    for (const row of stage.unplacedEntries ?? []) w.read(`N${stage.entries.findIndex(entry => entry.id === row.entryId) + 1}`);
    members.forEach(p => w.read(p.alias));
-   writeFileSync(join(out, 'pages', 'O1.md'), '---\ntitle: Source method\ndescription: Conditional method record\n---\n\n## Loss\nExact 1.45% under condition A [[N1]]');
+   writeFileSync(join(out, 'pages', 'O1.md'), `---\ntitle: Source method\ndescription: Conditional method record\n---\n\n## Loss\nExact 1.45% under condition A ${stage.entries.map((_, i) => `[[N${i + 1}]]`).join(' ')}`);
    manifest = { ...empty(), pages: [{ file: 'pages/O1.md', member_refs: members.map(p => p.alias) }] };
   }
   if (stage.stage === 'plan-concepts') manifest = { concept_jobs: [{ page_refs: pageAliases.filter(p => p.page.kind === 'entity').map(p => p.alias), question: 'How does the method work?', scope: 'Explain the source-supported method and conditions', target_ref: null }], object_only: [] };
@@ -241,14 +246,14 @@ try {
   }
   if (stage.stage === 'concepts') {
    pageAliases.forEach(p => w.read(p.alias));
-   writeFileSync(join(out, 'pages', 'C1.md'), '---\ntitle: Method\ndescription: Conditional method\n---\n\n## Loss\nExact 1.45% under condition A [[N1]]');
+   writeFileSync(join(out, 'pages', 'C1.md'), `---\ntitle: Method\ndescription: Conditional method\n---\n\n## Loss\nExact 1.45% under condition A ${stage.entries.map((_, i) => `[[N${i + 1}]]`).join(' ')}`);
    manifest = { pages: [{ file: 'pages/C1.md' }], considered_pages: pageAliases.filter(p => stage.requiredPages.includes(p.ref)).map(p => ({ page_ref: p.alias, reason: 'Explains conditions' })) };
   }
   if (stage.stage === 'merge-concepts') {
    members.forEach(p => w.read(p.alias));
    if (members.length === 1) manifest = { pages: [], retained_refs: [members[0]!.alias], discarded_refs: [] };
    else {
-    writeFileSync(join(out, 'pages', 'C1.md'), '---\ntitle: Method\ndescription: Conditional method\n---\n\n## Loss\nExact 1.45% under condition A [[N1]]');
+    writeFileSync(join(out, 'pages', 'C1.md'), `---\ntitle: Method\ndescription: Conditional method\n---\n\n## Loss\nExact 1.45% under condition A ${stage.entries.map((_, i) => `[[N${i + 1}]]`).join(' ')}`);
     manifest = { pages: [{ file: 'pages/C1.md', member_refs: members.map(p => p.alias) }], retained_refs: [], discarded_refs: [] };
    }
   }

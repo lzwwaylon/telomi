@@ -54,6 +54,8 @@ export async function runPrimeAnswerStage<T>(
 		preparePythonSkillEnvironment(skill, { dataDir: resolveDataDir(env), env })))).flatMap((prepared) => prepared?.pythonPaths ?? []);
 	writeFileSync(join(runtimeRoot, "system-prompt.md"), request.systemPrompt);
 	const systemPromptFile = writeAgentSystemPrompt(recordRoot, request.role, request.stageId, request.attemptId, request.systemPrompt);
+	writeJsonAtomic(`${tracePath}.sessions.json`, { schemaVersion: 1,
+		sessions: [{ path: relative(recordRoot, join(runtimeRoot, "session", "session")), label: "Answer Writer" }] });
 	appendRuntimeContext(recordRoot, recordKind, { type: "runtime.agent_bound", stage_id: request.stageId,
 		execution_id: executionId, attempt: request.attempt ?? 1, agent: request.role,
 		session_file: basename(tracePath), system_prompt_file: basename(systemPromptFile),

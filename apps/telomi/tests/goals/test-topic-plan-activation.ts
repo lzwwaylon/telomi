@@ -244,8 +244,10 @@ try {
 		assert.equal(confirmationEvents.length, 1, "the retry must record the confirmation notification once");
 		assert.deepEqual(recoveryReframes, [interrupted.proposal_id]);
 		assert.equal(store.readActive()?.revision, confirmed, "the retry must not confirm a second revision");
-		// 真实 reframe 把 publication 状态记成 message，投影据此给出 no-change 结果。
-		assert.equal(projectionOf(interrupted.proposal_id)?.outcome, "no-change");
+		// 确认成功和 Wiki 导航无变化分别属于 Activity 与其子步骤。
+		assert.equal(projectionOf(interrupted.proposal_id)?.outcome, "succeeded");
+		assert.equal(projectionOf(interrupted.proposal_id)?.steps
+			.find((step) => step.stepId === "wiki-reframe")?.outcome, "no-change");
 		assert.equal(projectionOf(interrupted.proposal_id)?.lifecycle, "finished");
 
 		const settled = await post(href);

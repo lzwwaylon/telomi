@@ -5,7 +5,7 @@ import { copyTaskContext } from "./task-context.js";
 import { sha256 } from "../lib/hash.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import { renderNoteAgentSystemPrompt } from "./pipeline/note-agent-prompt.js";
-import type { AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
+import type { AgentStageActivity, AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import type { ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { createProductionResearchStageRunner } from "./pipeline/production-stage-runner.js";
 import { loadOrganizedSources } from "./pipeline/organized-sources.js";
@@ -88,6 +88,7 @@ export async function executeNoteReading(input: {
 	thinkingLevel?: ThinkingLevel;
 	env?: NodeJS.ProcessEnv;
 	stageRunner?: AgentStageRunner;
+	onActivity?: (activity: AgentStageActivity) => void;
 }): Promise<NoteReadingResult> {
 	if (!SAFE_ID.test(input.invocationId)) throw new Error("Note Reading invocationId is invalid");
 	const question = input.question.trim();
@@ -144,6 +145,7 @@ export async function executeNoteReading(input: {
 			},
 		},
 		signal: input.signal,
+		onActivity: input.onActivity,
 	});
 	// The Runtime trace remains under controlDir; only the temporary corpus is disposable.
 	rmSync(corpusDir, { recursive: true, force: true });

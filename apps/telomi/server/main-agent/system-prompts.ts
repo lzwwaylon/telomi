@@ -1,7 +1,7 @@
 import { readUserTaskHistory } from "../observability/task-history.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import { composeAgentSystemPrompt } from "../agent-runtime/global-system-prompt.js";
-import { GoalTopicPlanStore } from "../goals/topic-plan/index.js";
+import { GoalTopicPlanStore } from "../goals/topic-plan/store.js";
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import type { OutputLanguage } from "../../shared/languages.js";
 

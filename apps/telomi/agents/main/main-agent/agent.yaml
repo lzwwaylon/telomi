@@ -6,6 +6,7 @@ prompts:
   system:
     default: system.md.njk
   system-append:
+    background-wiki-selection: system-append.background-wiki-selection.md.njk
     topic-guard-unconfirmed: system-append.topic-guard-unconfirmed.md.njk
     topic-guard-pending: system-append.topic-guard-pending.md.njk
     topic-guard-confirmed: system-append.topic-guard-confirmed.md.njk

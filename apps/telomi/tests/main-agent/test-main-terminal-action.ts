@@ -95,6 +95,13 @@ try {
 	const delivery = createDeliverInvestigationTool(goalDir);
 	const stored = await delivery.execute("deliver", { investigation_id: id }, signal, update);
 	assert.equal(stored.details.userResponse, cited);
+	const wiki_review = { useful_findings: ["The loss definition is useful to the Goal."],
+		excluded_findings: [{ finding: "A repository installation detail", reason: "Outside the confirmed Goal Topics" }] };
+	const reviewed = await delivery.execute("reviewed-delivery", { investigation_id: id, wiki_review }, signal, update);
+	assert.equal(reviewed.details.userResponse, cited, "Wiki curation context never rewrites the delivered answer");
+	assert.deepEqual(reviewed.details.wiki_review, wiki_review);
+	assert.throws(() => validateToolArguments(delivery, { type: "toolCall", id: "bad-review", name: "deliver_investigation",
+		arguments: { investigation_id: id, wiki_review: { ...wiki_review, excluded_findings: [{ finding: "Unsupported detail", reason: "" }] } } }), /reason/u);
 	assert.throws(() => validateToolArguments(delivery, { type: "toolCall", id: "bad-id",
 		name: "deliver_investigation", arguments: { investigation_id: "../elsewhere" } }), /investigation_id/u);
 } finally {

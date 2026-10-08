@@ -1117,6 +1117,26 @@ body[data-theme="dark"] .pulse-band .avs .av.dim { opacity: 0.35; }
   text-transform: uppercase;
 }
 .goal-activity-step-group-head b { font-weight: 500; }
+.goal-activity-phase > summary {
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+  list-style: none;
+}
+.goal-activity-phase > summary::-webkit-details-marker { display: none; }
+.goal-activity-phase > summary b { flex: 1; }
+.goal-activity-phase > summary span { font-size: 11px; font-variant-numeric: tabular-nums; }
+.goal-activity-phase > summary .is-failed,
+.goal-activity-phase > summary .is-waiting { color: var(--warm-deep); }
+.goal-activity-phase > summary:focus-visible { outline: 1px solid var(--warm-line); outline-offset: 2px; }
+.goal-activity-phase-chevron { flex-shrink: 0; transform: rotate(-90deg); }
+.goal-activity-phase[open] > summary .goal-activity-phase-chevron { transform: none; }
 .goal-activity-step {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr);

@@ -1,7 +1,7 @@
 import { apiClient } from "@/shared/lib/api-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { subscribeGoalEvents } from "@/shared/lib/goalsEventsStream";
+import { subscribeWikiEvents } from "@/shared/lib/goalsEventsStream";
 import { refreshOnReconnect } from "@/shared/lib/sharedEventSource";
 
 export interface TopicPlanTopic {
@@ -75,9 +75,7 @@ export function useTopicPlan(goalId: string | null) {
 		setState({ active: null, proposal: null, history: [] });
 		void refresh();
 		if (!goalId) return;
-		return subscribeGoalEvents(goalId, (event) => {
-			if (event.type === "topic-plan:changed") void refresh();
-		}, refreshOnReconnect(() => void refresh()));
+		return subscribeWikiEvents(goalId, () => void refresh(), refreshOnReconnect(() => void refresh()));
 	}, [goalId, refresh]);
 
 	const activate = useCallback(async (proposalId: string) => {

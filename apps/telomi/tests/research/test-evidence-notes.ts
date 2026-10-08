@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate as nextTurn } from 'node:timers/promises';
 
 import type { SourceNoteProcessor } from "../../server/research/source-note.js";
 import type { LogicalSource } from "../../server/research/research-types.js";
@@ -165,8 +166,13 @@ try {
 	];
 	writeFileSync(join(root, "parent-model-definitions.json"), "{}\n");
 	let writerCalls = 0;
+	let wikiCalls = 0;
 	let wikiEnvironment: NodeJS.ProcessEnv | undefined;
 	removeCapture = installCaseCapture({ wikiCompilation: async request => {
+		wikiCalls++;
+		assert.equal(new RunStateStore(runControl).load()?.status, 'published', 'scheduled Wiki curation starts only after report publication');
+		assert.deepEqual(request.reportContext, { runId: 'run:degraded', markdown: readFileSync(join(runWorkspace, 'report/final.md'), 'utf8') },
+			'Background admission receives the actual canonical report rather than a reconstructed answer');
 		wikiEnvironment = request.env;
 		throw new Error("Controlled Wiki compiler stop after configuration handoff");
 	} });
@@ -335,6 +341,11 @@ try {
 		degradedState.note_failure_manifests![0]!.relative_path,
 	), "utf-8")) as { failures: Array<{ source_id: string }> };
 	assert.deepEqual(failureManifest.failures.map((failure) => failure.source_id), ["source:run-b"]);
+	await nextTurn();
+	const publishedResume = await degradedRun.run(degradedRequest as never);
+	assert.equal(publishedResume.state.status, 'published');
+	assert.equal(writerCalls, 1, 'Published checkpoint recovery does not regenerate the report');
+	assert.equal(wikiCalls, 2, 'Published checkpoint recovery reconciles the background Wiki handoff');
 	const allFailedWorkspace = join(root, "all-failed-run", "workspace");
 	const allFailedControl = join(root, "all-failed-run", "control");
 	await assert.rejects(degradedRun.run({
@@ -347,6 +358,7 @@ try {
 	} as never), /All 2 Note Agents failed/u);
 	const allFailedState = new RunStateStore(allFailedControl).load()!;
 	assert.equal(allFailedState.status, "failed");
+	assert.equal(wikiCalls, 2, 'A failed report path does not start Wiki admission');
 	assert.equal(allFailedState.failure?.failed_stage, "evidence_materializing");
 	assert.equal(allFailedState.note_failure_count, 2);
 	const beforeEmpty = writerCalls;

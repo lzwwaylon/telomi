@@ -53,12 +53,22 @@ const wiki = groupActivitySteps([
 	step("wiki-objects:1", agent("wiki:1", "wiki_compilation")),
 	step("wiki-objects:2", agent("wiki:2", "wiki_compilation")),
 	step("wiki-stage:merge-objects:1", agent("curator", "wiki_compilation")),
+	step("wiki-stage:plan-concepts:2", agent("planner", "wiki_compilation")),
+	step("wiki-stage:concepts:3", agent("concept", "wiki_compilation")),
+	step("wiki-stage:page-topics:4", agent("classifier:1", "wiki_compilation")),
+	step("wiki-stage:page-topics:5", agent("classifier:2", "wiki_compilation")),
+	step("wiki-stage:publication:6", agent("publisher", "wiki_publication")),
 ]);
 
-assert.equal(wiki.length, 2);
-assert.equal(wiki[0]!.entries.length, 1);
+assert.deepEqual(wiki.map((group) => group.id), ["objects", "concepts", "classification", "publication"]);
+assert.equal(wiki[0]!.entries.length, 2);
 assert.equal(wiki[0]!.entries[0]!.kind, "worker-pool");
 assert.equal(wiki[0]!.entries[0]!.kind === "worker-pool" && wiki[0]!.entries[0]!.workers.length, 2);
-assert.equal(wiki[1]!.entries[0]!.kind, "step");
+assert.equal(wiki[0]!.entries[1]!.kind, "step");
+assert.equal(wiki[2]!.steps.length, 2);
+assert.deepEqual(wiki.flatMap((group) => group.steps.flatMap((item) => item.agentActivities.map((activity) => activity.outputRef))),
+	["output:wiki:1", "output:wiki:2", "output:curator", "output:planner", "output:concept", "output:classifier:1", "output:classifier:2", "output:publisher"],
+	"phase grouping retains every original replay reference");
+assert.equal(groupActivitySteps([step("wiki-stage:curate-evidence:0", agent("selector", "wiki_compilation"))])[0]?.id, "curation");
 
 console.log("Activity worker pool grouping test passed");

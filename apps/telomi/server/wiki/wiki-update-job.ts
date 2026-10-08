@@ -1,4 +1,4 @@
-import { WIKI_STAGE_KINDS, type WikiStageKind } from "./wiki-stage-contract.js";
+import { WIKI_STAGE_KINDS, type WikiStageKind, type WikiReportContext } from "./wiki-stage-contract.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -8,8 +8,28 @@ import { publish } from "../events/event-bus.js";
 import { validateJsonSchema } from "../agent-runtime/structured-output.js";
 import type { WikiGoalContext } from "./contracts.js";
 import { writeJsonAtomic } from "../lib/fs.js";
+import { assertNoDuplicates } from '../lib/values.js';
+import { WikiMainSessionContextSchema, type WikiMainSessionContext } from '../main-agent/wiki-context.js';
 
 const NonEmptyString = Type.String({ minLength: 1 });
+export const WikiReportContextSchema = Type.Object({ runId: NonEmptyString,
+	markdown: Type.String({ pattern: '\\S' }) }, { additionalProperties: false });
+export function validateWikiReportContext(value: unknown): WikiReportContext {
+	validateJsonSchema(WikiReportContextSchema, value);
+	return structuredClone(value as WikiReportContext);
+}
+export const WikiCurationReviewSchema = Type.Object({
+	investigationId: Type.String({ pattern: '^[a-f0-9]{24}$' }),
+	question: Type.String({ pattern: '\\S' }),
+	answer: Type.String({ pattern: '\\S' }),
+	usefulFindings: Type.Array(NonEmptyString),
+	excludedFindings: Type.Array(Type.Object({ finding: NonEmptyString, reason: NonEmptyString }, { additionalProperties: false })),
+}, { additionalProperties: false });
+const CurationSchema = Type.Object({
+	adopted: Type.Integer({ minimum: 0 }),
+	deferred: Type.Integer({ minimum: 0 }),
+	skipped: Type.Integer({ minimum: 0 }),
+}, { additionalProperties: false });
 const UsageSchema = Type.Object({
 	input_tokens: Type.Number({ minimum: 0 }),
 	output_tokens: Type.Number({ minimum: 0 }),
@@ -63,6 +83,10 @@ export const WikiUpdateJobSchema = Type.Object({
 	wiki_update_id: Type.Optional(NonEmptyString),
 	source_run_id: Type.Optional(NonEmptyString),
 	cue_origins: Type.Optional(Type.Array(WikiCueOriginSchema, { minItems: 1 })),
+	curation_reviews: Type.Optional(Type.Array(WikiCurationReviewSchema)),
+	main_session: Type.Optional(WikiMainSessionContextSchema),
+	report_context: Type.Optional(WikiReportContextSchema),
+	curation: Type.Optional(CurationSchema),
 	parent_activity_id: Type.Optional(NonEmptyString),
 	trigger: Type.Optional(TriggerSchema),
 	reason: Type.Optional(NonEmptyString),
@@ -161,6 +185,9 @@ export class WikiUpdateJobStore {
 		if (!existsSync(this.path)) return undefined;
 		const value = JSON.parse(readFileSync(this.path, "utf-8")) as unknown;
 		validateJsonSchema(WikiUpdateJobSchema, value);
+		assertNoDuplicates((value as WikiUpdateJob).curation_reviews?.map(review => review.investigationId) ?? [], 'Wiki curation review investigationId');
+		if ((value as WikiUpdateJob).report_context && (value as WikiUpdateJob).report_context!.runId !== (value as WikiUpdateJob).source_run_id)
+			throw new Error('Wiki report context belongs to another Source Run');
 		return value as WikiUpdateJob;
 	}
 
@@ -175,6 +202,9 @@ export class WikiUpdateJobStore {
 		wikiUpdateId?: string;
 		sourceRunId?: string;
 		cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
+		curationReviews?: NonNullable<WikiUpdateJob["curation_reviews"]>;
+		mainSession?: WikiMainSessionContext;
+		reportContext?: WikiReportContext;
 		parentActivityId?: string;
 		trigger?: NonNullable<WikiUpdateJob["trigger"]>;
 		reason?: string;
@@ -194,6 +224,9 @@ export class WikiUpdateJobStore {
 			...(input.sourceRunId || previous?.source_run_id
 				? { source_run_id: input.sourceRunId ?? previous!.source_run_id! } : {}),
 			...(input.cueOrigins || previous?.cue_origins ? { cue_origins: input.cueOrigins ?? previous!.cue_origins! } : {}),
+			...(input.curationReviews || previous?.curation_reviews ? { curation_reviews: input.curationReviews ?? previous!.curation_reviews! } : {}),
+			...(input.mainSession || previous?.main_session ? { main_session: input.mainSession ?? previous!.main_session! } : {}),
+			...(input.reportContext || previous?.report_context ? { report_context: previous?.report_context ?? input.reportContext! } : {}),
 			...(input.parentActivityId || previous?.parent_activity_id
 				? { parent_activity_id: input.parentActivityId ?? previous!.parent_activity_id! } : {}),
 			...(input.trigger || previous?.trigger ? { trigger: input.trigger ?? previous!.trigger! } : {}),
@@ -228,6 +261,7 @@ export class WikiUpdateJobStore {
 				batches: [],
 			},
 		};
+		job.progress!.total_batches = totalBatches;
 		delete job.message;
 		delete job.finished_at;
 		this.write(job);
@@ -350,6 +384,7 @@ export class WikiUpdateJobStore {
 			publicationStatus?: "promoted" | "no_change";
 			changedPaths?: string[];
 			failedBatches?: NonNullable<WikiUpdateJob["failed_batches"]>;
+			curation?: NonNullable<WikiUpdateJob["curation"]>;
 			now?: Date;
 		} = {},
 	): WikiUpdateJob {
@@ -369,6 +404,7 @@ export class WikiUpdateJobStore {
 			...(details.publicationStatus ? { publication_status: details.publicationStatus } : {}),
 			...(details.changedPaths ? { changed_paths: details.changedPaths } : {}),
 			...(details.failedBatches ? { failed_batches: details.failedBatches } : {}),
+			...(details.curation ? { curation: details.curation } : {}),
 		};
 		this.write(job);
 		return job;
@@ -392,6 +428,9 @@ export class WikiUpdateJobStore {
 
 	private write(job: WikiUpdateJob): void {
 		validateJsonSchema(WikiUpdateJobSchema, job);
+		if (job.report_context && job.report_context.runId !== job.source_run_id)
+			throw new Error('Wiki report context belongs to another Source Run');
+		assertNoDuplicates(job.curation_reviews?.map(review => review.investigationId) ?? [], 'Wiki curation review investigationId');
 		writeJsonAtomic(this.path, job);
 		publish({
 			type: "wiki-update:changed",

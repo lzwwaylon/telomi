@@ -93,6 +93,17 @@ assert.match(pendingMarkup, /aria-modal="false"/u);
 assert.doesNotMatch(pendingMarkup, /关闭 Topic Plan" class="fixed inset-0/u);
 assert.doesNotMatch(pendingMarkup, /历史查看/u);
 
+const renderNoWiki = (active: boolean) => renderPending({
+	proposal: null,
+	plan,
+	activeRevision: active ? plan.revision : activePlan.revision,
+	versions: [{ revision: plan.revision, confirmedAt: "2026-09-01T08:00:00.000Z", active, wikiAvailable: false, plan }],
+});
+assert.match(renderNoWiki(true), /当前 Topic Plan 尚无已发布的 Wiki/u);
+assert.doesNotMatch(renderNoWiki(true), /无可回看的 Wiki Edition/u);
+assert.match(renderNoWiki(false), /无可回看的 Wiki Edition/u);
+assert.doesNotMatch(renderNoWiki(false), /当前 Topic Plan 尚无已发布的 Wiki/u);
+
 const previousTopics = [topics[0]!, { ...topics[1]!, id: "removed", title: "旧关注方向" }];
 const updatedPlan = { ...plan, topics: [{ ...topics[0]!, title: "架构与部署" }, topics[1]!] };
 const changesMarkup = renderPending({

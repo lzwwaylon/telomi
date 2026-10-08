@@ -13,7 +13,7 @@ export function GoalActivityPanel({
 }) {
 	const { projection, loading, loadingMore, error, connection, loadMore } =
 		useGoalActivityProjection(goalId);
-	const liveAgentOutputs = useMemo(() => researchAgentOutputsByRun(snapshot), [snapshot]);
+	const liveAgentOutputs = useMemo(() => agentOutputsByExecution(snapshot), [snapshot]);
 	const [selection, setSelection] = useState<{ goalId: string; activityId: string } | null>(null);
 	// Switching Goal clears the selection; the tag also hides it from the render that notices the switch.
 	if (selection && selection.goalId !== goalId) setSelection(null);
@@ -33,18 +33,24 @@ export function GoalActivityPanel({
 	);
 }
 
-function researchAgentOutputsByRun(snapshot?: GoalSnapshot | null): Map<string, ResearchAgentOutput[]> {
-	const byRun = new Map<string, ResearchAgentOutput[]>();
+export function agentOutputsByExecution(snapshot?: Pick<GoalSnapshot, "messages"> | null): Map<string, ResearchAgentOutput[]> {
+	const byExecution = new Map<string, ResearchAgentOutput[]>();
 	for (const message of snapshot?.messages ?? []) {
-		if (message.role !== "toolResult" || (message.toolName !== "research" && message.toolName !== "generate_report")) continue;
+		if (message.role !== "toolResult" || !["research", "generate_report", "investigate"].includes(message.toolName)) continue;
 		const details = message.details && typeof message.details === "object"
 			? message.details as Record<string, unknown>
 			: undefined;
-		const runId = typeof details?.runId === "string" ? details.runId : undefined;
-		if (!runId || !Array.isArray(details?.agentOutputs)) continue;
-		byRun.set(runId, details.agentOutputs.filter(isResearchAgentOutput));
+		const executionId = message.toolName === "investigate" ? details?.investigationId : details?.runId;
+		if (typeof executionId !== "string") continue;
+		if (message.toolName === "investigate") {
+			if (!details?.agentOutput || typeof details.agentOutput !== "object") continue;
+			const output = { updatedAt: message.timestamp, ...details.agentOutput };
+			if (isResearchAgentOutput(output)) byExecution.set(executionId, [output]);
+		} else if (Array.isArray(details?.agentOutputs)) {
+			byExecution.set(executionId, details.agentOutputs.filter(isResearchAgentOutput));
+		}
 	}
-	return byRun;
+	return byExecution;
 }
 
 function isResearchAgentOutput(value: unknown): value is ResearchAgentOutput {

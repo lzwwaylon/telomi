@@ -3,6 +3,7 @@ schema_version: 2
 id: wiki-compilation
 prompts:
   system:
+    curate-evidence-pi: system.curate-evidence-pi.md.njk
     page-topics: system.page-topics.md.njk
     objects-pi: system.objects-pi.md.njk
     plan-object-targets-pi: system.plan-object-targets-pi.md.njk

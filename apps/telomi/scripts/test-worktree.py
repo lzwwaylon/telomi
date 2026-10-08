@@ -152,6 +152,65 @@ class WorktreeTest(unittest.TestCase):
                         pass  # `stop` already ended the group; the leader exited between poll() and killpg().
                 process.communicate(timeout=10)
 
+    def test_terminate_group_handles_exit_between_inspection_and_signal(self):
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+        owner = {"pid": process.pid, "started": wt.process_stamp(process.pid)}
+        inspect = wt.group_alive
+        observed = False
+
+        def exit_after_inspection(record):
+            nonlocal observed
+            alive = inspect(record)
+            if alive and not observed:
+                observed = True
+                # stop signals the supervisor first. Its concurrent cleanup can end the same
+                # group after our ps snapshot but before killpg; macOS reports EPERM for zombies.
+                os.killpg(process.pid, signal.SIGTERM)
+                deadline = time.monotonic() + 5
+                while inspect(owner):
+                    self.assertLess(time.monotonic(), deadline)
+                    time.sleep(.01)
+            return alive
+
+        try:
+            with patch.object(wt, "group_alive", side_effect=exit_after_inspection):
+                self.assertTrue(wt.terminate_group(owner))
+            self.assertTrue(observed, "the test must exercise a live group's shutdown race")
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            process.wait(timeout=5)
+
+    def test_terminate_group_permission_failure_keeps_live_ownership(self):
+        owner = {"pid": 12345, "started": "owned start"}
+        record = self.state / "processes" / f"{self.identity}-{owner['pid']}.json"
+        wt.save(record, {**owner, "root": str(self.root), "locks": []})
+        with patch.object(wt, "group_alive", return_value=True), patch.object(wt.os, "killpg", side_effect=PermissionError("denied")):
+            with self.assertRaises(PermissionError):
+                wt.stop_processes(self.root, self.state, self.identity)
+        self.assertTrue(record.exists(), "permission failure must not discard a live group's ownership")
+
+    def test_terminate_group_force_permission_failure_rechecks_ownership(self):
+        owner = {"pid": 12345, "started": "owned start"}
+        for stopped in (True, False):
+            with self.subTest(stopped=stopped), patch.object(wt, "group_alive", side_effect=[True] * 102 + [not stopped]), \
+                    patch.object(wt.time, "sleep"), patch.object(wt.os, "killpg", side_effect=[None, PermissionError("denied")]) as killpg:
+                if stopped:
+                    self.assertTrue(wt.terminate_group(owner, force=True))
+                else:
+                    with self.assertRaises(PermissionError):
+                        wt.terminate_group(owner, force=True)
+                self.assertEqual([call.args for call in killpg.call_args_list], [(owner["pid"], signal.SIGTERM), (owner["pid"], signal.SIGKILL)])
+
+    def test_terminate_group_rejects_unsafe_or_reused_group_identity(self):
+        with patch.object(wt.os, "killpg") as killpg:
+            for pid in (0, 1, -1, True, "12345"):
+                with self.subTest(pid=pid), self.assertRaisesRegex(RuntimeError, "unsafe process group"):
+                    wt.terminate_group({"pid": pid, "started": "old start"})
+            with patch.object(wt, "process_stamp", return_value="new start"):
+                self.assertTrue(wt.terminate_group({"pid": 12345, "started": "old start"}))
+            killpg.assert_not_called()
+
     def test_context_and_private_environment(self):
         self.assertEqual(wt.context(self.root)[1], self.main)
         source = self.main / wt.APP / ".env"

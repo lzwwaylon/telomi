@@ -13,6 +13,7 @@ import { createRecordedStageReplayRecipes, withResearchNodeEvaluationCapture } f
 import { hashDirectory, sha256 } from "../../server/lib/hash.js";
 import { runtimeControlRoot, serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
 import { runtimeContextPath } from "../../server/observability/run-records.js";
+import { ObservabilityActivityProjection } from "../../server/observability/activity-projection.js";
 import { NodeBacktestService } from "../../server/evaluation/node-backtest.js";
 import { validateInvestigationAnswerFromInput, type InvestigationAnswer } from "../../server/research/investigation-answer.js";
 import { runPrimeAnswerStage } from "../../server/research/pipeline/prime-answer-writer.js";
@@ -54,7 +55,7 @@ function stageRequest(workName: string): AgentStageRequest<InvestigationAnswer> 
 		promptConfig: { domain: "research", id: "report-writer", sandboxRole: "report.report_writer", userVariant: "answer" },
 		session: { key: "answer/fixture", policy: "fresh" }, modelPolicy: { preferred: ["openai-codex/gpt-5.4-mini"], reasoning: "off" },
 		systemPrompt: "Use the frozen evidence and return the complete assignment chain.", userPrompt: "Read inputs/request.json.",
-		workDirectory: join(root, workName), readonlyMounts: [{ hostPath: inputs, guestPath: "/inputs", access: "read-only" }],
+		workDirectory: join(record, "answer-workspaces", workName), readonlyMounts: [{ hostPath: inputs, guestPath: "/inputs", access: "read-only" }],
 		controlDirectory: record, recordDirectory: record, artifactStore: new RunArtifactStore(record),
 		output: { kind: "json_candidate", entryRelativePath: "work/answer.json", publishRelativePath: `artifacts/${workName}.json`,
 			validate: ({ entryPath }) => validateInvestigationAnswerFromInput(JSON.parse(readFileSync(entryPath, "utf-8")), inputs) },
@@ -79,10 +80,18 @@ try {
 		assert.equal(readFileSync(join(args.cwd, "inputs", "sources", "S1", "implementation.py"), "utf-8"), "value = input + 1\n");
 		assert.equal(args.extraEnv.RLM_MAX_DEPTH, "0");
 		mkdirSync(args.sessionDir, { recursive: true });
-		writeFileSync(join(args.sessionDir, "native.jsonl"), `${JSON.stringify({ type: "message", message: { role: "user", content: args.prompt } })}\n`);
+		writeFileSync(join(args.sessionDir, "native.jsonl"), `${JSON.stringify({ type: "message", message: { role: "user", content: args.prompt } })}\n${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "Reading the frozen assignment chain." }] } })}\n`);
 		writeFileSync(args.conditionsPath, `${JSON.stringify({ system_prompt: { append: args.systemPrompt }, rlm_max_depth: args.rlmMaxDepth })}\n`);
 		writeFileSync(join(dirname(args.sessionDir), "sdk-input.json"), '{"private":"fixture"}\n');
 		writeFileSync(join(dirname(args.sessionDir), "sdk-events.jsonl"), '{}\n');
+		const projection = new ObservabilityActivityProjection();
+		const ref = projection.registerOutput({ kind: "recorded-agent", goalId, runId: successful.runId,
+			runDirectory: record, agent: "report_writer", executionId: "success-execution",
+			sessionFile: basename(args.tracePath), lifecycle: "running" });
+		const live = projection.readOutput(goalId, ref)!;
+		assert.equal(live.lines.filter((line) => line.text.includes("Reading the frozen assignment chain.")).length, 1,
+			"Answer Writer output is readable once while its native execution is still running");
+		assert.doesNotMatch(JSON.stringify(live), /private.*fixture/u, "live output excludes SDK input files");
 		writeFileSync(join(args.cwd, "work", "answer.json"), JSON.stringify(answer));
 		return nativeResult;
 	} });

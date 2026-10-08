@@ -8,16 +8,18 @@ import { serverRuntimeDirForGoal } from "../../workspaces/server-runtime-paths.j
 import { GoalTopicPlanStore } from "../../goals/topic-plan/index.js";
 import { RunArtifactStore, type RunArtifactRef } from "../../agent-runtime/artifact-store.js";
 import { startWikiUpdateActivity } from "../../wiki/update-runner.js";
-import { registerSavedInvestigationCues, startGoalCueWikiUpdates } from "../../research/cue-wiki-trigger.js";
+import { registerSavedInvestigationCues, startGoalCueWikiUpdates, listDeliveredInvestigationReviews } from "../../research/cue-wiki-trigger.js";
 import { getCueWikiQueueStatus } from "../../research/cue-wiki-queue.js";
 import { createGoalNoteSnapshot } from "../../research/cue-note-snapshot.js";
 import { sha256 } from "../../lib/hash.js";
+import type { WikiMainSessionContext } from '../wiki-context.js';
 
 const schema = Type.Object({
 	source_run_id: Type.Optional(Type.String({ minLength: 1,
 		description: "Optional historical Research Run id. Omit to refresh saved investigation Cues or rebuild from the Goal's complete Cornell evidence corpus." })),
 	reason: Type.String({ minLength: 1, description: "The explanation for starting this maintenance operation; the action is always a Wiki update." }),
 	rebuild: Type.Boolean({ description: "True only when the user explicitly asks to rebuild or regenerate the Wiki from scratch." }),
+	reconsider: Type.Optional(Type.Boolean({ description: "True only when the user explicitly requests review, cleanup or correction of existing Wiki content. Reconsiders the complete saved Goal evidence with the latest delivered reviews and this maintenance reason; retained Sources and immutable Wiki history remain intact. Omit source_run_id for this operation." })),
 }, { additionalProperties: false });
 
 export function createWikiUpdateTool(options: {
@@ -31,16 +33,19 @@ export function createWikiUpdateTool(options: {
 	getOutputLanguage?: () => OutputLanguage;
 	getEnv: () => Record<string, string | undefined>;
 	deferCueWikiUpdates?: boolean;
+	getMainSession?: () => WikiMainSessionContext;
 }, startUpdate = startWikiUpdateActivity): AgentTool<typeof schema> {
 	return {
 		name: "wiki_update",
 		label: "wiki_update",
-		description: "Start Wiki maintenance when the user requests a refresh or retry. For read-only Wiki Topic discovery and searches, use investigate. The reason field records why this update starts; it does not select another action. Set rebuild=true only for a requested rebuild from the complete saved Cornell corpus. source_run_id selects one historical Research Run. Returns immediately with the update state and Activity id when available.",
+		description: "Start Wiki maintenance when the user requests a refresh, retry or correction. For read-only Wiki Topic discovery and searches, use investigate. The reason carries the user's maintenance intent and exclusions faithfully. Set rebuild=true only for a requested rebuild; use reconsider=true for an explicit request to reassess existing Wiki content from the complete saved Goal evidence. source_run_id selects one historical Research Run and cannot be combined with reconsider. Returns immediately with the update state and Activity id when available.",
 		parameters: schema,
 		execute: async (_toolCallId, input) => {
 			const runtimeDir = serverRuntimeDirForGoal(options.goalId, options.workspaceDir);
 			const reason = input.reason.trim();
 			if (!reason) throw new Error("wiki_update reason is required");
+			if (input.reconsider && input.source_run_id) throw new Error("Wiki reconsideration uses the complete Goal corpus; omit source_run_id");
+			const rebuild = input.rebuild || input.reconsider === true;
 			if (options.deferCueWikiUpdates) return {
 				content: [{ type: "text" as const, text: "Wiki maintenance is deferred to the separate Wiki compilation Replay." }],
 				details: { action: "deferred" },
@@ -54,11 +59,13 @@ export function createWikiUpdateTool(options: {
 				language: resolveGoalOutputLanguage(options.getOutputLanguage?.() ?? "auto", goalText),
 			};
 			const target = { workspaceDir: options.workspaceDir, goalId: options.goalId, goalDir: options.goalDir };
-			if (!input.source_run_id && !input.rebuild) {
+			const mainSession = options.getMainSession?.();
+			if (!input.source_run_id && !rebuild) {
 				registerSavedInvestigationCues(target);
 				const status = getCueWikiQueueStatus(target);
 				if (status.pendingCount) {
-					const { receipt } = startGoalCueWikiUpdates({ ...target, goalContext, env: { ...process.env, ...options.getEnv() }, retry: true });
+					const { receipt } = startGoalCueWikiUpdates({ ...target, goalContext,
+						curationInstructions: reason, ...(mainSession ? { mainSession } : {}), env: { ...process.env, ...options.getEnv() }, retry: true });
 					return { content: [{ type: "text" as const, text: JSON.stringify(receipt) }],
 						 details: { ...receipt, action: receipt.status === "running" ? "started" : "pending" } };
 				}
@@ -67,7 +74,7 @@ export function createWikiUpdateTool(options: {
 					details: { ...status, action: "reused" },
 				};
 			}
-			if (!input.source_run_id && input.rebuild) {
+			if (!input.source_run_id && rebuild) {
 				const snapshot = createGoalNoteSnapshot({ goalDir: options.goalDir, snapshotId: "goal-note-corpus" });
 				if (!snapshot.notes.some(record => record.note.sections.length)) throw new Error("This Goal has no validated Cornell evidence to rebuild Wiki");
 				const text = `${JSON.stringify(snapshot, null, 2)}\n`;
@@ -78,6 +85,8 @@ export function createWikiUpdateTool(options: {
 				if (artifact.sha256 !== sha256(text)) throw new Error("Goal Cornell corpus snapshot changed");
 				const started = startUpdate({ ...target, goal: [goalContext.title, goalContext.description].filter(Boolean).join("\n\n"),
 					goalContext, topicPlan: new GoalTopicPlanStore(options.goalId, options.workspaceDir).requireResearchReady(),
+					curationReviews: listDeliveredInvestigationReviews(target),
+					...(mainSession ? { mainSession } : {}),
 					sourceRunDirectory, sourceNotes: { relative_path: artifact.relativePath, sha256: artifact.sha256, byte_length: artifact.byteLength },
 					trigger: { kind: "agent", agent_name: "main_agent" }, reason, rebuild: true, env: { ...process.env, ...options.getEnv() } });
 				if (!started.reused) void started.execution.catch(() => undefined);
@@ -99,9 +108,11 @@ export function createWikiUpdateTool(options: {
 				sourceRunId,
 				sourceRunDirectory: join(options.goalDir, "wiki", "runs", sourceRunId),
 				sourceNotes,
+				curationReviews: listDeliveredInvestigationReviews(target),
+				...(mainSession ? { mainSession } : {}),
 				trigger: { kind: "agent", agent_name: "main_agent" },
 				reason,
-				rebuild: input.rebuild,
+				rebuild,
 				env: options.getEnv(),
 			});
 			// Runtime persists the failed Activity; observe its rejection without delaying this start receipt.

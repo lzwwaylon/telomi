@@ -1,6 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { dirname } from "node:path";
 import type { ExtraEnvGetter } from "../extra-env.js";
+import type { WikiMainSessionContext } from '../wiki-context.js';
 import { asTerminalTool } from "./terminal-action.js";
 import { createResearchScheduleTool } from "./research-schedule.js";
 import { createResearchHistoryTool } from "./research.js";
@@ -23,6 +24,7 @@ export interface CreateMainAgentToolsOptions {
 	generatePodcast?: PodcastGenerationDispatchHandler;
 	/** Main node Replay captures the turn and durable Cues; Wiki has its own Replay boundary. */
 	deferCueWikiUpdates?: boolean;
+	getWikiMainContext?: () => WikiMainSessionContext;
 }
 
 export function createMainAgentTools(
@@ -48,6 +50,7 @@ export function createMainAgentTools(
 			getOutputLanguage: options.getOutputLanguage,
 			getEnv: () => options.getExtraEnv?.() ?? {},
 			deferCueWikiUpdates: options.deferCueWikiUpdates,
+			getMainSession: options.getWikiMainContext,
 		}),
 		createResearchScheduleTool({
 			goalId: options.goalId,

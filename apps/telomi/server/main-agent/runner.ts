@@ -11,7 +11,6 @@ import type { Model, Usage } from "@earendil-works/pi-ai";
 import { refreshConnectionRuntime } from "../providers/custom-models.js";
 import {
 	AgentSession,
-	convertToLlm,
 	DefaultResourceLoader,
 	loadSkillsFromDir,
 	type LoadExtensionsResult,
@@ -37,7 +36,6 @@ import type {
 	UserMessageWithAttachmentsPayload,
 } from "../../shared/types.js";
 import {
-	convertAttachmentMessageToLlm,
 	isAttachmentPrompt,
 	attachmentCaseDescriptors,
 	persistAttachments,
@@ -91,6 +89,12 @@ import { registerGlobalPreferences } from "./global-preferences.js";
 import { MainWikiCitationSession, registerMainWikiCitationCompiler } from "./wiki-citations.js";
 import { isInsideRoot } from "../lib/paths.js";
 import { toErrorMessage } from "../lib/values.js";
+import { resolveGoalOutputLanguage } from "../../shared/languages.js";
+import { getCueWikiQueueStatus } from "../research/cue-wiki-queue.js";
+import { convertMainAgentMessagesToLlm, snapshotMainConversation, writeGoalWikiMainContext, type WikiMainSessionContext } from './wiki-context.js';
+export { convertMainAgentMessagesToLlm } from './wiki-context.js';
+import { recordDeliveredInvestigationReview, registerSavedInvestigationCues, setGoalCueWikiForeground,
+	startGoalCueWikiUpdates, type InvestigationWikiReview } from "../research/cue-wiki-trigger.js";
 
 type GoalEventListener = (event: GoalEventEnvelope) => void;
 
@@ -130,24 +134,6 @@ function lstatExists(path: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-/**
- * The Pi session is the model context as it is; Telomi only adapts its own roles.
- * Mom-specific roles are handled here; everything else must go through the
- * standard convertToLlm so compactionSummary/branchSummary become user
- * messages. Dropping them sent an empty `input` to the provider on the
- * auto-retry right after compaction (Codex 400 missing_required_parameter).
- */
-export function convertMainAgentMessagesToLlm(messages: any[]) {
-	const prepared = messages
-		.filter((message) => message.role !== "artifact")
-		.map((message) =>
-			message.role === "user-with-attachments"
-				? convertAttachmentMessageToLlm(message as UserMessageWithAttachmentsPayload)
-				: message,
-		);
-	return convertToLlm(prepared);
 }
 
 function visibleToolMessage(message: any): any | undefined {
@@ -537,6 +523,7 @@ export class GoalRunner {
 				getOutputLanguage: this.getOutputLanguage,
 				getExtraEnv: this.getExtraEnv,
 				deferCueWikiUpdates: Boolean(this.nodeBacktestOverride),
+				getWikiMainContext: () => this.wikiMainContext(),
 				exposeInvestigationResult: (artifact) => {
 					const session = this.activeMainWorkspaceSession;
 					if (!session) throw new Error("Investigation handoff requires an active Main Workspace");
@@ -995,6 +982,7 @@ export class GoalRunner {
 		}
 
 		this.running = true;
+		if (!this.nodeBacktestOverride) setGoalCueWikiForeground(this.goalDir, true);
 		this.activeTurnContext = context;
 		this.stopState = "idle";
 		this.statusMessage = undefined;
@@ -1038,7 +1026,12 @@ export class GoalRunner {
 			this.stopState = "idle";
 		}
 
+		if (!this.nodeBacktestOverride && this.agent.state.model) {
+			try { writeGoalWikiMainContext(this.workspaceDir, this.wikiMainContext()); }
+			catch (error) { log.logWarning(`Main context could not be frozen for ${this.goalId}`, toErrorMessage(error)); }
+		}
 		this.running = false;
+		if (!this.nodeBacktestOverride) setGoalCueWikiForeground(this.goalDir, false);
 		// Defensive: agent_end normally clears pulseLine, but if the run threw
 		// before agent_end fired we'd leak the last activity into the snapshot.
 		this.pulseLine = null;
@@ -1046,6 +1039,17 @@ export class GoalRunner {
 		const snapshot = this.getSnapshot();
 		this.onSnapshot(snapshot);
 		this.emit({ type: "snapshot", state: snapshot });
+		if (!this.nodeBacktestOverride) {
+			const target = { workspaceDir: this.workspaceDir, goalId: this.goalId, goalDir: this.goalDir };
+			try {
+				if (getCueWikiQueueStatus(target).pendingCount) {
+					const getGoalContext = () => ({ title: this.title, description: this.description,
+						language: resolveGoalOutputLanguage(this.getOutputLanguage(), { title: this.title, description: this.description }) });
+					startGoalCueWikiUpdates({ ...target, goalContext: getGoalContext(), getGoalContext,
+						env: { ...process.env, ...this.getExtraEnv?.() } });
+				}
+			} catch (error) { log.logWarning(`Wiki maintenance could not start for ${this.goalId}`, toErrorMessage(error)); }
+		}
 	}
 
 	abort(): void {
@@ -1056,6 +1060,17 @@ export class GoalRunner {
 		this.onSnapshot(snapshot);
 		this.emit({ type: "snapshot", state: snapshot });
 		this.session.abort();
+	}
+
+	private wikiMainContext(): WikiMainSessionContext {
+		const model = compoundModelId(this.agent.state.model);
+		if (!model) throw new Error('Main branch requires the configured Main model');
+		const preferences = this.lastNodePromptContext?.globalPreferences;
+		const systemPrompt = this.agent.state.systemPrompt;
+		return { schema_version: 1, goalId: this.goalId, sessionId: this.session.sessionId,
+			systemPrompt: preferences && !systemPrompt.includes(preferences) ? `${systemPrompt}\n\n${preferences}` : systemPrompt,
+			model, thinking: this.agent.state.thinkingLevel,
+			messages: snapshotMainConversation(this.agent.state.messages) };
 	}
 
 	/**
@@ -1423,6 +1438,15 @@ export class GoalRunner {
 					`Main Agent Node Evaluation capture failed for ${workspaceSession.id}`,
 					toErrorMessage(error),
 				);
+			}
+			if (!this.nodeBacktestOverride && terminal.action === "deliver_investigation"
+				&& typeof terminal.investigation_id === "string") {
+				const target = { workspaceDir: this.workspaceDir, goalId: this.goalId, goalDir: this.goalDir };
+				try {
+					recordDeliveredInvestigationReview(target, terminal.investigation_id,
+						terminal.wiki_review as InvestigationWikiReview | undefined);
+					registerSavedInvestigationCues(target, { investigationId: terminal.investigation_id });
+				} catch (error) { log.logWarning(`Wiki delivery registration failed for ${terminal.investigation_id}`, toErrorMessage(error)); }
 			}
 		} catch (error) {
 			await snapshotWorkspaceTree(this.lastNodeWorkspace, "output", this.goalDir);

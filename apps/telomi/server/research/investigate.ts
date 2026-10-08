@@ -1,6 +1,6 @@
 import { validateInvestigationResult, type InvestigationResult } from "../citations/contracts.js";
 import { appendFileSync, cpSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveOutputLanguage, type OutputLanguage } from "../../shared/languages.js";
@@ -14,7 +14,9 @@ import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import { materializeSkills, snapshotSkills } from "../agent-runtime/skill-registry.js";
 import { writeJsonAtomic } from "../lib/fs.js";
 import { sha256 } from "../lib/hash.js";
-import { isRecord } from "../lib/values.js";
+import { isRecord, toErrorMessage } from "../lib/values.js";
+import { publish } from "../events/event-bus.js";
+import { appendNodeExecutionRecord, appendRuntimeContext } from "../observability/run-records.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
 import { caseCapture } from "../observability/case-capture.js";
 import { snapshotWikiEdition as snapshotInvestigationKnowledge } from "../wiki/editions.js";
@@ -77,6 +79,15 @@ export async function executeInvestigation(input: {
 	signal.throwIfAborted();
 	const language = resolveOutputLanguage(input.outputLanguage ?? "auto", question);
 	const id = sha256(`${input.goalId}\0${input.invocationId}`).slice(0, 24);
+	let lastProgressEventAt = 0;
+	const onActivity = (activity: AgentStageActivity) => {
+		input.onActivity?.(activity);
+		const now = Date.now();
+		if (activity.kind === "status" || now - lastProgressEventAt >= 1_000) {
+			lastProgressEventAt = now;
+			publish({ type: "activity-projection:changed", goalId: input.goalId });
+		}
+	};
 	const runDir = join(serverRuntimeDirForGoalDir(input.goalDir), "research", "investigations", id);
 	mkdirSync(runDir, { recursive: true });
 	const allowExternal = input.allowExternal === true;
@@ -95,7 +106,7 @@ export async function executeInvestigation(input: {
 		if (saved.thread_id === undefined) return saved;
 	}
 	return runInInvestigationThread({ goalDir: input.goalDir, executionId: id, question, context: input.context,
-		threadId: input.threadId, title: input.title, allowExternal }, async (thread) => {
+		threadId: input.threadId, title: input.title, allowExternal, signal }, async (thread) => {
 	if (existsSync(savedPath)) return readInvestigationResult(input.goalDir, id);
 	const context = thread.context ?? "";
 
@@ -189,7 +200,7 @@ export async function executeInvestigation(input: {
 		workspaceDirectory: root,
 		temporalContext: { schemaVersion: 1, currentDate: new Date().toISOString().slice(0, 10), timeZone: "UTC" },
 		signal,
-		onActivity: input.onActivity,
+		onActivity,
 	}, root, { runDir, nodeId: "prime-investigation", attemptId: "1" }, {
 		investigation: {
 			wikiTool: async (operation, args) => {
@@ -238,7 +249,7 @@ export async function executeInvestigation(input: {
 				signal.throwIfAborted();
 				const reading = await executeNoteReading({ goalDir: input.goalDir, goalId: input.goalId,
 					question: readingQuestion, originalQuestion: question, taskContextFile, knownCues: [...availableCues.values()],
-					invocationId: `${id}-${++noteReadingCount}`, signal, env });
+					invocationId: `${id}-${++noteReadingCount}`, signal, env, onActivity });
 				if (reading.cues.length) input.onCuesPersisted?.({ invocationId: `${id}-${noteReadingCount}`, investigationId: id, threadId: thread.threadId });
 				const note = { ...reading, cues: enrichInvestigationCues(input.goalDir, reading.cues) };
 				recordInteraction("read_sources", { question: readingQuestion }, note);
@@ -251,7 +262,7 @@ export async function executeInvestigation(input: {
 				const acquired = await readExternalSources({ goalDir: input.goalDir, goalId: input.goalId,
 					runDir, investigationId: id, sequence: ++externalSearchCount,
 					question: externalQuestion, originalQuestion: question, taskContextFile, knownCues: [...availableCues.values()],
-					signal, env, onActivity: input.onActivity });
+					signal, env, onActivity });
 				if (acquired.cues.length) input.onCuesPersisted?.({ invocationId: `${id}-external-${externalSearchCount}`, investigationId: id, threadId: thread.threadId });
 				const result = { ...acquired, cues: enrichInvestigationCues(input.goalDir, acquired.cues) };
 				recordInteraction("external_search", { question: externalQuestion }, result);
@@ -295,7 +306,7 @@ export async function executeInvestigation(input: {
 					request: { schema_version: 1, question, context, language,
 						requirements: requirements.map((part, index) => ({ id: `Q${index + 1}`, question: part })), evidence_refs: refs } });
 				writerState.lastAnswer = await executeInvestigationAnswer({ inputRoot, goalDir: input.goalDir,
-					recordDirectory: runDir, invocationId: `${id}-answer-${answerCount}`, env, signal, onActivity: input.onActivity });
+					recordDirectory: runDir, invocationId: `${id}-answer-${answerCount}`, env, signal, onActivity });
 				const recorded = citationsScope.restore(writerState.lastAnswer);
 				recordInteraction("write_answer", { evidence_refs: refs.map((ref) => citationsScope.resolve(ref)), requirements },
 					{ ...recorded, coverage: writerState.lastAnswer.coverage.map((row) => ({ ...row,
@@ -307,6 +318,14 @@ export async function executeInvestigation(input: {
 	const model = resolvePrimeModel("primeRoot", env);
 	const thinking = resolveStageThinkingLevel("primeRoot", "searchAcquisition", env).thinkingLevel;
 	const captureMetrics: { usage?: ResearchModelUsage; toolCalls?: number } = {};
+	const startedAt = new Date().toISOString();
+	const tracePath = join(runDir, "trace.jsonl");
+	writeJsonAtomic(`${tracePath}.sessions.json`, { schemaVersion: 1,
+		sessions: [{ path: relative(runDir, join(runtimeRoot, "session", "session")), label: "Investigate Root" }] });
+	appendRuntimeContext(runDir, "research", { type: "runtime.agent_bound", stage_id: "prime-investigation",
+		execution_id: id, agent: "prime_search", session_file: basename(tracePath), created_at: startedAt });
+	let status: "succeeded" | "failed" | "cancelled" = "failed";
+	let failure: string | undefined;
 	try {
 		const execute = async (): Promise<InvestigationResult> => {
 		const run = await runPrime({
@@ -319,9 +338,9 @@ export async function executeInvestigation(input: {
 			extraEnv: { PRIME_AGENT_SOURCE_URL: bridge.baseUrl, PRIME_AGENT_SOURCE_TOKEN: bridge.token,
 				PRIME_AGENT_SOURCE_IDS: "", PRIME_AGENT_ARTIFACT_WORKSPACE: root, PYTHONPATH: sdkRoot,
 				PYTHONDONTWRITEBYTECODE: "1", RLM_MAX_DEPTH: "0", PRIME_INVESTIGATION_HANDOFF_MODE: "file" },
-			env, signal, onActivity: input.onActivity,
+			env, signal, onActivity,
 			activity: { stageId: "prime-investigation", attemptId: "1", role: "prime_search" },
-			tracePath: join(runDir, "trace.jsonl"), conditionsPath: join(runDir, "execution-conditions.jsonl"),
+			tracePath, conditionsPath: join(runDir, "execution-conditions.jsonl"),
 			launchKind: "local_investigation",
 		});
 		captureMetrics.usage = run.usage;
@@ -367,10 +386,25 @@ export async function executeInvestigation(input: {
 		return result;
 		};
 		const capture = caseCapture()?.investigation;
-		return capture ? await capture({ goalDir: input.goalDir, goalId: input.goalId, runDir,
+		const result = capture ? await capture({ goalDir: input.goalDir, goalId: input.goalId, runDir,
 			question, context, language, allowExternal, wikiSha256, model: model.selector, thinking, metrics: captureMetrics,
 			handoffMode: "file", threadId: thread.threadId, execute }) : await execute();
+		status = "succeeded";
+		return result;
+	} catch (error) {
+		status = signal.aborted ? "cancelled" : "failed";
+		failure = toErrorMessage(error);
+		throw error;
 	} finally {
+		const finishedAt = new Date().toISOString();
+		appendNodeExecutionRecord(runDir, "research", { node_id: "prime-investigation", node_type: "agent",
+			agent: "prime_search", execution_id: id, status, depends_on: [], input: {},
+			output: { ...(failure ? { error: failure } : {}), ...(captureMetrics.usage ? {
+				metrics: { model_calls: captureMetrics.usage.calls, tool_calls: captureMetrics.toolCalls,
+					cost_usd: captureMetrics.usage.costUsd },
+			} : {}) },
+			time: { started_at: startedAt, finished_at: finishedAt, duration_ms: Date.parse(finishedAt) - Date.parse(startedAt) },
+			trace_ref: basename(tracePath) });
 		await bridge.close();
 	}
 	});

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ActivityOutput, ActivityProjection, ActivityProjectionItem, ActivityStep } from "../../shared/events/activity-projection.js";
 import { ActivityReplayContent, findAgentActivity } from "../../web/src/features/goals/GoalActivityDetail.js";
 import { GoalActivityPanelView } from "../../web/src/features/goals/GoalActivityPanelView.js";
+import { agentOutputsByExecution } from "../../web/src/features/goals/GoalActivityPanel.js";
 import { Dialog } from "../../web/src/shared/ui/dialog.js";
 import i18n from "../../web/src/app/i18n.js";
 
@@ -257,6 +258,28 @@ const detailPane = (markup: string) => {
 	return { list: markup.slice(0, index), pane: markup.slice(index) };
 };
 
+const wikiSteps = ["curate-evidence", "merge-objects", "plan-concepts", "concepts", "page-topics", "page-topics", "publication"]
+	.map((kind, index) => ({
+		...noteStep(`wiki-${index}`, "finished", "succeeded"),
+		stepId: `wiki-stage:${kind}:${index}`,
+		agentActivities: [{ ...noteStep(`wiki-${index}`, "finished", "succeeded").agentActivities[0]!, agentName: "wiki_compilation" }],
+	}));
+const wikiPane = (steps: ActivityStep[]) => detailPane(render({
+	projection: projectionOf([], { items: [activity({ activityId: "wiki_phases", kind: "wiki-update", title: "更新 Wiki", steps })] }),
+	selectedActivityId: "wiki_phases",
+})).pane;
+const wikiMarkup = wikiPane(wikiSteps);
+assert.equal((wikiMarkup.match(/data-testid="activity-wiki-phase"/gu) ?? []).length, 5);
+assert.match(wikiMarkup, /aria-label="页面分类 · 2 \/ 2 完成"/u);
+assert.doesNotMatch(wikiMarkup, /<details[^>]* open=/u, "completed phases start collapsed");
+for (const step of wikiSteps) assert.ok(wikiMarkup.includes(`查看 ${step.title}`), "collapsed phases retain fine-grained replay controls");
+const interruptedWikiSteps = wikiSteps.map((step, index) => index === 5 ? { ...step, lifecycle: "waiting" as const, outcome: undefined } : step);
+assert.match(wikiPane(interruptedWikiSteps), /<details[^>]* open=""><summary[^>]*aria-label="页面分类 · 1 \/ 2 完成 · 1 等待"/u,
+	"an interrupted phase opens with its real completed and waiting counts");
+const failedWikiSteps = wikiSteps.map((step, index) => index === 5 ? { ...step, outcome: "failed" as const } : step);
+assert.match(wikiPane(failedWikiSteps), /<details[^>]* open=""><summary[^>]*aria-label="页面分类 · 1 \/ 2 完成 · 1 异常"/u,
+	"failure stays visible rather than counting as completion");
+
 for (const length of [60, 61]) {
 	const title = "研".repeat(59) + "🔎" + (length === 61 ? "究" : "");
 	const pane = detailPane(render({
@@ -317,6 +340,29 @@ const liveDetail = detailPane(render({
 }));
 assert.match(liveDetail.pane, /data-testid="live-agent-stage"[\s\S]*Prime Search[\s\S]*检索中文 TTS 论文/u);
 assert.doesNotMatch(liveDetail.pane, /role="progressbar"/u);
+
+const investigationOutputs = agentOutputsByExecution({ messages: [{
+	role: "toolResult", toolName: "investigate", toolCallId: "native-call", content: [], isError: false, timestamp: 123,
+	details: { investigationId: "investigation_1", agentOutput: {
+		stageId: "prime-investigation", attemptId: "1", role: "prime_search", status: "running", kind: "text",
+		text: "正在核对已保存的原始来源",
+	} },
+}] });
+assert.equal(investigationOutputs.get("investigation_1")?.[0]?.updatedAt, 123);
+assert.equal(investigationOutputs.get("investigation_1")?.[0]?.stageId, "prime-investigation");
+const investigationDetail = detailPane(render({
+	projection: projectionOf([activity({
+		activityId: "investigation:investigation_1", kind: "investigation", title: "核对 TTS 架构",
+		lifecycle: "running", outcome: undefined, sourceRef: "investigation:investigation_1",
+	})], { items: [] }),
+	selectedActivityId: "investigation:investigation_1", liveAgentOutputs: investigationOutputs,
+}));
+assert.match(investigationDetail.pane, /data-testid="live-agent-stage"[\s\S]*正在核对已保存的原始来源/u);
+assert.equal(investigationOutputs.has("native-call"), false, "native call IDs must not replace the Runtime execution identity");
+assert.equal(agentOutputsByExecution({ messages: [{
+	role: "toolResult", toolName: "investigate", toolCallId: "unknown", content: [], isError: false, timestamp: 123,
+	details: { agentOutput: { stageId: "prime-investigation", attemptId: "1", role: "prime_search", status: "running", kind: "text" } },
+}] }).size, 0, "an unbound partial result must not leak into another investigation");
 
 const resumed = activity({
 	activityId: "resumed", title: "继续研究", lifecycle: "running", outcome: undefined,

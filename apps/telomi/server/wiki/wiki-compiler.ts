@@ -19,12 +19,16 @@ import { wikiPageEntryIds, wikiPageSections, type WikiPageContent, type WikiPage
 import { readPreviousWikiEdition, writeWikiEdition, writeWikiIndex, type PreviousWikiEdition } from "./wiki-edition.js";
 import { wikiStageCapabilityIdentity, runWikiStageKind } from "./wiki-stage.js";
 import type { WikiStageInput, WikiStageOutcome, WikiStagePageInput, WikiStageResult, WikiStageRequest } from "./wiki-stage-contract.js";
+import { validateEvidenceCurationDecisions, validateWikiInvestigationReviews } from './pi-evidence-curation.js';
+import { validateWikiReportContext } from './wiki-update-job.js';
+import { validateWikiMainSessionContext } from '../main-agent/wiki-context.js';
+import { pinDeferredWikiEvidence, validateDeferredWikiEvidence } from './deferred-evidence.js';
 export type { WikiStageRequest } from "./wiki-stage-contract.js";
 
 const zero = (): ResearchModelUsage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 });
 const empty = (): WikiPagesResult => ({ pages: [], retained_refs: [], discarded_refs: [], deferred_entries: [], relations: [] });
 const codeIdentity = () => hashJson({ stages: wikiStageCapabilityIdentity(), compiler:
- ['./wiki-compiler.ts', './wiki-page-contract.ts', './wiki-edition.ts', '../lib/fair-concurrency.ts']
+ ['./wiki-compiler.ts', './wiki-page-contract.ts', './wiki-edition.ts', './deferred-evidence.ts', '../lib/fair-concurrency.ts']
  .map(path => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')) });
 const cited = (pages: WikiPageContent[]) => new Set(pages.flatMap(page => wikiPageEntryIds(page.body)));
 const sumUsage = (outcomes: Array<Pick<WikiStageOutcome, 'usage'>>) => outcomes.reduce((a, { usage: b }) => ({ inputTokens: a.inputTokens + b.inputTokens,
@@ -76,8 +80,16 @@ export class WikiCompiler {
  async compile(request: WikiCompilationRequest): Promise<WikiCompilationResult> {
   request.signal.throwIfAborted();
   const goal = requireWikiGoalContext(request.goalContext), topics = validateGoalTopicPlan(request.topicPlan);
+  if (request.curationReviews !== undefined) validateWikiInvestigationReviews(request.curationReviews);
+  if (request.reportContext !== undefined) validateWikiReportContext(request.reportContext);
+  if (request.mainSession && validateWikiMainSessionContext(request.mainSession).goalId !== request.topicPlan.goal_id)
+   throw new Error('Main branch context belongs to another Goal');
   const store = new RunArtifactStore(request.runDirectory), artifact = store.openFile(request.notesSnapshot);
   const evidence = projectWikiEvidence(validateSourceNotesSnapshot(JSON.parse(readFileSync(artifact.absolutePath, 'utf8'))));
+  const pendingEvidence = validateDeferredWikiEvidence(request.deferredEvidence ?? pinDeferredWikiEvidence(request.controlDirectory, request.goalDir));
+  const pendingIds = new Set(pendingEvidence.entryIds);
+  const noteInputs = [...pendingEvidence.snapshots, evidence].flatMap(snapshot => snapshot.notes.map(note => ({ note,
+   entries: noteWikiEntries({ ...snapshot, notes: [note] }, topics.revision).filter(entry => snapshot === evidence || pendingIds.has(entry.id)) })));
   const base = join(request.goalDir, 'wiki', 'knowledge'), baseKnowledgeSha256 = hashWikiDirectory(base);
   const priorStatus = join(base, '.note-first-status.json');
   if (!request.rebuild && existsSync(priorStatus) && JSON.parse(readFileSync(priorStatus, 'utf8')).complete !== true) {
@@ -85,8 +97,8 @@ export class WikiCompiler {
   }
   const previous: PreviousWikiEdition = request.rebuild ? { pages: [], entries: [], files: new Map(), relations: [] } : await readPreviousWikiEdition(base);
   const env = pinWikiModelSelection(request.controlDirectory, request.env ?? process.env);
-  const compilationId = `wiki-compilation-${hashJson({ notes: artifact.sha256, baseKnowledgeSha256, goal, topics, rebuild: request.rebuild === true,
-   model: env.TELOMI_WIKI_COMPILATION_MODEL, thinking: env.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, contract: 3, implementation: codeIdentity() }).slice(0, 24)}`;
+  const compilationId = `wiki-compilation-${hashJson({ notes: artifact.sha256, baseKnowledgeSha256, goal, topics, rebuild: request.rebuild === true, curationReviews: request.curationReviews, curationInstructions: request.curationInstructions, pendingEvidence,
+   mainSession: request.mainSession, reportContext: request.reportContext, memoryReplay: request.memoryReplay, model: env.TELOMI_WIKI_COMPILATION_MODEL, thinking: env.TELOMI_WIKI_COMPILATION_THINKING_LEVEL, contract: 3, implementation: codeIdentity() }).slice(0, 24)}`;
   const workRoot = join(request.controlDirectory, 'wiki-compilation', compilationId);
   mkdirSync(workRoot, { recursive: true });
   const record = join(workRoot, 'result.json');
@@ -95,12 +107,19 @@ export class WikiCompiler {
    if (store.describeDirectory(saved.knowledge.relativePath).sha256 !== saved.knowledge.sha256) throw new Error('Wiki compilation published artifact changed');
    return { ...saved, status: 'reused' };
   }
-  const incoming = noteWikiEntries(evidence, topics.revision), registry = new Map(previous.entries.map(e => [e.id, e]));
+  const incomingById = new Map<string, ReturnType<typeof noteWikiEntries>[number]>();
+  for (const entry of noteInputs.flatMap(input => input.entries)) {
+   const previous = incomingById.get(entry.id);
+   if (previous && previous.revisionSha256 !== entry.revisionSha256) throw new Error('Deferred Wiki evidence conflicts with incoming Cue revision');
+   incomingById.set(entry.id, entry);
+  }
+  let incoming = [...incomingById.values()];
+  const registry = new Map(previous.entries.map(e => [e.id, e]));
   for (const entry of incoming) {
    if (registry.has(entry.id) && registry.get(entry.id)!.revisionSha256 !== entry.revisionSha256) throw new Error('Wiki compilation conflicting Entry revision');
    registry.set(entry.id, entry);
   }
-  const entries = [...registry.values()];
+  let entries = [...registry.values()];
   const outcomes: WikiStageOutcome[] = [], failedAttempts: Array<{ usage: ResearchModelUsage; sessionPaths: string[] }> = [];
   const failures: WikiCompilationBatchFailure[] = [];
   const finalDiscards = new Map<string, { entry_ref: string; reason: string }>();
@@ -140,6 +159,7 @@ export class WikiCompiler {
    };
    try {
     const outcome = await (this.options.runStage ?? runWikiStageKind)({ input, workRoot: join(workRoot, input.key, hashJson(input).slice(0, 24)), env, signal: request.signal,
+     ...(input.stage === 'curate-evidence' && request.memoryReplay !== undefined ? { memoryReplay: request.memoryReplay } : {}),
      onAttemptStarted: attemptRoot => recordSessions([join(attemptRoot, 'runtime', 'sessions')]) });
     recordSessions(outcome.sessionPaths);
     request.signal.throwIfAborted();
@@ -152,7 +172,7 @@ export class WikiCompiler {
     throw error;
    }
   };
-  let compilationStages = 2;
+  let compilationStages = 3;
   const globalStage = async (input: WikiStageInput, index: number) => {
    const progress = { kind: input.stage, stageIndex: index, totalStages: compilationStages, pageCount: 0, usage: zero(),
     traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
@@ -172,15 +192,75 @@ export class WikiCompiler {
    writeJsonAtomic(join(workRoot, 'execution-contract.json'), { version: 3, objectUnit: 'one-complete-note', concurrency: 4,
     scheduling: 'dynamic-queue', cueDispositionOwner: 'merge-objects', conceptEvidence: 'accepted-objects-only',
     data: 'object-notes; unplaced-cues-at-object-merge; downstream-page-and-section-views', diagnosticOnly: false });
-   request.onStarted?.(evidence.notes.length);
-   const drafts = await mapConcurrentFairly(evidence.notes, 4, async (note, index) => {
-    const noteIds = new Set(noteWikiEntries({ ...evidence, notes: [note] }, topics.revision).map(e => e.id));
-    const noteEntries = incoming.filter(e => noteIds.has(e.id));
+   request.onStarted?.(0);
+   const candidates = incoming.filter(entry => !priorAccounted.has(entry.id));
+   const curation = { adopted: 0, deferred: 0, skipped: 0 };
+   const adopted = new Set<string>();
+   const deferred = new Set<string>();
+   if (candidates.length) {
+    const input = make('curate-evidence', 'curate-evidence', { entries: [...previous.entries, ...candidates.filter(entry => !previous.entries.some(old => old.id === entry.id))], requiredEntries: candidates.map(entry => entry.id),
+     pages: pageInputs(previous.pages, 'context', true, 'history'), topics: topics.topics,
+     instructions: request.curationInstructions ?? '',
+     ...(request.mainSession ? { mainSession: request.mainSession } : {}),
+     ...(request.reportContext ? { reportContext: request.reportContext } : {}),
+     ...(request.curationReviews ? { curationReviews: request.curationReviews } : {}) });
+    const result = expect(await globalStage(input, 0), 'evidence-curation');
+    const decisions = validateEvidenceCurationDecisions(input, result.decisions);
+    for (const decision of decisions) {
+     if (decision.action === 'adopt') { adopted.add(decision.entryId); curation.adopted++; }
+     else if (decision.action === 'defer') { deferred.add(decision.entryId); curation.deferred++; }
+     else curation.skipped++;
+    }
+    writeJsonAtomic(join(workRoot, 'curation.json'), { decisions, summary: curation });
+   }
+   const deferredEvidence = validateDeferredWikiEvidence({ entryIds: [...deferred], snapshots: [...new Map(
+    [...pendingEvidence.snapshots, evidence].filter(snapshot => noteWikiEntries(snapshot).some(entry => deferred.has(entry.id)))
+     .map(snapshot => [hashJson(snapshot), snapshot])).values()] });
+   if (!adopted.size) {
+    request.signal.throwIfAborted();
+    if (hashWikiDirectory(base) !== baseKnowledgeSha256) throw new Error('Previous Wiki changed during evidence curation');
+    const candidate = join(workRoot, 'unchanged-knowledge');
+    if (request.rebuild) {
+     writeWikiEdition(candidate, [], [], empty(), previous);
+     writeWikiIndex(candidate, [], { knowledgeHash: hashJson({ pages: [], entries: [] }), topicPlanRevision: topics.revision,
+      topics: topics.topics.map(topic => ({ topicId: topic.id, sections: [], matches: [], gaps: [], status: 'succeeded' })) }, [], topics, previous);
+     writeJsonAtomic(join(candidate, '.note-first-status.json'), { version: 3, complete: true, cueDispositionOwner: 'merge-objects',
+      discardedCueCount: 0, failures: [], pendingEntryIds: [], objectNotes: 0, conceptJobs: 0 });
+    } else if (existsSync(base)) cpSync(base, candidate, { recursive: true });
+    else mkdirSync(candidate, { recursive: true });
+    const candidateHash = hashWikiDirectory(candidate);
+    const outputPath = `artifacts/wiki-compilations/${compilationId}/knowledge-${candidateHash.slice(0, 24)}`;
+    const knowledge = existsSync(join(request.runDirectory, outputPath)) ? store.describeDirectory(outputPath) : store.publishDirectory(candidate, outputPath);
+    if (hashWikiDirectory(knowledge.absolutePath) !== candidateHash) throw new Error('Curated Wiki artifact differs from its candidate');
+    const result: WikiCompilationResult = { status: 'compiled', publicationReady: true, compilationId, baseKnowledgeSha256, knowledge,
+     pageCount: request.rebuild ? 0 : previous.pages.length,
+     usage: sumUsage([...outcomes, ...failedAttempts]), agentStages: outcomes.length + failedAttempts.length,
+     sessionPaths: outcomes.flatMap(outcome => outcome.sessionPaths), failedBatches: [], curation, deferredEvidence };
+    writeJsonAtomic(record, result);
+    return result;
+   }
+   incoming = incoming.filter(entry => priorAccounted.has(entry.id) || adopted.has(entry.id));
+   // Section summaries can include rejected Cues; construction receives only admitted Cue details.
+   entries = [...new Map([...previous.entries, ...incoming].map(entry => [entry.id, entry])).values()]
+    .map(({ sectionSummary: _summary, ...entry }) => entry);
+   const admittedEntries = new Map(entries.map(entry => [entry.id, entry]));
+   const noteGroups = new Map<string, { note: typeof evidence.notes[number]; entries: typeof incoming }>();
+   for (const input of noteInputs) {
+    const eligible = input.entries.filter(entry => adopted.has(entry.id)).map(entry => admittedEntries.get(entry.id)!);
+    if (!eligible.length) continue;
+    const key = hashJson({ source: input.note.note.source_id, revision: input.note.source_revision_sha256, run: eligible[0]!.sourceRunId });
+    const group = noteGroups.get(key);
+    if (group) group.entries = [...new Map([...group.entries, ...eligible].map(entry => [entry.id, entry])).values()];
+    else noteGroups.set(key, { note: input.note, entries: eligible });
+   }
+   const selectedNotes = [...noteGroups.values()];
+   request.onStarted?.(selectedNotes.length);
+   const drafts = await mapConcurrentFairly(selectedNotes, 4, async ({ note, entries: noteEntries }, index) => {
     const key = `objects/${hashJson({ source: note.note.source_id, revision: note.source_revision_sha256,
-     ...(note.source_run_id ? { sourceRun: note.source_run_id } : {}) }).slice(0, 24)}`;
+     sourceRun: noteEntries[0]!.sourceRunId }).slice(0, 24)}`;
     const input = make('objects', key, { entries: noteEntries, requiredEntries: noteEntries.map(e => e.id),
-     instructions: `Process this one complete Cornell Note: ${note.title}. Its sections and all Cue details are supplied in full.` });
-    const progress = { batchIndex: index, totalBatches: evidence.notes.length, pageCount: 0, usage: zero(), reused: false, traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
+     instructions: `Process the admitted evidence from this Cornell Note: ${note.title}. All admitted Cue details are supplied in full; do not restore excluded evidence.` });
+    const progress = { batchIndex: index, totalBatches: selectedNotes.length, pageCount: 0, usage: zero(), reused: false, traceRef: sessionTraceRef(request.controlDirectory, hashJson(input.key).slice(0, 16), []) };
     if (noteEntries.length && noteEntries.every(entry => priorAccounted.has(entry.id))) {
      request.onBatchProgress?.({ ...progress, status: 'succeeded', reused: true });
      return [];
@@ -208,7 +288,7 @@ export class WikiCompiler {
    const mergeObjectsInput = make('merge-objects', 'merge-objects', { entries: usable, pages: [...objectMembers, ...historicalConcepts],
     requiredEntries: [...new Set([...objectDraftCues, ...unplaced.map(e => e.id)])],
     unplacedEntries: unplaced.map(e => ({ entryId: e.id, reason: unplacedReasons.get(e.id) ?? 'Not yet represented in an accepted object page; resolve its object placement or final disposition.' })) });
-   const mergedObjects = expect(await globalStage(mergeObjectsInput, 0), 'pages').value;
+   const mergedObjects = expect(await globalStage(mergeObjectsInput, 1), 'pages').value;
    const objects = materialize(mergeObjectsInput, mergedObjects);
    const objectCues = cited(objects);
    for (const row of mergedObjects.deferred_entries) finalDiscards.set(row.entry_ref, row);
@@ -223,7 +303,7 @@ export class WikiCompiler {
    const objectRefs = pageInputs(objects, 'context');
    const planInput = make('plan-concepts', 'plan-concepts', { entries: usable, pages: [...objectRefs, ...historicalConcepts],
     requiredPages: objectRefs.map(p => p.ref) });
-   const conceptPlan = expect(await globalStage(planInput, 1), 'concept-plan');
+   const conceptPlan = expect(await globalStage(planInput, 2), 'concept-plan');
    const primary = new Set(planInput.requiredPages), history = new Map(historicalConcepts.map(row => [row.ref, row]));
    const targets = new Set<string>();
    for (const job of conceptPlan.jobs) {
@@ -242,7 +322,7 @@ export class WikiCompiler {
     const input = make('concepts', `concepts/${hashJson(job).slice(0, 24)}`, { entries: usable, pages: planInput.pages,
      requiredPages: job.pageRefs, conceptTask: { question: job.question, scope: job.scope, targetRef: job.targetRef } });
     try {
-     const result = expect(await globalStage(input, 2 + index), 'pages');
+     const result = expect(await globalStage(input, 3 + index), 'pages');
      materialize(input, result.value);
      if (result.value.pages.length > 1 || result.value.deferred_entries.length || [...cited(result.value.pages)].some(id => !objectCues.has(id))) {
       throw new Error('One concept question produces zero or one page backed by accepted objects');
@@ -267,7 +347,7 @@ export class WikiCompiler {
      conceptMembers[index] = { ...conceptMembers[index]!, page };
     } else conceptMembers.push({ ref: `${row.input.key}:${page.id}`, page, previous: false, role: 'member' });
    }
-   let concepts = conceptMembers.map(row => row.page), nextCompilationStage = 2 + conceptPlan.jobs.length;
+   let concepts = conceptMembers.map(row => row.page), nextCompilationStage = 3 + conceptPlan.jobs.length;
    if (conceptMembers.length) {
     compilationStages++;
     const auditInput = make('audit-concepts', 'audit-concepts', { entries: usable, pages: [...conceptMembers, ...objectRefs],
@@ -334,7 +414,7 @@ export class WikiCompiler {
    const knowledge = existsSync(join(request.runDirectory, outputPath)) ? store.describeDirectory(outputPath) : store.publishDirectory(candidateRoot, outputPath);
    if (knowledge.sha256 !== candidateHash) throw new Error('Wiki compilation publication differs from candidate');
    const result: WikiCompilationResult = { status: 'compiled', publicationReady: failures.length === 0, compilationId, baseKnowledgeSha256, knowledge, pageCount: pages.length,
-    usage: sumUsage([...outcomes, ...failedAttempts]), agentStages: outcomes.length + failedAttempts.length, sessionPaths: [...outcomes, ...failedAttempts].flatMap(outcome => outcome.sessionPaths), failedBatches: failures };
+    usage: sumUsage([...outcomes, ...failedAttempts]), agentStages: outcomes.length + failedAttempts.length, sessionPaths: [...outcomes, ...failedAttempts].flatMap(outcome => outcome.sessionPaths), failedBatches: failures, curation, deferredEvidence };
    if (!failures.length) writeJsonAtomic(record, result);
    else writeJsonAtomic(join(workRoot, 'partial-result.json'), result);
    return result;

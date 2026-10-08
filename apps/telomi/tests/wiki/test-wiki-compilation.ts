@@ -42,6 +42,7 @@ function result(input: WikiStageInput, rename = false): WikiStageResult {
  const consideredPages = input.requiredPages.map(pageRef => ({ pageRef, reason: "Read the object and compare its conditions" }));
  const value = empty();
  switch (input.stage) {
+  case 'curate-evidence': return { kind: 'evidence-curation', decisions: input.requiredEntries.map(entryId => ({ entryId, action: 'adopt', reason: 'Reusable model comparison evidence' })) };
   case "objects": {
    assert.equal(new Set(input.entries.map(entry => entry.sourceId)).size, 1, "one Agent consumes exactly one complete Note");
    assert.equal(input.entries.length, 2, "both sections and their Cues must reach the same Agent");
@@ -274,7 +275,7 @@ try {
     conflictGroups: [{ pageRefs: concepts.map(page => page.ref), reason: "Historical synonyms for the same explanation" }], discardedRefs: [] } };
   }
   return outcome(input);
- } }).compile(request("historical-local-conflict", evidence(6), historicalConflictSeed));
+ } }).compile(request("historical-local-conflict", evidence(1, 6), historicalConflictSeed));
  assert.equal(historicalConflict.publicationReady, true);
  assert.ok(historicalInputs.every(input => input.previousRelations.length === 0));
  assert.deepEqual((await readPreviousWikiEdition(historicalConflict.knowledge.absolutePath)).relations, []);
@@ -337,7 +338,7 @@ try {
  const legacyHash = hashWikiDirectory(legacySeed);
  let legacyMergeSeen = false;
  const migrated = await new WikiCompiler({ runStage: async ({ input }) => {
-  assert.notEqual(input.stage, "objects", "Previously accounted Notes are not unnecessarily regenerated");
+  if (input.stage === 'objects') assert.equal(input.entries[0]!.sourceId, 'source:1', 'Only new Notes are constructed');
   if (input.stage === "merge-objects") {
    legacyMergeSeen = true;
    assert.deepEqual(new Set(input.unplacedEntries?.map(row => row.entryId)), new Set([conceptOnlyCue.id, deferredCue.id]));
@@ -353,7 +354,7 @@ try {
    assert.ok(input.pages.some(page => page.page.kind === "entity" && wikiPageEntryIds(page.page.body).includes(conceptOnlyCue.id)));
   }
   return outcome(input);
- } }).compile(request("legacy-migration", legacySnapshot, legacySeed));
+ } }).compile(request("legacy-migration", { ...legacySnapshot, notes: [...legacySnapshot.notes, ...evidence(1, 1).notes] }, legacySeed));
  assert.equal(legacyMergeSeen, true);
  assert.equal(migrated.publicationReady, true);
  assert.deepEqual(JSON.parse(read(join(migrated.knowledge.absolutePath, ".discarded-cues.json"))), [{ entry_id: deferredCue.id, reason: "Outside the maintained object scope after review" }]);
@@ -538,6 +539,6 @@ try {
   if (input.stage === "objects") { controller.abort(new Error("Injected cancellation")); signal.throwIfAborted(); }
   return outcome(input);
  } }).compile({ ...request("cancelled"), signal: controller.signal }), /Injected cancellation/u);
- assert.ok(cancelledStages.every(stage => stage === "objects"), "cancellation prevents downstream stages");
+ assert.ok(cancelledStages.every(stage => stage === 'curate-evidence' || stage === "objects"), "cancellation prevents downstream construction stages");
  console.log("Wiki compilation compiler: complete Notes, dynamic queue, isolated failures, cancellation, incremental identity and Topic-only navigation passed");
 } finally { rmSync(root, { recursive: true, force: true }); }

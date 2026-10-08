@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { WikiCompiler } from "./wiki-compiler.js";
@@ -10,6 +10,7 @@ import {
 	MAX_WIKI_UPDATE_ATTEMPTS,
 	WIKI_UPDATE_JOB_FILE,
 	WikiUpdateJobStore,
+	validateWikiReportContext,
 	type WikiUpdateJob,
 } from "./wiki-update-job.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
@@ -17,6 +18,11 @@ import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import { publishCompilation } from "./publication.js";
 import { GoalTopicPlanStore } from "../goals/topic-plan/store.js";
 import { toErrorMessage } from "../lib/values.js";
+import { pinDeferredWikiEvidence, prepareDeferredWikiEvidence, writeDeferredWikiEvidence } from './deferred-evidence.js';
+import { validateSourceNotesSnapshot } from '../notes/contracts.js';
+import { noteWikiEntries } from './note-entries.js';
+import { readGoalWikiMainContext, validateWikiMainSessionContext, type WikiMainSessionContext } from '../main-agent/wiki-context.js';
+import type { WikiReportContext } from './wiki-stage-contract.js';
 
 export interface WikiUpdateExecution {
 	status: "succeeded" | "partial";
@@ -26,6 +32,7 @@ export interface WikiUpdateExecution {
 	changedPaths: string[];
 	usage: WikiCompilationResult["usage"];
 	failedBatches: NonNullable<WikiCompilationResult["failedBatches"]>;
+	curation?: WikiCompilationResult["curation"];
 }
 
 export interface WikiUpdateTarget {
@@ -46,6 +53,9 @@ export interface WikiUpdateTarget {
 	wikiUpdateId?: string;
 	sourceRunId?: string;
 	cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
+	curationReviews?: NonNullable<WikiUpdateJob["curation_reviews"]>;
+	mainSession?: WikiMainSessionContext;
+	reportContext?: WikiReportContext;
 	parentActivityId?: string;
 	trigger?: NonNullable<WikiUpdateJob["trigger"]>;
 	reason?: string;
@@ -77,6 +87,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 	onSettled?: (status: WikiUpdateJob["status"], message?: string) => void;
 }): Promise<WikiUpdateExecution> {
 	const jobs = new WikiUpdateJobStore(input.controlDirectory);
+	const reportContext = jobs.load()?.report_context ?? input.reportContext;
 	let publicationStarted = false;
 	let publicationPageCount = 0;
 	let compilation: WikiCompilationResult | undefined;
@@ -91,6 +102,9 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 		...(input.wikiUpdateId ? { wikiUpdateId: input.wikiUpdateId } : {}),
 		...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
 		...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
+		...(input.curationReviews ? { curationReviews: input.curationReviews } : {}),
+		...(input.mainSession ? { mainSession: input.mainSession } : {}),
+		...(reportContext ? { reportContext } : {}),
 		...(input.parentActivityId ? { parentActivityId: input.parentActivityId } : {}),
 		...(input.trigger ? { trigger: input.trigger } : {}),
 		...(input.reason ? { reason: input.reason } : {}),
@@ -119,6 +133,11 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 				controlDirectory: input.controlDirectory,
 				notesSnapshot: input.sourceNotes,
 				...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
+				...(input.curationReviews ? { curationReviews: input.curationReviews } : {}),
+				...(input.mainSession ? { mainSession: input.mainSession } : {}),
+				...(reportContext ? { reportContext } : {}),
+				...(input.reason ? { curationInstructions: input.reason } : {}),
+				deferredEvidence: pinDeferredWikiEvidence(input.controlDirectory, input.goalDir),
 				topicPlan: input.topicPlan,
 				...(input.rebuild ? { rebuild: true } : {}),
 				signal: input.signal,
@@ -128,6 +147,15 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 			});
 			if (compilation.publicationReady === false) {
 				throw new Error(`Wiki 有 ${compilation.failedBatches.length} 个步骤未完成，成功步骤已保留；继续运行后发布。`);
+			}
+			let deferredEvidence: WikiCompilationResult['deferredEvidence'];
+			if (compilation.deferredEvidence) {
+				const notesStore = new RunArtifactStore(input.runDirectory);
+				const notes = notesStore.readJson(notesStore.openFile(input.sourceNotes));
+				deferredEvidence = prepareDeferredWikiEvidence(input.goalDir, [
+					...pinDeferredWikiEvidence(input.controlDirectory, input.goalDir).entryIds,
+					...noteWikiEntries(validateSourceNotesSnapshot(notes)).map(entry => entry.id),
+				], compilation.deferredEvidence);
 			}
 			publicationPageCount = compilation.pageCount;
 			jobs.recordStage({
@@ -148,6 +176,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 			signal: input.signal,
 			...(input.cueOrigins ? { topicPlanRevision: input.topicPlan.revision } : {}),
 			});
+			if (deferredEvidence) writeDeferredWikiEvidence(input.goalDir, deferredEvidence);
 			jobs.recordStage({
 				kind: "publication",
 				stageIndex: 0,
@@ -164,6 +193,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 				changedPaths: publication.changedPaths,
 				usage: compilation.usage,
 				failedBatches: compilation.failedBatches,
+				...(compilation.curation ? { curation: compilation.curation } : {}),
 			};
 			// 结果产物是不可变的：上一次可能已经写过它，但没来得及结算任务记录。
 			{
@@ -177,6 +207,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 					changed_paths: execution.changedPaths,
 					usage: execution.usage,
 					failed_batches: execution.failedBatches,
+					...(execution.curation ? { curation: execution.curation } : {}),
 					finished_at: new Date().toISOString(),
 				});
 			}
@@ -184,6 +215,7 @@ export async function executeWikiUpdate(input: WikiUpdateTarget & {
 				compilationId: execution.compilationId,
 				publicationStatus: publication.status,
 				changedPaths: publication.changedPaths,
+				...(execution.curation ? { curation: execution.curation } : {}),
 				failedBatches: execution.failedBatches.map((failure) => ({
 					batch_index: failure.batchIndex,
 					source_ids: failure.sourceIds,
@@ -268,6 +300,9 @@ export function startWikiUpdateActivity(input: {
 	topicPlan: GoalTopicPlan;
 	sourceRunId?: string;
 	cueOrigins?: NonNullable<WikiUpdateJob["cue_origins"]>;
+	curationReviews?: NonNullable<WikiUpdateJob["curation_reviews"]>;
+	mainSession?: WikiMainSessionContext;
+	reportContext?: WikiReportContext;
 	sourceRunDirectory: string;
 	wikiUpdateId?: string;
 	sourceNotes: WikiUpdateJob["notes"];
@@ -279,13 +314,21 @@ export function startWikiUpdateActivity(input: {
 	signal?: AbortSignal;
 	dependencies?: WikiUpdateDependencies;
 }): StartedWikiUpdate {
+	const mainSession = input.mainSession ?? readGoalWikiMainContext(input.workspaceDir, input.goalId, input.goalContext);
+	if (mainSession && validateWikiMainSessionContext(mainSession).goalId !== input.goalId)
+		throw new Error('Main branch context belongs to another Goal');
+	if (input.reportContext && validateWikiReportContext(input.reportContext).runId !== input.sourceRunId)
+		throw new Error('Wiki report context belongs to another Source Run');
 	if (input.wikiUpdateId) {
 		const existing = new WikiUpdateJobStore(wikiUpdateRecordDir(input.workspaceDir, input.goalId, input.wikiUpdateId)).load();
 		if (existing) {
 			if (existing.goal_id !== input.goalId || existing.notes.sha256 !== input.sourceNotes.sha256
 				|| JSON.stringify(existing.topic_plan) !== JSON.stringify(input.topicPlan)
 				|| JSON.stringify(existing.goal_context) !== JSON.stringify(input.goalContext)
-				|| JSON.stringify(existing.cue_origins) !== JSON.stringify(input.cueOrigins)) {
+				|| JSON.stringify(existing.cue_origins) !== JSON.stringify(input.cueOrigins)
+				|| JSON.stringify(existing.curation_reviews) !== JSON.stringify(input.curationReviews)
+				|| (input.mainSession && JSON.stringify(existing.main_session) !== JSON.stringify(input.mainSession))
+				|| (input.reportContext && JSON.stringify(existing.report_context) !== JSON.stringify(input.reportContext))) {
 				throw new Error("Wiki Update id belongs to different frozen inputs");
 			}
 			if (!["queued", "running", "succeeded"].includes(existing.status)) throw new Error("Wiki Update requires explicit resume");
@@ -302,6 +345,10 @@ export function startWikiUpdateActivity(input: {
 					&& job.topic_plan.revision === input.topicPlan.revision
 					&& job.goal_context.title === input.goalContext.title
 					&& job.goal_context.description === input.goalContext.description
+					&& job.reason === input.reason
+					&& JSON.stringify(job.curation_reviews ?? []) === JSON.stringify(input.curationReviews ?? [])
+					&& (!input.mainSession || JSON.stringify(job.main_session) === JSON.stringify(input.mainSession))
+					&& (!input.reportContext || JSON.stringify(job.report_context) === JSON.stringify(input.reportContext))
 					&& job.notes.sha256 === input.sourceNotes.sha256
 					? [{ ...entry, job }]
 					: [];
@@ -327,6 +374,10 @@ export function startWikiUpdateActivity(input: {
 					runId: wikiUpdateId,
 					wikiUpdateId,
 					sourceRunId: input.sourceRunId,
+					...(failed.job.cue_origins ? { cueOrigins: failed.job.cue_origins } : {}),
+					...(failed.job.curation_reviews ? { curationReviews: failed.job.curation_reviews } : {}),
+					...(failed.job.main_session ? { mainSession: validateWikiMainSessionContext(failed.job.main_session) } : {}),
+					...(failed.job.report_context ? { reportContext: failed.job.report_context } : {}),
 					...(input.parentActivityId ? { parentActivityId: input.parentActivityId } : {}),
 					trigger: input.trigger,
 					reason: input.reason,
@@ -351,6 +402,9 @@ export function startWikiUpdateActivity(input: {
 	mkdirSync(controlDirectory, { recursive: true });
 	mkdirSync(runDirectory, { recursive: true });
 	const source = new RunArtifactStore(input.sourceRunDirectory).openFile(input.sourceNotes);
+	const reportStore = new RunArtifactStore(input.sourceRunDirectory);
+	const reportContext = input.reportContext ?? (input.sourceRunId && existsSync(join(input.sourceRunDirectory, 'report/final.md'))
+		? { runId: input.sourceRunId, markdown: readFileSync(reportStore.describeFile('report/final.md').absolutePath, 'utf8') } : undefined);
 	const store = new RunArtifactStore(runDirectory);
 	const copiedPath = "artifacts/input/notes.json";
 	// A process may stop after copying frozen input but before creating its job record.
@@ -363,6 +417,9 @@ export function startWikiUpdateActivity(input: {
 		wikiUpdateId,
 		...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
 		...(input.cueOrigins ? { cueOrigins: input.cueOrigins } : {}),
+		...(input.curationReviews ? { curationReviews: input.curationReviews } : {}),
+		...(mainSession ? { mainSession } : {}),
+		...(reportContext ? { reportContext } : {}),
 		...(input.parentActivityId ? { parentActivityId: input.parentActivityId } : {}),
 		trigger: input.trigger,
 		reason: input.reason,
@@ -430,6 +487,12 @@ export async function resumeWikiUpdate(input: {
 		controlDirectory,
 		sourceNotes: job.notes,
 		...(job.cue_origins ? { cueOrigins: job.cue_origins } : {}),
+		...(job.curation_reviews ? { curationReviews: job.curation_reviews } : {}),
+		...(job.main_session ? { mainSession: validateWikiMainSessionContext(job.main_session) } : {}),
+		...(job.report_context ? { reportContext: job.report_context } : {}),
+		...(job.reason ? { reason: job.reason } : {}),
+		...(job.parent_activity_id ? { parentActivityId: job.parent_activity_id } : {}),
+		...(job.trigger ? { trigger: job.trigger } : {}),
 		...(job.rebuild ? { rebuild: true } : {}),
 		env: input.env,
 		signal: input.signal ?? new AbortController().signal,

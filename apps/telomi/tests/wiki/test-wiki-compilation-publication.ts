@@ -8,6 +8,9 @@ import { executeWikiUpdate, resumeWikiUpdate, wikiUpdateArtifactDir, wikiUpdateR
 import { canResumeWikiUpdateJob, WikiUpdateJobStore } from "../../server/wiki/wiki-update-job.js";
 import { listWikiEditions } from "../../server/wiki/editions.js";
 import type { GoalTopicPlan, WikiCompilationResult } from "../../server/wiki/contracts.js";
+import { readDeferredWikiEvidence, writeDeferredWikiEvidence } from '../../server/wiki/deferred-evidence.js';
+import { noteWikiEntries } from '../../server/wiki/note-entries.js';
+import type { SourceNotesSnapshot } from '../../server/notes/contracts.js';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "wiki-compilation-publication-")));
 const goalId = "goal", runId = "wiki-test", goalDir = join(root, goalId);
@@ -22,7 +25,9 @@ try {
  writeFileSync(join(target, "README.md"), "Existing Wiki\n");
  const before = hashWikiDirectory(target);
  const store = new RunArtifactStore(runDirectory);
- const notes = store.publishText("{}", "input/notes.json");
+ const snapshot: SourceNotesSnapshot = { schema_version: 1, snapshot_id: 'input', run_id: 'run',
+  pipeline: { id: 'notes', version: '1', sha256: 'a'.repeat(64) }, source_bundle_refs: [], notes: [] };
+ const notes = store.publishText(JSON.stringify(snapshot), "input/notes.json");
  const candidate = join(root, "candidate");
  mkdirSync(candidate);
  writeFileSync(join(candidate, "README.md"), "Complete Wiki\n");
@@ -44,14 +49,23 @@ try {
  assert.equal(jobs.load()!.compiler, "wiki-compilation");
  assert.equal(canResumeWikiUpdateJob(jobs.load()!), true);
  const firstResult = readFileSync(join(runDirectory, "artifacts/wiki-update/result.json"), "utf8");
+ const laterSnapshot: SourceNotesSnapshot = { ...snapshot, snapshot_id: 'later', notes: [{
+  title: 'Later evidence', canonical_locator: 'https://example.test/later', provider_id: 'test', provenance_ref: 'source:later',
+  source_revision_sha256: 'b'.repeat(64), members: [], note: { schema_version: 1, source_id: 'later', sections: [{
+   section_title: 'Mechanism', summary: 'Needs corroboration', cue_notes: [{ cue: 'A later finding', note: 'Needs additional support',
+    evidence: [{ source_path: 'source.md', start_line: 1, end_line: 1, content_sha256: 'c'.repeat(64) }] }] }] },
+ }] };
+ const laterPending = { snapshots: [laterSnapshot], entryIds: noteWikiEntries(laterSnapshot).map(entry => entry.id) };
+ writeDeferredWikiEvidence(goalDir, laterPending);
  const resumed = await resumeWikiUpdate({ workspaceDir: root, goalId, goalDir, runId, env: {},
   dependencies: { compile: async request => {
    request.onStarted?.(1);
    request.onBatchProgress?.({ batchIndex: 0, totalBatches: 1, status: "succeeded", pageCount: 1, usage, reused: false });
    request.onStageProgress?.({ kind: "merge-objects", stageIndex: 0, totalStages: 1, status: "succeeded", pageCount: 7, usage });
-   return complete;
+   return { ...complete, deferredEvidence: { snapshots: [], entryIds: [] } };
   } } });
  assert.equal(resumed.status, "succeeded");
+ assert.deepEqual(readDeferredWikiEvidence(goalDir), laterPending, 'resuming older model work preserves deferrals published after its frozen input');
  assert.equal(readFileSync(join(target, "README.md"), "utf8"), "Complete Wiki\n");
  assert.equal(jobs.load()!.attempts, 2);
  assert.equal(jobs.load()!.progress!.page_count, 7, "Final progress shows the published page count, not the last Note's count");
@@ -63,5 +77,11 @@ try {
  writeFileSync(join(target, ".topic-plan.json"), JSON.stringify({ ...plan, revision: "v3" }));
  const historical = listWikiEditions(root, goalId).find(row => row.revision === "v2");
  assert.equal(historical?.root, knowledge.absolutePath, "Historical editions discover content-addressed outputs after recovery");
+ await assert.rejects(executeWikiUpdate({ goalId, runId: 'publication-failure', goalDir, workspaceDir: root,
+  goal: 'Study', goalContext: { title: 'Study', description: '' }, topicPlan: plan, runDirectory, controlDirectory: join(root, 'failure-control'),
+  sourceNotes: { relative_path: notes.relativePath, sha256: notes.sha256, byte_length: notes.byteLength }, env: {}, signal: new AbortController().signal,
+  dependencies: { compile: async () => ({ ...complete, deferredEvidence: { snapshots: [], entryIds: [] } }),
+   publish: async () => { throw new Error('Controlled publication failure'); } } }), /Controlled publication failure/);
+ assert.deepEqual(readDeferredWikiEvidence(goalDir), laterPending, 'failed publication never advances the pending pool');
  console.log("Wiki compilation publication: incomplete work stays unpublished, failed update resumes, immutable attempts remain discoverable");
 } finally { rmSync(root, { recursive: true, force: true }); }

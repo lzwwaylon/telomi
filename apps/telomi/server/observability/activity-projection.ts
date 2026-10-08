@@ -1,4 +1,4 @@
-import { manifestSessionSections, reportWriterSessionSections, safeSessionPath, wikiSessionSections, type SessionSection } from "./session-traces.js";
+import { manifestSessionSections, reportWriterSessionSections, safeSessionPath, sessionExecutionEntries, wikiSessionSections, type SessionSection } from "./session-traces.js";
 import { sha256 } from "../lib/hash.js";
 import { closeSync, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -51,6 +51,19 @@ export class ObservabilityActivityProjection {
 				? lines.map(previewLine)
 				: lines.filter((line) => line.ref === options.line),
 		};
+	}
+
+	/** The latest actual operation across a stage's Root and delegated native Sessions. */
+	currentActivity(goalId: string, outputRef: string): { summary?: ActivityText; at?: string } {
+		const output = this.readOutput(goalId, outputRef);
+		if (!output) return {};
+		const recorded = output.lines.filter(line => line.at);
+		const latest = recorded.reduce<ActivityOutputLine | undefined>((last, line) =>
+			!last || line.at! >= last.at! ? line : last, undefined);
+		if (!latest) return {};
+		const summary = sessionLineSummary(latest);
+		return { at: latest.at, ...(summary ? { summary: output.lines.some(line => line.section !== latest.section)
+			&& latest.section ? [{ text: latest.section }, ...textParts(summary)] : summary } : {}) };
 	}
 
 	private fromNode(
@@ -365,7 +378,7 @@ function safeSessionLines(entries: unknown[]): ActivityOutputLine[] {
  */
 export function currentSessionActivity(path: string): { summary?: ActivityText; at?: string } {
 	if (!existsSync(path)) return {};
-	const lines = safeSessionLines(readPiSession(path).entries);
+	const lines = safeSessionLines(sessionExecutionEntries(path, readPiSession(path).entries));
 	const latest = lines.at(-1);
 	if (!latest) return {};
 	const summary = sessionLineSummary(latest);
@@ -559,6 +572,16 @@ function readPointerLines(pointer: OutputPointer): ActivityOutputLine[] | null {
 			]), pointer.lifecycle);
 		}
 	}
+	// Older question Readers could stop before publishing their archive or Session manifest.
+	// Their fixed live log is still owned by this execution, within the same safe boundary.
+	if (!sessionPath && pointer.agent === "note_agent" && pointer.executionId.startsWith("note-reading/")) {
+		const livePath = safeSessionPath(pointer.runDirectory, "stage/runtime/session.jsonl");
+		if (livePath) return withTracePlaceholder(sectionLines([
+			{ key: "legacy-reader", label: "Note Agent", path: livePath },
+		]).filter(line => line.at
+			&& (!pointer.startedAt || Date.parse(line.at) >= Date.parse(pointer.startedAt))
+			&& (!pointer.finishedAt || Date.parse(line.at) <= Date.parse(pointer.finishedAt))), pointer.lifecycle);
+	}
 	if (sessionRef && !sessionPath) return withTracePlaceholder([], pointer.lifecycle);
 	const session = sessionPath
 		? readPiSession(sessionPath)
@@ -578,7 +601,7 @@ function withTracePlaceholder(lines: ActivityOutputLine[], lifecycle: ActivityLi
 }
 
 function normalizedSessionEntries(path: string): unknown[] {
-	return readPiSession(path).entries.map((entry) => {
+	return sessionExecutionEntries(path, readPiSession(path).entries).map((entry) => {
 		if (!entry || typeof entry !== "object") return entry;
 		if ("role" in entry) return { type: "message", message: entry };
 		if ((entry as { type?: unknown }).type === "message_end" && "message" in entry) {

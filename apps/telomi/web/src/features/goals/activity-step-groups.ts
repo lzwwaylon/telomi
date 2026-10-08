@@ -58,9 +58,11 @@ export function groupActivitySteps(steps: ActivityStep[], currentRound?: number)
 }
 
 function activityPhase(step: ActivityStep): { id: string; label: ActivityText } {
-	if (step.stepId.startsWith("wiki-objects:")) return { id: "objects", label: chrome("goals.activityStepGroups.objectConstruction") };
+	if (step.stepId.startsWith("wiki-stage:curate-evidence:")) return { id: "curation", label: chrome("activityChrome.wiki.stage.curateEvidence") };
+	if (step.stepId.startsWith("wiki-objects:") || step.stepId.startsWith("wiki-stage:objects:") || step.stepId.startsWith("wiki-stage:merge-objects:")) return { id: "objects", label: chrome("goals.activityStepGroups.objectOrganization") };
 	if (step.stepId.startsWith("wiki-stage:publication:")) return { id: "publication", label: chrome("goals.activityStepGroups.publication") };
-	if (step.stepId.startsWith("wiki-stage:")) return { id: "compilation", label: chrome("goals.activityStepGroups.wikiCompilation") };
+	if (/^wiki-stage:(plan-topics|topic|page-topics):/.test(step.stepId)) return { id: "classification", label: chrome("goals.activityStepGroups.pageClassification") };
+	if (step.stepId.startsWith("wiki-stage:")) return { id: "concepts", label: chrome("goals.activityStepGroups.conceptIntegration") };
 	return { id: "execution", label: chrome("goals.activityStepGroups.executionPhase") };
 }
 

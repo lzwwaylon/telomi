@@ -7,7 +7,7 @@ import { resolveAgentDir } from '../config/agent-directory.js';
 import { isProviderCredentialDeleted } from '../config/credential-tombstones.js';
 import { refreshConnectionRuntime } from '../providers/custom-models.js';
 
-/** The Update pins this role once; every file stage and classification uses it. */
+/** The Update pins compilation settings; a copied Main branch supplies its own selection settings. */
 export function wikiModelSelection(env: NodeJS.ProcessEnv) {
  const selector = resolveLLMConfig({ taskModelRole: 'wikiCompilation',
   envVarName: 'TELOMI_WIKI_COMPILATION_MODEL', envOverride: env }).model;
@@ -18,8 +18,7 @@ export function wikiModelSelection(env: NodeJS.ProcessEnv) {
 }
 
 /** Native Pi transport keeps frozen connections while resolving live host-only credentials. */
-export async function createWikiModelRuntime(env: NodeJS.ProcessEnv, signal: AbortSignal) {
- const selection = wikiModelSelection(env);
+export async function createWikiModelRuntime(env: NodeJS.ProcessEnv, signal: AbortSignal, selection = wikiModelSelection(env)) {
  const canonical = env.PI_CODING_AGENT_DIR?.trim() || resolveAgentDir(env.TELOMI_DATA_DIR);
  const connectionEnv = { ...env, PRIME_AGENT_CODING_AGENT_DIR: undefined, PI_CODING_AGENT_DIR: canonical };
  const liveEnv = { ...connectionEnv, TELOMI_PRIME_MODEL_DEFINITIONS: undefined };

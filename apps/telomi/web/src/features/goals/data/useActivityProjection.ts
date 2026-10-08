@@ -41,8 +41,8 @@ function changesActivityProjection(event: AppEvent): boolean {
 		|| event.type === "deleted";
 }
 
-/** Well inside the five minutes after which a running Activity is shown as quiet. */
-const RUNNING_REFRESH_MS = 30_000;
+/** Refresh native Session progress even when no lifecycle transition is emitted. */
+const RUNNING_REFRESH_MS = 5_000;
 
 export function useGoalActivityProjection(goalId: string) {
 	const [projection, setProjection] = useState<ActivityProjection | null>(null);

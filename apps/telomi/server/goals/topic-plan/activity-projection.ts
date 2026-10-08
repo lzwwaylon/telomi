@@ -49,9 +49,12 @@ export class TopicPlanActivityProjection {
 		const lifecycle: ActivityLifecycle = proposal.status === "proposed"
 			? "waiting" : !reframe || reframe.status === "running" ? "running" : "finished";
 		const normalizedLifecycle: ActivityLifecycle = proposal.status === "superseded" ? "finished" : lifecycle;
-		const outcome: ActivityOutcome | undefined = proposal.status === "superseded" ? "skipped" : reframe?.status === "failed"
-			? "failed" : reframe?.status === "no_wiki" || reframe?.message === "no_change"
-				? "no-change" : reframe?.status === "succeeded" ? "succeeded" : undefined;
+		const reframeOutcome: ActivityOutcome | undefined = reframe?.status === "failed" ? "failed"
+			: reframe?.status === "no_wiki" ? "skipped"
+				: reframe?.status === "succeeded" ? reframe.message === "no_change" ? "no-change" : "succeeded" : undefined;
+		// Confirmation changed the active Plan even when there was no Wiki navigation to update.
+		const outcome: ActivityOutcome | undefined = proposal.status === "superseded" ? "skipped"
+			: lifecycle === "finished" ? reframeOutcome === "failed" ? "failed" : "succeeded" : undefined;
 		const updatedAt = reframe?.updated_at ?? proposal.activated_at ?? proposal.superseded_at ?? proposal.created_at;
 		const reframeTiming = activityTiming(proposal.activated_at ?? proposal.created_at, updatedAt,
 			lifecycle === "finished" ? updatedAt : undefined);
@@ -84,7 +87,8 @@ export class TopicPlanActivityProjection {
 				? "activityChrome.topicPlan.awaitingConfirmation"
 				: reframe?.status === "failed" ? "activityChrome.topicPlan.confirmedWikiFailed"
 					: reframe?.status === "no_wiki" ? "activityChrome.topicPlan.confirmed"
-						: reframe?.status === "succeeded" ? "activityChrome.topicPlan.confirmedWikiUpdated"
+						: reframe?.status === "succeeded" ? reframe.message === "no_change"
+							? "activityChrome.topicPlan.confirmed" : "activityChrome.topicPlan.confirmedWikiUpdated"
 							: "activityChrome.topicPlan.confirmedWikiRunning", { count: topics }),
 			lifecycle: normalizedLifecycle,
 			...(outcome ? { outcome } : {}),
@@ -148,7 +152,7 @@ export class TopicPlanActivityProjection {
 								? reframe.message ? [{ text: reframe.message }] : chrome("activityChrome.topicPlan.reframeFailedStep")
 								: chrome("activityChrome.topicPlan.reframeRunning"),
 					lifecycle: reframe?.status === "running" || !reframe ? "running" as const : "finished" as const,
-					...(outcome ? { outcome } : {}),
+					...(reframeOutcome ? { outcome: reframeOutcome } : {}),
 					timing: reframeTiming,
 					dependsOnStepIds: ["topic-confirmation"], parallelSteps: [], agentActivities: [],
 				}] : []),

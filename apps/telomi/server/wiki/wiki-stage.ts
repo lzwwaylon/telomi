@@ -5,6 +5,7 @@ import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import { listJsonl } from "../lib/fs.js";
 import { hashJson, sha256 } from "../lib/hash.js";
+import { sessionExecutionEntries } from "../observability/session-traces.js";
 import type { WikiStageOutcome, WikiStageRequest } from "./wiki-stage-contract.js";
 
 /** Read untrusted output without following links or accepting shared inodes. */
@@ -38,21 +39,26 @@ export function wikiStageOutputHash(workRoot: string): string {
 
 export function wikiStageTraceUsage(root: string): ResearchModelUsage {
  const usage: ResearchModelUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 };
- for (const path of listJsonl(root).filter(path => path.includes("/sessions/"))) for (const line of readFileSync(path, "utf8").split("\n")) {
-  let record;
-  try { record = JSON.parse(line); } catch { continue; }
-  if (record.type !== "message" || record.message?.role !== "assistant" || !record.message.usage) continue;
-  const item = record.message.usage;
-  usage.inputTokens += (item.input ?? 0) + (item.cacheRead ?? 0) + (item.cacheWrite ?? 0);
-  usage.outputTokens += item.output ?? 0;
-  usage.costUsd += item.cost?.total ?? 0;
-  usage.calls += 1;
+ for (const path of listJsonl(root).filter(path => path.includes("/sessions/"))) {
+  const records = readFileSync(path, "utf8").split("\n").flatMap(line => {
+   try { return [JSON.parse(line)]; } catch { return []; }
+  });
+  for (const record of sessionExecutionEntries(path, records)) {
+   const item = record.type === "message" && record.message?.role === "assistant" ? record.message.usage
+    : record.type === "compaction" || record.type === "branch_summary" ? record.usage : undefined;
+   if (!item) continue;
+   usage.inputTokens += (item.input ?? 0) + (item.cacheRead ?? 0) + (item.cacheWrite ?? 0);
+   usage.outputTokens += item.output ?? 0;
+   usage.costUsd += item.cost?.total ?? 0;
+   usage.calls += 1;
+  }
  }
  return usage;
 }
 
 export async function runWikiStageKind(request: WikiStageRequest): Promise<WikiStageOutcome> {
  request.signal.throwIfAborted();
+ if (request.input.stage === "curate-evidence") return (await import("./pi-evidence-curation.js")).runPiEvidenceCurationStage(request);
  if (request.input.stage === "page-topics") return (await import("./page-topic-stage.js")).runPageTopicStage(request);
  if (request.input.stage === "merge-objects") return (await import("./pi-object-merge.js")).runPiObjectMergeStage(request);
  if (request.input.stage === "objects") return (await import("./pi-object-stage.js")).runPiObjectStage(request);
@@ -65,11 +71,15 @@ export async function runWikiStageKind(request: WikiStageRequest): Promise<WikiS
 export function wikiStageCapabilityIdentity(): string {
  const files = ["wiki-stage.ts", "wiki-stage-contract.ts", "wiki-stage-workspace.ts",
   "wiki-stage-search.ts", "wiki-page-contract.ts", "wiki-edition.ts",
-  "page-topic-stage.ts", "page-topic-contract.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts",
-  "pi-file-stage.ts", "wiki-pi-runtime.ts", "../providers/custom-models.ts", "../agent-runtime/logical-workspace-snapshot.ts", "../agent-runtime/srt-agent-sandbox.ts", "pi-concept-stage.ts", "pi-concept-contract.ts", "../agent-runtime/accept-agent-output.ts"];
+  "page-topic-stage.ts", "page-topic-contract.ts", "pi-evidence-curation.ts", "pi-object-stage.ts", "pi-object-targets.ts", "pi-object-merge.ts",
+  "pi-file-stage.ts", "wiki-pi-runtime.ts", "../main-agent/wiki-context.ts", "../observability/session-traces.ts", "../providers/custom-models.ts", "../agent-runtime/logical-workspace-snapshot.ts", "../agent-runtime/srt-agent-sandbox.ts", "pi-concept-stage.ts", "pi-concept-contract.ts", "../agent-runtime/accept-agent-output.ts",
+  "../../../extensions/pi-user-memory/index.ts", "../../../extensions/pi-user-memory/src/client.ts"];
  const semantics = files.map(path => sha256(readFileSync(fileURLToPath(new URL(path, import.meta.url)))));
  const prompt = renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "objects-pi");
  return hashJson({ semantics, registration: prompt.configSha256,
+  evidenceCuration: renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "curate-evidence-pi").content,
+  mainWikiSelection: renderAgentPrompt("main", "main-agent", "system-append", {}, "background-wiki-selection").content,
+  userMemorySkill: sha256(readFileSync(fileURLToPath(new URL("../../agents/main/main-agent/skills/user-memory/SKILL.md", import.meta.url)))),
   pageTopics: renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "page-topics").content,
   piObjects: renderAgentPrompt("wiki", "wiki-compilation", "system", {}, "objects-pi").content,
   piObjectPage: renderAgentPrompt("wiki", "wiki-compilation", "reference", {}, "object-page").content,

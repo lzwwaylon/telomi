@@ -1,10 +1,21 @@
 import type { ResearchModelUsage } from '../agent-runtime/model-usage.js';
+import type { NodeEvaluationInteraction } from '../agent-runtime/node-evaluation.js';
 import type { GoalTopicPlan, WikiGoalContext } from './contracts.js';
 import type { WikiPageContent, WikiPagesResult, WikiPageSection } from './wiki-page-contract.js';
 import type { WikiNoteEntry } from './wiki-edition.js';
+import type { WikiMainSessionContext } from '../main-agent/wiki-context.js';
 
-export const WIKI_STAGE_KINDS = ['objects', 'merge-objects', 'plan-concepts', 'concepts', 'audit-concepts', 'merge-concepts', 'plan-topics', 'topic', 'page-topics'] as const;
+export const WIKI_STAGE_KINDS = ['curate-evidence', 'objects', 'merge-objects', 'plan-concepts', 'concepts', 'audit-concepts', 'merge-concepts', 'plan-topics', 'topic', 'page-topics'] as const;
 export type WikiStageKind = typeof WIKI_STAGE_KINDS[number];
+export interface WikiInvestigationReview {
+ investigationId: string;
+ question: string;
+ answer: string;
+ usefulFindings: string[];
+ excludedFindings: Array<{ finding: string; reason: string }>;
+}
+export interface WikiEvidenceCurationDecision { entryId: string; action: 'adopt' | 'defer' | 'skip'; reason: string }
+export interface WikiReportContext { runId: string; markdown: string }
 export interface WikiStagePageInput {
  ref: string;
  page: WikiPageContent;
@@ -27,9 +38,13 @@ export interface WikiStageInput {
  previousRelations: WikiStageRelation[];
  conceptTask?: { question: string; scope: string; targetRef: string | null };
  unplacedEntries?: Array<{ entryId: string; reason: string }>;
+ curationReviews?: WikiInvestigationReview[];
+ mainSession?: WikiMainSessionContext;
+ reportContext?: WikiReportContext;
 }
 export interface WikiStageConceptJob { pageRefs: string[]; question: string; scope: string; targetRef: string | null }
 export type WikiStageResult =
+ | { kind: 'evidence-curation'; decisions: WikiEvidenceCurationDecision[] }
  | { kind: 'object-target-plan'; jobs: Array<{ action: 'update' | 'new' | 'retain'; targetRef: string | null; pageRefs: string[]; reason: string }> }
  | { kind: 'object-target-pages'; value: WikiPagesResult; facts: Array<{ sourceRef: string; sourceHeading: string; claim: string; entryIds: string[]; destinationHeading: string }> }
  | { kind: 'pages'; value: WikiPagesResult; consideredPages: Array<{ pageRef: string; reason: string }> }
@@ -39,4 +54,4 @@ export type WikiStageResult =
  | { kind: 'page-topics'; sections: Array<{ sectionRef: string; matches: Array<{ topicId: string; reason: string }> }> }
  | { kind: 'topic'; topicId: string; matches: Array<{ sectionRef: string; reason: string }>; gaps: string[] };
 export interface WikiStageOutcome { result: WikiStageResult; usage: ResearchModelUsage; sessionPaths: string[] }
-export interface WikiStageRequest { input: WikiStageInput; workRoot: string; env: NodeJS.ProcessEnv; signal: AbortSignal; onAttemptStarted?: (attemptRoot: string) => void }
+export interface WikiStageRequest { input: WikiStageInput; workRoot: string; env: NodeJS.ProcessEnv; signal: AbortSignal; onAttemptStarted?: (attemptRoot: string) => void; memoryReplay?: NodeEvaluationInteraction[] }

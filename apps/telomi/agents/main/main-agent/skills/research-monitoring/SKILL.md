@@ -1,6 +1,6 @@
 ---
 name: research-monitoring
-description: Inspect prior Research Runs, create or manage recurring Research Schedules from a published baseline, or refresh the Goal Wiki when requested.
+description: Inspect prior Research Runs, create or manage recurring Research Schedules from a published baseline, or refresh and correct the Goal Wiki when requested.
 ---
 
 # Research history and monitoring
@@ -19,4 +19,8 @@ Create recurrence only when the user explicitly requests monitoring and provides
 
 ## Wiki maintenance
 
-Runtime queues verified investigation Cues for background Wiki maintenance after they are saved. Continue answering from the investigation evidence while maintenance runs. Use `wiki_update` when the user requests a refresh, a retry of interrupted maintenance, or a rebuild. Omit `source_run_id` to process pending investigation evidence; set `rebuild=true` only for an explicit rebuild from the complete saved Cornell corpus. Supply `source_run_id` only when the user selects a particular historical Research Run.
+Original Sources and verified Cues are saved independently. After successful investigation delivery, Runtime batches its new Reader artifacts and cited historical Reader artifacts for selective Wiki maintenance using Main's review. Continue answering from saved investigation evidence while maintenance runs.
+
+Use `wiki_update` for a requested refresh, retry or rebuild. Omit `source_run_id` to process delivered pending evidence; set `rebuild=true` only for an explicit rebuild. Supply `source_run_id` only when the user selects a particular historical Research Run.
+
+For an explicit request to review, clean up or correct existing Wiki content, use `reconsider=true`, `rebuild=false`, and omit `source_run_id`. Carry the user's actual requested correction and exclusions in `reason`. Runtime freezes the complete saved Goal evidence and latest delivered reviews for another selective compilation, preserving original Sources and historical Editions. Ordinary negative feedback remains discussion until the user requests a Wiki change. Findings needing more evidence may remain deferred for a later delivered investigation or explicit maintenance; deferral starts no independent investigation.

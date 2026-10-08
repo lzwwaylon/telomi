@@ -85,6 +85,7 @@ export type GoalAvatarMoment = "born" | "started" | "done" | "cancelled";
  */
 const WORK_EMOTIONS: Array<[ActivityKind, GoalAvatarEmotion]> = [
 	["research", EMOTION.researching],
+	["investigation", EMOTION.researching],
 	["scheduled-research", EMOTION.researching],
 	["signal-evaluation", EMOTION.researching],
 	["wiki-update", EMOTION.updatingWiki],
