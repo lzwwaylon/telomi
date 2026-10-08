@@ -1,5 +1,6 @@
 """Hindsight's native application with an admission boundary for safe replacement."""
 import argparse
+import asyncio
 import contextvars
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,7 @@ from hindsight_api.worker.exceptions import DeferOperation
 import uvicorn
 
 from telomi_database import start_managed_database
+from telomi_memory_scope import install_scope_integrity
 
 _draining = False
 _active = 0
@@ -38,7 +40,20 @@ async def admitted():
 
 
 class ManagedMemoryEngine(MemoryEngine):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scope_ready = asyncio.Event()
+
+    async def initialize(self):
+        if self._scope_ready.is_set():
+            return
+        await super().initialize()
+        await install_scope_integrity(self)
+        self._scope_ready.set()
+
     async def execute_task(self, task_dict):
+        # Native initialization starts workers before Telomi's storage repair is complete.
+        await self._scope_ready.wait()
         # Covers consolidation, graph maintenance and imports as well as retain.
         # Native validator hooks do not cover every worker operation.
         if _draining and not _admitted.get():
