@@ -52,6 +52,8 @@ async def check():
         # Substitute the external native executor, exercising the public worker entrypoint.
         with patch.object(boundary.MemoryEngine, "execute_task", native_execution):
             memory = object.__new__(boundary.ManagedMemoryEngine)
+            memory._scope_ready = asyncio.Event()
+            memory._scope_ready.set()
             running = asyncio.create_task(memory.execute_task({"type": "consolidation"}))
             await entered.wait()
             assert (await control("drain"))["activeOperations"] == 1
@@ -65,6 +67,32 @@ async def check():
             assert (await control("status"))["activeOperations"] == 0
             await control("resume")
             assert await memory.execute_task({"type": "import_documents"}) == "import_documents"
+
+        entered.clear()
+        finish.set()
+        repair_started = asyncio.Event()
+        repair_finished = asyncio.Event()
+
+        async def initialize_native(self):
+            return None
+
+        async def install_scope(memory):
+            repair_started.set()
+            await repair_finished.wait()
+
+        with patch.object(boundary.MemoryEngine, "initialize", initialize_native), \
+                patch.object(boundary.MemoryEngine, "execute_task", native_execution), \
+                patch.object(boundary, "install_scope_integrity", install_scope):
+            memory = object.__new__(boundary.ManagedMemoryEngine)
+            memory._scope_ready = asyncio.Event()
+            initialization = asyncio.create_task(memory.initialize())
+            await repair_started.wait()
+            worker = asyncio.create_task(memory.execute_task({"type": "consolidation"}))
+            await asyncio.sleep(0)
+            assert not entered.is_set(), "workers cannot observe partially repaired memory scope"
+            repair_finished.set()
+            await initialization
+            assert await worker == "consolidation"
     # The real application factory must accept the boundary; an engine stub keeps this offline.
     native = boundary.build_app(MagicMock())
     assert "/health" in {getattr(route, "path", None) for route in native.routes}

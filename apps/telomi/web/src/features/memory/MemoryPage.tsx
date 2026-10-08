@@ -9,12 +9,13 @@ import {
 	USER_MEMORY_UNAVAILABLE,
 	type MemoryEpisodeView,
 	type MemoryFactView,
+	type MemoryObservationView,
 	type RejectedScheduleProposalView,
 	type UserMemoryResponse,
 } from "@shared/user-memory";
 import "@/features/memory/memory.css";
 
-type MemoryView = "active" | "invalidated";
+type MemoryView = "active" | "invalidated" | "unextracted";
 
 const SOURCE_LABEL = {
 	message: "memory.source.message",
@@ -33,7 +34,7 @@ export function MemoryPage({ goalId, goalTitle, onBack }: { goalId: string; goal
 	const { t } = useTranslation();
 	const [memory, setMemory] = useState<UserMemoryResponse | null>(null);
 	const [failure, setFailure] = useState<string | null>(null);
-	const [view, setView] = useState<MemoryView>("active");
+	const [view, setView] = useState<MemoryView | "observations">("active");
 	const [query, setQuery] = useState("");
 	// The target outlives `deleteOpen` so the dialog keeps its wording while it closes.
 	const [deleteTarget, setDeleteTarget] = useState<MemoryEpisodeView | null>(null);
@@ -61,15 +62,17 @@ export function MemoryPage({ goalId, goalTitle, onBack }: { goalId: string; goal
 		return () => window.clearTimeout(timer);
 	}, [waiting, memory, load]);
 
-	/** Every change reloads: Hindsight re-derives what depends on it, and the list shows its result. */
+	/** Successful changes reload: Hindsight re-derives what depends on them. Failures keep the draft. */
 	const act = useCallback(async (change: () => Promise<unknown>) => {
 		setActionError(null);
 		try {
 			await change();
 		} catch (error) {
 			setActionError(error instanceof Error ? error.message : String(error));
+			return false;
 		}
 		await load();
+		return true;
 	}, [load]);
 
 	const actions: EpisodeActions = useMemo(() => ({
@@ -79,23 +82,12 @@ export function MemoryPage({ goalId, goalTitle, onBack }: { goalId: string; goal
 		requestDelete: (episode) => { setDeleteTarget(episode); setDeleteOpen(true); },
 	}), [act, base]);
 
-	const needle = query.trim().toLowerCase();
-	const emptyText = (episodes: MemoryEpisodeView[], none: string) => needle ? t("memory.noMatches")
-		: view === "invalidated" ? t("memory.noneInvalidated")
-			// Everything here was invalidated: saying there is no memory yet would be wrong.
-			: episodes.length > 0 ? t("memory.allInvalidated") : none;
-	const shown = (episodes: MemoryEpisodeView[]) => episodes.flatMap((episode) => {
-		const facts = episode.facts.filter((fact) => fact.invalidated === (view === "invalidated"));
-		// Active lists Episodes still being retained or with nothing extracted; invalidated only lists retired facts.
-		if (facts.length === 0 && (view === "invalidated" || episode.facts.length > 0)) return [];
-		const proposal = episode.scheduleProposal;
-		const searchable = [episode.text, proposal?.scheduleTitle, proposal?.summary, proposal?.reason, ...facts.map((fact) => fact.text)];
-		if (needle && !searchable.some((text) => text?.toLowerCase().includes(needle))) return [];
-		return [{ episode, facts }];
-	});
 	const all = memory ? [...memory.goal, ...memory.global] : [];
 	const activeCount = all.reduce((sum, episode) => sum + episode.facts.filter((fact) => !fact.invalidated).length, 0);
 	const invalidatedCount = all.reduce((sum, episode) => sum + episode.facts.filter((fact) => fact.invalidated).length, 0);
+	const unextractedCount = all.filter((episode) => episode.facts.length === 0).length;
+	const observations = memory?.observations ?? { goal: [], global: [] };
+	const observationCount = observations.goal.length + observations.global.length;
 
 	return (
 		<section className="memory-page" aria-label={t("memory.title")} data-testid="memory-page">
@@ -109,8 +101,14 @@ export function MemoryPage({ goalId, goalTitle, onBack }: { goalId: string; goal
 					<button type="button" data-active={view === "active" ? "true" : undefined} aria-current={view === "active" ? "page" : undefined} onClick={() => setView("active")}>
 						{t("memory.active")}<span>{activeCount}</span>
 					</button>
+					<button type="button" data-active={view === "observations" ? "true" : undefined} aria-current={view === "observations" ? "page" : undefined} onClick={() => setView("observations")}>
+						{t("memory.observations")}<span>{observationCount}</span>
+					</button>
 					<button type="button" data-active={view === "invalidated" ? "true" : undefined} aria-current={view === "invalidated" ? "page" : undefined} onClick={() => setView("invalidated")}>
 						{t("memory.invalidated")}<span>{invalidatedCount}</span>
+					</button>
+					<button type="button" data-active={view === "unextracted" ? "true" : undefined} aria-current={view === "unextracted" ? "page" : undefined} onClick={() => setView("unextracted")}>
+						{t("memory.unextracted")}<span>{unextractedCount}</span>
 					</button>
 				</nav>
 				<label className="memory-search">
@@ -133,26 +131,31 @@ export function MemoryPage({ goalId, goalTitle, onBack }: { goalId: string; goal
 					<div className="memory-state" role="status"><p>{t("memory.loading")}</p></div>
 				) : (
 					<div className="memory-columns">
-						<p className="memory-intro">{t("memory.intro")}</p>
+						<p className="memory-intro">{t(view === "observations" ? "memory.observationsHint" : view === "unextracted" ? "memory.unextractedHint" : "memory.intro")}</p>
 						{actionError ? <p className="memory-action-error" role="alert">{actionError}</p> : null}
-						<MemorySection
-							title={t("memory.goalSection")}
-							hint={t("memory.goalSectionHint")}
-							items={shown(memory.goal)}
-							empty={emptyText(memory.goal, t("memory.goalEmpty"))}
-							goalId={goalId}
-							view={view}
-							actions={actions}
-						/>
-						<MemorySection
-							title={t("memory.globalSection")}
-							hint={t("memory.globalSectionHint")}
-							items={shown(memory.global)}
-							empty={emptyText(memory.global, t("memory.globalEmpty"))}
-							goalId={goalId}
-							view={view}
-							actions={actions}
-						/>
+						{view === "observations" ? <>
+							<MemoryObservations title={t("memory.goalObservations")} observations={observations.goal} query={query} goalId={goalId} />
+							<MemoryObservations title={t("memory.globalObservations")} observations={observations.global} query={query} goalId={goalId} />
+						</> : <>
+							<MemorySection
+								title={t(view === "unextracted" ? "memory.goalSources" : "memory.goalSection")}
+								hint={view === "unextracted" ? undefined : t("memory.goalSectionHint")}
+								episodes={memory.goal} query={query}
+								empty={t("memory.goalEmpty")}
+								goalId={goalId}
+								view={view}
+								actions={actions}
+							/>
+							<MemorySection
+								title={t(view === "unextracted" ? "memory.globalSources" : "memory.globalSection")}
+								hint={view === "unextracted" ? undefined : t("memory.globalSectionHint")}
+								episodes={memory.global} query={query}
+								empty={t("memory.globalEmpty")}
+								goalId={goalId}
+								view={view}
+								actions={actions}
+							/>
+						</>}
 					</div>
 				)}
 			</div>
@@ -175,32 +178,77 @@ export function MemoryPage({ goalId, goalTitle, onBack }: { goalId: string; goal
 	);
 }
 
+export function MemoryObservations({ title, observations, query, goalId }: {
+	title: string;
+	observations: MemoryObservationView[];
+	query: string;
+	goalId: string;
+}) {
+	const { t } = useTranslation();
+	const needle = query.trim().toLowerCase();
+	const items = observations.filter((observation) => observation.text.toLowerCase().includes(needle));
+	return (
+		<section className="memory-section" aria-label={title}>
+			<header className="memory-section-head"><h2>{title}</h2><span>{items.length}</span></header>
+			{items.length === 0 ? <p className="memory-empty">{t(needle ? "memory.noMatches" : "memory.noObservations")}</p> : (
+				<ul className="memory-observations">
+					{items.map((observation) => (
+						<li className="memory-observation" key={observation.id} data-testid="memory-observation">
+							<p>{observation.text}</p>
+							{observation.goalId && observation.goalId !== goalId ? (
+								<small>{t("memory.fromGoal", { title: observation.goalTitle ?? observation.goalId })}</small>
+							) : null}
+						</li>
+					))}
+				</ul>
+			)}
+		</section>
+	);
+}
+
 interface EpisodeActions {
-	saveFact: (fact: MemoryFactView, text: string) => Promise<void>;
-	setInvalidated: (fact: MemoryFactView, invalidated: boolean) => Promise<void>;
-	setGlobal: (episode: MemoryEpisodeView, global: boolean) => Promise<void>;
+	saveFact: (fact: MemoryFactView, text: string) => Promise<boolean>;
+	setInvalidated: (fact: MemoryFactView, invalidated: boolean) => Promise<boolean>;
+	setGlobal: (episode: MemoryEpisodeView, global: boolean) => Promise<boolean>;
 	requestDelete: (episode: MemoryEpisodeView) => void;
 }
 
-function MemorySection({ title, hint, items, empty, goalId, view, actions }: {
+export function MemorySection({ title, hint, episodes, query, empty, goalId, view, actions }: {
 	title: string;
-	hint: string;
-	items: Array<{ episode: MemoryEpisodeView; facts: MemoryFactView[] }>;
+	hint?: string;
+	episodes: MemoryEpisodeView[];
+	query: string;
 	empty: string;
 	goalId: string;
 	view: MemoryView;
 	actions: EpisodeActions;
 }) {
+	const { t } = useTranslation();
+	const needle = query.trim().toLowerCase();
+	const emptyText = needle ? t("memory.noMatches")
+		: view === "unextracted" ? t("memory.noneUnextracted")
+		: view === "invalidated" ? t("memory.noneInvalidated")
+			// Everything here was invalidated: saying there is no memory yet would be wrong.
+			: episodes.some((episode) => episode.facts.length > 0) ? t("memory.allInvalidated") : empty;
+	const items = episodes.flatMap((episode) => {
+		const facts = episode.facts.filter((fact) => fact.invalidated === (view === "invalidated"));
+		if (view === "unextracted" ? episode.facts.length > 0 : facts.length === 0) return [];
+		const proposal = episode.scheduleProposal;
+		const searchable = [episode.text, proposal?.scheduleTitle, proposal?.summary, proposal?.reason, ...facts.map((fact) => fact.text)];
+		if (needle && !searchable.some((text) => text?.toLowerCase().includes(needle))) return [];
+		return [{ episode, facts }];
+	});
+	const count = view === "unextracted" ? items.length : items.reduce((sum, item) => sum + item.facts.length, 0);
 	return (
 		<section className="memory-section" aria-label={title}>
 			<header className="memory-section-head">
 				<h2>{title}</h2>
-				<span>{items.length}</span>
-				<p>{hint}</p>
+				<span>{count}</span>
+				{hint ? <p>{hint}</p> : null}
 			</header>
 			{items.length === 0
-				? <p className="memory-empty">{empty}</p>
-				: items.map(({ episode, facts }) => <MemoryEpisode key={episode.documentId} episode={episode} facts={facts} goalId={goalId} view={view} actions={actions} />)}
+				? <p className="memory-empty">{emptyText}</p>
+				: items.map(({ episode, facts }) => <MemoryEpisode key={`${view}:${episode.documentId}`} episode={episode} facts={facts} goalId={goalId} view={view} actions={actions} />)}
 		</section>
 	);
 }
@@ -213,15 +261,13 @@ function MemoryEpisode({ episode, facts, goalId, view, actions }: {
 	actions: EpisodeActions;
 }) {
 	const { t } = useTranslation();
-	const [expanded, setExpanded] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const origin = episode.goalId === goalId ? null
 		: episode.goalId ? t("memory.fromGoal", { title: episode.goalTitle ?? episode.goalId }) : t("memory.fromNoGoal");
 	const status = episode.status === "waiting" ? t("memory.statusWaiting")
 		: episode.status === "failed" ? t("memory.statusFailed")
-			: episode.facts.length === 0 ? t("memory.statusNothing") : t("memory.statusRetained", { count: episode.facts.length });
-	const long = episode.text.length > 280;
-	const run = async (change: () => Promise<void>) => {
+			: episode.facts.length === 0 ? t("memory.statusNothing") : t("memory.factCount", { count: facts.length });
+	const run = async (change: () => Promise<unknown>) => {
 		setBusy(true);
 		try { await change(); } finally { setBusy(false); }
 	};
@@ -229,14 +275,13 @@ function MemoryEpisode({ episode, facts, goalId, view, actions }: {
 	return (
 		<article className="memory-episode" data-status={episode.status} data-testid="memory-episode" aria-busy={busy || undefined}>
 			<header className="memory-episode-head">
-				<span className="memory-source">{t(SOURCE_LABEL[episode.source])}</span>
 				<time dateTime={episode.occurredAt} title={formatDate(episode.occurredAt, { dateStyle: "medium", timeStyle: "short" })}>{formatRelativeTime(episode.occurredAt)}</time>
 				{origin ? <span className="memory-origin">{origin}</span> : null}
 				<span className="memory-status" data-status={episode.status} data-empty={episode.status === "retained" && episode.facts.length === 0 ? "true" : undefined}>{status}</span>
 				{episode.status === "retained" ? (
 					<span className="memory-episode-actions">
 						{/* An Episode without a Goal (its Goal was deleted) has nowhere to return to; it stays global or goes. */}
-						{view === "invalidated" || (episode.global && !episode.goalId) ? null : (
+						{view === "invalidated" || (view === "unextracted" && !episode.global) || (episode.global && !episode.goalId) ? null : (
 							<button type="button" disabled={busy} onClick={() => void run(() => actions.setGlobal(episode, !episode.global))} data-testid="memory-toggle-global">
 								<Globe aria-hidden />{episode.global ? t("memory.makeGoalOnly") : t("memory.makeGlobal")}
 							</button>
@@ -247,17 +292,17 @@ function MemoryEpisode({ episode, facts, goalId, view, actions }: {
 					</span>
 				) : null}
 			</header>
-			{episode.source === "schedule_proposal" ? <RejectedProposal proposal={episode.scheduleProposal} /> : (
-				<>
-					<blockquote className="memory-episode-text" data-expanded={expanded || !long ? "true" : undefined}>{episode.text}</blockquote>
-					{long ? <button type="button" className="memory-expand" onClick={() => setExpanded((value) => !value)}>{expanded ? t("memory.collapse") : t("memory.expand")}</button> : null}
-				</>
-			)}
 			{facts.length > 0 ? (
 				<ul className="memory-facts">
 					{facts.map((fact) => <MemoryFact key={fact.id} fact={fact} busy={busy} onRun={run} actions={actions} />)}
 				</ul>
 			) : null}
+			<details className="memory-provenance">
+				<summary>{t("memory.viewSource")}<span>{t(SOURCE_LABEL[episode.source])}</span></summary>
+				{episode.source === "schedule_proposal" ? <RejectedProposal proposal={episode.scheduleProposal} /> : (
+					<blockquote className="memory-episode-text">{episode.text}</blockquote>
+				)}
+			</details>
 		</article>
 	);
 }
@@ -278,7 +323,7 @@ function RejectedProposal({ proposal }: { proposal?: RejectedScheduleProposalVie
 function MemoryFact({ fact, busy, onRun, actions }: {
 	fact: MemoryFactView;
 	busy: boolean;
-	onRun: (change: () => Promise<void>) => Promise<void>;
+	onRun: (change: () => Promise<unknown>) => Promise<void>;
 	actions: EpisodeActions;
 }) {
 	const { t } = useTranslation();
@@ -290,7 +335,7 @@ function MemoryFact({ fact, busy, onRun, actions }: {
 				<form onSubmit={(event) => {
 					event.preventDefault();
 					if (!text || text === fact.text) { setDraft(null); return; }
-					void onRun(async () => { await actions.saveFact(fact, text); setDraft(null); });
+					void onRun(async () => { if (await actions.saveFact(fact, text)) setDraft(null); });
 				}}>
 					<textarea value={draft} onChange={(event) => setDraft(event.target.value)} aria-label={t("memory.editFact")} rows={3} autoFocus
 						onKeyDown={(event) => { if (event.key === "Escape") setDraft(null); }} />

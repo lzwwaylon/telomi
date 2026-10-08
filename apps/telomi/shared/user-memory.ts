@@ -1,4 +1,4 @@
-/** What the Memory page shows: each Memory Episode with the Memory Facts extracted from it. */
+/** What the Memory page shows: extracted Facts, source Episodes and read-only derived observations. */
 
 export type MemoryEpisodeSource = "message" | "schedule_proposal" | "other";
 
@@ -15,6 +15,14 @@ export interface MemoryFactView {
 	invalidated: boolean;
 	/** Set once the user edited the text. */
 	editedAt?: string;
+}
+
+/** Hindsight's consolidation of Facts; only the underlying Facts may be curated. */
+export interface MemoryObservationView {
+	id: string;
+	text: string;
+	goalId?: string;
+	goalTitle?: string;
 }
 
 /** A Research Schedule Proposal the user rejected, read from the Schedule itself. */
@@ -49,6 +57,7 @@ export interface UserMemoryResponse {
 	goal: MemoryEpisodeView[];
 	/** Global Episodes from every Goal, newest first. */
 	global: MemoryEpisodeView[];
+	observations: { goal: MemoryObservationView[]; global: MemoryObservationView[] };
 }
 
 /** 503 body while User Memory is restarting or not configured. */
