@@ -95,11 +95,14 @@
 .memory-section-head span { color: var(--ink-faint); font: 600 11px/1 var(--f-mono); }
 .memory-section-head p { grid-column: 1 / -1; margin: 0; color: var(--ink-mut); font-size: 12px; line-height: 1.5; }
 .memory-empty { margin: 0; padding: 18px; border: 1px dashed var(--line); border-radius: 10px; color: var(--ink-mut); font-size: 13px; text-align: center; }
+.memory-observations { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.memory-observation { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.memory-observation p { margin: 0; color: var(--ink); font-size: 13.5px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-observation small { display: block; margin-top: 8px; color: var(--ink-mut); font-size: 11.5px; }
 
 .memory-episode { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .memory-episode[aria-busy="true"] { opacity: .7; }
 .memory-episode-head { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--ink-mut); font-size: 11.5px; }
-.memory-source { color: var(--ink-2); font-weight: 700; }
 .memory-origin { overflow: hidden; max-width: 32ch; padding: 1px 7px; border-radius: 999px; background: var(--paper-2); text-overflow: ellipsis; white-space: nowrap; }
 .memory-status { padding: 2px 8px; border-radius: 999px; color: var(--success-text); background: color-mix(in srgb, var(--success) 13%, transparent); font-weight: 600; }
 .memory-status[data-empty="true"] { color: var(--ink-mut); background: var(--paper-2); }
@@ -127,27 +130,26 @@
 .memory-fact-actions button:disabled { opacity: .45; cursor: default; }
 .memory-episode-actions button:focus-visible,
 .memory-fact-actions button:focus-visible,
-.memory-expand:focus-visible { outline: 2px solid var(--warm); outline-offset: 1px; }
+.memory-provenance summary:focus-visible { outline: 2px solid var(--warm); outline-offset: 1px; }
 .memory-episode-actions svg,
 .memory-fact-actions svg { width: 13px; height: 13px; }
 
 .memory-episode-text {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
+  margin: 10px 0 0;
   padding-left: 12px;
-  border-left: 2px solid var(--line);
+  border-left: 1px solid var(--line);
   color: var(--ink-2);
   font-size: 13.5px;
   line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
 }
-.memory-episode-text[data-expanded="true"] { display: block; }
-.memory-expand { justify-self: start; margin-top: -4px; padding: 0; color: var(--warm-deep); font-size: 12px; font-weight: 600; }
-.memory-expand:hover { text-decoration: underline; }
+.memory-provenance { min-width: 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.memory-provenance summary { width: fit-content; color: var(--ink-2); cursor: pointer; font-size: 12px; line-height: 1.6; }
+.memory-provenance summary span { margin-left: 10px; color: var(--ink-mut); }
+.memory-provenance summary:hover { color: var(--warm-deep); }
+.memory-provenance .memory-proposal,
+.memory-provenance .memory-proposal-gone { margin-top: 10px; }
 
 .memory-proposal { display: grid; gap: 6px; margin: 0; padding-left: 12px; border-left: 2px solid var(--line); font-size: 13.5px; line-height: 1.6; }
 .memory-proposal > div { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 12px; }
@@ -181,10 +183,20 @@
 .memory-fact-edit-actions button[data-primary="true"] { border-color: var(--ink); color: var(--paper); background: var(--ink); }
 .memory-fact-edit-actions button:disabled { opacity: .5; cursor: default; }
 
-@media (max-width: 760px) {
+@media (max-width: 960px) {
   .memory-topbar { flex-wrap: wrap; gap: 10px 12px; padding: 10px 14px; }
   .memory-search { order: 3; width: 100%; margin-left: 0; }
   .memory-back { margin-left: auto; }
   .memory-columns { padding: 18px 14px 48px; }
   .memory-episode-actions { margin-left: 0; }
+}
+
+@media (max-width: 480px) {
+  .memory-brand { flex: 1; }
+  .memory-back { order: 1; }
+  .memory-view-tabs { display: grid; order: 2; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .memory-view-tabs button { flex: 1; justify-content: center; }
+  .memory-fact { flex-wrap: wrap; }
+  .memory-fact-text { flex-basis: calc(100% - 15px); }
+  .memory-fact-actions { margin-left: auto; opacity: 1; }
 }

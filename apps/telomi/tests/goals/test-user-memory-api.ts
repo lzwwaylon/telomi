@@ -236,6 +236,46 @@ test("the Memory page lists, curates and scopes Episodes through Hindsight only"
 	assert.ok(!memory.goal.some((episode) => episode.documentId === "pi-task-own"));
 });
 
+test("the Memory page exposes scoped valid observations as read-only complete text", async (context) => {
+	const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-memory-observations-"));
+	const units = [
+		unit("observation-z", null, ["goal:goal_a"], "Summary | meaningful detail", { fact_type: "observation" }),
+		unit("observation-a", "unlisted-document", ["goal:goal_a"], "Another summary", { fact_type: "observation" }),
+		unit("observation-shared", null, ["goal:goal_b", "scope:global"], "Shared summary", { fact_type: "observation" }),
+		unit("observation-orphan", null, ["scope:global"], "Global without a Goal", { fact_type: "observation" }),
+		unit("observation-other", null, ["goal:goal_b"], "Private to another Goal", { fact_type: "observation" }),
+		unit("observation-retired", null, ["goal:goal_a"], "Invalidated summary", { fact_type: "observation", state: "invalidated" }),
+		unit("observation-shared-retired", null, ["scope:global"], "Invalidated global summary", { fact_type: "observation", state: "invalidated" }),
+		unit("fact-unlinked", null, ["goal:goal_a"], "Not an observation"),
+	];
+	const hindsight = await fakeHindsight([], units);
+	context.after(() => hindsight.close());
+	const goals = { getGoal: (id: string) => ["goal_a", "goal_b"].includes(id) ? { id, title: id === "goal_a" ? "Goal A" : "Goal B" } : undefined } as never;
+	const api = await serve(createUserMemoryRouter(workspaceDir, goals, new HindsightClient(hindsight.url, "bank")));
+	context.after(() => api.close());
+	const memory = (await api.call("GET", "/api/goals/goal_a/memory")).body as unknown as UserMemoryResponse;
+	assert.deepEqual(memory.observations, {
+		goal: [
+			{ id: "observation-a", text: "Another summary", goalId: "goal_a", goalTitle: "Goal A" },
+			{ id: "observation-z", text: "Summary | meaningful detail", goalId: "goal_a", goalTitle: "Goal A" },
+		],
+		global: [
+			{ id: "observation-orphan", text: "Global without a Goal" },
+			{ id: "observation-shared", text: "Shared summary", goalId: "goal_b", goalTitle: "Goal B" },
+		],
+	}, "valid observations retain full text and scope without requiring a document, sorted by identity");
+	assert.deepEqual(memory.goal, []);
+	assert.deepEqual(memory.global, []);
+	assert.equal(hindsight.requests.filter((request) => request === "GET /banks/bank/memories/list").length, 2,
+		"observations share the existing valid and invalidated list requests");
+	for (const id of ["observation-z", "observation-shared", "observation-retired"]) {
+		for (const body of [{ text: "Changed" }, { invalidated: true }, { invalidated: false }]) {
+			assert.equal((await api.call("PATCH", `/api/goals/goal_a/memory/facts/${id}`, body)).status, 404);
+		}
+	}
+	assert.ok(!hindsight.requests.some((request) => request.startsWith("PATCH ")), "read-only observations never reach upstream mutation");
+});
+
 test("the Memory page reports User Memory as unavailable while it is down", async (context) => {
 	const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-user-memory-down-"));
 	const goals = { getGoal: () => ({ id: "goal_a", title: "A", isStreaming: false }) } as never;

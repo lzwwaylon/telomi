@@ -38,6 +38,15 @@ so recall can rank Chinese as well as English memories. Its model is defined by
 Legacy reranker environment values are ignored, and a reranker selection saved
 by an earlier version is dropped.
 
+The managed PostgreSQL service keeps the scope of Telomi Episodes consistent
+across live and invalidated Facts, including concurrent scope changes and
+invalidation or restoration. Startup repairs existing drift before admitting
+worker operations; corrections to live Facts also rebuild dependent
+observations through Hindsight. This compatibility boundary covers Telomi's
+`pi-task-`, `pi-turn-` and `pi-schedule-proposal-` documents, preserving native
+per-item tags on other documents. It does not install changes into an unmanaged
+external Hindsight service.
+
 A loopback transport resolves native Pi credentials for each outgoing request.
 Connection identity and credential deletion are checked again after asynchronous
 authorization and immediately before forwarding. A concurrent connection replacement

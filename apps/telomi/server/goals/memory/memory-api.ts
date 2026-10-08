@@ -88,6 +88,16 @@ export function createUserMemoryRouter(
 			if (unit.fact_type === "observation" || !unit.document_id) continue;
 			facts.set(unit.document_id, [...facts.get(unit.document_id) ?? [], factView(unit)]);
 		}
+		const observations: UserMemoryResponse["observations"] = { goal: [], global: [] };
+		for (const unit of valid.filter((item) => item.fact_type === "observation" && item.state === "valid" && reachable(item.tags, goalTag))
+			.sort((left, right) => left.id.localeCompare(right.id))) {
+			const originGoalId = unit.tags.find((tag) => tag.startsWith("goal:"))?.slice("goal:".length);
+			observations[unit.tags.includes(GLOBAL_MEMORY_TAG) ? "global" : "goal"].push({
+				id: unit.id,
+				text: unit.text,
+				...(originGoalId ? { goalId: originGoalId, goalTitle: goals.getGoal(originGoalId)?.title } : {}),
+			});
+		}
 		// ponytail: one request per Episode for its original text; page the list once a bank holds thousands.
 		const details = await Promise.all(documents.map((document) => client.getDocument(document.id)));
 		const episodes = documents.map((document, index) => episodeView(document, {
@@ -110,7 +120,7 @@ export function createUserMemoryRouter(
 			}, { text: pending.content, facts: [], status: pendingStatus, goals, workspaceDir }));
 		}
 		episodes.sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
-		return { goal: episodes.filter((item) => !item.global), global: episodes.filter((item) => item.global) };
+		return { goal: episodes.filter((item) => !item.global), global: episodes.filter((item) => item.global), observations };
 	}));
 
 	router.patch("/api/goals/:goalId/memory/facts/:factId", (req, res) => route(res, req.params.goalId, async (goalTag) => {
