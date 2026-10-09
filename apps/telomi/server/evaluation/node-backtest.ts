@@ -763,7 +763,7 @@ export class NodeBacktestService {
 		const value = readNodeEvaluationCase(casePath, sourceRunDirectory);
 		const entries: Array<NodeBacktestCaseFile & { absolutePath: string }> = [];
 		const addDirectory = (
-			refPrefix: "input" | "output" | "run" | "terminal",
+			refPrefix: "input" | "output" | "run" | "terminal" | "case",
 			root: string,
 			directoryRef: string,
 			kind: string | ((relativePath: string) => string | undefined),
@@ -847,6 +847,12 @@ export class NodeBacktestService {
 				if (directory.root === "run" && existsSync(join(sourceRunDirectory, directory.ref))) {
 					addDirectory("run", sourceRunDirectory, directory.ref, scheduleReviewCaseTraceKind);
 				}
+			}
+		}
+		if (value.agentId === "prime-investigation" && value.recipe.version === 2) {
+			for (const directory of value.observed.traceDirectories ?? []) {
+				const root = directory.root === "case" ? caseDirectory : sourceRunDirectory;
+				if (existsSync(join(root, directory.ref))) addDirectory(directory.root, root, directory.ref, "investigation_evidence");
 			}
 		}
 		// 失败或取消的 Capture 没有 Observed 输出，终态 Workspace 就是它的恢复证据。
@@ -1460,6 +1466,15 @@ function inspectPartialReplay(input: {
 	durationMs: number;
 	refs: NodeExecutionRefs;
 } {
+	const liveUsage = join(input.recordDirectory, "live-output/runtime/usage-summary.json");
+	if (input.agentId === "prime-investigation" && existsSync(liveUsage)) {
+		const summary = JSON.parse(readFileSync(liveUsage, "utf8")) as { scope?: string; usage?: { inputTokens: number; outputTokens: number; costUsd: number; calls: number }; toolCalls?: number };
+		if (summary.scope !== "live-investigation" || !summary.usage
+			|| Object.values(summary.usage).some(value => typeof value !== "number" || !Number.isFinite(value) || value < 0)
+			|| !Number.isInteger(summary.usage.calls) || !Number.isInteger(summary.toolCalls) || summary.toolCalls! < 0) throw new Error("Live Investigation partial usage is invalid");
+		return { usage: summary.usage, toolCalls: summary.toolCalls!, durationMs: Date.now() - input.startedAt,
+			refs: { investigationUsage: "live-output/runtime/usage-summary.json" } };
+	}
 	const jsonlFiles = input.agentId === "provider-child"
 		? [join(input.recordDirectory, "runtime/trace.jsonl")].filter(existsSync)
 		: existsSync(input.recordDirectory)
@@ -1952,6 +1967,7 @@ function projectFrozenRun(run: NodeBacktestRun, runDirectory: string): NodeBackt
 			...(run.agentId === "report-writer" ? reportWriterTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "podcast-writer" ? podcastWriterTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "main-agent" ? mainAgentTraceRefs(runDirectory, execution) : {}),
+			...(run.agentId === "prime-investigation" ? liveInvestigationTraceRefs(runDirectory, execution) : {}),
 			...(run.agentId === "wiki-compilation" ? wikiCompilationTraceRefs(runDirectory, execution) : {}),
 		}).filter((entry): entry is [string, string] => Boolean(entry[1])));
 	const activeExecution = projectCandidateActiveExecution(run, runDirectory, executionRefs);
@@ -2109,21 +2125,49 @@ function podcastWriterTraceRefs(
 	};
 }
 
-function mainAgentTraceRefs(
+export function mainAgentTraceRefs(
 	runDirectory: string,
 	execution: { id: string },
 ): NodeExecutionRefs {
 	const traceRoot = join(runDirectory, "executions", execution.id, "main-agent-trace");
-	if (!existsSync(traceRoot)) return {};
+	const evidenceRoot = join(runDirectory, "executions", execution.id, "main-agent-evidence");
+	const evidence = existsSync(evidenceRoot) ? listFilesRecursive(evidenceRoot, { absolute: true, strict: true }) : [];
 	const relativeRef = (name: string) => relative(runDirectory, join(traceRoot, name)).split(sep).join("/");
 	const ref = (name: string) => existsSync(join(traceRoot, name)) ? relativeRef(name) : undefined;
 	return {
+		...Object.fromEntries(evidence.map((path, index) => [`mainDescendantEvidence${index + 1}`,
+			relative(runDirectory, path).split(sep).join("/")])),
 		...(ref("main-agent.jsonl") ? { agentTrace: ref("main-agent.jsonl") } : {}),
 		...(ref("runtime--main.jsonl") ? { runtimeTrace: ref("runtime--main.jsonl") } : {}),
 		...(ref("route-trace.json") ? { routeDecision: ref("route-trace.json") } : {}),
 		...(ref("publication.json") ? { publication: ref("publication.json") } : {}),
 		...(ref("session.json") ? { session: ref("session.json") } : {}),
 	};
+}
+
+/** The v2 Case owns its sanitized evidence so normal Case Bundle export remains self-contained. */
+export function liveInvestigationTraceRefs(runDirectory: string, execution: { id: string }): NodeExecutionRefs {
+	const executionRoot = join(runDirectory, "executions", execution.id);
+	const casesRoot = join(executionRoot, "node-evaluation/cases");
+	if (!existsSync(casesRoot)) return {};
+	const refs: NodeExecutionRefs = {};
+	for (const entry of readdirSync(casesRoot, { withFileTypes: true })) {
+		if (!entry.isDirectory()) continue;
+		const root = join(casesRoot, entry.name), manifest = join(root, "manifest.json");
+		if (!existsSync(manifest)) continue;
+		const value = JSON.parse(readFileSync(manifest, "utf8")) as NodeEvaluationCase;
+		if (value.agentId !== "prime-investigation" || value.recipe.version !== 2) continue;
+		if (value.observed.trace?.root === "case") refs.agentTrace = relative(runDirectory, join(root, value.observed.trace.ref)).split(sep).join("/");
+		const evidence = join(root, "investigation-evidence");
+		if (existsSync(evidence)) for (const [index, path] of listFilesRecursive(evidence, { absolute: true, strict: true }).entries()) {
+			refs[`investigationDescendantEvidence${index + 1}`] = relative(runDirectory, path).split(sep).join("/");
+		}
+		for (const name of ["execution.json", "usage-summary.json"]) {
+			const file = join(executionRoot, "live-output/runtime", name);
+			if (existsSync(file)) refs[name === "execution.json" ? "investigationExecution" : "investigationUsage"] = relative(runDirectory, file).split(sep).join("/");
+		}
+	}
+	return refs;
 }
 
 /** Only the sanitized capture tree is exposed after settlement; live reads use stage contracts. */

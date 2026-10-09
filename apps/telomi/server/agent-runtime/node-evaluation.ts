@@ -431,6 +431,8 @@ export function finishNodeEvaluationCase(
 		status: "succeeded" | "failed" | "cancelled";
 		workDirectory: string;
 		result?: ValidatedStageArtifact<unknown>;
+		/** Actual native system prompt, available only after SDK session creation. */
+		composedSystemPrompt?: string;
 		/** Session Trace for a failed stage that has no validated result artifact. */
 		sessionPath?: string;
 		validationErrors: readonly string[];
@@ -510,6 +512,8 @@ export function finishNodeEvaluationCase(
 			...draft.base,
 			request: {
 				...draft.base.request,
+				...(input.composedSystemPrompt !== undefined ? { composedSystemPrompt:
+					writeCaseFile(draft.caseDirectory, "effective-system-prompt.txt", input.composedSystemPrompt) } : {}),
 				...(interactions ? { interactions } : {}),
 			},
 			status: input.status,

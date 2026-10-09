@@ -73,6 +73,15 @@ try {
 		assert.match(report.userPrompt, /2025-01-03/u, "Candidate must retain historical date rather than the current date");
 	}
 	const investigation = renderCapturedCandidatePrompts(promptCase("prime-investigation", {}), root);
+	const originalProfile = process.env.TELOMI_INVESTIGATION_REPLAY_PROFILE;
+	try {
+		process.env.TELOMI_INVESTIGATION_REPLAY_PROFILE = "pi_builtin";
+		assert.deepEqual(renderCapturedCandidatePrompts(promptCase("prime-investigation", {}), root), investigation,
+			"v1 frozen coordination does not inherit the v2 execution profile");
+	} finally {
+		if (originalProfile === undefined) delete process.env.TELOMI_INVESTIGATION_REPLAY_PROFILE;
+		else process.env.TELOMI_INVESTIGATION_REPLAY_PROFILE = originalProfile;
+	}
 	assert.equal(investigation.systemPrompt, "");
 	assert.ok(investigation.userPrompt.startsWith(renderAgentPrompt("research", "prime-search", "user", {
 		run_input_json: JSON.stringify({ request_ref: "inputs/request.json" }),

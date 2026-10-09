@@ -12,6 +12,7 @@ export type ReportSandboxRole = (typeof REPORT_SANDBOX_ROLES)[number];
 export type SandboxRole =
 	| "main.goal_agent"
 	| "evolution.candidate_author"
+	| "research.investigation"
 	| "wiki.object_builder"
 	| ReportSandboxRole;
 
@@ -55,6 +56,7 @@ const ROLE_NAMES = new Set<SandboxRole>([
 	"main.goal_agent",
 	"evolution.candidate_author",
 	"wiki.object_builder",
+	"research.investigation",
 	...REPORT_SANDBOX_ROLES,
 ]);
 const REPORT_ROLE_NAMES = new Set<SandboxRole>(REPORT_SANDBOX_ROLES);
@@ -197,9 +199,9 @@ export function parseSandboxExecutionSpec(value: unknown): SandboxExecutionSpec 
 	if (activeTools.includes("bash") && writablePaths.some((rule) => rule.kind === "file")) {
 		throw new Error("bash sandboxes cannot rely on file-only write rules; use a dedicated read-write mount");
 	}
-	if (REPORT_ROLE_NAMES.has(role) || role === "wiki.object_builder") {
+	if (REPORT_ROLE_NAMES.has(role) || role === "wiki.object_builder" || role === "research.investigation") {
 		if (guestCwd !== "/work") throw new Error(`sandbox role ${role} requires guestCwd /work`);
-		if (role === "report.note_agent" || role === "wiki.object_builder") {
+		if (role === "report.note_agent" || role === "wiki.object_builder" || role === "research.investigation") {
 			if (networkRecord.mode !== "deny") throw new Error(`sandbox role ${role} requires denied network`);
 		} else if (networkRecord.mode !== "allow") {
 			throw new Error(`sandbox role ${role} requires open network`);
