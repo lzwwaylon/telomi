@@ -28,6 +28,7 @@ import { evolutionReplayRecipe } from "./evolution-replay.js";
 import { liveProviderChildReplayRecipe } from "./provider-child-replay.js";
 import { livePrimeSearchReplayRecipe } from "./prime-search-replay.js";
 import { investigationReplayRecipe, withInvestigationNodeCapture } from "./investigation-replay.js";
+import { liveInvestigationReplayRecipe } from "./investigation-live-replay.js";
 import { podcastWriterReplayRecipe } from "./podcast-replay.js";
 import { scheduleReviewerReplayRecipe, runScheduleReviewNodeEvaluation } from "./schedule-review-replay.js";
 import { wikiCompilationReplayRecipe, runWikiCompilationNodeEvaluation, runWikiReindexNodeEvaluation } from "./wiki-compilation-node-replay.js";
@@ -87,6 +88,7 @@ export function createOperationsRuntime(options: {
 			createMainAgentReplayRecipe(),
 			livePrimeSearchReplayRecipe,
 			investigationReplayRecipe,
+			liveInvestigationReplayRecipe,
 			liveProviderChildReplayRecipe,
 			podcastWriterReplayRecipe,
 			scheduleReviewerReplayRecipe,

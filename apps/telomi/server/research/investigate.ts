@@ -18,7 +18,8 @@ import { isRecord, toErrorMessage } from "../lib/values.js";
 import { publish } from "../events/event-bus.js";
 import { appendNodeExecutionRecord, appendRuntimeContext } from "../observability/run-records.js";
 import { serverRuntimeDirForGoalDir } from "../workspaces/server-runtime-paths.js";
-import { caseCapture } from "../observability/case-capture.js";
+import { caseCapture, type CaseCaptureHooks } from "../observability/case-capture.js";
+import { runPiInvestigation } from "./pi-investigation.js";
 import { snapshotWikiEdition as snapshotInvestigationKnowledge } from "../wiki/editions.js";
 export { snapshotWikiEdition as snapshotInvestigationKnowledge } from "../wiki/editions.js";
 import { createGoalLlmWikiTools } from "../wiki/tools.js";
@@ -56,6 +57,10 @@ export function readInvestigationResult(goalDir: string, id: string): Investigat
 
 /** Main's local question returns only after Prime's answer and every new Cue are durable. */
 export async function executeInvestigation(input: {
+	/** Evaluation replaces only Root capture; downstream production execution stays intact. */
+	captureOverride?: CaseCaptureHooks["investigation"];
+	/** Pi is an explicit evaluation profile, never the production default. */
+	executionProfile?: "prime_ipython" | "pi_builtin";
 	goalDir: string;
 	goalId: string;
 	invocationId: string;
@@ -71,6 +76,11 @@ export async function executeInvestigation(input: {
 	/** Verified Reader evidence is durable before this notification. */
 	onCuesPersisted?: (origin: { invocationId: string; investigationId: string; threadId: string }) => void;
 }): Promise<InvestigationResult> {
+	const executionProfile = input.executionProfile ?? "prime_ipython";
+	if (executionProfile !== "prime_ipython" && executionProfile !== "pi_builtin") throw new Error("Invalid investigation execution profile");
+	if (executionProfile === "pi_builtin" && (input.env?.TELOMI_EVAL_INSTANCE ?? process.env.TELOMI_EVAL_INSTANCE) !== "1") {
+		throw new Error("Pi Investigation is available only in an evaluation instance");
+	}
 	const question = input.question.trim();
 	if (!question || question.length > 20_000) throw new Error("Investigation requires a question of at most 20000 characters");
 	const context = input.context?.trim() ?? "";
@@ -194,7 +204,7 @@ export async function executeInvestigation(input: {
 	const env = pinTaskModelSelection(["primeRoot", "primeChild"], { ...process.env, ...input.env });
 	const prompt = renderAgentPrompt("research", "prime-search", "user", {
 		run_input_json: JSON.stringify({ request_ref: "inputs/request.json" }),
-	}, "investigate").content;
+	}, executionProfile === "prime_ipython" ? "investigate" : "investigate-pi").content;
 	writeFileSync(join(runDir, "prompt.md"), prompt);
 	const bridge = await startPrimeSourceBridge(new ResearchSourceRegistry(), new Set(), {
 		workspaceDirectory: root,
@@ -328,7 +338,7 @@ export async function executeInvestigation(input: {
 	let failure: string | undefined;
 	try {
 		const execute = async (): Promise<InvestigationResult> => {
-		const run = await runPrime({
+		const run = executionProfile === "prime_ipython" ? await runPrime({
 			module: primeAgentModulePath(env), cwd: root, runtimeRoot,
 			readonlyRoots: [sdkRoot, skillRoot, inputsRoot], privateRoots: [input.goalDir],
 			sessionDir: join(runtimeRoot, "session", "session"),
@@ -342,6 +352,10 @@ export async function executeInvestigation(input: {
 			activity: { stageId: "prime-investigation", attemptId: "1", role: "prime_search" },
 			tracePath, conditionsPath: join(runDir, "execution-conditions.jsonl"),
 			launchKind: "local_investigation",
+		}) : await runPiInvestigation({
+			cwd: root, runtimeRoot, sessionDir: join(runtimeRoot, "session", "session"),
+			provider: model.provider, model: model.modelId, prompt, thinking, bridge,
+			env, signal, onActivity, tracePath, conditionsPath: join(runDir, "execution-conditions.jsonl"),
 		});
 		captureMetrics.usage = run.usage;
 		captureMetrics.toolCalls = run.toolCalls;
@@ -385,7 +399,7 @@ export async function executeInvestigation(input: {
 		writeJsonAtomic(savedPath, result);
 		return result;
 		};
-		const capture = caseCapture()?.investigation;
+		const capture = input.captureOverride ?? caseCapture()?.investigation;
 		const result = capture ? await capture({ goalDir: input.goalDir, goalId: input.goalId, runDir,
 			question, context, language, allowExternal, wikiSha256, model: model.selector, thinking, metrics: captureMetrics,
 			handoffMode: "file", threadId: thread.threadId, execute }) : await execute();

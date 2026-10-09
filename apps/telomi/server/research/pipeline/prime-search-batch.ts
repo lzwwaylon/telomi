@@ -4,6 +4,7 @@ import { primeExecutionToken } from "../../../../extensions/telomi-srt/prime-wor
 import { effectiveProviderWorkerSkills } from "../../agent-runtime/provider-skills.js";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
+import { isDeepStrictEqual } from "node:util";
 import {
 	appendFileSync,
 	copyFileSync,
@@ -1604,12 +1605,9 @@ export async function startPrimeSourceBridge(
 					: `${providerLabel} 本轮已停止重试`,
 		});
 	};
+	const investigationRequests = new Map<string, { request: unknown; result: Promise<unknown> }>();
 	const server = createServer(async (incoming, response) => {
 		response.setHeader("content-type", "application/json");
-		const handoff = (operation: string, value: unknown) => {
-			response.end(JSON.stringify(options.investigation?.responseMode === "inline" ? value
-				: publishInvestigationHandoff(artifactWorkspace, operation, value)));
-		};
 		const route = incoming.url ?? "";
 		if (incoming.method !== "POST" || !BRIDGE_ROUTES.has(route)) {
 			response.statusCode = 404;
@@ -1636,21 +1634,35 @@ export async function startPrimeSourceBridge(
 				&& primeProviderSubmission(artifactWorkspace, executionId)) throw new ResearchNodeError("This child already submitted its final Ledger. Ask Root to create a new bounded task for further acquisition.", "permanent", false, { code: "provider_task_completed" });
 			if (options.investigation) {
 				if (executionId !== "root") throw new Error("Investigation Tools are available only to the Search Root");
+				const requestId = process.env.TELOMI_EVAL_INSTANCE === "1" ? body.request_id : undefined;
+				if (requestId !== undefined && (typeof requestId !== "string" || !requestId.trim() || requestId.length > 512)) {
+					throw new Error("Invalid investigation request ID");
+				}
+				const handoff = async (operation: string, execute: () => Promise<unknown>) => {
+					const request = { route, body };
+					const previous = requestId ? investigationRequests.get(requestId) : undefined;
+					if (previous && !isDeepStrictEqual(previous.request, request)) throw new Error("Investigation request ID belongs to different work");
+					// Retrying a lost response joins the same work and receives its original integrity receipt.
+					const result = previous?.result ?? Promise.resolve().then(execute).then(value =>
+						options.investigation?.responseMode === "inline" ? value : publishInvestigationHandoff(artifactWorkspace, operation, value));
+					if (requestId && !previous) investigationRequests.set(requestId, { request: structuredClone(request), result });
+					response.end(JSON.stringify(await result));
+				};
 				if (route === "/v1/wiki" && options.investigation.wikiTool) {
 					const operation = requiredString(body.operation, "Wiki operation");
 					if (!["wiki_list_topics", "wiki_search", "wiki_read_page"].includes(operation)) throw new Error(`Unsupported Wiki operation '${operation}'`);
-					handoff(operation, await options.investigation.wikiTool(operation, wikiToolArguments(operation, body)));
+					await handoff(operation, () => options.investigation!.wikiTool!(operation, wikiToolArguments(operation, body)));
 					return;
 				}
 				if (route === "/v1/knowledge-search") {
-					handoff("knowledge_search", await options.investigation.knowledgeSearch(
+					await handoff("knowledge_search", () => options.investigation!.knowledgeSearch(
 						requiredString(body.query, "Knowledge query"),
 						positiveInteger(body.limit, "Knowledge search limit", 20),
 					));
 					return;
 				}
 				if (route === "/v1/read-sources") {
-					handoff("read_sources", await options.investigation.readSources(requiredString(body.question, "Note Reading question")));
+					await handoff("read_sources", () => options.investigation!.readSources(requiredString(body.question, "Note Reading question")));
 					return;
 				}
 				if (route === "/v1/write-answer" && options.investigation.writeAnswer) {
@@ -1660,24 +1672,25 @@ export async function startPrimeSourceBridge(
 							|| new Set(value).size !== value.length) throw new Error(`Invalid ${label}`);
 						return value as string[];
 					};
-					handoff("write_answer", await options.investigation.writeAnswer(
+					await handoff("write_answer", () => options.investigation!.writeAnswer!(
 						strings(body.evidence_refs, "answer evidence refs", 256, true),
 						strings(body.requirements, "answer requirements", 50, false),
 					));
 					return;
 				}
 				if (route === "/v1/external-search" && options.investigation.externalSearch) {
-					handoff("external_search", await options.investigation.externalSearch(requiredString(body.question, "External search question")));
+					await handoff("external_search", () => options.investigation!.externalSearch!(requiredString(body.question, "External search question")));
 					return;
 				}
 				if (route === "/v1/github-read" && options.investigation.githubRead) {
 					if (!Array.isArray(body.paths) || body.paths.some((path) => typeof path !== "string")) {
 						throw new Error("GitHub paths must be strings");
 					}
-					handoff("github_read", await options.investigation.githubRead(
+					const paths = body.paths;
+					await handoff("github_read", () => options.investigation!.githubRead!(
 						requiredString(body.question, "GitHub reading question"),
 						requiredString(body.repository, "GitHub repository"),
-						requiredString(body.ref, "GitHub ref"), body.paths));
+						requiredString(body.ref, "GitHub ref"), paths));
 					return;
 				}
 				throw new Error("This investigation cannot access external Providers");

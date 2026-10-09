@@ -6,6 +6,7 @@ import { renderMainAgentPrompt, type MainAgentPromptContext } from "../main-agen
 import type { NodeEvaluationCase } from "../agent-runtime/node-evaluation.js";
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import { isRecord } from "../lib/values.js";
+import { liveInvestigationPrompts } from "./investigation-live-contract.js";
 import { buildNoteReadingTaskPrompt } from "../research/note-reading.js";
 import { renderNoteAgentSystemPrompt, renderNoteAgentUserPrompt } from "../research/pipeline/note-agent-prompt.js";
 import { buildWikiReportWriterSystemPrompt, buildNotesReportWriterSystemPrompt,
@@ -20,6 +21,7 @@ export function renderCapturedCandidatePrompts(value: CandidatePromptInput, sour
 	systemPrompt: string; userPrompt: string;
 } {
 	if (value.agentId === "prime-investigation") {
+		if (isRecord(value.recipeInput) && value.recipeInput.mode === "live-investigation") return liveInvestigationPrompts();
 		const prompt = renderAgentPrompt("research", "prime-search", "user", {
 			run_input_json: JSON.stringify({ request_ref: "inputs/request.json" }),
 		}, "investigate").content;

@@ -3,6 +3,8 @@ id: prime-search
 display_name: Search Root
 skills: [note-investigation]
 prompts:
+  system:
+    investigate-pi: system.investigate-pi.md.njk
   system-append:
     scheduled: system-append.scheduled.md.njk
   user:
@@ -10,3 +12,4 @@ prompts:
     acquire: user.acquire.md.njk
     organize: user.organize.md.njk
     investigate: user.investigate.md.njk
+    investigate-pi: user.investigate-pi.md.njk

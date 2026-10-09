@@ -1,5 +1,5 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
@@ -13,6 +13,8 @@ import { FileIngestService } from "../ingestion/service.js";
 import { captureMainAgentNodeEvaluation } from "./main-agent-evaluation.js";
 import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import { sha256 } from "../lib/hash.js";
+import { toErrorMessage } from "../lib/values.js";
+import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import { getResearchSourceServiceClient } from "../providers/source-service-client.js";
 import {
 	goalTopicDocumentFromPlan,
@@ -117,6 +119,7 @@ async function replayMainAgentCase(
 			fileIngestService,
 		);
 		let nativeRunDirectory: string | undefined;
+		let executionError: unknown;
 		try {
 			let terminal;
 			let nativeMessages: GoalSnapshot["messages"] = [];
@@ -186,10 +189,61 @@ async function replayMainAgentCase(
 				turns: latest.lastRunUsage?.assistantMessageCount ?? 0,
 				toolCalls,
 			};
+		} catch (error) {
+			executionError = error;
+			throw error;
 		} finally {
+			try { retainMainAgentReplayEvidence({ workspaceDirectory, goalId, recordDirectory }); }
+			catch (error) {
+				throw new AggregateError([executionError, error].filter(value => value !== undefined),
+					`Main Replay evidence retention failed: ${toErrorMessage(error)}${executionError === undefined ? "" : `; execution failed: ${toErrorMessage(executionError)}`}`);
+			}
 			// The nested Replay workspace is disposable and never the product workspace.
 			rmSync(workspaceDirectory, { recursive: true, force: true });
 		}
+}
+
+/** Preserve descendants before cleanup, including failed calls, without publishing SDK credentials. */
+export function retainMainAgentReplayEvidence(input: {
+	workspaceDirectory: string;
+	goalId: string;
+	recordDirectory: string;
+	evidenceDirectoryName?: "main-agent-evidence" | "investigation-evidence";
+}): void {
+	const goalRoot = join(input.workspaceDirectory, input.goalId);
+	const goalStat = lstatSync(goalRoot, { throwIfNoEntry: false });
+	if (!goalStat?.isDirectory() || goalStat.isSymbolicLink()) throw new Error("Main Replay evidence requires its isolated Goal directory");
+	const store = new RunArtifactStore(join(input.recordDirectory, input.evidenceDirectoryName ?? "main-agent-evidence"));
+	const files: Array<{ relativePath: string; sha256: string; byteLength: number }> = [];
+	const copy = (root: string, prefix: string, runtime: boolean): void => {
+		if (!existsSync(root)) return;
+		const visit = (path: string): void => {
+			const rel = relative(root, path).split(sep).join("/");
+			const parts = rel.split("/");
+			if (runtime && (parts.some((part) => [".prime-kernel", ".git", "node_modules", "credentials"].includes(part))
+				|| /(?:^|\/)runtime\/(?:agent|home|sdk)(?:\/|$)/u.test(rel)
+				|| /(?:^|\/)(?:sdk|skills)(?:\/|$)/u.test(rel)
+				|| /(?:^|\/)(?:sdk-input|auth|models|settings)\.json$/u.test(rel)
+				|| parts.some((part) => part === ".env" || part.startsWith(".env.")))) return;
+			const stat = lstatSync(path);
+			if (stat.isSymbolicLink()) throw new Error("Main Replay evidence must not contain symlinks");
+			if (stat.isDirectory()) {
+				for (const name of readdirSync(path).sort()) visit(join(path, name));
+			} else if (stat.isFile()) {
+				if (runtime && !rel.endsWith(".jsonl") && !/(?:prompt|\.system-prompt)\.(?:md|txt|json)$/u.test(rel)
+					&& !/(?:^|\/)(?:request|result|citations|thread-binding|.*\.sessions|execution-conditions|workspace-capture|model-metadata|tool-definitions|mounted-skills|failure|accepted-result|submitted-result|checkpoint|receipts)\.json$/u.test(rel)
+					&& !parts.some(part => ["input", "inputs", "work", "decisions", "artifacts", "logical-workspaces", "node-evaluation", "research-sources", "sources"].includes(part))) return;
+				const artifact = store.publishFile(path, `${prefix}/${rel}`);
+				files.push({ relativePath: artifact.relativePath, sha256: artifact.sha256, byteLength: artifact.byteLength });
+			} else throw new Error("Main Replay evidence must contain only regular files");
+		};
+		visit(root);
+	};
+	for (const name of ["wiki", "artifacts", "reports"]) copy(join(goalRoot, name), `goal/${name}`, false);
+	copy(join(serverRuntimeDirForGoal(input.goalId, input.workspaceDirectory), "research"), "research", true);
+	copy(join(goalRoot, ".pi", "runtime", "note-reading"), "note-reading", true);
+	store.publishText(`${JSON.stringify({ schema_version: 1, goal_id: input.goalId, goal_root: "goal",
+		research_root: "research", note_reading_root: "note-reading", files }, null, 2)}\n`, "manifest.json");
 }
 
 export async function prepareMainAgentReplayGoalWorkspace(input: {
@@ -199,17 +253,20 @@ export async function prepareMainAgentReplayGoalWorkspace(input: {
 	harnessWorkspaceDirectory: string;
 	workspaceDirectory: string;
 	goalId: string;
+	frozenGoalDirectory?: string;
 }): Promise<string> {
 	const goalDirectory = join(input.workspaceDirectory, input.goalId);
 	rmSync(input.workspaceDirectory, { recursive: true, force: true });
 	mkdirSync(goalDirectory, { recursive: true });
-	const bundledInput = join(input.sourceRunDirectory, "workspace", "input");
+	const bundledInput = input.frozenGoalDirectory ?? join(input.sourceRunDirectory, "workspace", "input");
 	if (existsSync(bundledInput)) {
 		cpSync(bundledInput, goalDirectory, { recursive: true, force: true });
 	} else if (input.value.workspace?.input_tree_sha) {
 		await getResearchSourceServiceClient().restoreTree(input.value.workspace.input_tree_sha, goalDirectory);
-	}
-	cpSync(input.harnessWorkspaceDirectory, goalDirectory, { recursive: true, force: true });
+	} else throw new Error("Main Replay requires its frozen pre-turn Goal tree");
+	// Wiki is business input, not a Candidate capability; never replace it with later captured state.
+	if (!input.frozenGoalDirectory) cpSync(input.harnessWorkspaceDirectory, goalDirectory, { recursive: true, force: true,
+		filter: (path) => relative(input.harnessWorkspaceDirectory, path).split(sep)[0] !== "wiki" });
 	// Thread identities and evidence stay frozen; only their owning Goal maps to this isolated Replay.
 	const threadsDirectory = join(goalDirectory, "artifacts", "investigation-threads");
 	if (existsSync(threadsDirectory)) {
