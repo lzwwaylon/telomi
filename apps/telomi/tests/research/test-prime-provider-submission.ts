@@ -34,7 +34,16 @@ try {
 	await assert.rejects(contracts.submitProviderCandidateLedger(root, child, "arxiv"),
 		(error: unknown) => (error as { code?: string }).code === "provider_scope_mismatch");
 	assert.equal(readFileSync(join(root, ".runtime/provider-bindings", child), "utf8"), "github\n");
+	// A child that rewrites its Ledger file and calls finish again after submitting changes nothing: Runtime restores the submitted contents.
 	const frozen = readFileSync(receipt.ledger_path);
+	writeFileSync(join(work, "github_candidates.json"), "{}");
+	await assert.rejects(submit(), (error: unknown) => {
+		const failure = error as { code?: string; message?: string };
+		return failure.code === "provider_task_completed" && /already submitted and final; Runtime restored the submitted file/u.test(failure.message ?? "");
+	});
+	assert.deepEqual(readFileSync(join(work, "github_candidates.json")), frozen, "finish after a rewrite restores the submitted file");
+	await submit();
+	// A change nobody resubmitted is still detected where the stage reads its submissions.
 	writeFileSync(join(work, "github_candidates.json"), '{"candidates":[]}\n');
 	assert.throws(() => contracts.primeProviderSubmission(root, child), (error: unknown) =>
 		(error as { code?: string }).code === "candidate_ledger_modified_after_submission");

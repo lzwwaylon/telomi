@@ -346,7 +346,8 @@ The `github` source exposes these read-only and download operations:
 
 - `search_repositories`, `get_repository`, and `search_code`
 - `search_issues` and `get_issue`, including complete Issue comments
-- `clone_repository`, `download_release`, and `download_file`
+- `clone_repository`, `download_release`, `download_file`, and `download_readme` (the repository's preferred README,
+  whatever its file name)
 
 Downloads are materialized only below the assigned workspace. Repository clones
 default to depth 1 and omit blobs larger than 1 MB, so model weights and datasets

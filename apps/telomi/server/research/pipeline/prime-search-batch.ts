@@ -59,6 +59,8 @@ import { resolveDataDir } from "../../config/data-dir.js";
 import { hashJson, sha256, stableJson } from "../../lib/hash.js";
 import { materializeProviderSdkAssets, renderProviderApiReference, resolveWorkerPythonTool } from "../provider-sdk-assets.js";
 import { readProviderCallRecords, type ProviderCallRecord, type ProviderCallRecorder } from "../../providers/provider-call-record.js";
+import { modelWindowReviewer, parseReviewRecords, type WindowReviewer } from "./pool-review.js";
+import { SCREENED_PROVIDERS, registerEvidenceNeed, resolveAssignmentKind, reviewAuditHasPool, reviewAuditPath, type AssignmentKind, type ReviewPool } from "./prime-search-contract.js";
 import { ProviderOverloadBudget, type ProviderOverloadState } from "../sources/provider-runtime.js";
 import type { ResearchSourceRegistry } from "../sources/registry.js";
 import { publishInvestigationHandoff } from "../investigation-handoff.js";
@@ -97,7 +99,7 @@ import {
 	readAcceptedPrimeOrganizerIndex,
 	validatePrimeSearchCandidateLedger,
 } from "./prime-search-contract.js";
-import { preserveProviderChildTasks, providerExecutionWorkspace } from "./provider-execution-workspace.js";
+import { firstParentTask, preserveProviderChildTasks, providerExecutionWorkspace } from "./provider-execution-workspace.js";
 import { materializeBrowserSource, parseMaterializeSource } from "./browser-materialize.js";
 import { assertBrowserToolChild, browserToolClientConfigFromEnv, executeBrowserTool, type BrowserToolClientConfig } from "../../providers/browser/tool-router.js";
 import { providerToolRuntime } from "./provider-tool-runtime.js";
@@ -183,18 +185,18 @@ export function primeSearchBatchContractIdentity(
 	const models = resolvePrimeAgentModels(env, settingsOverride);
 	return {
 		id: "prime-search-batch",
-		version: 67,
+		version: 68,
 		rootModel: models.root.selector,
 		childModel: models.child.selector,
 		thinkingLevel: primeSearchRootThinking(env, settingsOverride),
 		autoRefine: PRIME_AUTO_REFINE_ENABLED,
 		autonomous: PRIME_AUTONOMOUS_CONFIG.enabled,
 		executionAdapter: "prime-sdk-rlm-quiescence-v2",
-		candidateLedgerValidation: "hmac-python-finish-candidate-materials-v8-final-receipt",
+		candidateLedgerValidation: "hmac-python-finish-candidate-materials-v14-evidence-need-discovery-pool-audit-final-receipt",
 		providerWorkerSkills: "catalog-declared-bundled-skill-with-goal-override",
 		organizerWorkspace: "metadata-only-ipython-no-rlm",
 		promptBundle: {
-		acquisition: "root-web-native-provider-children-python-finish-v53",
+		acquisition: "root-web-native-provider-children-python-finish-v56",
 			organizer: "incremental-source-group-patch-runtime-acceptance-v8",
 		},
 		schema: {
@@ -248,6 +250,9 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 		mkdirSync(join(root, ".runtime"), { recursive: true });
 		mkdirSync(join(root, "work"), { recursive: true });
 		copyTaskContext(join(root, "inputs"), request.taskContextFile);
+		// The question as this stage received it, beside the context: Provider children read it there, so the
+		// user's scope reaches them as written and not only through the task Root composes.
+		writeFileAtomic(join(root, "inputs", "request.json"), `${JSON.stringify({ question: request.question, context_ref: "inputs/context.md" }, null, 2)}\n`);
 		const workspace = Object.assign(request.workspaceSnapshot ?? emptyWorkspaceSnapshot(), {
 			input_tree_source: "empty-work-dir" as const,
 		});
@@ -340,6 +345,8 @@ export class PrimeSearchBatchExecutor implements SearchBatchExecutor {
 				{
 					...(browserBridgeConfig ? { browser: { config: browserBridgeConfig, root } } : {}),
 					conditionsPath: join(runtimeRoot, "execution-conditions.jsonl"),
+					reviewWindow: modelWindowReviewer(resolvePrimeAgentModels(this.env).child.selector),
+					childTask: (childId) => firstParentTask(join(runtimeRoot, "acquisition-session", "session-artifacts", childId)),
 				},
 			);
 			const models = resolvePrimeAgentModels(this.env);
@@ -627,6 +634,7 @@ function primeSearchRunContract() {
 				metadata: {},
 				materials: ["Provider Tool result record; CandidateLedger derives Runtime-owned paths"],
 			}],
+			discovery: "written by CandidateLedger, never by hand: the discovery pools this child built",
 		},
 		materialPolicy: "Acquire original material when supported and pass Provider Tool result records to CandidateLedger. Never copy, rename, group, or author material paths; Runtime owns storage and derives each Candidate's artifacts.",
 	};
@@ -1493,6 +1501,14 @@ export function primeProviderAccess(
 export interface PrimeBridgeOptions {
 	/** Runtime Browser Tool bridge for this scope plus the stage root the material paths resolve against. */
 	browser?: { config: BrowserToolClientConfig; root: string };
+	/** Screens one window of discovery pool records in a fresh model context against the child's task. */
+	reviewWindow?: WindowReviewer;
+	/**
+	 * The task Root handed a Provider child, read from a place the child cannot write. When present, Runtime
+	 * records each child's Evidence Need kind from it, and the screen judges records against this text rather
+	 * than against anything the child wrote.
+	 */
+	childTask?: (childId: string) => string | undefined;
 	/** Where skill-read receipts are appended (the stage's execution-conditions.jsonl). */
 	conditionsPath?: string;
 	/** Question investigation operations, scoped to this Root and its Goal. */
@@ -1511,6 +1527,9 @@ export interface PrimeBridgeOptions {
 
 const BRIDGE_ROUTES = new Set([
 	"/v1/finish",
+	"/v1/evidence-need",
+	"/v1/review-pool",
+	"/v1/review-window",
 	"/v1/search",
 	"/v1/root-search",
 	"/v1/browser",
@@ -1524,6 +1543,34 @@ const BRIDGE_ROUTES = new Set([
 	"/v1/external-search",
 	"/v1/github-read",
 ]);
+
+/** One discovery call of a child; its audit lines name the same token. */
+function reviewAttempt(value: unknown): string {
+	if (typeof value !== "string" || !/^[a-z0-9]{1,24}$/u.test(value)) throw new Error("attempt must be a short lowercase token");
+	return value;
+}
+
+const MAX_POOL_RECORDS = 2_000;
+
+/** The pool a child's discovery call posts: its definition, every record with its machine exclusion, and the bounds. */
+function reviewPool(body: Record<string, unknown>, screened: boolean): ReviewPool {
+	const definition = isRecord(body.definition) ? body.definition : {};
+	const terms = (value: unknown, label: string) => {
+		if (!Array.isArray(value) || value.length > 64 || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 500)) throw new Error(`definition.${label} must be a list of strings`);
+		return value as string[];
+	};
+	const bound = (value: unknown, label: string) => value === undefined || value === null ? null : positiveInteger(value, label, MAX_POOL_RECORDS);
+	if (!Array.isArray(body.records) || body.records.length > MAX_POOL_RECORDS) throw new Error(`records must hold at most ${MAX_POOL_RECORDS} entries`);
+	const ids = new Set<string>();
+	const records = body.records.map((entry, index) => {
+		if (!isRecord(entry) || typeof entry.id !== "string" || !/^https?:\/\//iu.test(entry.id) || ids.has(entry.id)) throw new Error(`records[${index}] needs a unique HTTP(S) id`);
+		if (entry.excluded !== null && (typeof entry.excluded !== "string" || !/^[a-z][a-z_]{0,31}$/u.test(entry.excluded))) throw new Error(`records[${index}].excluded must be null or a flag name`);
+		ids.add(entry.id);
+		return { id: entry.id, excluded: entry.excluded };
+	});
+	return { definition: { category: terms(definition.category, "category"), queries: terms(definition.queries, "queries") }, records,
+		screen: bound(body.screen, "screen bound"), limit: bound(body.limit, "limit"), screened };
+}
 
 function bridgeExecutionId(value: unknown): string {
 	const id = typeof value === "string" ? value.trim() : "";
@@ -1606,6 +1653,19 @@ export async function startPrimeSourceBridge(
 		});
 	};
 	const investigationRequests = new Map<string, { request: unknown; result: Promise<unknown> }>();
+	const childKinds = new Map<string, AssignmentKind | undefined>();
+	const assignmentKind = (childId: string): AssignmentKind | undefined => {
+		if (childKinds.has(childId)) return childKinds.get(childId);
+		const task = options.childTask?.(childId);
+		if (task === undefined) return undefined;
+		const resolved = resolveAssignmentKind(artifactWorkspace, task);
+		childKinds.set(childId, resolved.kind);
+		if (options.conditionsPath) appendFileSync(join(dirname(options.conditionsPath), "assignment-kinds.jsonl"), `${JSON.stringify({
+			schema_version: 2, child_id: childId, kind: resolved.kind ?? null, evidence_need_id: resolved.needId ?? null,
+			recorded_at: new Date().toISOString(),
+		})}\n`, "utf-8");
+		return resolved.kind;
+	};
 	const server = createServer(async (incoming, response) => {
 		response.setHeader("content-type", "application/json");
 		const route = incoming.url ?? "";
@@ -1630,7 +1690,18 @@ export async function startPrimeSourceBridge(
 				response.end(JSON.stringify({ error: "unauthorized execution" }));
 				return;
 			}
-			if (executionId !== "root" && ["/v1/search", "/v1/browser", "/v1/browser/materialize"].includes(route)
+			if (route === "/v1/evidence-need") {
+				// Root registers an Evidence Need; Runtime mints the id every child prompt of that need carries.
+				if (executionId !== "root") throw new Error("Evidence Needs are registered by the Search Root");
+				const need = registerEvidenceNeed(artifactWorkspace, body.kind);
+				if (options.conditionsPath) appendFileSync(join(dirname(options.conditionsPath), "assignment-kinds.jsonl"), `${JSON.stringify({
+					schema_version: 2, evidence_need_id: need.needId, kind: need.kind, registered_at: new Date().toISOString(),
+				})}\n`, "utf-8");
+				response.end(JSON.stringify({ evidence_need_id: need.needId, kind: need.kind }));
+				return;
+			}
+			if (executionId !== "root") assignmentKind(executionId);
+			if (executionId !== "root" && ["/v1/search", "/v1/review-pool", "/v1/review-window", "/v1/browser", "/v1/browser/materialize"].includes(route)
 				&& primeProviderSubmission(artifactWorkspace, executionId)) throw new ResearchNodeError("This child already submitted its final Ledger. Ask Root to create a new bounded task for further acquisition.", "permanent", false, { code: "provider_task_completed" });
 			if (options.investigation) {
 				if (executionId !== "root") throw new Error("Investigation Tools are available only to the Search Root");
@@ -1696,6 +1767,49 @@ export async function startPrimeSourceBridge(
 				throw new Error("This investigation cannot access external Providers");
 			}
 			if (route === "/v1/wiki" || route === "/v1/knowledge-search" || route === "/v1/read-sources" || route === "/v1/github-read" || route === "/v1/external-search" || route === "/v1/write-answer") throw new Error("Investigation is not available in this Search Run");
+			if (route === "/v1/review-pool" || route === "/v1/review-window") {
+				if (executionId === "root") throw new Error("The discovery pool record and screen are available only to Provider children");
+				const providerId = requiredString(body.provider_id, "Provider provider_id");
+				if (!/^[a-z][a-z0-9_-]{0,63}$/u.test(providerId)) throw new Error("Invalid Provider identity");
+				bindProvider(executionId, providerId);
+				const attempt = reviewAttempt(body.attempt);
+				const record = (entry: Record<string, unknown>, runtimeCopy = true) => {
+					const line = `${JSON.stringify({ schema_version: 2, child_id: executionId, attempt, provider_id: providerId, ...entry, recorded_at: new Date().toISOString() })}\n`;
+					// Runtime's own copy holds each attempt to one pool; the copy beside the execution conditions is retained for review.
+					if (runtimeCopy) appendFileSync(reviewAuditPath(artifactWorkspace, executionId), line, "utf-8");
+					if (options.conditionsPath) appendFileSync(join(dirname(options.conditionsPath), "review-windows.jsonl"), line, "utf-8");
+				};
+				if (route === "/v1/review-pool") {
+					// Recorded before anything is screened or retained, so what was offered can be compared with what the child submits.
+					const pool = reviewPool(body, SCREENED_PROVIDERS.has(providerId));
+					if (reviewAuditHasPool(reviewAuditPath(artifactWorkspace, executionId), attempt)) throw new Error("This attempt already has a pool; a new discovery call names a new attempt");
+					record({ pool });
+					response.end(JSON.stringify({ attempt, pool: pool.records.length, survivors: pool.records.filter((entry) => entry.excluded === null).length, screened: pool.screened }));
+					return;
+				}
+				// A fresh model context screens one page of pool records against the task Root wrote for this child.
+				if (!options.reviewWindow) throw new Error("The screen is not available in this Search Run");
+				const task = options.childTask?.(executionId);
+				if (!task?.trim()) throw new Error("Runtime cannot read the task of this child, so it has nothing to screen records against");
+				const windowId = requiredString(body.window_id, "window id");
+				if (!/^[a-z][a-z0-9-]{0,31}$/u.test(windowId)) throw new Error("window_id must be a short lowercase token");
+				const records = parseReviewRecords(body.records);
+				const startedAt = Date.now();
+				// The screen only removes: a window whose model call fails keeps its records, as the default says, and says so.
+				const reviewed = await options.reviewWindow({ task, records, signal: request.signal }).catch((error: unknown) => {
+					if (request.signal.aborted) throw error;
+					return { verdicts: records.map((entry) => ({ id: entry.id, verdict: "keep" as const })), model: "", attempts: 0, raw: [], invalid: {},
+						unresolved: records.map((entry) => entry.id), usage: undefined, failed: toErrorMessage(error).slice(0, 300) };
+				});
+				const failed = "failed" in reviewed ? reviewed.failed : undefined;
+				record({
+					window_id: windowId, model: reviewed.model, attempts: reviewed.attempts, duration_ms: Date.now() - startedAt, usage: reviewed.usage ?? null,
+					task, records, answers: reviewed.raw, verdicts: reviewed.verdicts, invalid: reviewed.invalid, unresolved: reviewed.unresolved,
+					...(failed ? { failed } : {}),
+				});
+				response.end(JSON.stringify({ window_id: windowId, model: reviewed.model, verdicts: reviewed.verdicts, unresolved: reviewed.unresolved, ...(failed ? { failed } : {}) }));
+				return;
+			}
 			if (route === "/v1/finish") {
 				if (Object.keys(body).some((key) => !["agent_session_id", "provider_id"].includes(key))) {
 					throw new Error("Provider finish accepts only provider_id and the authenticated execution identity");

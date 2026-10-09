@@ -732,6 +732,50 @@ def test_github_rejects_unsafe_download_path_before_cli(
     assert response.json()["error"]["code"] == "invalid_github_request"
 
 
+def test_github_download_readme_uses_the_preferred_readme_endpoint(tmp_path, authorization, monkeypatch) -> None:
+    workspace = tmp_path / "run"
+    workspace.mkdir()
+    calls: list[list[str]] = []
+
+    async def fake_run_gh(args, *, token=None, stdout_path=None, **kwargs):
+        calls.append(list(args))
+        if args[-1] == "repos/example/no-readme/readme":
+            raise github_module.ServiceError("github_cli_failed", "gh: Not Found (HTTP 404)", status_code=404, provider="github", details={"github_status": 404})
+        # GitHub answers the preferred README whatever its file name is: here a reStructuredText one.
+        stdout_path.write_text("Runtime\n=======\nThe reference runtime.\n")
+        return ""
+
+    monkeypatch.setattr(github_module, "run_gh", fake_run_gh)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"Unexpected provider request: {request.url}")
+
+    def post(client, parameters):
+        return client.post("/v1/search", headers=authorization, json={
+            "schema_version": 1, "source_id": "github", "query": "readme", "max_results": 1, "workspace_dir": str(workspace),
+            "provider_request": {"operation": "download_readme", "parameters": parameters},
+        })
+
+    with client_for(tmp_path, handler) as client:
+        found = post(client, {"repository": "example/runtime"})
+        pinned = post(client, {"repository": "example/runtime", "ref": "v1"})
+        missing = post(client, {"repository": "example/no-readme"})
+        with_path = post(client, {"repository": "example/runtime", "path": "README.md"})
+
+    assert found.status_code == 200
+    result = found.json()["results"][0]
+    assert result["metadata"]["resource_type"] == "repository_readme"
+    assert (workspace / result["metadata"]["artifact_path"]).read_text().startswith("Runtime\n=======")
+    assert calls[0] == ["api", "-H", "Accept: application/vnd.github.raw+json", "repos/example/runtime/readme"]
+    assert calls[1][-1] == "repos/example/runtime/readme?ref=v1"
+    assert pinned.json()["results"][0]["metadata"]["artifact_path"] != result["metadata"]["artifact_path"]
+    # A repository without a README is a plain per-request miss: no owner listing, no similar-name search.
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "github_readme_not_found"
+    assert len(calls) == 3
+    assert with_path.status_code == 400
+
+
 def test_arxiv_categories_filters_official_taxonomy(tmp_path, authorization) -> None:
     taxonomy = """
     <html><body>
@@ -1984,6 +2028,31 @@ def test_huggingface_model_card_downloads_pinned_readme_to_workspace(tmp_path, a
     assert result["metadata"]["byte_length"] == len(readme)
     assert captured[0].url.path == "/api/models/openai/whisper-large-v3"
     assert captured[1].url.path.endswith(f"/raw/{sha}/README.md")
+
+
+@pytest.mark.parametrize("denied", ["metadata", "readme"])
+def test_huggingface_gated_repository_fails_that_repository_not_the_provider(tmp_path, authorization, denied) -> None:
+    sha = "0123456789abcdef0123456789abcdef01234567"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/models/org/gated":
+            return httpx.Response(403, json={"error": "gated"}) if denied == "metadata" else httpx.Response(200, json={"id": "org/gated", "sha": sha})
+        if request.url.path == f"/org/gated/raw/{sha}/README.md":
+            return httpx.Response(403, text="Access to model org/gated is restricted.")
+        raise AssertionError(f"Unexpected provider request: {request.url}")
+
+    with client_for(tmp_path, handler) as client:
+        response = client.post("/v1/search", headers=authorization, json={
+            "schema_version": 1, "source_id": "huggingface", "query": "org/gated model card", "workspace_dir": str(tmp_path),
+            "provider_request": {"operation": "models_card", "parameters": {"repo_id": "org/gated"}},
+        })
+
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == "provider_repository_denied"
+    assert error["details"]["failure_scope"] == "object"
+    assert error["details"]["upstream_status"] == 403
+    assert "circuit_scope" not in error["details"]
 
 
 def test_huggingface_model_card_uses_canonical_repo_id(tmp_path, authorization) -> None:

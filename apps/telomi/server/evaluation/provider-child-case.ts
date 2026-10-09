@@ -42,7 +42,7 @@ export function copyChildWorkspace(source: string, destination: string): void {
 	mkdirSync(destination, { recursive: true });
 	for (const file of listFilesRecursive(source, { absolute: true, strict: true, includeNonRegular: true })) {
 		const path = relative(source, file);
-		if (path === "skills" || path.startsWith("skills/") || path === ".prime-kernel" || path.startsWith(".prime-kernel/")) continue;
+		if (["skills", "inputs"].some((name) => path === name || path.startsWith(`${name}/`)) || path === ".prime-kernel" || path.startsWith(".prime-kernel/")) continue;
 		// Artifact publication validates regular files and rejects symlinks before the Case is accepted.
 		mkdirSync(dirname(join(destination, path)), { recursive: true });
 		cpSync(file, join(destination, path), { dereference: false });

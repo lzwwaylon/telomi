@@ -10,6 +10,7 @@ Each Provider workspace contains:
 
 - `work/`: the child's Ledger and retained material.
 - `skills/`: an entry point to this Run's staged, read-only Skill set.
+- `inputs/`: an entry point to this Run's read-only inputs, shared by every execution: `request.json` with the question as the stage received it, and `context.md` when the Run has task context.
 - `.prime-kernel/`: that child's scratch and temporary home.
 
 The staged Skill set is the Run's selected Provider and Root Skills, as in native Prime resource inheritance. Skill availability does not imply Provider-specific permission; Runtime does not infer permissions from child prompt text.
@@ -20,7 +21,7 @@ The Root reads submission receipts at `provider-executions/<native-child-id>/wor
 
 The SDK worker runs with the Root workspace as its process cwd. Its Resource Loader publishes relative `filePath` and `baseDir` values under `skills/`; native SDK file reads still resolve there. Python installation metadata retains the host package path for native preparation. Child kernels have the same relative Skill entry point. Skill references resolve from the directory containing `SKILL.md`.
 
-Pi and Prime kernel reads are denied by default. Runtime explicitly grants access to the execution workspace, staged inputs and required runtime dependencies, while private Runtime directories remain denied. Provider children can read their own execution and the staged Skills, without inheriting the Root's readable workspace or writable scratch. Staged Skills are explicitly denied writes, including writes through the child's Skill link. Host Tools derive their destination from the native calling session.
+Pi and Prime kernel reads are denied by default. Runtime explicitly grants access to the execution workspace, staged inputs and required runtime dependencies, while private Runtime directories remain denied. Provider children can read their own execution, the staged Skills and the Run's inputs, without inheriting the Root's readable workspace or writable scratch. Staged Skills are explicitly denied writes, including writes through the child's Skill link. Host Tools derive their destination from the native calling session.
 
 Linked venv directories are canonicalized before constructing the executable path and sandbox policy. The interpreter executable itself is not resolved through `bin/python`, which would lose virtual-environment selection.
 

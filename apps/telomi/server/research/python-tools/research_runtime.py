@@ -143,6 +143,70 @@ def execution_id() -> str:
     return value or "root"
 
 
+def evidence_need(kind: str) -> str:
+    """Register one Evidence Need with Runtime and return the id Runtime minted for it. Search Root only.
+
+    ``kind`` says what the need covers and holds for every child of the need:
+
+    - ``"coverage"``: a category of objects. The child's pool comes from the Provider's native
+      category; names Root knows are leads it may look up by name, never a replacement.
+    - ``"named_objects"``: something named (an entity, project, product or term) whose presence on
+      a Provider is to be enumerated, found through the Provider's native search by name.
+    - ``"exact_objects"``: a fixed list of identified objects, acquired without a pool.
+
+    Put the returned id and the kind in every child prompt of the need. The kind is task data
+    for the child and for review; Runtime records it and rejects nothing by it.
+    """
+    if execution_id() != "root":
+        raise ValueError("evidence_need is available only to the Search Root")
+    return str(_post("/v1/evidence-need", {"kind": kind})["evidence_need_id"])
+
+
+def review_pool(
+    records: list[dict[str, Any]],
+    *,
+    provider_id: str,
+    definition: dict[str, list[str]],
+    attempt: str,
+    screen: int | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Record the pool of one discovery call with Runtime before anything is screened or retained.
+
+    ``records`` is every pool record in pool order as ``{"id", "excluded"}``, where ``excluded``
+    is the machine exclusion its own fields raised or ``None``. ``definition`` is
+    ``{"category": [...], "queries": [...]}``. The record lets what was offered be compared with
+    what the child retained. Provider children only.
+    """
+    if execution_id() == "root":
+        raise ValueError("review_pool is available only to Provider children")
+    return _post("/v1/review-pool", {
+        "provider_id": provider_id, "definition": definition, "records": records, "attempt": attempt,
+        **({"screen": screen} if screen is not None else {}), **({"limit": limit} if limit is not None else {}),
+    })
+
+
+def review_window(
+    records: list[dict[str, Any]],
+    *,
+    provider_id: str,
+    window_id: str,
+    attempt: str,
+) -> dict[str, Any]:
+    """Have Runtime screen one window of pool records in a fresh model context.
+
+    Each record is ``{"id", "text"}`` as rendered by the Provider SDK. Runtime judges them against
+    the task Root wrote for this child and returns ``{"verdicts": [{"id", "verdict", "reason"}]}``:
+    ``keep`` by default, ``no`` with reason ``off_subject`` or ``excluded_by_task``.
+    Provider children only.
+    """
+    if execution_id() == "root":
+        raise ValueError("review_window is available only to Provider children")
+    if not isinstance(records, list) or not records:
+        raise ValueError("records must be a non-empty list")
+    return _post("/v1/review-window", {"provider_id": provider_id, "window_id": window_id, "records": records, "attempt": attempt})
+
+
 def finish(*, provider_id: str) -> dict[str, Any]:
     """Validate and freeze this Provider child's final work/<provider_id>_candidates.json.
 

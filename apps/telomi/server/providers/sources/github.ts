@@ -39,7 +39,7 @@ export const github: SourceDescriptor = {
 			evidenceTypes: ["repository", "code", "issue", "issue_discussion", "downloaded_artifact"],
 			operations: [
 				"search_topics", "search_repositories", "get_repository", "search_code", "search_issues",
-				"get_issue", "clone_repository", "download_release", "download_file",
+				"get_issue", "clone_repository", "download_release", "download_file", "download_readme",
 			] },
 	},
 };

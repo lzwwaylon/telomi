@@ -19,11 +19,11 @@ const runner = realpathSync(required("TELOMI_SRT_KERNEL_RUNNER"));
 const policy = JSON.parse(Buffer.from(required("TELOMI_SRT_KERNEL_POLICY_B64"), "base64url").toString("utf8"));
 if (executionWorkspace) {
 	// Read access is allowed by default in SRT. Deny the parent tree explicitly,
-	// then reopen only this execution and the immutable staged Skill tree.
+	// then reopen only this execution and the immutable staged Skill and input trees.
 	policy.filesystem.denyRead.push(rootCwd);
 	policy.filesystem.allowRead = policy.filesystem.allowRead.filter((path) => !inside(rootCwd, realpathIfPresent(path)));
 	policy.filesystem.allowRead.push(executionWorkspace);
-	if (existsSync(join(rootCwd, "skills"))) policy.filesystem.allowRead.push(join(rootCwd, "skills"));
+	for (const name of ["skills", "inputs"]) if (existsSync(join(rootCwd, name))) policy.filesystem.allowRead.push(join(rootCwd, name));
 	policy.filesystem.allowWrite = policy.filesystem.allowWrite
 		.filter((path) => !inside(rootCwd, realpathIfPresent(path)));
 	policy.filesystem.allowWrite.push(executionWorkspace);

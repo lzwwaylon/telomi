@@ -2,9 +2,10 @@
 
 Use this path for named concepts, authors, exact phrases, or a cross-category supplement after category filtering.
 
-If an active `discover_papers()` run has a non-null `next_cursor`, finish it with the exact cursor until
-`next_cursor` is null before calling `search()`. The Provider rejects native search while discovery pagination remains
-active so that coverage cannot be silently abandoned.
+In a coverage assignment, write the expressions as described here and pass them to
+`arxiv.discover_papers(queries=[...])`. They extend the category pool of a research area and never replace it; they
+define the pool by themselves only for a task about something named. Their results go through the same screen as
+every other pool record. Call `search()` yourself only for an exact-object task.
 
 Construct native expressions with the fields that carry the intended evidence:
 

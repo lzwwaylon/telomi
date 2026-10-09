@@ -82,7 +82,9 @@ function mountWorkspacePythonTools(
 	mkdirSync(toolsRoot, { recursive: true });
 	copyReadOnly(join(PYTHON_TOOLS_ROOT, "research_runtime.py"), join(root, "research_runtime.py"));
 	copyReadOnly(join(PYTHON_TOOLS_ROOT, "tools", "__init__.py"), join(toolsRoot, "__init__.py"));
-	copyReadOnly(join(PYTHON_TOOLS_ROOT, "tools", "candidate_ledger.py"), join(toolsRoot, "candidate_ledger.py"));
+	for (const shared of ["candidate_ledger.py", "discovery_review.py", "pool_review.py"]) {
+		copyReadOnly(join(PYTHON_TOOLS_ROOT, "tools", shared), join(toolsRoot, shared));
+	}
 	writeReadOnly(
 		join(toolsRoot, "README.md"),
 		workspaceToolsReadmeContent(includeAllDocumentation ? undefined : sources[0]),

@@ -37,6 +37,8 @@ try {
 	const privateFile = join(runtime, "private.txt");
 	const otherGoalFile = join(fixture, "other-goal.txt");
 	for (const path of [parentFile, privateFile, otherGoalFile]) writeFileSync(path, "private\n");
+	mkdirSync(join(root, "inputs"));
+	writeFileSync(join(root, "inputs", "request.json"), '{"question":"the user question"}\n');
 	const sibling = providerExecutionWorkspace(root, "sub-sibling");
 	const siblingFile = join(sibling.absolutePath, "work", "private.txt");
 	writeFileSync(siblingFile, "sibling\n");
@@ -46,7 +48,7 @@ try {
 	for (const workspace of [root, child.absolutePath]) symlinkSync(external, join(workspace, "work", "external-link"), "dir");
 	const venvLink = join(fixture, "python-venv");
 	symlinkSync(agentPythonVenv(), venvLink, "dir");
-	const env = primeKernelEnv({ cwd: root, readonlyRoots: [join(root, "skills"), sdk], writableRoots: [root],
+	const env = primeKernelEnv({ cwd: root, readonlyRoots: [join(root, "skills"), join(root, "inputs"), sdk], writableRoots: [root],
 		privateRoots: [runtime], env: { ...process.env, TELOMI_DATA_DIR: fixture, PRIME_AGENT_KERNEL_VENV: venvLink,
 			PRIME_AGENT_KERNEL_PYTHON: join(venvLink, "bin", "python") } });
 	assert.equal(env.VIRTUAL_ENV, realpathSync(venvLink), "SRT and Python agree on a linked venv's path");
@@ -147,6 +149,8 @@ assert Path.cwd() == Path(${JSON.stringify(child.absolutePath)})
 assert Path(os.environ["TMPDIR"]) == Path.cwd() / ".prime-kernel"
 assert Path(os.environ["HOME"]) == Path(os.environ["TMPDIR"])
 assert (Path("skills") / "demo-skill" / "references" / "example.txt").read_text() == "skill reference\\n"
+assert "the user question" in Path("inputs/request.json").read_text(), "a child reads the question its stage was given"
+denied("inputs/request.json", "w")
 Path("work/result.json").write_text("{}")
 subprocess.run([sys.executable, "-c", "from pathlib import Path; assert Path('work/result.json').read_text() == '{}'"], check=True)
 for path in ${JSON.stringify([parentFile, parentScratchFile, siblingFile, privateFile, otherGoalFile, escape])}:
@@ -192,6 +196,7 @@ print("root shared result verified")
 	capture({ type: "rlm_child_update", child: { id: "sub-fresh", status: "running" } });
 	const captured = join(captures, "provider", "sub-fresh", "workspace");
 	assert.equal(readFileSync(join(captured, "skills", "demo-skill", "references", "example.txt"), "utf-8"), "skill reference\n");
+	assert.match(readFileSync(join(captured, "inputs", "request.json"), "utf-8"), /the user question/);
 	assert.ok(!existsSync(join(captured, "work", "parent.txt")));
 	assert.ok(!existsSync(join(captured, "provider-executions")));
 	assert.ok(!existsSync(join(captured, ".prime-kernel")));

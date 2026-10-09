@@ -17,6 +17,7 @@ import type { ResearchTemporalContext } from "../research-types.js";
 import type { ResearchSourceRegistry } from "../sources/registry.js";
 import { runPrime, stageProviderSdk, stageProviderWorkerSkills, startPrimeSourceBridge } from "./prime-search-batch.js";
 import { primeProviderSubmission } from "./prime-search-contract.js";
+import { modelWindowReviewer } from "./pool-review.js";
 import { ResearchNodeError } from "../../agent-runtime/retry-policy.js";
 import { providerExecutionWorkspace } from "./provider-execution-workspace.js";
 import { providerToolRuntime } from "./provider-tool-runtime.js";
@@ -105,6 +106,8 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 			workspaceDirectory: workspaceRoot, temporalContext: request.temporalContext, signal,
 		}, root, { runDir: request.recordDirectory, nodeId: "provider-child", attemptId: childId }, {
 			conditionsPath, ...(browser ? { browser: { config: browser, root } } : {}),
+			reviewWindow: modelWindowReviewer(request.model),
+			childTask: () => request.task,
 		});
 		const result = await runPrime({
 			module: primeAgentModulePath(env), cwd: root, runtimeRoot, sessionDir,
@@ -157,7 +160,7 @@ export async function executeProviderChildReplay(request: ProviderChildReplayReq
 export function restoreProviderChildInput(source: string, destination: string): void {
 	if (!lstatSync(source).isDirectory() || lstatSync(source).isSymbolicLink()) throw new Error("Provider child input must be a real directory");
 	for (const name of readdirSync(source)) {
-		if (["skills", ".prime-kernel", ".runtime", ".system-prompt.md"].includes(name)) continue;
+		if (["skills", "inputs", ".prime-kernel", ".runtime", ".system-prompt.md"].includes(name)) continue;
 		if (name === "work") {
 			if (lstatSync(join(source, name)).isSymbolicLink()) throw new Error("Provider child input must not contain symbolic links");
 			mkdirSync(join(destination, "work"), { recursive: true });
