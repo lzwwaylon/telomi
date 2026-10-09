@@ -63,9 +63,9 @@ export function providerChildLogicalWorkspace(root: string, childId: string): Lo
 		guestCwd: "/workspace",
 		mounts: [
 			{ hostPath: execution.absolutePath, guestPath: "/workspace", access: "read-write", shadowPaths: [".prime-kernel"] },
-			...(existsSync(join(root, "skills")) ? [{
-				hostPath: join(root, "skills"), guestPath: "/workspace/skills", access: "read-only" as const,
-			}] : []),
+			...["skills", "inputs"].filter((name) => existsSync(join(root, name))).map((name) => ({
+				hostPath: join(root, name), guestPath: `/workspace/${name}`, access: "read-only" as const,
+			})),
 		],
 	};
 }
@@ -97,8 +97,9 @@ export function preserveProviderChildTasks(root: string, sessionArtifactsDir: st
 	}
 }
 
-/** The parent's task is the first `agent_message` in the child's session trace. */
-function firstParentTask(childSessionDir: string): string | undefined {
+/** The parent's task is the first `agent_message` in the child's session trace, which the child cannot write. */
+export function firstParentTask(childSessionDir: string): string | undefined {
+	if (!existsSync(childSessionDir)) return undefined;
 	const session = readdirSync(childSessionDir).find((name) => name.endsWith(".jsonl"));
 	if (!session) return undefined;
 	for (const line of readFileSync(join(childSessionDir, session), "utf-8").split(/\r?\n/u)) {

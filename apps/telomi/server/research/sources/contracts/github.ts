@@ -14,6 +14,7 @@ export const GITHUB_OPERATIONS = [
 	"clone_repository",
 	"download_release",
 	"download_file",
+	"download_readme",
 ] as const;
 
 export type GitHubOperation = typeof GITHUB_OPERATIONS[number];
@@ -50,6 +51,7 @@ export interface GitHubParametersByOperation {
 		archive?: "zip" | "tar.gz";
 	};
 	download_file: { repository: string; path: string; ref?: string };
+	download_readme: { repository: string; ref?: string };
 }
 
 export type ParsedGitHubProviderRequest = {
@@ -182,6 +184,15 @@ export function parseGitHubProviderRequest(
 			},
 		};
 	}
+	if (operation === "download_readme") {
+		return {
+			operation,
+			parameters: {
+				repository: repository(row.repository),
+				...(row.ref === undefined ? {} : { ref: ref(row.ref, "ref") }),
+			},
+		};
+	}
 	return {
 		operation,
 		parameters: {
@@ -197,7 +208,7 @@ export function canonicalGitHubQuery(request: ParsedGitHubProviderRequest): stri
 }
 
 export function githubOperationMaterializesWorkspace(operation: string | undefined): boolean {
-	return operation === "clone_repository" || operation === "download_release" || operation === "download_file";
+	return operation === "clone_repository" || operation === "download_release" || operation === "download_file" || operation === "download_readme";
 }
 
 function allowedKeys(operation: GitHubOperation): string[] {
@@ -214,6 +225,7 @@ function allowedKeys(operation: GitHubOperation): string[] {
 		case "clone_repository": return ["repository", "ref", "full_history"];
 		case "download_release": return ["repository", "tag", "patterns", "archive"];
 		case "download_file": return ["repository", "path", "ref"];
+		case "download_readme": return ["repository", "ref"];
 	}
 }
 

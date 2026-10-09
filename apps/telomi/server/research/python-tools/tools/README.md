@@ -43,7 +43,7 @@ text, then call `get_issue` to retrieve the selected Issue body and complete
 structured comment thread.
 
 Provider children acquire the selected repository, files or release material
-through `clone_repository`, `download_file` or `download_release` according to
+through `clone_repository`, `download_file`, `download_readme` or `download_release` according to
 the assigned Evidence Need. Preserve Runtime-returned material in the Ledger;
 do not substitute metadata for required original material.
 

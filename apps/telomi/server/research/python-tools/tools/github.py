@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from difflib import get_close_matches
 from hashlib import sha256
@@ -11,12 +11,15 @@ from typing import Any, Literal, TypedDict
 
 from research_runtime import search_source, workspace_path
 
+from tools import pool_review
+
 __all__ = [
     "GitHubDiscovery",
     "GitHubRecord",
     "clone_repository",
     "discover_repositories",
     "download_file",
+    "download_readme",
     "download_release",
     "get_issue",
     "get_repository",
@@ -27,13 +30,15 @@ __all__ = [
 ]
 
 MAX_RESULTS = 100
-DISCOVERY_RESULT_LIMIT = 100
-DISCOVERY_PAGE_SIZE = 20
-DISCOVERY_CACHE_LIMIT = 5
+DISCOVERY_EXCLUSIONS = ("archived", "fork")
+DISCOVERY_RECENT_SHARE = 0.75
+DISCOVERY_MIN_STARS = 100
+# The pool one discovery holds: what ranks below it is counted, not screened.
+DISCOVERY_RESULT_LIMIT = 200
 DISCOVERY_LANES = ("topic_stars", "created_range", "active", "keywords")
 DISCOVERY_RECORD_FIELDS = (
     "full_name", "url", "description", "stars", "forks", "language", "topics",
-    "license", "created_at", "pushed_at", "archived", "discovery_lanes",
+    "license", "created_at", "pushed_at", "archived", "fork", "discovery_lanes",
 )
 REPOSITORY = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$"
@@ -79,16 +84,16 @@ class GitHubRecord(TypedDict, total=False):
 
 class GitHubDiscovery(TypedDict):
     records: list[GitHubRecord]
+    listing: str
+    query: str
     lane_counts: dict[str, int]
-    unique_count: int
-    returned_count: int
-    next_cursor: str | None
-
-
-_DISCOVERY_POOLS: dict[
-    tuple[tuple[str, ...], str | None, str | None, str | None, str | None, int | None],
-    tuple[list[GitHubRecord], dict[str, int]],
-] = {}
+    next_offset: int | None
+    beyond_limit: int
+    pool: int
+    excluded: dict[str, int]
+    screened: int
+    rejected: dict[str, int]
+    kept: int
 
 
 def search_topics(
@@ -194,11 +199,23 @@ def discover_repositories(
     start_date: str | None = None,
     end_date: str | None = None,
     language: str | None = None,
-    min_stars: int | None = None,
-    cursor: str | None = None,
+    min_stars: int = DISCOVERY_MIN_STARS,
+    recent_share: float = DISCOVERY_RECENT_SHARE,
+    exclude: Sequence[str] = DISCOVERY_EXCLUSIONS,
+    offset: int = 1,
     purpose: str = "Discover GitHub repositories through fixed native lanes",
 ) -> GitHubDiscovery:
-    """Build one bounded repository pool from exact GitHub topics and fixed lanes.
+    """Return the repositories of exact GitHub topics from fixed native lanes, one page per call.
+
+    For each topic this runs the most starred repositories, with a date range those created in
+    it and those pushed since its start, and an optional keyword lane, and merges every lane's
+    records by repository. Records are excluded by their own fields. The others are ordered by
+    stars, ``recent_share`` of the positions going to repositories created inside the dates and
+    the rest to older ones still active in them. The first 200 are the pool, screened in that
+    order by Runtime against the task, each on its description and the opening of its README,
+    fetched without cloning:
+    the screen removes only a repository that text shows to be off the task's subject or under
+    an exclusion the task states. A call screens one page of the pool. Nothing is cloned.
 
     Args:
         topics: One or more exact GitHub topic names, as returned by search_topics().
@@ -206,15 +223,29 @@ def discover_repositories(
         start_date: Optional inclusive creation and activity lower bound.
         end_date: Optional inclusive creation upper bound.
         language: Optional GitHub language filter applied to every lane.
-        min_stars: Optional inclusive star threshold applied to every lane.
-        cursor: Exact ``next_cursor`` from the preceding discovery page.
+        min_stars: Inclusive star threshold applied to every lane. Lower it only for a task
+            about repositories too new or too specialized to have stars.
+        recent_share: Share of the positions, from 0 to 1, given to repositories created inside the
+            dates. 1 puts every such repository before any older one, 0 the reverse.
+        exclude: Exclusions read from a record's own fields, ``archived`` and ``fork``. Pass fewer
+            when the task asks for such repositories. With dates, a repository neither created
+            nor pushed inside them is always excluded as ``out_of_date``.
+        offset: Position among the kept repositories of the first one to return, with the same
+            other arguments.
         purpose: Short provenance note.
 
     Returns:
-        One compact record page, lane counts, pool counts, and next cursor.
+        ``records``: this page's repositories with ``full_name``, ``url``, description, stars,
+        dates, topics, discovery-lane provenance and ``papers``, the arXiv identifiers linked
+        from the description and README. ``listing``: what is known of the pool, one line per
+        record and, when more can follow, a closing notice of where the page sits and the offset
+        that continues; it fits one cell, print it whole. ``next_offset``: that offset, ``None``
+        on the last page. ``query``: the provenance string for a Ledger. ``lane_counts`` per
+        topic and lane, ``beyond_limit`` (repositories that rank below the pool), and the counts ``pool``, ``excluded`` (per exclusion), ``screened``,
+        ``rejected`` (per reason) and ``kept``.
 
     Raises:
-        ValueError: If topics, dates, filters, or cursor are invalid.
+        ValueError: If topics, dates, filters, exclusions or the offset are invalid.
         ResearchRuntimeError: If Runtime or GitHub fails.
     """
     topic_values = _topics([topics] if isinstance(topics, str) else topics)
@@ -228,77 +259,129 @@ def discover_repositories(
         raise ValueError("start_date must not be later than end_date")
     keyword_value = _text(keywords, "keywords", 2_000) if keywords is not None else None
     language_value = _text(language, "language", 100) if language is not None else None
-    stars_value = _nonnegative_integer(min_stars, "min_stars") if min_stars is not None else None
-    cache_key = (tuple(topic_values), keyword_value, start, end, language_value, stars_value)
-    key_hash = sha256(repr(cache_key).encode()).hexdigest()[:16]
-    offset = _discovery_offset(cursor, key_hash)
-    cached = _DISCOVERY_POOLS.get(cache_key)
-    if cached is not None:
-        return _discovery_page(*cached, offset, key_hash)
-    if cursor is not None:
-        raise ValueError("cursor discovery pool is no longer cached; restart without a cursor")
+    stars_value = _nonnegative_integer(min_stars, "min_stars") or None
+    if isinstance(recent_share, bool) or not isinstance(recent_share, (int, float)) or not 0 <= recent_share <= 1:
+        raise ValueError("recent_share must be a number from 0 to 1")
+    exclusions = list(dict.fromkeys(exclude))
+    if set(exclusions) - set(DISCOVERY_EXCLUSIONS):
+        raise ValueError(f"exclude holds any of: {', '.join(DISCOVERY_EXCLUSIONS)}")
+    key_hash = sha256(repr((topic_values, keyword_value, start, end, language_value, stars_value, recent_share, exclusions)).encode()).hexdigest()[:16]
+    pool = pool_review.cached("github", key_hash)
+    if pool is None:
+        for topic in topic_values:
+            matches = search_topics(topic, curated_only=False, max_results=20)
+            names = [row["name"] for row in matches if isinstance(row.get("name"), str)]
+            if topic not in names:
+                closest = get_close_matches(topic, names, n=5, cutoff=0.3) or names[:5]
+                suffix = f" Closest GitHub topics: {', '.join(closest)}." if closest else ""
+                raise ValueError(f"Unknown GitHub topic '{topic}'.{suffix}")
 
-    for topic in topic_values:
-        matches = search_topics(topic, curated_only=False, max_results=20)
-        names = [row["name"] for row in matches if isinstance(row.get("name"), str)]
-        if topic not in names:
-            closest = get_close_matches(topic, names, n=5, cutoff=0.3) or names[:5]
-            suffix = f" Closest GitHub topics: {', '.join(closest)}." if closest else ""
-            raise ValueError(f"Unknown GitHub topic '{topic}'.{suffix}")
+        records_by_name: dict[str, GitHubRecord] = {}
+        lane_counts: dict[str, int] = {}
+        common = {"language": language_value, "min_stars": stars_value, "max_results": 100}
+        for topic in topic_values:
+            lanes: list[tuple[str, list[GitHubRecord]]] = [
+                ("topic_stars", search_repositories("", topics=[topic], sort="stars", **common)),
+            ]
+            if start and end:
+                lanes.extend([
+                    ("created_range", search_repositories(
+                        "", topics=[topic], created_after=start, created_before=end, sort="stars", **common,
+                    )),
+                    ("active", search_repositories(
+                        "", topics=[topic], pushed_after=start, sort="updated", **common,
+                    )),
+                ])
+            if keyword_value:
+                lanes.append(("keywords", search_repositories(
+                    keyword_value, topics=[topic], sort="stars", **common,
+                )))
+            for lane, rows in lanes:
+                lane_counts[f"{topic}:{lane}"] = len(rows)
+                for rank, row in enumerate(rows, start=1):
+                    record = _compact_repository(row)
+                    full_name = record.get("full_name")
+                    if not isinstance(full_name, str) or not full_name:
+                        continue
+                    stored = records_by_name.setdefault(full_name, {**record, "discovery_lanes": []})
+                    stored["discovery_lanes"].append({"topic": topic, "lane": lane, "rank": rank})
 
-    records_by_name: dict[str, GitHubRecord] = {}
-    lane_counts: dict[str, int] = {}
-    lane_ids = {lane: {topic: [] for topic in topic_values} for lane in DISCOVERY_LANES}
-    common = {"language": language_value, "min_stars": stars_value, "max_results": 100}
-    for topic in topic_values:
-        lanes: list[tuple[str, list[GitHubRecord]]] = [
-            ("topic_stars", search_repositories("", topics=[topic], sort="stars", **common)),
-        ]
-        if start and end:
-            lanes.extend([
-                ("created_range", search_repositories(
-                    "", topics=[topic], created_after=start, created_before=end, sort="stars", **common,
-                )),
-                ("active", search_repositories(
-                    "", topics=[topic], pushed_after=start, sort="updated", **common,
-                )),
-            ])
-        if keyword_value:
-            lanes.append(("keywords", search_repositories(
-                keyword_value, topics=[topic], sort="stars", **common,
-            )))
-        for lane, rows in lanes:
-            lane_counts[f"{topic}:{lane}"] = len(rows)
-            for rank, row in enumerate(rows, start=1):
-                record = _compact_repository(row)
-                full_name = record.get("full_name")
-                if not isinstance(full_name, str) or not full_name:
-                    continue
-                stored = records_by_name.setdefault(full_name, {**record, "discovery_lanes": []})
-                stored["discovery_lanes"].append({"topic": topic, "lane": lane, "rank": rank})
-                lane_ids[lane][topic].append(full_name)
+        def flags_of(record: Mapping[str, Any]) -> dict[str, bool]:
+            created = str(record.get("created_at") or "")[:10]
+            pushed = str(record.get("pushed_at") or "")[:10]
+            return {"archived": "archived" in exclusions and record.get("archived") is True,
+                    "fork": "fork" in exclusions and record.get("fork") is True,
+                    "out_of_date": bool(start and end and created and created < start and (not pushed or pushed < start))}
 
-    selected_names: list[str] = []
-    seen: set[str] = set()
-    for lane in DISCOVERY_LANES:
-        rows_by_topic = lane_ids[lane]
-        ordered = [
-            rows[rank]
-            for rank in range(max((len(rows) for rows in rows_by_topic.values()), default=0))
-            for rows in rows_by_topic.values()
-            if rank < len(rows)
-        ]
-        for full_name in ordered:
-            if len(selected_names) == DISCOVERY_RESULT_LIMIT:
-                break
-            if full_name not in seen:
-                seen.add(full_name)
-                selected_names.append(full_name)
-    selected = [records_by_name[full_name] for full_name in selected_names]
-    if len(_DISCOVERY_POOLS) >= DISCOVERY_CACHE_LIMIT:
-        _DISCOVERY_POOLS.pop(next(iter(_DISCOVERY_POOLS)))
-    _DISCOVERY_POOLS[cache_key] = (selected, lane_counts)
-    return _discovery_page(selected, lane_counts, offset, key_hash)
+        # The union of the lanes has no order of its own. Stars order it, and `recent_share` of the positions go to
+        # repositories created inside the dates, the others to older repositories still active in them, so neither
+        # group can crowd the other out of the first pages.
+        ranked = sorted(records_by_name.values(), key=lambda record: -(record.get("stars") or 0))
+        survivors = [record for record in ranked if not any(flags_of(record).values())]
+        recent = [record for record in survivors if start and end and start <= str(record.get("created_at") or "")[:10] <= end]
+        older = [record for record in survivors if record not in recent]
+        ordered: list[GitHubRecord] = []
+        taken = 0
+        while recent or older:
+            if recent and (not older or taken < recent_share * (len(ordered) + 1)):
+                ordered.append(recent.pop(0))
+                taken += 1
+            else:
+                ordered.append(older.pop(0))
+        beyond = max(0, len(ordered) - DISCOVERY_RESULT_LIMIT)
+        ordered = ordered[:DISCOVERY_RESULT_LIMIT] + [record for record in ranked if any(flags_of(record).values())]
+        pool = pool_review.open_pool(
+            "github", key_hash, ordered, definition={"category": topic_values}, flags_of=flags_of, render=_render_repository, workers=6,
+            url_of=lambda record: str(record.get("url") or f"https://github.com/{record.get('full_name')}"),
+            facts={"lane_counts": lane_counts, "beyond_limit": beyond,
+                   "query": f"discover_repositories(topics={topic_values!r}" + (f", start_date={start!r}, end_date={end!r}" if start and end else "") + ")"})
+    beyond = pool.facts.get("beyond_limit")
+    page = pool.page(offset, noun="repositories", notes=[
+        f"{beyond} more repositories rank below this pool; narrow the dates or topics, or raise min_stars, to reach them."] if beyond else [], line_of=lambda record: (
+        f"{record.get('full_name')} | {record.get('stars') or 0} stars | created {str(record.get('created_at') or '')[:10]}"
+        f" | {' '.join(str(record.get('description') or '').split())[:70]}"))
+    for record in page["records"]:
+        record["papers"] = _declared_papers(record)
+    return page  # type: ignore[return-value]
+
+
+_README_OPENING = 1500
+_READMES: dict[str, str] = {}
+_PAPER_LINK = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})", re.IGNORECASE)
+
+
+def _readme_text(full_name: str) -> str:
+    """The repository's preferred README, fetched once without cloning; empty when it has none."""
+    from pathlib import Path
+
+    if full_name not in _READMES:
+        try:
+            _READMES[full_name] = Path(str(download_readme(full_name)[0].get("download_path"))).read_text(errors="replace")
+        except Exception:  # noqa: BLE001 - a repository without a readable README is screened on its description
+            _READMES[full_name] = ""
+    return _READMES[full_name]
+
+
+def _declared_papers(record: Mapping[str, Any]) -> list[str]:
+    """arXiv identifiers linked from a repository's description and, once the screen fetched it, its README."""
+    text = f"{record.get('description') or ''}\n{_READMES.get(str(record.get('full_name') or ''), '')}"
+    return [f"arXiv:{value}" for value in dict.fromkeys(_PAPER_LINK.findall(text))]
+
+
+def _render_repository(record: Mapping[str, Any]) -> dict[str, Any]:
+    """What the screen sees: what the repository says it is. No stars, forks or other standing."""
+    full_name = str(record.get("full_name") or "")
+    prose = [line.strip() for line in _readme_text(full_name).splitlines()
+             if line.strip() and not line.strip().startswith(("<", "![", "[![", "|", "```"))]
+    head = [
+        f"repository: {full_name}",
+        f"description: {record.get('description') or '(none)'}",
+        f"topics: {', '.join(str(topic) for topic in record.get('topics') or []) or 'none'}  language: {record.get('language') or 'unknown'}",
+        f"created: {str(record.get('created_at') or '')[:10]}  pushed: {str(record.get('pushed_at') or '')[:10]}",
+        "README opening:",
+        "\n".join(prose)[:_README_OPENING] or "(no README)",
+    ]
+    return {"id": str(record.get("url") or f"https://github.com/{full_name}"), "text": "\n".join(head)[:4000]}
 
 
 def get_repository(repository: str) -> list[GitHubRecord]:
@@ -525,6 +608,30 @@ def download_file(
     )
 
 
+def download_readme(repository: str, *, ref: str | None = None) -> list[GitHubRecord]:
+    """Download a repository's preferred README into the workspace, without cloning.
+
+    GitHub resolves which file that is, so ``README.md``, ``README.rst``, a lowercase or an
+    extensionless README all resolve.
+
+    Args:
+        repository: Repository in ``OWNER/REPO`` form.
+        ref: Optional branch, tag, or commit reference.
+
+    Returns:
+        One file record with ``download_path``.
+
+    Raises:
+        ValueError: If an argument is invalid.
+        ResearchRuntimeError: If the repository has no README, or Runtime or GitHub CLI fails.
+    """
+    value = _repository(repository)
+    parameters: dict[str, Any] = {"repository": value}
+    if ref is not None:
+        parameters["ref"] = _ref(ref, "ref")
+    return _run("download_readme", parameters, f"readme:{value}:{ref or 'default'}", 1)
+
+
 def _run(
     operation: str,
     parameters: dict[str, Any],
@@ -565,6 +672,7 @@ def _enrich(row: dict[str, Any]) -> GitHubRecord:
         "created_at",
         "pushed_at",
         "archived",
+        "fork",
         "name",
         "display_name",
         "short_description",
@@ -590,37 +698,6 @@ def _compact_repository(row: GitHubRecord) -> GitHubRecord:
         **{key: row[key] for key in DISCOVERY_RECORD_FIELDS if key in row},
     }
     return {key: values[key] for key in DISCOVERY_RECORD_FIELDS if key in values}  # type: ignore[return-value]
-
-
-def _discovery_page(
-    selected: list[GitHubRecord],
-    lane_counts: dict[str, int],
-    offset: int,
-    key_hash: str,
-) -> GitHubDiscovery:
-    if offset and offset >= len(selected):
-        raise ValueError("cursor is beyond the current discovery pool; restart without a cursor")
-    end = min(offset + DISCOVERY_PAGE_SIZE, len(selected))
-    records = [record.copy() for record in selected[offset:end]]
-    return {
-        "records": records,
-        "lane_counts": lane_counts,
-        "unique_count": len(selected),
-        "returned_count": len(records),
-        "next_cursor": f"github-discovery:{key_hash}:{end}" if end < len(selected) else None,
-    }
-
-
-def _discovery_offset(cursor: str | None, key_hash: str) -> int:
-    if cursor is None:
-        return 0
-    value = _text(cursor, "cursor", 64)
-    parts = value.split(":")
-    if len(parts) != 3 or parts[0] != "github-discovery" or not parts[2].isdigit() or int(parts[2]) <= 0:
-        raise ValueError("cursor must be the exact next_cursor returned by discover_repositories()")
-    if parts[1] != key_hash:
-        raise ValueError("cursor was created for different discovery parameters")
-    return int(parts[2])
 
 
 def _repository(value: str) -> str:

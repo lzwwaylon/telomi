@@ -10,12 +10,17 @@ from __future__ import annotations
 import argparse
 import inspect
 import re
-from collections.abc import Callable, Sequence
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
 from functools import wraps
 from hashlib import sha256
+from itertools import count, zip_longest
 from typing import Any, Literal, ParamSpec, TypedDict, TypeVar
 
+import research_runtime
 from research_runtime import search_source, workspace_path
+
+from tools import discovery_review
 
 __all__ = [
     "HuggingFaceDiscovery",
@@ -50,8 +55,14 @@ MAX_RESULTS_PER_REQUEST = 100
 MAX_PAPER_DOWNLOADS_PER_SESSION = 10
 MAX_TOTAL_RESULTS = 10_000
 MAX_LIST_ITEMS = 50
-DISCOVERY_RESULT_LIMIT = 100
-DISCOVERY_PAGE_SIZE = 20
+# The pool one discovery builds, and how much of it one call returns: a page is read in one cell.
+DISCOVERY_RESULT_LIMIT = 200
+DISCOVERY_PAGE_SIZE = 50
+DISCOVERY_CACHE_LIMIT = 5
+DISCOVERY_MIN_LIKES = 100
+DISCOVERY_EXCLUSIONS = ("conversion", "derived")
+# What Runtime records of one discovery: the models returned, then the excluded ones up to this many.
+DISCOVERY_AUDIT_RECORDS = 2_000
 DISCOVERY_LANES = ("trending", "created_range", "likes", "downloads")
 DISCOVERY_RECORD_FIELDS = (
     "repo_id",
@@ -125,17 +136,17 @@ class HuggingFaceRecord(TypedDict, total=False):
 
 class HuggingFaceDiscovery(TypedDict):
     records: list[HuggingFaceRecord]
+    listing: str
+    query: str
     lane_counts: dict[str, int]
     unique_count: int
     returned_count: int
-    next_cursor: str | None
+    next_offset: int | None
+    excluded: dict[str, int]
+    beyond_limit: int
 
 
-DISCOVERY_CACHE_LIMIT = 5
-_DISCOVERY_POOLS: dict[
-    tuple[tuple[str, ...], str | None, str | None, tuple[str, ...]],
-    tuple[list[HuggingFaceRecord], dict[str, int]],
-] = {}
+_DISCOVERY_POOLS: dict[str, dict[str, Any]] = {}
 
 
 def _guide_daily_paper_arguments(function: Callable[P, R]) -> Callable[P, R]:
@@ -502,18 +513,28 @@ def model_card(
 
     Returns:
         One model-card record with its local download path and pinned SHA.
+
+    Raises:
+        RuntimeError: If the repository's README is empty.
     """
     repo_id = _repo_id(model_id, "model_id")
     parameters = {"repo_id": repo_id}
     if revision is not None:
         parameters["revision"] = _text(revision, "revision", max_length=256)
-    return _run([_request(
+    records = _run([_request(
         operation="models_card",
         query=f"model_card={repo_id}",
         purpose=purpose,
         max_results=1,
         parameters=parameters,
     )])
+    # An empty README is not material, and Runtime fails the whole Search Stage on a Source without any.
+    from pathlib import Path
+
+    path = Path(str(records[0].get("download_path") or "")) if records else None
+    if path is not None and path.is_file() and path.stat().st_size == 0:
+        raise RuntimeError(f"The Model Card of '{repo_id}' is empty, so it has no readable material")
+    return records
 
 
 def model_tags(
@@ -880,32 +901,45 @@ def discover_models(
     start_date: str | None = None,
     end_date: str | None = None,
     filters: Sequence[str] = (),
-    cursor: str | None = None,
+    exclude: Sequence[str] = DISCOVERY_EXCLUSIONS,
+    min_likes: int = DISCOVERY_MIN_LIKES,
+    offset: int = 1,
     purpose: str = "Discover Hugging Face models through fixed native lanes",
 ) -> HuggingFaceDiscovery:
-    """Build one high-recall model set from fixed Hub-native discovery lanes.
+    """Return the models of a task category from fixed Hub-native discovery lanes, one page per call.
 
-    For each task, this runs trending first, optional complete creation-date
-    coverage, likes, and downloads. It builds a bounded pool of at most 100
-    records, then returns one page. Follow ``next_cursor`` to read later pages.
+    For each task this runs trending, complete creation-date coverage when a date range is given,
+    likes and downloads, and merges them by ``repo_id``. The date-range lane is ordered by likes,
+    so the most liked models created in the range come first. Records are excluded by their own
+    fields, then the lanes take turns filling a pool of at most 200 models, returned 50 to a page
+    in that order. Nothing is acquired.
 
     Args:
         pipeline_tags: One or more current pipeline tag IDs.
         start_date: Optional inclusive creation-date lower bound.
         end_date: Optional inclusive creation-date upper bound.
         filters: Additional Hub tags applied to every lane.
-        cursor: Exact ``next_cursor`` from the preceding discovery page.
+        exclude: Exclusions read from a record's own fields. ``conversion``: a format variant,
+            named as one or declaring a quantized base. ``derived``: built on another author's
+            model of the same task. Pass fewer when the task asks for such repositories.
+        min_likes: Records with fewer likes are excluded as ``low_interest``. Lower it only for
+            a task about releases too new to have likes.
+        offset: Position in the pool of the first model to return, with the same other arguments.
         purpose: Short provenance note.
 
     Returns:
-        One compact record page, pool and page counts, per-task lane counts,
-        and the next cursor when more records remain. Records contain only
-        ``repo_id``, dates, task, library, popularity, tags, and discovery-lane
-        provenance when those fields are available; use ``model_info()`` or
-        ``model_card()`` for full details.
+        ``records``: this page's models with ``repo_id``, ``url``, dates, task, library,
+        popularity, tags, ``gated`` and discovery-lane provenance; use ``model_info()`` or
+        ``model_card()`` for full details. ``listing``: the size of the pool and what was
+        excluded, one line per record and, when the pool is longer than a page, a closing
+        notice of where the page sits and the offset that continues; it fits one cell, print it whole. ``next_offset``: that offset, ``None`` on
+        the last page. ``query``: the provenance string for a Ledger. ``lane_counts`` per task and lane,
+        ``unique_count`` (the pool), ``returned_count`` (this page), ``excluded`` (count per
+        exclusion) and ``beyond_limit`` (records that passed every check but ``derived`` and
+        rank below the pool in every lane).
 
     Raises:
-        ValueError: If tags or date bounds are invalid.
+        ValueError: If tags, date bounds, exclusions or the offset are invalid.
         ResearchRuntimeError: If Runtime or Hugging Face fails.
         RuntimeError: If complete creation-date coverage hits its safety bound.
     """
@@ -916,14 +950,14 @@ def discover_models(
         filter_ids.append(suffix if separator and prefix in {"language", "library", "license", "other"} else value)
     if (start_date is None) != (end_date is None):
         raise ValueError("start_date and end_date must be provided together")
-    cache_key = (tuple(tasks), start_date, end_date, tuple(filter_ids))
-    key_hash = sha256(repr(cache_key).encode()).hexdigest()[:16]
-    offset = _discovery_offset(cursor, key_hash)
-    cached = _DISCOVERY_POOLS.get(cache_key)
-    if cached is not None:
-        return _discovery_page(*cached, offset, key_hash)
-    if cursor is not None:
-        raise ValueError("cursor discovery pool is no longer cached; restart without a cursor")
+    exclusions = _text_list(exclude, "exclude", max_items=len(DISCOVERY_EXCLUSIONS)) if exclude else []
+    if set(exclusions) - set(DISCOVERY_EXCLUSIONS):
+        raise ValueError(f"exclude holds any of: {', '.join(DISCOVERY_EXCLUSIONS)}")
+    if not isinstance(min_likes, int) or isinstance(min_likes, bool) or min_likes < 0:
+        raise ValueError("min_likes must be a non-negative integer")
+    key_hash = sha256(repr((tasks, start_date, end_date, filter_ids, exclusions, min_likes)).encode()).hexdigest()[:16]
+    if key_hash in _DISCOVERY_POOLS:
+        return _discovery_page(_DISCOVERY_POOLS[key_hash], offset, key_hash)
     catalog = {
         row["tag_id"]
         for row in model_tags(tag_type="pipeline_tag", max_results=100, purpose=purpose)
@@ -953,7 +987,8 @@ def discover_models(
             )),
         ]
         if start_date is not None and end_date is not None:
-            lanes.append(("created_range", models_created_between(
+            # The Hub pages a date range newest first; likes order it so a bounded result holds its most liked models.
+            lanes.append(("created_range", sorted(models_created_between(
                 start_date,
                 end_date,
                 pipeline_tag=task,
@@ -961,7 +996,7 @@ def discover_models(
                 page_size=100,
                 max_results=MAX_TOTAL_RESULTS,
                 purpose=purpose,
-            )))
+            ), key=lambda row: -(row.get("likes") or 0))))
         lanes.extend([
             ("likes", models(
                 pipeline_tag=task,
@@ -1002,82 +1037,158 @@ def discover_models(
             if rank < len(rows)
         ]
 
-    selected: list[str] = []
-    selected_set: set[str] = set()
+    # The lanes take turns, so no lane's length keeps another lane's leading records out of a bounded result.
+    order = dict.fromkeys(
+        repo_id
+        for turn in zip_longest(*(ordered_lane_ids[lane] for lane in DISCOVERY_LANES))
+        for repo_id in turn
+        if repo_id
+    )
     timeline_ids = set(ordered_lane_ids["created_range"])
-    for lane in DISCOVERY_LANES:
-        for repo_id in ordered_lane_ids[lane]:
-            if len(selected) == DISCOVERY_RESULT_LIMIT:
-                break
-            if repo_id in selected_set:
-                continue
-            if (
-                start_date is not None
-                and end_date is not None
-                and lane != "created_range"
-                and repo_id not in timeline_ids
-                and not _record_has_release_evidence_between(records_by_id[repo_id], start_date, end_date)
-            ):
-                continue
+    selected: list[str] = []
+    excluded: dict[str, str] = {}
+    beyond_limit = 0
+    for repo_id in order:
+        record = records_by_id[repo_id]
+        if (
+            start_date is not None
+            and end_date is not None
+            and repo_id not in timeline_ids
+            and _release_evidence(record, start_date, end_date) is None
+        ):
+            continue
+        likes = record.get("likes")
+        reason = (
+            "conversion" if "conversion" in exclusions and _is_conversion(record)
+            # A record without the field is not judged by it.
+            else "low_interest" if isinstance(likes, int) and likes < min_likes
+            else None
+        )
+        if reason is None and len(selected) == DISCOVERY_RESULT_LIMIT:
+            beyond_limit += 1
+            continue
+        if reason is None and "derived" in exclusions and _is_derived(record, tasks):
+            reason = "derived"
+        if reason is None:
             selected.append(repo_id)
-            selected_set.add(repo_id)
+        else:
+            excluded[repo_id] = reason
+
+    def url_of(repo_id: str) -> str:
+        return str(records_by_id[repo_id].get("url") or f"https://huggingface.co/{repo_id}")
+
     selected_records = [
-        {key: record[key] for key in DISCOVERY_RECORD_FIELDS if key in record}
+        {**{key: record[key] for key in DISCOVERY_RECORD_FIELDS if key in record}, "url": url_of(str(record["repo_id"])),
+         "gated": bool(record.get("gated") or (record.get("metadata") or {}).get("gated")),
+         # A repository created before the range is in the pool for a later release; the listing says which, or its creation date reads as out of range.
+         **({"released": _release_evidence(record, start_date, end_date)}
+            if start_date and end_date and not start_date <= str(record.get("created_at") or "")[:10] <= end_date else {})}
         for record in (records_by_id[repo_id] for repo_id in selected)
     ]
+    discovery_review.register_pool("huggingface", key_hash, [url_of(repo_id) for repo_id in selected])
+    if research_runtime.execution_id() != "root":
+        # Runtime records the pool and what each exclusion removed, so it can be compared with what the child retains.
+        audit = [{"id": url_of(repo_id), "excluded": None} for repo_id in selected]
+        audit += [{"id": url_of(repo_id), "excluded": reason} for repo_id, reason in excluded.items()]
+        research_runtime.review_pool(
+            audit[:DISCOVERY_AUDIT_RECORDS], provider_id="huggingface",
+            definition={"category": tasks, "queries": []}, attempt=f"d{next(_DISCOVERIES)}", limit=DISCOVERY_RESULT_LIMIT)
+
     if len(_DISCOVERY_POOLS) >= DISCOVERY_CACHE_LIMIT:
         _DISCOVERY_POOLS.pop(next(iter(_DISCOVERY_POOLS)))
-    _DISCOVERY_POOLS[cache_key] = (selected_records, lane_counts)
-    return _discovery_page(selected_records, lane_counts, offset, key_hash)
+    _DISCOVERY_POOLS[key_hash] = {
+        "records": selected_records, "lane_counts": lane_counts, "excluded": dict(Counter(excluded.values())), "beyond_limit": beyond_limit,
+        "query": f"discover_models(pipeline_tags={tasks!r}"
+                 + (f", start_date={start_date!r}, end_date={end_date!r}" if start_date and end_date else "") + ")",
+    }
+    return _discovery_page(_DISCOVERY_POOLS[key_hash], offset, key_hash)
 
 
-def _discovery_page(
-    selected: list[HuggingFaceRecord],
-    lane_counts: dict[str, int],
-    offset: int,
-    key_hash: str,
-) -> HuggingFaceDiscovery:
-    if offset and offset >= len(selected):
-        raise ValueError("cursor is beyond the current discovery pool; restart without a cursor")
-    end = min(offset + DISCOVERY_PAGE_SIZE, len(selected))
-    records = [record.copy() for record in selected[offset:end]]
+def _discovery_page(pool: Mapping[str, Any], offset: int, key_hash: str) -> HuggingFaceDiscovery:
+    selected = pool["records"]
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 1 or (offset > 1 and offset > len(selected)):
+        raise ValueError(f"offset must be between 1 and {max(1, len(selected))}, the size of this discovery pool")
+    end = min(offset - 1 + DISCOVERY_PAGE_SIZE, len(selected))
+    discovery_review.mark_served("huggingface", key_hash, end)
+    lines = [
+        f"{len(selected)} models in discovery rank order. Excluded by their own fields: "
+        + (", ".join(f"{name} {count}" for name, count in sorted(pool["excluded"].items())) or "none") + "."
+        + (f" {pool['beyond_limit']} more passed these checks and rank below these in every lane; narrow the dates or filters to reach them."
+           if pool["beyond_limit"] else "")]
+    for number, record in enumerate(selected[offset - 1:end], start=offset):
+        created = str(record.get("created_at") or "")[:10]
+        lines.append(f"{number}. {record['repo_id']} | {record.get('likes') or 0} likes | "
+                     + (f"created {created}, {record['released']}" if record.get("released") else created)
+                     + (" | gated" if record["gated"] else ""))
+    if len(selected) > DISCOVERY_PAGE_SIZE:
+        # The notice a truncated read ends with: where this page sits and how to continue.
+        lines.append(f"\n[Showing models {offset}-{end} of {len(selected)}." + (f" Use offset={end + 1} to continue.]" if end < len(selected) else "]"))
     return {
-        "records": records,
-        "lane_counts": lane_counts,
+        "records": [dict(record) for record in selected[offset - 1:end]],
+        "listing": "\n".join(lines),
+        "query": pool["query"],
+        "lane_counts": pool["lane_counts"],
         "unique_count": len(selected),
-        "returned_count": len(records),
-        "next_cursor": f"hf-discovery:{key_hash}:{end}" if end < len(selected) else None,
+        "returned_count": end - offset + 1 if selected else 0,
+        "next_offset": end + 1 if end < len(selected) else None,
+        "excluded": pool["excluded"],
+        "beyond_limit": pool["beyond_limit"],
     }
 
 
-def _record_has_release_evidence_between(
-    record: HuggingFaceRecord,
-    start_date: str,
-    end_date: str,
-) -> bool:
-    if any(
-        isinstance(value, str) and start_date <= value[:10] <= end_date
-        for value in (record.get("created_at"), record.get("published_at"), record.get("submitted_at"))
-    ):
-        return True
-    start_month, end_month = start_date[:7], end_date[:7]
-    for tag in record.get("tags", []):
-        match = re.fullmatch(r"arxiv:(\d{2})(\d{2})\.\d{4,5}", tag, re.IGNORECASE)
-        if match and start_month <= f"20{match.group(1)}-{match.group(2)}" <= end_month:
+_CONVERSION_ID = re.compile(r"(gguf|onnx|mlx|awq|gptq|quant|int4|int8|4bit|8bit|bf16|fp8|fp16|openvino|coreml|tflite|rknn|comfy|-cpp\b|\.cpp)", re.IGNORECASE)
+_BASE_TASKS: dict[str, Any] = {}
+_DISCOVERIES = count(1)
+
+
+def _is_conversion(record: Mapping[str, Any]) -> bool:
+    """A format variant or packaging of a model: its author or name says so, or it declares a quantized base.
+
+    A format tag alone is not one: a model published only as ONNX or GGUF, with no base, is an original release.
+    """
+    return bool(_CONVERSION_ID.search(str(record.get("repo_id") or ""))) or any(str(tag).startswith("base_model:quantized:") for tag in record.get("tags") or [])
+
+
+def _foreign_bases(record: Mapping[str, Any]) -> list[str]:
+    """Base repositories of another author; tags read ``base_model:<repo>`` or ``base_model:<relation>:<repo>``."""
+    author = str(record.get("repo_id") or "").split("/", 1)[0].lower()
+    bases = {str(tag).rsplit(":", 1)[-1] for tag in record.get("tags") or [] if str(tag).startswith("base_model:")}
+    return sorted(base for base in bases if "/" in base and base.split("/", 1)[0].lower() != author)
+
+
+def _is_derived(record: Mapping[str, Any], pipeline_tags: Sequence[str]) -> bool:
+    """Built on another author's model of the same task.
+
+    A model on a different-task backbone, a family's own base, or a base whose task cannot be read is not derived.
+    """
+    same_task = {*pipeline_tags, record.get("pipeline_tag")} - {None}
+    for base in _foreign_bases(record):
+        if base not in _BASE_TASKS:
+            try:
+                _BASE_TASKS[base] = model_info(base, purpose="Read the task of a discovered model's base model")[0].get("pipeline_tag")
+            except Exception:  # noqa: BLE001 - an unknown or inaccessible base excludes nothing
+                _BASE_TASKS[base] = None
+        if _BASE_TASKS[base] in same_task:
             return True
     return False
 
 
-def _discovery_offset(cursor: str | None, key_hash: str) -> int:
-    if cursor is None:
-        return 0
-    value = _text(cursor, "cursor", max_length=64)
-    parts = value.split(":")
-    if len(parts) != 3 or parts[0] != "hf-discovery" or not parts[2].isdigit() or int(parts[2]) <= 0:
-        raise ValueError("cursor must be the exact next_cursor returned by discover_models()")
-    if parts[1] != key_hash:
-        raise ValueError("cursor was created for different discovery parameters")
-    return int(parts[2])
+def _release_evidence(
+    record: Mapping[str, Any],
+    start_date: str,
+    end_date: str,
+) -> str | None:
+    """What places a record in the date range: one of its own dates, or a paper it declares. ``None`` when nothing does."""
+    for name in ("created_at", "published_at", "submitted_at"):
+        value = record.get(name)
+        if isinstance(value, str) and start_date <= value[:10] <= end_date:
+            return f"{name.removesuffix('_at')} {value[:10]}"
+    start_month, end_month = start_date[:7], end_date[:7]
+    for tag in record.get("tags", []):
+        match = re.fullmatch(r"arxiv:(\d{2})(\d{2})\.\d{4,5}", tag, re.IGNORECASE)
+        if match and start_month <= f"20{match.group(1)}-{match.group(2)}" <= end_month:
+            return f"released 20{match.group(1)}-{match.group(2)} ({tag.lower()})"
+    return None
 
 
 def paginate_datasets(*, total_results: int, page_size: int = 100, **kwargs: Any) -> list[HuggingFaceRecord]:

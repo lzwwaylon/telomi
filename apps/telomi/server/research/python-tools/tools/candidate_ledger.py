@@ -12,9 +12,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from tools import discovery_review
+
 
 class CandidateLedger:
-    """Deduplicate Provider candidates while preserving first-discovery provenance."""
+    """Deduplicate Provider candidates while preserving first-discovery provenance.
+
+    When this kernel built a discovery pool, the Ledger also records it and how far it was read.
+    """
 
     def __init__(self) -> None:
         self._candidates: dict[str, dict[str, Any]] = {}
@@ -58,9 +63,11 @@ class CandidateLedger:
 
     def as_dict(self) -> dict[str, Any]:
         """Return the Agent-authored Ledger body; Runtime injects identity fields."""
-        return {
-            "candidates": copy.deepcopy(list(self._candidates.values())),
-        }
+        body: dict[str, Any] = {"candidates": copy.deepcopy(list(self._candidates.values()))}
+        pools = discovery_review.pools()
+        if pools:
+            body["discovery"] = {"pools": pools}
+        return body
 
     def write(self, path: str | Path) -> None:
         """Atomically save the current draft. Runtime submission freezes the final Ledger."""

@@ -24,7 +24,7 @@ CLONE_BLOB_LIMIT = "1m"  # ponytail: fixed knob, make it a config field if a sou
 
 REPOSITORY = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 TOPIC = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,49})$")
-MATERIALIZING_OPERATIONS = {"clone_repository", "download_release", "download_file"}
+MATERIALIZING_OPERATIONS = {"clone_repository", "download_release", "download_file", "download_readme"}
 REPOSITORY_OPERATIONS = {"get_repository", "get_issue", *MATERIALIZING_OPERATIONS}
 OPERATIONS = {
     "search_topics",
@@ -82,10 +82,26 @@ class GitHubSource:
                 return [await self._clone_repository(parameters, workspace)]
             if operation == "download_release":
                 return await self._download_release(parameters, workspace)
-            return [await self._download_file(parameters, workspace)]
+            return [await self._download_file(parameters, workspace, readme=operation == "download_readme")]
         except ServiceError as error:
             if operation not in REPOSITORY_OPERATIONS or github_error_status(error) != 404:
                 raise
+            if operation == "download_readme":
+                # The repository came from discovery: a 404 here means it has no README, not a wrong name.
+                raise ServiceError(
+                    "github_readme_not_found",
+                    f"GitHub repository '{repository}' has no README.",
+                    status_code=404,
+                    retryable=False,
+                    provider="github",
+                    details={
+                        "circuit_scope": "request",
+                        "failure_scope": "request",
+                        "github_status": 404,
+                        "operation": operation,
+                        "repository": repository,
+                    },
+                ) from error
             await self._raise_repository_not_found(operation, repository, error)
 
     async def _search_topics(self, parameters: dict[str, Any]) -> list[SearchResult]:
@@ -480,14 +496,17 @@ class GitHubSource:
         self,
         parameters: dict[str, Any],
         workspace: Path,
+        *,
+        readme: bool = False,
     ) -> SearchResult:
         repository = required_repository(parameters.get("repository"))
-        path = repository_path(parameters.get("path"))
+        # GitHub resolves the preferred README itself: README.md, README.rst, lowercase or extensionless.
+        path = "README" if readme else repository_path(parameters.get("path"))
         ref = optional_ref(parameters.get("ref"), "ref")
-        key = digest_key(repository, path, ref or "default")
+        key = digest_key(repository, *(["preferred-readme"] if readme else []), path, ref or "default")
         target_dir = workspace / "artifacts" / "github" / "files" / key
         target = target_dir / Path(path).name
-        cache_key = json.dumps({"repository": repository, "path": path, "ref": ref}, sort_keys=True)
+        cache_key = json.dumps({"repository": repository, "path": path, "ref": ref, **({"readme": True} if readme else {})}, sort_keys=True)
         cache_hit = False
         if not target.is_file():
             if target_dir.exists():
@@ -499,7 +518,7 @@ class GitHubSource:
             if not cache_hit:
                 target_dir.mkdir(parents=True, exist_ok=False)
                 temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
-                endpoint = f"repos/{quote(repository, safe='/')}/contents/{quote(path, safe='/')}"
+                endpoint = f"repos/{quote(repository, safe='/')}/" + ("readme" if readme else f"contents/{quote(path, safe='/')}")
                 if ref:
                     endpoint = f"{endpoint}?{urlencode({'ref': ref})}"
                 try:
@@ -526,15 +545,16 @@ class GitHubSource:
                 except BaseException:
                     shutil.rmtree(target_dir, ignore_errors=True)
                     raise
-        url = f"https://github.com/{repository}/blob/{quote(ref or 'HEAD', safe='')}/{quote(path, safe='/')}"
+        url = (f"https://github.com/{repository}/tree/{quote(ref or 'HEAD', safe='')}#readme" if readme
+               else f"https://github.com/{repository}/blob/{quote(ref or 'HEAD', safe='')}/{quote(path, safe='/')}")
         return SearchResult(
             id=stable_search_id("github", f"{url}#file:{key}"),
             title=path,
             url=url,
-            snippet=f"Downloaded GitHub repository file {path}",
+            snippet=f"Downloaded GitHub repository {'README' if readme else f'file {path}'}",
             metadata={
                 "repository": repository,
-                "resource_type": "repository_file",
+                "resource_type": "repository_readme" if readme else "repository_file",
                 "path": path,
                 "ref": ref,
                 "artifact_path": relative_artifact(workspace, target),
@@ -821,6 +841,7 @@ def parse_repository(row: dict[str, Any]) -> SearchResult | None:
         ("created_at", "created_at"),
         ("pushed_at", "pushed_at"),
         ("archived", "archived"),
+        ("fork", "fork"),
         ("default_branch", "default_branch"),
         ("open_issues_count", "open_issues"),
         ("license", "license"),
@@ -974,6 +995,7 @@ def strict_parameters(operation: str, value: object) -> dict[str, Any]:
         "clone_repository": {"repository", "ref", "full_history"},
         "download_release": {"repository", "tag", "patterns", "archive"},
         "download_file": {"repository", "path", "ref"},
+        "download_readme": {"repository", "ref"},
     }[operation]
     unknown = set(value) - allowed
     if unknown:

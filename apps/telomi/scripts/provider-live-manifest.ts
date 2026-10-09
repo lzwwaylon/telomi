@@ -19,7 +19,7 @@ export const PROVIDER_LIVE_MANIFEST = {
 			script: "test:research-sources-live",
 			operations: [
 				"search_topics", "search_repositories", "get_repository", "search_code", "search_issues",
-				"get_issue", "clone_repository", "download_release", "download_file",
+				"get_issue", "clone_repository", "download_release", "download_file", "download_readme",
 			],
 		}],
 		skips: [],

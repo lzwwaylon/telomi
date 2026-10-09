@@ -21,9 +21,11 @@ from tools import (
     arxiv,
     browser,
     candidate_ledger,
+    discovery_review,
     github,
     huggingface,
     links,
+    pool_review,
     twitter,
     user_documents,
     youtube,
@@ -276,6 +278,24 @@ class LinkExtractionTests(unittest.TestCase):
 
 
 class CandidateLedgerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        discovery_review.reset()
+        self.addCleanup(discovery_review.reset)
+
+    def test_a_ledger_records_the_discovery_pools_of_its_kernel(self) -> None:
+        ledger = candidate_ledger.CandidateLedger()
+        ledger.add(
+            title="Owner Repo",
+            url="https://github.com/owner/repo",
+            query="exact input",
+            summary="Official repository.",
+            metadata={},
+            materials=[{"artifact_path": "work/materials/github/repo"}],
+        )
+        self.assertNotIn("discovery", ledger.as_dict())
+        discovery_review.register_pool("github", "k", ["https://github.com/owner/repo"])
+        self.assertEqual(ledger.as_dict()["discovery"], {"pools": [{"provider": "github", "key": "k", "size": 1, "served": 0, "urls": ["https://github.com/owner/repo"]}]})
+
     def test_deduplicates_candidates_and_preserves_discovery_provenance(self) -> None:
         ledger = candidate_ledger.CandidateLedger()
         ledger.add(
@@ -366,6 +386,9 @@ class CandidateLedgerTests(unittest.TestCase):
 
 
 class ArxivApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        pool_review._POOLS.clear()
+
     def test_public_api_is_self_describing(self) -> None:
         signature = inspect.signature(arxiv.search)
         self.assertIn("query", signature.parameters)
@@ -444,9 +467,8 @@ class ArxivApiTests(unittest.TestCase):
             {"id": f"new-{index}", "metadata": {"arxiv_id": f"new-{index}"}}
             for index in range(15)
         ]
+        discovery_review.reset()
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[
                 {"category_id": "cs.SD"},
                 {"category_id": "eess.AS"},
@@ -460,9 +482,12 @@ class ArxivApiTests(unittest.TestCase):
                 end_date="2026-02-28",
             )
 
-        self.assertEqual(discovery["returned_count"], 20)
-        self.assertEqual(discovery["unique_count"], 30)
-        self.assertEqual(discovery["next_cursor"], "arxiv-discovery:20")
+        self.assertEqual((len(discovery["records"]), discovery["unique_count"], discovery["next_offset"]), (30, 30, None))
+        self.assertEqual(discovery["query"], "discover_papers(categories=['cs.SD', 'eess.AS'], concepts=['text-to-speech', 'TTS'], start_date='2026-01-01', end_date='2026-02-28')")
+        self.assertEqual(discovery["listing"].splitlines()[:2], ["Pool of 30 papers.", "1. rel-0 | published  | Speech synthesis"])
+        pools = [pool for pool in discovery_review.pools() if pool["provider"] == "arxiv"]
+        self.assertEqual((len(pools), pools[-1]["size"], pools[-1]["served"]), (1, 30, 30), "the pool is registered and served whole")
+        self.assertEqual(pools[-1]["urls"][:2], ["https://arxiv.org/abs/rel-0", "https://arxiv.org/abs/new-0"])
         categories.assert_called_once_with(
             max_results=500,
             purpose="Validate proposed arXiv subject categories",
@@ -486,10 +511,10 @@ class ArxivApiTests(unittest.TestCase):
             [arxiv.DISCOVERY_LANE_LIMIT, arxiv.DISCOVERY_LANE_LIMIT],
         )
 
-    def test_discover_papers_uses_its_exact_cursor(self) -> None:
+    def test_discover_papers_continues_a_cached_pool_from_an_offset(self) -> None:
         rows = [
             {"id": f"paper-{index}", "metadata": {"arxiv_id": f"paper-{index}"}}
-            for index in range(30)
+            for index in range(50)
         ]
         arguments = {
             "categories": ["cs.SD"],
@@ -498,24 +523,22 @@ class ArxivApiTests(unittest.TestCase):
             "end_date": "2026-08-26",
         }
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[{"category_id": "cs.SD"}]),
             patch.object(arxiv, "search", return_value=rows) as search,
         ):
             first = arxiv.discover_papers(**arguments)
-            with self.assertRaisesRegex(RuntimeError, "Finish the active arXiv discovery"):
-                arxiv.native_query(search_query="cat:cs.SD")
-            discovery = arxiv.discover_papers(**arguments, cursor=first["next_cursor"])
+            discovery = arxiv.discover_papers(**arguments, offset=first["next_offset"])
+            with self.assertRaisesRegex(ValueError, "offset must be between 1 and 50"):
+                arxiv.discover_papers(**arguments, offset=51)
 
-        self.assertEqual(discovery["returned_count"], 10)
-        self.assertIsNone(discovery["next_cursor"])
-        self.assertEqual(search.call_count, 8)
+        self.assertEqual((len(first["records"]), first["next_offset"], len(discovery["records"]), discovery["next_offset"]), (40, 41, 10, None))
+        self.assertEqual(first["listing"].splitlines()[-2:], ["", "[Showing the papers kept from pool records 1-40 of 50. Use offset=41 to continue.]"])
+        self.assertEqual(discovery["listing"].splitlines()[-1], "[Showing the papers kept from pool records 41-50 of 50.]")
+        self.assertEqual(first["records"][0]["arxiv_id"], "paper-0")
+        self.assertEqual(search.call_count, 8, "a later offset reads the cached pool")
 
     def test_discover_papers_rejects_unknown_remembered_categories_with_guidance(self) -> None:
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[{
                 "category_id": "eess.AS",
                 "category_label": "Audio and Speech Processing",
@@ -537,8 +560,6 @@ class ArxivApiTests(unittest.TestCase):
             for index in range(arxiv.DISCOVERY_LANE_LIMIT)
         ]
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[{"category_id": "cs.SD"}]),
             patch.object(arxiv, "search", return_value=rows),
         ):
@@ -584,24 +605,20 @@ class ArxivApiTests(unittest.TestCase):
             "end_date": "2026-03-31",
         }
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "search_source", side_effect=search_source),
         ):
             pages = []
-            cursor = None
-            while True:
-                page = arxiv.discover_papers(**arguments, cursor=cursor)
+            offset = 1
+            while offset:
+                page = arxiv.discover_papers(**arguments, offset=offset)
                 pages.append(page)
-                cursor = page["next_cursor"]
-                if cursor is None:
-                    break
+                offset = page["next_offset"]
 
         self.assertEqual(pages[0]["lane_counts"], {"2026-01": 100, "2026-02": 60, "2026-03": 5})
         self.assertEqual(pages[0]["unique_count"], 150)
         self.assertEqual(pages[0]["saturated_lanes"], ["2026-01"])
-        self.assertEqual([page["returned_count"] for page in pages], [20] * 7 + [10])
-        self.assertIsNone(pages[-1]["next_cursor"])
+        self.assertEqual([len(page["records"]) for page in pages], [40, 40, 40, 30])
+        self.assertLess(max(len(page["listing"]) for page in pages), 6000, "a page prints inside one cell")
         self.assertEqual(len({row["metadata"]["arxiv_id"] for page in pages for row in page["records"]}), 150)
 
     def test_complete_search_limit_error_explains_recovery(self) -> None:
@@ -705,7 +722,6 @@ class ArxivApiTests(unittest.TestCase):
             },
         }]
         with (
-            patch.object(arxiv, "_pending_discovery", None),
             patch.object(arxiv, "search_source", return_value=runtime_rows) as search,
         ):
             profiles = arxiv.paper_profile("2601.00001v2", depth="metadata")
@@ -731,7 +747,6 @@ class ArxivApiTests(unittest.TestCase):
         self.assertEqual(search.call_count, 1)
         self.assertEqual(search.call_args.args[0][0]["provider_request"]["operation"], "query")
         with (
-            patch.object(arxiv, "_pending_discovery", None),
             patch.object(arxiv, "search_source", return_value=runtime_rows),
         ):
             extended = arxiv.paper_profile("2601.00001v2", fields=["abstract", "authors"])
@@ -793,7 +808,6 @@ class ArxivApiTests(unittest.TestCase):
             }},
         ]
         with (
-            patch.object(arxiv, "_pending_discovery", None),
             patch.object(arxiv, "search_source", side_effect=[atom_rows, *([row] for row in front_rows)]) as search,
         ):
             profiles = arxiv.paper_profile(
@@ -840,7 +854,6 @@ class ArxivApiTests(unittest.TestCase):
             "html_available": True, "arxiv_version_id": "2601.00002v1", "author_block_text": "Example Team",
         }}]
         with (
-            patch.object(arxiv, "_pending_discovery", None),
             patch.object(arxiv, "search_source",
                          side_effect=[atom_rows, RuntimeError("arxiv returned HTTP 500"), good_front]),
             patch.object(arxiv, "log_tool_failure") as log,
@@ -879,8 +892,6 @@ class ArxivApiTests(unittest.TestCase):
                 raise RuntimeError("arxiv returned HTTP 429")
             return [{"id": "paper-a", "metadata": {"arxiv_id": "2601.00001"}}]
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[{"category_id": "cs.SD"}]),
             patch.object(arxiv, "search", side_effect=lane),
             patch.object(arxiv, "log_tool_failure") as log,
@@ -918,8 +929,6 @@ class ArxivApiTests(unittest.TestCase):
                 raise self._source_unavailable()
             return [{"id": f"paper-{len(requested)}", "metadata": {"arxiv_id": f"2601.0000{len(requested)}"}}]
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[{"category_id": "cs.SD"}]),
             patch.object(arxiv, "search", side_effect=lane),
             patch.object(arxiv, "log_tool_failure"),
@@ -936,8 +945,6 @@ class ArxivApiTests(unittest.TestCase):
 
     def test_discover_papers_raises_source_unavailable_when_no_month_is_covered(self) -> None:
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[{"category_id": "cs.SD"}]),
             patch.object(arxiv, "search", side_effect=self._source_unavailable()) as search,
             patch.object(arxiv, "log_tool_failure"),
@@ -958,8 +965,6 @@ class ArxivApiTests(unittest.TestCase):
                 raise self._source_unavailable()
             return []
         with (
-            patch.object(arxiv, "_pending_discovery", None),
-            patch.object(arxiv, "_discovery_pool", None),
             patch.object(arxiv, "categories", return_value=[{"category_id": "cs.SD"}]),
             patch.object(arxiv, "search", side_effect=lane),
             patch.object(arxiv, "log_tool_failure"),
@@ -1136,7 +1141,7 @@ class ArxivApiTests(unittest.TestCase):
 
 class GitHubApiTests(unittest.TestCase):
     def setUp(self) -> None:
-        github._DISCOVERY_POOLS.clear()
+        pool_review._POOLS.clear()
 
     def test_public_api_contains_only_read_and_download_operations(self) -> None:
         self.assertEqual(
@@ -1147,6 +1152,7 @@ class GitHubApiTests(unittest.TestCase):
                 "clone_repository",
                 "discover_repositories",
                 "download_file",
+                "download_readme",
                 "download_release",
                 "get_issue",
                 "get_repository",
@@ -1224,6 +1230,7 @@ class GitHubApiTests(unittest.TestCase):
                 return [repository("org/active")]
             return [repository("org/shared"), repository("org/stars")]
 
+        discovery_review.reset()
         with patch.object(github, "search_source", side_effect=search_source) as source:
             discovery = github.discover_repositories(
                 "text-to-speech",
@@ -1259,8 +1266,21 @@ class GitHubApiTests(unittest.TestCase):
         ])
         self.assertEqual(set(discovery["records"][0]), {
             "full_name", "url", "description", "stars", "forks", "language", "topics",
-            "license", "created_at", "pushed_at", "archived", "discovery_lanes",
+            "license", "created_at", "pushed_at", "archived", "discovery_lanes", "papers",
         })
+        self.assertEqual(discovery["listing"].splitlines(), [
+            "Pool of 5 repositories.",
+            "1. org/shared | 100 stars | created 2026-03-01 | Description for org/shared",
+            "2. org/stars | 100 stars | created 2026-03-01 | Description for org/stars",
+            "3. org/created | 100 stars | created 2026-03-01 | Description for org/created",
+            "4. org/active | 100 stars | created 2026-03-01 | Description for org/active",
+            "5. org/keyword | 100 stars | created 2026-03-01 | Description for org/keyword",
+        ])
+        self.assertEqual(discovery["query"], "discover_repositories(topics=['text-to-speech'], start_date='2026-01-01', end_date='2026-08-31')")
+        pools = [pool for pool in discovery_review.pools() if pool["provider"] == "github"]
+        self.assertEqual(len(pools), 1, "the pool is registered once for the Ledger review")
+        self.assertEqual(pools[0]["urls"], [f"https://github.com/{record['full_name']}" for record in discovery["records"]])
+        self.assertEqual((pools[0]["size"], pools[0]["served"]), (5, 5), "one page served the whole pool")
 
     def test_discover_repositories_rejects_unknown_topic_with_suggestions(self) -> None:
         with patch.object(github, "search_source", return_value=[
@@ -1273,7 +1293,7 @@ class GitHubApiTests(unittest.TestCase):
             github.discover_repositories("text-to-speach")
         source.assert_called_once()
 
-    def test_discover_repositories_pages_cached_pool(self) -> None:
+    def test_discover_repositories_continues_a_cached_pool_from_an_offset(self) -> None:
         def search_source(requests, *, source):
             request = requests[0]["provider_request"]
             if request["operation"] == "search_topics":
@@ -1282,20 +1302,28 @@ class GitHubApiTests(unittest.TestCase):
                 {"url": f"https://github.com/org/repo-{index}", "metadata": {
                     "repository": f"org/repo-{index}",
                 }}
-                for index in range(25)
+                for index in range(45)
             ]
 
         with patch.object(github, "search_source", side_effect=search_source) as source:
             first = github.discover_repositories("text-to-speech")
-            second = github.discover_repositories(
-                "text-to-speech",
-                cursor=first["next_cursor"],
-            )
+            second = github.discover_repositories("text-to-speech", offset=first["next_offset"])
+            with self.assertRaisesRegex(ValueError, "exclude holds any of: archived, fork"):
+                github.discover_repositories("text-to-speech", exclude=["old"])
+            with self.assertRaisesRegex(ValueError, "recent_share must be a number from 0 to 1"):
+                github.discover_repositories("text-to-speech", recent_share=2)
 
-        self.assertEqual((first["returned_count"], second["returned_count"]), (20, 5))
-        self.assertEqual(first["unique_count"], 25)
-        self.assertIsNone(second["next_cursor"])
-        self.assertEqual(source.call_count, 2)
+        self.assertEqual((len(first["records"]), first["next_offset"], len(second["records"]), second["next_offset"], first["pool"]), (40, 41, 5, None, 45))
+        self.assertEqual(first["listing"].splitlines()[-1], "[Showing the repositories kept from pool records 1-40 of 45. Use offset=41 to continue.]")
+        self.assertEqual(second["listing"].splitlines()[-1], "[Showing the repositories kept from pool records 41-45 of 45.]")
+        self.assertEqual(source.call_count, 2, "a later offset reads the cached pool")
+        self.assertEqual(source.call_args.args[0][0]["provider_request"]["parameters"]["min_stars"], 100, "a category holds the repositories people took notice of")
+        with patch.object(github, "search_source", side_effect=search_source) as source, patch.object(github, "DISCOVERY_RESULT_LIMIT", 42):
+            bounded = github.discover_repositories("text-to-speech", min_stars=0)
+        self.assertNotIn("min_stars", source.call_args.args[0][0]["provider_request"]["parameters"])
+        self.assertEqual((bounded["pool"], bounded["beyond_limit"], bounded["listing"].splitlines()[1], bounded["listing"].splitlines()[-1]), (
+            42, 3, "3 more repositories rank below this pool; narrow the dates or topics, or raise min_stars, to reach them.",
+            "[Showing the repositories kept from pool records 1-40 of 42. Use offset=41 to continue.]"))
 
     def test_discover_repositories_requires_paired_valid_dates(self) -> None:
         with patch.object(github, "search_source") as source:
@@ -1345,6 +1373,7 @@ class GitHubApiTests(unittest.TestCase):
             ("clone_repository", lambda: github.clone_repository("owner/repo")),
             ("download_release", lambda: github.download_release("owner/repo", archive="zip")),
             ("download_file", lambda: github.download_file("owner/repo", "README.md")),
+            ("download_readme", lambda: github.download_readme("owner/repo")),
         ]
         for expected_operation, call in calls:
             with self.subTest(operation=expected_operation):
@@ -1370,6 +1399,7 @@ class GitHubApiTests(unittest.TestCase):
 
 class HuggingFaceApiTests(unittest.TestCase):
     def setUp(self) -> None:
+        huggingface._BASE_TASKS.clear()
         huggingface._DISCOVERY_POOLS.clear()
 
     def test_public_api_is_self_describing(self) -> None:
@@ -1534,7 +1564,7 @@ class HuggingFaceApiTests(unittest.TestCase):
                     "pipeline_tag": "text-to-speech",
                     "library_name": "transformers",
                     "downloads": 34,
-                    "likes": 12,
+                    "likes": 120,
                     "tags": ["zh", "en", "voice-cloning"],
                     "huggingface_page": {"next_cursor": next_cursor},
                 },
@@ -1583,8 +1613,13 @@ class HuggingFaceApiTests(unittest.TestCase):
             "text-to-speech:downloads": 1,
         })
         self.assertEqual(discovery["unique_count"], 2)
-        self.assertEqual(discovery["returned_count"], 2)
-        self.assertIsNone(discovery["next_cursor"])
+        self.assertEqual((discovery["excluded"], discovery["beyond_limit"], discovery["returned_count"], discovery["next_offset"]), ({}, 0, 2, None))
+        self.assertEqual(discovery["query"], "discover_models(pipeline_tags=['text-to-speech'], start_date='2026-01-01', end_date='2026-08-20')")
+        self.assertEqual(discovery["listing"].splitlines(), [
+            "2 models in discovery rank order. Excluded by their own fields: none.",
+            "1. org/trending | 120 likes | 2026-08-20",
+            "2. org/created | 120 likes | 2026-07-01",
+        ])
         self.assertEqual(
             [record["repo_id"] for record in discovery["records"]],
             ["org/trending", "org/created"],
@@ -1595,7 +1630,7 @@ class HuggingFaceApiTests(unittest.TestCase):
             {"pipeline_tag": "text-to-speech", "lane": "likes", "rank": 2},
         ])
         self.assertEqual(set(discovery["records"][0]), {
-            "repo_id",
+            "repo_id", "gated", "url",
             "created_at",
             "pipeline_tag",
             "library_name",
@@ -1649,89 +1684,74 @@ class HuggingFaceApiTests(unittest.TestCase):
             patch.object(huggingface, "models_created_between", return_value=timeline),
         ):
             records = []
-            cursor = None
-            while True:
-                discovery = huggingface.discover_models(
-                    "text-to-speech",
-                    start_date="2026-01-01",
-                    end_date="2026-08-20",
-                    cursor=cursor,
-                )
-                records.extend(discovery["records"])
-                cursor = discovery["next_cursor"]
-                if cursor is None:
-                    break
+            offset = 1
+            with patch.object(huggingface, "DISCOVERY_RESULT_LIMIT", 100):
+                while offset:
+                    discovery = huggingface.discover_models(
+                        "text-to-speech",
+                        start_date="2026-01-01",
+                        end_date="2026-08-20",
+                        offset=offset,
+                    )
+                    records.extend(discovery["records"])
+                    self.assertLess(len(discovery["listing"]), 4000, "a page prints inside one cell")
+                    offset = discovery["next_offset"]
 
-        self.assertEqual(discovery["unique_count"], 100)
+        self.assertEqual((discovery["unique_count"], discovery["beyond_limit"]), (100, 30))
         self.assertEqual(len(records), 100)
+        self.assertEqual(discovery["listing"].splitlines()[0], "100 models in discovery rank order. Excluded by their own fields: none. "
+                         "30 more passed these checks and rank below these in every lane; narrow the dates or filters to reach them.")
+        self.assertEqual(discovery["listing"].splitlines()[-2:], ["", "[Showing models 51-100 of 100.]"])
         ids = [record["repo_id"] for record in records]
         self.assertEqual(sum("/trending-in-" in repo_id for repo_id in ids), 30)
         self.assertEqual(sum("/timeline-" in repo_id for repo_id in ids), 70)
         self.assertFalse(any("-out-" in repo_id for repo_id in ids))
 
-    def test_discover_models_pages_cached_pool_without_repeating_hub_calls(self) -> None:
-        rows = [
-            {"repo_id": f"org/model-{index}", "created_at": "2026-06-01"}
-            for index in range(60)
+    def test_discover_models_excludes_by_own_fields_and_lets_every_lane_into_a_bounded_result(self) -> None:
+        def model(repo_id: str, likes: int, **extra):
+            return {"repo_id": repo_id, "created_at": "2026-06-01", "pipeline_tag": "text-to-speech", "likes": likes, "tags": [], **extra}
+
+        trending = [model(f"org/trending-{index}", 150) for index in range(5)]
+        timeline = [
+            model("new/unliked", 2), model("lab/quiet-hit", 900), model("user/hit-GGUF", 700), model("lab/edge-original", 600, tags=["onnx"]),
+            model("user/quantized", 500, tags=["base_model:quantized:lab/quiet-hit"]), model("user/finetune", 400, tags=["base_model:lab/quiet-hit"]),
+            model("lab/on-llm", 300, tags=["base_model:other/llm"]), model("lab/unknown-likes", None), *trending,
         ]
-        with (
-            patch.object(
-                huggingface,
-                "model_tags",
-                return_value=[{"tag_id": "text-to-speech"}],
-            ) as model_tags,
-            patch.object(huggingface, "models", return_value=rows) as models,
-            patch.object(huggingface, "models_created_between", return_value=rows) as created,
-        ):
-            first = huggingface.discover_models(
-                "text-to-speech",
-                start_date="2026-01-01",
-                end_date="2026-09-03",
-            )
-            second = huggingface.discover_models(
-                "text-to-speech",
-                cursor=first["next_cursor"],
-                start_date="2026-01-01",
-                end_date="2026-09-03",
-            )
-            third = huggingface.discover_models(
-                "text-to-speech",
-                cursor=second["next_cursor"],
-                start_date="2026-01-01",
-                end_date="2026-09-03",
-            )
-
-        self.assertEqual([page["unique_count"] for page in (first, second, third)], [60, 60, 60])
-        self.assertEqual([page["returned_count"] for page in (first, second, third)], [20, 20, 20])
-        self.assertIsNone(third["next_cursor"])
-        model_tags.assert_called_once()
-        created.assert_called_once()
-        self.assertEqual(
-            [call.kwargs["sort"] for call in models.call_args_list],
-            ["trending_score", "likes", "downloads"],
-        )
-        self.assertEqual(
-            [record["repo_id"] for record in first["records"]],
-            [f"org/model-{index}" for index in range(20)],
-        )
-        self.assertEqual(
-            [record["repo_id"] for record in second["records"]],
-            [f"org/model-{index}" for index in range(20, 40)],
-        )
-
-    def test_discover_models_rejects_cursor_from_different_parameters(self) -> None:
-        rows = [{"repo_id": f"org/model-{index}"} for index in range(51)]
+        liked = [model("lab/quiet-hit", 900), model("lab/older-liked", 5000, created_at="2024-01-01")]
+        lanes = {"trending_score": trending, "likes": liked, "downloads": []}
+        base_tasks = {"lab/quiet-hit": "text-to-speech", "other/llm": "text-generation"}
         with (
             patch.object(huggingface, "model_tags", return_value=[{"tag_id": "text-to-speech"}]),
-            patch.object(huggingface, "models", return_value=rows),
+            patch.object(huggingface, "models", side_effect=lambda **kwargs: lanes[kwargs["sort"]]),
+            patch.object(huggingface, "models_created_between", return_value=timeline),
+            patch.object(huggingface, "model_info", side_effect=lambda base, **_: [{"pipeline_tag": base_tasks[base]}]) as info,
+            patch.object(huggingface, "_BASE_TASKS", {}),
         ):
-            first = huggingface.discover_models("text-to-speech")
-            with self.assertRaisesRegex(ValueError, "different discovery parameters"):
-                huggingface.discover_models(
-                    "text-to-speech",
-                    filters=["language:en"],
-                    cursor=first["next_cursor"],
-                )
+            found = huggingface.discover_models("text-to-speech", start_date="2026-01-01", end_date="2026-08-20")
+            self.assertEqual([record["repo_id"] for record in found["records"]], [
+                "org/trending-0", "lab/quiet-hit", "org/trending-1", "org/trending-2", "lab/edge-original", "org/trending-3", "org/trending-4",
+                "lab/on-llm", "lab/unknown-likes",
+            ], "lanes take turns, the date range is ordered by likes, and a format tag or another task's backbone excludes nothing")
+            self.assertEqual(found["excluded"], {"conversion": 2, "derived": 1, "low_interest": 1})
+            self.assertEqual(found["listing"].splitlines()[0], "9 models in discovery rank order. Excluded by their own fields: conversion 2, derived 1, low_interest 1.")
+            self.assertEqual(sorted(call.args[0] for call in info.call_args_list), ["lab/quiet-hit", "other/llm"], "each base is read once")
+            with patch.object(huggingface, "DISCOVERY_RESULT_LIMIT", 3), patch.object(huggingface, "DISCOVERY_PAGE_SIZE", 2), \
+                    patch.object(huggingface, "models_created_between", return_value=timeline) as created:
+                arguments = {"start_date": "2026-01-01", "end_date": "2026-08-20", "exclude": [], "min_likes": 0}
+                kept = huggingface.discover_models("text-to-speech", **arguments)
+                rest = huggingface.discover_models("text-to-speech", **arguments, offset=kept["next_offset"])
+                created.assert_called_once()
+                with self.assertRaisesRegex(ValueError, "offset must be between 1 and 3"):
+                    huggingface.discover_models("text-to-speech", **arguments, offset=4)
+        self.assertEqual([[record["repo_id"] for record in page["records"]] for page in (kept, rest)], [["org/trending-0", "lab/quiet-hit"], ["org/trending-1"]])
+        self.assertEqual((kept["unique_count"], kept["returned_count"], kept["excluded"], kept["beyond_limit"], kept["next_offset"], rest["next_offset"]), (3, 2, {}, 10, 3, None))
+        head = "3 models in discovery rank order. Excluded by their own fields: none. 10 more passed these checks and rank below these in every lane; narrow the dates or filters to reach them."
+        self.assertEqual(kept["listing"].splitlines(), [
+            head, "1. org/trending-0 | 150 likes | 2026-06-01", "2. lab/quiet-hit | 900 likes | 2026-06-01", "", "[Showing models 1-2 of 3. Use offset=3 to continue.]"])
+        self.assertEqual(rest["listing"].splitlines(), [head, "3. org/trending-1 | 150 likes | 2026-06-01", "", "[Showing models 3-3 of 3.]"])
+        for arguments, message in (({"exclude": ["age"]}, "exclude holds any of: conversion, derived"), ({"min_likes": -1}, "min_likes must be a non-negative integer")):
+            with self.assertRaisesRegex(ValueError, message):
+                huggingface.discover_models("text-to-speech", **arguments)
 
     def test_discover_models_uses_release_evidence_not_ordinary_updates(self) -> None:
         released = {
@@ -1762,6 +1782,8 @@ class HuggingFaceApiTests(unittest.TestCase):
             )
 
         self.assertEqual([record["repo_id"] for record in discovery["records"]], ["org/current-release"])
+        self.assertEqual(discovery["listing"].splitlines()[1], "1. org/current-release | 0 likes | created 2025-11-01, released 2026-03 (arxiv:2603.25551)",
+                         "a repository created before the range says what places it inside")
 
     def test_discover_models_interleaves_multiple_task_tags(self) -> None:
         def model_rows(**kwargs) -> list[huggingface.HuggingFaceRecord]:
@@ -1777,16 +1799,12 @@ class HuggingFaceApiTests(unittest.TestCase):
             patch.object(huggingface, "models", side_effect=model_rows),
         ):
             records = []
-            cursor = None
-            while True:
-                discovery = huggingface.discover_models(
-                    ["text-to-speech", "text-to-audio"],
-                    cursor=cursor,
-                )
-                records.extend(discovery["records"])
-                cursor = discovery["next_cursor"]
-                if cursor is None:
-                    break
+            offset = 1
+            with patch.object(huggingface, "DISCOVERY_RESULT_LIMIT", 100):
+                while offset:
+                    discovery = huggingface.discover_models(["text-to-speech", "text-to-audio"], offset=offset)
+                    records.extend(discovery["records"])
+                    offset = discovery["next_offset"]
 
         self.assertEqual(discovery["unique_count"], 100)
         task_counts = {

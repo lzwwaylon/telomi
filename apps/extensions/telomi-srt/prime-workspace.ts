@@ -39,14 +39,17 @@ export function providerExecutionWorkspace(root: string, childId: string): {
 	// itself to the Runtime bridge (Browser sessions, skill-read receipts).
 	const marker = join(absolutePath, "work", EXECUTION_ID_FILE);
 	if (!existsSync(marker)) writeFileSync(marker, `${childId}\n`, "utf-8");
-	const sharedSkills = join(resolvedRoot, "skills");
-	const skills = join(absolutePath, "skills");
-	if (existsSync(sharedSkills)) {
-		try { symlinkSync(sharedSkills, skills, "dir"); } catch (error) {
+	// The read-only trees every execution of a stage shares: its staged Skills, and the inputs that carry
+	// the question and context the stage was given, so a child reads them instead of a parent's retelling.
+	for (const name of ["skills", "inputs"]) {
+		const shared = join(resolvedRoot, name);
+		const link = join(absolutePath, name);
+		if (!existsSync(shared)) continue;
+		try { symlinkSync(shared, link, "dir"); } catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 		}
-		if (!lstatSync(skills).isSymbolicLink() || realpathSync(skills) !== realpathSync(sharedSkills)) {
-			throw new Error("Provider workspace Skill link does not match its staged Skills");
+		if (!lstatSync(link).isSymbolicLink() || realpathSync(link) !== realpathSync(shared)) {
+			throw new Error(`Provider workspace ${name} link does not match the staged ${name}`);
 		}
 	}
 	return { childId, absolutePath, relativePath: relative(resolvedRoot, absolutePath) };

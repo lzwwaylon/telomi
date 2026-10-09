@@ -45,27 +45,25 @@ discovery = arxiv.discover_papers(
 )
 ```
 
-`discover_papers()` builds a bounded pool by interleaving Provider-native results across calendar months and pages it
-with an opaque cursor. This prevents a busy or recent month from hiding the rest of the assigned interval.
-The first call builds and caches that pool in the worker session. Later cursor calls only return the next cached slice;
-they do not repeat taxonomy validation or monthly Provider queries.
-Inspect `lane_counts` first. Read every returned record from its ID, title, publication date, abstract, and
-`discovery_lanes` before requesting another page. After the pool is complete, call `paper_profile(depth="metadata")`
-for every pool record and apply the assignment's research themes semantically. Regex and keyword matches are not
-relevance evidence and must not decide inclusion or exclusion. The complete discovery pool is not the final Candidate
-Ledger. Do not construct a hand-written list of target titles or IDs, or choose representatives.
+`discover_papers()` builds a bounded pool from one Provider-native relevance lane per calendar month, so a busy or
+recent month cannot hide the rest of the assigned interval, and orders it so that the best-ranked results of every
+month come first. The first call builds and caches that pool in the worker session and has Runtime screen it in that
+order, each record on its title and whole abstract, one page of the pool per call. A later call with the same
+arguments and an `offset` continues from there; it does not repeat taxonomy validation or monthly Provider queries.
 
-Follow the exact opaque `next_cursor` until it is null. `unique_count` is the complete pool, while
-`returned_count` is only the current page. Each record's `discovery_lanes` preserves its calendar-month relevance rank.
-Recency is a review signal, not proof of quality. Serialize retained records only after the final page has been reviewed.
-`saturated_lanes` contains only months whose lane hit the lane limit; `failed_lanes` lists months whose Provider
-request failed and are therefore absent from the pool, and `uncovered_ranges` lists the date ranges they leave out.
-Once arXiv is unavailable to this Provider Child, the remaining months are not requested: report `uncovered_ranges` as
-a coverage gap instead of retrying. When no month is covered, discovery raises `source_unavailable`, which is not an
-empty result. When either list is non-empty or `guidance` is returned, finish the current cursor, then follow the
-returned guidance before finalizing candidates.
-While `next_cursor` is non-null, the tool rejects native search with the cursor needed to resume. Finish the active
-discovery instead of bypassing unread pages with supplemental queries.
+Read every returned record before you choose and apply the assignment's research themes semantically;
+`paper_profile(depth="metadata")` adds the author comment and its links when a title and abstract do not settle a
+record. `unique_count` is every record the lanes returned and `lane_counts` what each lane returned; each record's
+`discovery_lanes` preserves its calendar-month relevance rank. Recency is a review signal, not proof of quality.
+Regex and keyword matches are not relevance evidence and must not decide inclusion or exclusion. Do not construct a hand-written list of target titles or IDs, or choose representatives.
 
-After category review, read [Native search](native-search.md) when a supplemental search is needed for papers
-that may be classified outside the selected categories.
+`saturated_lanes` contains only months whose lane hit the lane limit; `failed_lanes` lists lanes whose Provider
+request failed and are therefore absent from the pool, and `uncovered_ranges` lists the date ranges missing from it.
+Once arXiv is unavailable to this Provider Child, the remaining lanes are not requested: report `uncovered_ranges` as
+a coverage gap instead of retrying. When no lane is covered, discovery raises `source_unavailable`, which is not an
+empty result. When either list is non-empty the listing carries the returned `guidance` on its second line; follow it
+before finalizing candidates.
+
+Read [Native search](native-search.md) when a supplemental search is needed for papers that may be classified outside
+the selected categories. In a coverage assignment those expressions go into the same `discover_papers()` call as
+`queries`, so their results are ranked and screened with the category pool rather than added beside it.

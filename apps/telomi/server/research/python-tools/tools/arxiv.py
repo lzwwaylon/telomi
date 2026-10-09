@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import argparse
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from difflib import get_close_matches
+from hashlib import sha256
 from typing import Any, Literal, TypedDict
 
 from research_runtime import ResearchRuntimeError, log_tool_failure, search_source, workspace_path
 
+from tools import pool_review
 from tools.links import extract_links
 
 __all__ = [
@@ -48,11 +50,14 @@ MAX_TOTAL_RESULTS = 30_000
 RECOMMENDED_PAGE_SIZE = MAX_RESULTS_PER_REQUEST
 MAX_ID_LIST = 10_000
 DISCOVERY_LANE_LIMIT = 100
-DISCOVERY_PAGE_SIZE = 20
+DISCOVERY_QUERY_RESULTS = 50
+DISCOVERY_POOL_CAP = 800
+DISCOVERY_WINDOW_SIZE = 20
+MAX_DISCOVERY_MONTHS = 36
+MAX_DISCOVERY_QUERIES = 12
 MAX_PDF_DOWNLOADS_PER_SESSION = 50
 EMAIL_ADDRESS = re.compile(r"[\w.+-]+@[\w.-]+\.\w+")
 SHORT_CAPITALISED_PHRASE = re.compile(r"[A-Z][\w&.-]*(?:\s+[A-Z][\w&.-]*){0,5}")
-DISCOVERY_CURSOR_PREFIX = "arxiv-discovery:"
 # Profile keys returned only on request; the default profile stays small enough to review in bulk.
 OPTIONAL_PROFILE_FIELDS = ("abstract", "authors", "all_links")
 # Named sentence patterns for front-matter statements; any other string is compiled as a custom regex.
@@ -71,10 +76,6 @@ STATEMENT_PRESETS: dict[str, str] = {
 }
 CATEGORY_ID = re.compile(r"[a-z-]+(?:\.[A-Za-z-]+)?")
 
-# ponytail: one worker owns one Python kernel, so process-local paging state is sufficient.
-_pending_discovery: tuple[str, str] | None = None
-_discovery_pool: tuple[str, list[Paper], dict[str, int], dict[str, str], list[dict[str, str]], bool] | None = None
-_inside_discovery = False
 _downloaded_pdf_ids: set[str] = set()
 # Identifiers whose most recent download_pdf() call failed, with the error; see download_failures().
 _last_download_failures: dict[str, str] = {}
@@ -139,16 +140,22 @@ class Category(TypedDict, total=False):
 
 
 class ArxivDiscovery(TypedDict):
-    records: list[Paper]  # Current cursor page from the complete discovery pool.
-    lane_counts: dict[str, int]  # Records returned by each monthly lane.
+    records: list[Paper]  # This page of the papers the screen kept.
+    listing: str  # What is known of the pool, one line per record, and how to continue.
+    query: str  # Provenance string for a Ledger.
+    lane_counts: dict[str, int]  # Records returned by each monthly lane and search expression.
     saturated_lanes: list[str]  # Lanes truncated at DISCOVERY_LANE_LIMIT.
-    failed_lanes: dict[str, str]  # Months whose Provider request failed, with the error.
-    uncovered_ranges: list[dict[str, str]]  # Contiguous start_date/end_date ranges the failed months leave out.
+    failed_lanes: dict[str, str]  # Lanes whose Provider request failed, with the error.
+    uncovered_ranges: list[dict[str, str]]  # Contiguous start_date/end_date ranges missing from the pool.
     source_unavailable: bool  # API discovery stopped; known papers may still download through the main domain.
     guidance: str
-    unique_count: int  # Every unique record returned by the monthly lanes.
-    returned_count: int
-    next_cursor: str | None
+    unique_count: int  # Every unique record returned by the lanes.
+    next_offset: int | None
+    pool: int
+    excluded: dict[str, int]
+    screened: int
+    rejected: dict[str, int]
+    kept: int
 
 
 _HELP = """arXiv Python API
@@ -313,7 +320,6 @@ def native_query(
             parameter is invalid.
         ResearchRuntimeError: If Runtime or the arXiv provider fails.
     """
-    _require_discovery_complete()
     return _run([_native_request(
         search_query=search_query,
         id_list=id_list,
@@ -377,47 +383,62 @@ def categories(
 
 
 def discover_papers(
-    categories: Sequence[str],
-    concepts: Sequence[str],
+    categories: Sequence[str] = (),
+    concepts: Sequence[str] = (),
     *,
-    start_date: str,
-    end_date: str,
-    cursor: str | None = None,
+    queries: str | Sequence[str] = (),
+    start_date: str | None = None,
+    end_date: str | None = None,
+    offset: int = 1,
     purpose: str = "Discover papers within arXiv subject categories",
 ) -> ArxivDiscovery:
-    """Build one paper pool from monthly arXiv relevance lanes.
+    """Return the papers of a research area from monthly arXiv relevance lanes, one page per call.
 
-    The operation joins research-object concepts with OR, searches title and
-    abstract, expands hyphen/space variants, interleaves Provider-native
-    relevance results across calendar months, and returns one compact page from
-    a pool containing every unique record returned by those monthly lanes. A
-    lane that reaches the lane limit is truncated.
+    The operation joins research-object concepts with OR, searches title and abstract within the
+    categories, expands hyphen/space variants and runs one Provider-native relevance lane per
+    calendar month; a lane that reaches the lane limit is truncated. Native search expressions
+    (``queries``) are further lanes, and define the pool by themselves for something named. The
+    lanes are merged by arXiv work and ordered so that the best-ranked results of every lane come
+    first, newer first within a rank. Records published outside the dates are excluded. The
+    others are screened in that order by Runtime against the task, each on its title and whole
+    abstract: the screen removes only a paper that text shows to be off the task's subject or
+    under an exclusion the task states. A call screens one page of the pool. Nothing is
+    downloaded.
 
     Args:
         categories: Plausible arXiv category IDs. The operation verifies them
             against the current official taxonomy.
-        concepts: Flat list of equivalent research-object phrases or abbreviations.
-        start_date: Inclusive ``YYYY-MM-DD`` date.
-        end_date: Inclusive ``YYYY-MM-DD`` date.
-        cursor: Exact ``next_cursor`` from the preceding discovery page.
+        concepts: Flat list of equivalent research-object phrases or abbreviations; required
+            with categories.
+        queries: Native fielded search expressions for named entities, methods or terms, or for
+            relevant papers classified outside the categories.
+        start_date: Inclusive ``YYYY-MM-DD`` date; required with categories. One call enumerates
+            the most recent 36 calendar months of a longer range and names the earlier part
+            under ``uncovered_ranges``.
+        end_date: Inclusive ``YYYY-MM-DD`` date; required with categories.
+        offset: Position among the kept papers of the first one to return, with the same other
+            arguments.
         purpose: Short provenance note describing why the search is made.
 
     Returns:
-        One compact page, lane counts, failed lanes with their uncovered date
-        ranges, pool count, and next cursor. Once API discovery is unavailable to
-        this Provider Child, the remaining months are not requested and count
-        as failed. Known paper IDs may still be passed to ``download_pdf()``.
+        ``records``: this page's papers, each with ``arxiv_id``, the exact version for
+        ``download_pdf()``. ``listing``: what is known of the pool, one line per record and,
+        when more can follow, a closing notice of where the page sits and the offset that
+        continues; it fits one cell, print it whole. ``next_offset``: that offset, ``None`` on
+        the last page. ``query``: the provenance string for a Ledger. Also lane counts,
+        saturated lanes, failed lanes with their uncovered date ranges, and the counts ``pool``,
+        ``excluded``, ``screened``, ``rejected`` (per reason) and ``kept``. Once API discovery is
+        unavailable to this Provider Child, the remaining lanes are not requested and count as
+        failed. Known paper IDs may still be passed to ``download_pdf()``.
 
     Raises:
-        ValueError: If categories, concepts, or dates are invalid.
-        ResearchRuntimeError: If every monthly lane fails. The code is
+        ValueError: If categories, concepts, queries, dates or the offset are invalid.
+        ResearchRuntimeError: If every lane fails. The code is
             ``source_unavailable`` when arXiv API discovery is unavailable; its
             ``details`` then carry ``provider_id``, ``failure_class``,
             ``elapsed_ms``, ``attempts``, ``retry_after_ms``,
             ``arxiv_access_scope``, and ``uncovered_ranges``.
     """
-    global _discovery_pool, _inside_discovery, _pending_discovery
-    offset = _discovery_offset(cursor)
     category_ids: list[str] = []
     for category in categories:
         value = category.strip() if isinstance(category, str) else ""
@@ -425,41 +446,53 @@ def discover_papers(
             raise ValueError("categories must contain valid arXiv category IDs")
         if value not in category_ids:
             category_ids.append(value)
-    if not category_ids or len(category_ids) > 50:
+    if len(category_ids) > 50:
         raise ValueError("categories must contain between 1 and 50 IDs")
+    expressions = [queries] if isinstance(queries, str) else list(queries)
+    if any(not isinstance(expression, str) for expression in expressions):
+        raise ValueError("queries must be strings")
+    terms = list(dict.fromkeys(expression.strip() for expression in expressions if expression.strip()))
+    if len(terms) > MAX_DISCOVERY_QUERIES:
+        raise ValueError(f"queries holds at most {MAX_DISCOVERY_QUERIES} native search expressions")
+    if not category_ids and not terms:
+        raise ValueError("discover_papers() needs categories with concepts and dates for a research area, or queries for something named")
 
-    concept_terms = _discovery_terms(concepts, "concepts", required=True)
-    concept_variants = list(dict.fromkeys(
-        variant
-        for concept in concept_terms
-        for variant in _term_variants(concept)
-    ))
-    if len(concept_variants) > 100:
-        raise ValueError("concepts must produce at most 100 phrase variants")
-
-    category_boundary = "(" + " OR ".join(field("cat", value) for value in category_ids) + ")"
-    concept_boundary = "(" + " OR ".join(
-        expression
-        for value in concept_variants
-        for expression in (field("ti", value, phrase=True), field("abs", value, phrase=True))
-    ) + ")"
-    query_boundary = f"{category_boundary} AND {concept_boundary}"
-    query = f"{query_boundary} AND {submitted_date(start_date, end_date)}"
-    if cursor and not _pending_discovery:
-        raise ValueError("cursor is not active; restart discovery without a cursor")
-    if _pending_discovery and _pending_discovery != (query, cursor):
-        raise RuntimeError(
-            f"Finish the active arXiv discovery first with cursor={_pending_discovery[1]!r} "
-            "and the same categories, concepts, and dates"
-        )
-    if cursor is None:
-        _validate_category_ids(category_ids)
-        _inside_discovery = True
+    query_boundary = ""
+    beyond: list[dict[str, str]] = []
+    if category_ids:
+        concept_variants = list(dict.fromkeys(
+            variant
+            for concept in _discovery_terms(concepts, "concepts", required=True)
+            for variant in _term_variants(concept)
+        ))
+        if len(concept_variants) > 100:
+            raise ValueError("concepts must produce at most 100 phrase variants")
+        if not start_date or not end_date:
+            raise ValueError("categories need the assignment's start_date and end_date")
+        try:
+            first, last = date.fromisoformat(start_date), date.fromisoformat(end_date)
+        except ValueError as error:
+            raise ValueError("dates must use YYYY-MM-DD") from error
+        if (last.year - first.year) * 12 + last.month - first.month + 1 > MAX_DISCOVERY_MONTHS:
+            # One call enumerates the most recent months it can and names the earlier range, instead of refusing the assignment.
+            month = last.year * 12 + last.month - MAX_DISCOVERY_MONTHS
+            covered = date(month // 12, month % 12 + 1, 1)
+            beyond = [{"start_date": start_date, "end_date": (covered - timedelta(days=1)).isoformat()}]
+            start_date = covered.isoformat()
+        query_boundary = (
+            "(" + " OR ".join(field("cat", value) for value in category_ids) + ") AND ("
+            + " OR ".join(expression for value in concept_variants
+                          for expression in (field("ti", value, phrase=True), field("abs", value, phrase=True))) + ")")
+    key = sha256(repr((query_boundary, start_date, end_date, terms)).encode()).hexdigest()[:16]
+    pool = pool_review.cached("arxiv", key)
+    if pool is None:
+        if category_ids:
+            _validate_category_ids(category_ids)
         lanes: dict[str, list[Paper]] = {}
         failed_lanes: dict[str, str] = {}
-        uncovered: list[dict[str, str]] = []
+        uncovered: list[dict[str, str]] = list(beyond)
         unavailable: ResearchRuntimeError | None = None
-        month_ranges = _month_ranges(start_date, end_date)
+        month_ranges = _month_ranges(start_date, end_date) if category_ids else []  # type: ignore[arg-type]
 
         def mark_uncovered(month: str, month_start: str, month_end: str, error: BaseException) -> None:
             failed_lanes[month] = str(error)[:300]
@@ -470,27 +503,35 @@ def discover_papers(
             else:
                 uncovered.append({"start_date": month_start, "end_date": month_end})
 
-        try:
-            for index, (month, month_start, month_end) in enumerate(month_ranges):
-                lane_query = f"{query_boundary} AND {submitted_date(month_start, month_end)}"
+        for index, (month, month_start, month_end) in enumerate(month_ranges):
+            lane_query = f"{query_boundary} AND {submitted_date(month_start, month_end)}"
+            try:
+                lanes[month] = search(
+                    lane_query,
+                    limit=DISCOVERY_LANE_LIMIT,
+                    sort_by="relevance",
+                    sort_order="descending",
+                    purpose=purpose,
+                )
+            except Exception as error:  # noqa: BLE001 - one month must not discard the others
+                mark_uncovered(month, month_start, month_end, error)
+                log_tool_failure("arxiv", "discover_papers.lane", lane_query, error)
+                unavailable = _unavailable(error)
+                if unavailable is not None:
+                    for remaining in month_ranges[index + 1:]:
+                        mark_uncovered(*remaining, unavailable)
+                    break
+        for term in terms:
+            if unavailable is None:
                 try:
-                    lanes[month] = search(
-                        lane_query,
-                        limit=DISCOVERY_LANE_LIMIT,
-                        sort_by="relevance",
-                        sort_order="descending",
-                        purpose=purpose,
-                    )
-                except Exception as error:  # noqa: BLE001 - one month must not discard the others
-                    mark_uncovered(month, month_start, month_end, error)
-                    log_tool_failure("arxiv", "discover_papers.lane", lane_query, error)
+                    lanes[term] = search(term, limit=DISCOVERY_QUERY_RESULTS, sort_by="relevance", purpose=purpose)
+                    continue
+                except ResearchRuntimeError as error:  # a malformed expression still raises: the caller repairs it
                     unavailable = _unavailable(error)
-                    if unavailable is not None:
-                        for remaining in month_ranges[index + 1:]:
-                            mark_uncovered(*remaining, unavailable)
-                        break
-        finally:
-            _inside_discovery = False
+                    if unavailable is None:
+                        raise
+            failed_lanes[term] = str(unavailable)[:300]
+            lanes[term] = []
         if failed_lanes and len(failed_lanes) == len(lanes):
             if unavailable is not None:
                 raise ResearchRuntimeError(
@@ -502,65 +543,81 @@ def discover_papers(
                 )
             raise ResearchRuntimeError(
                 "every discovery lane failed: "
-                + "; ".join(f"{month}: {error}" for month, error in failed_lanes.items()),
+                + "; ".join(f"{lane}: {error}" for lane, error in failed_lanes.items()),
                 code="arxiv_discovery_failed",
                 failure_class="provider",
             )
         records: dict[str, Paper] = {}
-        lane_ids: dict[str, list[str]] = {}
+        best: dict[str, int] = {}
         for lane, rows in lanes.items():
-            lane_ids[lane] = []
             for rank, row in enumerate(rows, start=1):
-                metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-                identity = str(metadata.get("arxiv_id") or row.get("id") or row.get("url") or "")
+                identity = _work_id(row) or str(row.get("id") or row.get("url") or "")
                 if not identity:
                     continue
-                record = records.setdefault(identity, {
-                    **row,
-                    "discovery_lanes": [],
-                })
+                record = records.setdefault(identity, {**row, "discovery_lanes": []})
                 record["discovery_lanes"].append({"lane": lane, "rank": rank})
-                lane_ids[lane].append(identity)
-
-        ordered_ids: list[str] = []
-        seen: set[str] = set()
-        for rank in range(max(map(len, lane_ids.values()), default=0)):
-            for lane in lane_ids:
-                if rank >= len(lane_ids[lane]):
-                    continue
-                identity = lane_ids[lane][rank]
-                if identity not in seen:
-                    seen.add(identity)
-                    ordered_ids.append(identity)
-        ordered = [records[identity] for identity in ordered_ids]
+                best[identity] = min(best.get(identity, rank), rank)
+        # Every lane, a calendar month of the categories or a search expression, puts its best results first; within
+        # one rank the newer paper goes first. This order decides what a reader meets first and what the pool bound cuts.
+        ordered = [records[identity] for identity in sorted(
+            sorted(records, key=lambda identity: str(records[identity].get("published_at") or ""), reverse=True), key=best.__getitem__)]
         lane_counts = {lane: len(rows) for lane, rows in lanes.items()}
-        source_unavailable = unavailable is not None
-        _discovery_pool = (query, ordered, lane_counts, failed_lanes, uncovered, source_unavailable)
-    elif not _discovery_pool or _discovery_pool[0] != query:
-        raise ValueError("discovery cursor has no active candidate pool; restart without a cursor")
-    else:
-        _, ordered, lane_counts, failed_lanes, uncovered, source_unavailable = _discovery_pool
+        saturated = [lane for lane, count in lane_counts.items() if count >= DISCOVERY_LANE_LIMIT]
 
-    if offset and offset >= len(ordered):
-        raise ValueError("cursor is beyond the current discovery pool; restart without a cursor")
-    end = min(offset + DISCOVERY_PAGE_SIZE, len(ordered))
-    page = ordered[offset:end]
-    next_cursor = f"{DISCOVERY_CURSOR_PREFIX}{end}" if end < len(ordered) else None
-    _pending_discovery = (query, next_cursor) if next_cursor else None
-    if next_cursor is None:
-        _discovery_pool = None
-    return {
-        "records": page,
-        "lane_counts": lane_counts,
-        "saturated_lanes": [lane for lane, count in lane_counts.items() if count >= DISCOVERY_LANE_LIMIT],
-        "failed_lanes": failed_lanes,
-        "uncovered_ranges": uncovered,
-        "source_unavailable": source_unavailable,
-        "guidance": _discovery_guidance(lane_counts, failed_lanes, uncovered),
-        "unique_count": len(ordered),
-        "returned_count": len(page),
-        "next_cursor": next_cursor,
-    }
+        def flags_of(record: Mapping[str, Any]) -> dict[str, bool]:
+            published = str(record.get("published_at") or "")[:10]
+            return {"out_of_date": bool(start_date and end_date and published and not start_date <= published <= end_date)}
+
+        pool = pool_review.open_pool(
+            "arxiv", key, ordered[:DISCOVERY_POOL_CAP], definition={"category": category_ids, "queries": terms}, url_of=_paper_url,
+            flags_of=flags_of, render=_render_paper, window_size=DISCOVERY_WINDOW_SIZE, workers=2,
+            facts={
+                "lane_counts": lane_counts,
+                "saturated_lanes": saturated,
+                "failed_lanes": failed_lanes,
+                "uncovered_ranges": uncovered,
+                "source_unavailable": unavailable is not None,
+                "guidance": " ".join(part for part in (
+                    _discovery_guidance(saturated, failed_lanes, uncovered),
+                    f"{len(ordered) - DISCOVERY_POOL_CAP} records ranked below the pool bound of {DISCOVERY_POOL_CAP} and were dropped."
+                    if len(ordered) > DISCOVERY_POOL_CAP else "") if part),
+                "unique_count": len(ordered),
+                "query": "discover_papers(" + ", ".join(part for part in (
+                    f"categories={category_ids!r}, concepts={list(concepts)!r}" if category_ids else "", f"queries={terms!r}" if terms else "",
+                    f"start_date={start_date!r}, end_date={end_date!r}" if start_date and end_date else "") if part) + ")",
+            })
+    page = pool.page(
+        offset, noun="papers", notes=[pool.facts["guidance"]] if pool.facts["guidance"] else [],
+        line_of=lambda record: f"{_version_id(record)} | published {str(record.get('published_at') or '')[:10]} | {' '.join(str(record.get('title') or '').split())[:90]}")
+    for record in page["records"]:
+        record["arxiv_id"] = _version_id(record)
+    return page  # type: ignore[return-value]
+
+
+def _work_id(record: Mapping[str, Any]) -> str:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    return re.sub(r"v\d+$", "", str(metadata.get("arxiv_id") or metadata.get("arxiv_version_id") or ""))
+
+
+def _version_id(record: Mapping[str, Any]) -> str:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    return str(metadata.get("arxiv_version_id") or metadata.get("arxiv_id") or "")
+
+
+def _paper_url(record: Mapping[str, Any]) -> str:
+    return str(record.get("url") or f"https://arxiv.org/abs/{_version_id(record)}")
+
+
+def _render_paper(record: Mapping[str, Any]) -> dict[str, Any]:
+    """What the screen sees: the title and the whole abstract."""
+    profile = _metadata_profile(record, {"abstract"})  # type: ignore[arg-type]
+    head = [
+        f"paper: {profile['title']}",
+        f"published: {str(profile.get('published_at') or '')[:10]}  categories: {', '.join(profile.get('categories') or []) or 'unknown'}",
+        "abstract:",
+        " ".join(str(profile.get("abstract") or "").split())[:3600],
+    ]
+    return {"id": _paper_url(record), "text": "\n".join(head)[:4000]}
 
 
 def _discovery_terms(values: Sequence[str], label: str, *, required: bool) -> list[str]:
@@ -613,41 +670,34 @@ def _unavailable(error: BaseException) -> ResearchRuntimeError | None:
 
 
 def _discovery_guidance(
-    lane_counts: dict[str, int],
-    failed_lanes: dict[str, str] | None = None,
-    uncovered_ranges: Sequence[dict[str, str]] = (),
+    saturated: Sequence[str],
+    failed_lanes: Mapping[str, str],
+    uncovered_ranges: Sequence[dict[str, str]],
 ) -> str:
-    saturated = [lane for lane, count in lane_counts.items() if count >= DISCOVERY_LANE_LIMIT]
+    ranges = ", ".join(f"{row['start_date']} to {row['end_date']}" for row in uncovered_ranges)
     parts: list[str] = []
     if failed_lanes:
-        ranges = ", ".join(f"{row['start_date']} to {row['end_date']}" for row in uncovered_ranges)
         parts.append(
             f"The Provider request failed for lanes: {', '.join(failed_lanes)}; "
-            f"those months are missing from the pool (uncovered: {ranges}). "
+            "they are missing from the pool" + (f" (uncovered: {ranges})" if ranges else "") + ". "
             "When a lane error says arXiv is temporarily unavailable, do not retry it in this assignment; "
             "report the uncovered ranges as a coverage gap. "
-            "Otherwise, after the cursor is finished, run discover_papers() again for each failed month alone."
+            "Otherwise run discover_papers() again for each failed month alone."
+        )
+    elif ranges:
+        parts.append(
+            f"One call enumerates the most recent {MAX_DISCOVERY_MONTHS} calendar months; "
+            f"the earlier part of the range is not in the pool (uncovered: {ranges})."
         )
     if saturated:
         parts.append(
             f"Discovery reached the {DISCOVERY_LANE_LIMIT}-result lane limit in lanes: {', '.join(saturated)}. "
-            "Results are not complete for the saturated scope. "
-            "Finish the current cursor, then split saturated periods into non-overlapping shorter date ranges or run a "
+            "Results are not complete for the saturated scope: "
+            "split saturated periods into non-overlapping shorter date ranges or run a "
             "small fielded supplemental search. Regex may prioritize review, but verify exclusions from each record's "
             "title and abstract before dropping them."
         )
     return " ".join(parts)
-
-
-def _discovery_offset(cursor: str | None) -> int:
-    if cursor is None:
-        return 0
-    if not isinstance(cursor, str) or not cursor.startswith(DISCOVERY_CURSOR_PREFIX):
-        raise ValueError("cursor must be the exact next_cursor returned by discover_papers()")
-    value = cursor.removeprefix(DISCOVERY_CURSOR_PREFIX)
-    if not value.isdigit():
-        raise ValueError("cursor must be the exact next_cursor returned by discover_papers()")
-    return int(value)
 
 
 def _month_ranges(start: str, end: str) -> list[tuple[str, str, str]]:
@@ -665,8 +715,8 @@ def _month_ranges(start: str, end: str) -> list[tuple[str, str, str]]:
         month_start = max(first, cursor)
         month_end = min(last, following - timedelta(days=1))
         ranges.append((cursor.strftime("%Y-%m"), month_start.isoformat(), month_end.isoformat()))
-        if len(ranges) > 36:
-            raise ValueError("discover_papers supports up to 36 calendar months; split a longer interval")
+        if len(ranges) > MAX_DISCOVERY_MONTHS:
+            raise ValueError(f"discover_papers supports up to {MAX_DISCOVERY_MONTHS} calendar months; split a longer interval")
         cursor = following
     return ranges
 
@@ -704,7 +754,6 @@ def search(
         ValueError: If no usable query is supplied or a parameter is invalid.
         ResearchRuntimeError: If Runtime or the arXiv provider fails.
     """
-    _require_discovery_complete()
     if limit is None:
         limit = RECOMMENDED_PAGE_SIZE
     if not isinstance(limit, int) or not 1 <= limit <= MAX_TOTAL_RESULTS:
@@ -750,14 +799,6 @@ def search(
                 seen.add(identity)
             papers.append(paper)
     return papers
-
-
-def _require_discovery_complete() -> None:
-    if _pending_discovery and not _inside_discovery:
-        raise RuntimeError(
-            f"Finish the active arXiv discovery first with cursor={_pending_discovery[1]!r}; "
-            "native search is available after next_cursor is null"
-        )
 
 
 def fetch_ids(

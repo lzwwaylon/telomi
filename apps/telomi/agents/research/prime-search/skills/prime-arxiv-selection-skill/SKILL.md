@@ -9,7 +9,7 @@ Use `import prime_arxiv_selection_skill as arxiv`. The module exposes the arXiv 
 `CandidateLedger`.
 
 Provider query, `fetch_ids()`, `paper_profile()`, `download_pdf()` and `categories()` return lists of ordinary
-dictionaries; `discover_papers()` returns a dictionary with `records`. Read fields with `row["field"]` or
+dictionaries; `discover_papers()` returns a dictionary with one page of `records` and its `listing`. Read fields with `row["field"]` or
 `row.get("field")`, never attribute access such as `row.field`. These Provider and Ledger helpers are synchronous
 Python calls. Do not `await` them.
 
@@ -29,15 +29,108 @@ returned record supplies its identifier, use `fetch_ids()` directly.
 Use `help(arxiv.<operation>)` when a chosen operation's signature is unclear. Do not enumerate the module or inspect its
 source. Read `references/API.md` only for an advanced operation not covered by the selected path.
 
-## Resolve and write
+## Coverage: discovery, your judgment, then the Ledger
+
+For coverage (a research area, a kind of work, a time-bounded landscape, or everything arXiv holds about something
+named), discover the papers with one call, judge them, then download and submit what you keep.
+
+```python
+found = arxiv.discover_papers(
+    selected_category_ids, research_object_terms,  # the research area: see Category filtering
+    queries=native_expressions,                    # named entities, methods or terms, including the task's leads: see Native search
+    start_date=start_date, end_date=end_date,
+)
+print(found["listing"])
+records = list(found["records"])
+```
+
+Define the pool from the assignment:
+
+- A research area, a kind of work or a time-bounded landscape is a category: pass category IDs with research-object
+  concepts and the assigned dates. `queries` add named entities, methods or terms the categories may miss, such as the
+  task's leads; they never replace the categories.
+- A task about something named (an entity, project, product, method or term) is defined by `queries` alone.
+- The lanes are merged by arXiv work, and a later version of a pooled paper is the same record.
+- Pass the assigned dates as they are: one call enumerates the most recent 36 calendar months of a longer range and
+  names the earlier part as uncovered.
+
+`discover_papers()` excludes a record published outside the assigned dates and orders the pool so that the
+best-ranked results of every calendar month and of every search expression come first, newer first within a rank. In
+that order the records go through one screen in a fresh model context, which reads the task Root wrote for you and
+each paper's title and whole abstract and removes only what that text shows to be off the subject of the task.
+Nothing is downloaded and nothing is submitted.
+
+The first line of `listing` says how many papers the pool holds, what the date exclusion removed and how far the
+screen has read; a line after it names any `uncovered_ranges` or failed lanes; each further line is one paper the
+screen kept, numbered by its position in the pool, with its exact version identifier, publication date and title. A
+call screens one page of the pool, so a pool longer than a page ends its listing with a notice of where the page sits,
+for example `[Showing the papers kept from pool records 1-40 of 422. Use offset=41 to continue.]`. A page fits
+one cell: print it whole and read every line before you choose. `found["records"]` holds the page's papers; each
+carries `arxiv_id`, the version `download_pdf()` takes.
+
+Whether to read further pages is yours to decide from what the task asks and what the page shows. To continue, call
+it again with the same arguments and the offset the notice names; the pool is cached, so only the screen runs:
+
+```python
+found = arxiv.discover_papers(selected_category_ids, research_object_terms, queries=native_expressions,
+                              start_date=start_date, end_date=end_date, offset=found["next_offset"])
+print(found["listing"])
+records += found["records"]
+```
+
+`next_offset` is null on the last page. Judge the records against the task:
+
+- Drop a record only when its own facts show it is outside what the task asks: another kind of work than the task
+  wants, outside the time range the task gives, or under an exclusion the task states. Not knowing a paper or its
+  authors is not a reason to drop it. When a title does not settle it, read the abstract with
+  `paper_profile()` for that record instead of guessing.
+- The task's leads are not the answer. A result that keeps only the lead names has not covered the task.
+- How far you read and how many you keep is yours to decide from the task; there is no fixed ceiling. Each paper you
+  keep is a download and a conversion the later stages read. When you keep fewer than qualify, follow the preference
+  the task states; without one, prefer the papers that most directly answer the task's Evidence Need and, among
+  those, the newer ones.
+
+Building the pool takes minutes. Call `discover_papers()` with other arguments only when the listing shows the call
+missed the task: a wrong category, or a group of work the task names that is absent. Another definition is another
+pool, built and screened from its start.
+
+Then download and submit like any other task. Wrap each download so one failure does not lose the others:
+
+```python
+ledger, failed = arxiv.CandidateLedger(), {}
+for record in kept:                         # the records you chose from the pages you read
+    try:
+        materials = arxiv.download_pdf(record["arxiv_id"])
+        if not materials:
+            raise RuntimeError("the PDF could not be downloaded or converted")
+    except Exception as error:
+        failed[record["url"]] = str(error)[:200]
+        continue
+    ledger.add(title=record["title"], url=record["url"], query=found["query"],
+               summary=one_sentence_on_what_it_contributes, metadata=record, materials=materials)
+ledger.write("work/arxiv_candidates.json")
+import research_runtime
+research_runtime.finish(provider_id="arxiv")
+```
+
+If `finish` raises a validation error, repair the same file and call `finish` again. When nothing qualifies, write the
+empty Ledger and submit it. End with a compact reply: what you retained; what you left out of the pages you read and
+why, one line per group; what could not be downloaded; the leads the pool did not contain; how much of the pool you
+read; and any `uncovered_ranges` or `failed_lanes` the call reported.
+
+## Exact-object assignments
+
+A task whose Evidence Need Root registered as exact objects names its papers. Call `download_pdf()` with those
+identifiers and add each returned record with `CandidateLedger`, as below. When such a task still needs discovery to
+resolve what it names, use the funnel in this section; its pool is a source of leads, not a result.
 
 Deduplicate versions by the arXiv work identifier while preserving the exact retained version, authors, abstract,
 categories, publication date, URL, and every actual discovery query. Different papers remain separate candidates.
 
 Use this funnel:
 
-1. Complete `discover_papers()` and its cursor for the discovery pool.
-2. Call `paper_profile(arxiv_ids, depth="metadata")` for every pool record, passing each record's
+1. Read `discover_papers()` page by page, as far into the pool as the assignment needs.
+2. Call `paper_profile(arxiv_ids, depth="metadata")` for every pool record you read, passing each record's
    `metadata["arxiv_id"]` (never the Provider record `id`). The profile is compact by default: identity, dates,
    categories, the author comment and its links, and the journal reference. Discovery records already carry the
    abstract; add `fields=["abstract", "authors"]` only when reviewing records you do not have at hand. Group the
@@ -108,6 +201,8 @@ API discovery. Never retry those dates with another query. For a raised `Researc
 - `main`: stop front-matter, category, and PDF acquisition. Preserve papers whose complete material was acquired.
 - Missing scope or a provider-wide access denial: stop all arXiv operations.
 
-Write and submit the partial Ledger from usable material, or an empty Ledger when no material was acquired.
+For a coverage task, `discover_papers()` returns the part of the range discovery reached and reports
+`uncovered_ranges`; when it raises `source_unavailable` for the whole range, submit an empty Ledger. For any task, write
+and submit the partial Ledger from usable material, or an empty Ledger when no material was acquired.
 After submission, make the completion reply start with `source_unavailable provider=arxiv` and include the affected
 access domain, uncovered Evidence Need or dates, and partial coverage. Root, not this child, chooses another Provider.

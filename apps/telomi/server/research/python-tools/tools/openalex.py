@@ -8,6 +8,7 @@ from datetime import date
 from typing import Any
 
 from research_runtime import ResearchRuntimeError, search_source, workspace_path
+from tools import discovery_review
 
 __all__ = ["discover_papers", "download_pdf", "native_query", "topic_info", "topics", "work_info"]
 MAX_PAGE_SIZE = 100
@@ -131,6 +132,10 @@ def discover_papers(topic_ids: Sequence[str], *, start_date: str, end_date: str,
         if current is None:
             complete = True
             break
+    # Every record is returned at once, so the pool counts as read when it is built.
+    key = f"{','.join(topic_ids)}|{start_date}|{end_date}|{search or ''}|{filter or ''}|{topic_match}"
+    discovery_review.register_pool("openalex", key, [str(row.get("url") or row.get("id") or "") for row in records])
+    discovery_review.mark_served("openalex", key, len(records))
     return {"records": records, "unique_count": len(records), "total_count": total_count,
             "next_cursor": current, "complete": complete, "source_unavailable": error_info is not None,
             "error": error_info,

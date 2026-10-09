@@ -667,9 +667,14 @@ class HuggingFaceSource:
             headers = {"Accept": "text/markdown"}
             if self.token:
                 headers["Authorization"] = f"Bearer {self.token}"
-            response = await self.http.request(
-                "huggingface", "GET", document_url, headers=headers, follow_redirects=True
-            )
+            try:
+                response = await self.http.request(
+                    "huggingface", "GET", document_url, headers=headers, follow_redirects=True
+                )
+            except ServiceError as error:
+                if error.details.get("upstream_status") == 403:
+                    raise repository_denied(error, repo_id) from error
+                raise
             content = response.content
             if len(content) > self.max_download_bytes:
                 raise ServiceError(
@@ -728,6 +733,8 @@ class HuggingFaceSource:
             return json_object(await self._get(path, params={"expand": expand}))
         except ServiceError as error:
             upstream_status = error.details.get("upstream_status")
+            if upstream_status == 403:
+                raise repository_denied(error, native.repo_id) from error
             if upstream_status not in (401, 404):
                 raise
             author, separator, search = native.repo_id.partition("/")
@@ -816,6 +823,27 @@ class HuggingFaceSource:
             params=params,
             follow_redirects=True,
         )
+
+
+def repository_denied(error: ServiceError, repo_id: str) -> ServiceError:
+    """One repository refusing access (gated or private) fails that repository, not the Provider.
+
+    The shared gateway reads HTTP 403 as a credential that cannot serve the Provider and marks it
+    ``failure_scope: provider``, which stops every later request of the same Provider task.
+    """
+    return ServiceError(
+        "provider_repository_denied",
+        f"Hugging Face refused access to '{repo_id}' (HTTP 403); the repository is gated or private.",
+        status_code=400,
+        provider="huggingface",
+        details={
+            **{key: value for key, value in error.details.items() if key.startswith("upstream_")},
+            "repo_id": repo_id,
+            "failure_scope": "object",
+            "reason": "access_denied",
+            "next_action": "report_gap",
+        },
+    )
 
 
 def hub_list_query(native: HubListParameters, target: int) -> dict[str, object]:

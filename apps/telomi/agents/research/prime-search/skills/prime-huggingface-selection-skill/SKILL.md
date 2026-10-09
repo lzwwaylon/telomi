@@ -29,9 +29,14 @@ Preserve each discovery expression in `query` and keep returned Provider records
 decision-relevant prose rather than copied Markdown, navigation, installation commands, or large tables. Deduplicate
 only the stable native identity named by the selected branch.
 
-Build the final output with `CandidateLedger()`. Pass the exact acquired Provider record in `materials`; the Ledger
-derives Runtime-owned paths. Write `work/huggingface_candidates.json` once after every retained candidate has readable
-material, then call `research_runtime.finish(provider_id="huggingface")` inside IPython.
+A coverage assignment for a category of models (an organization type, a time range, inventory or landscape words)
+starts with one call: `huggingface.discover_models(...)` builds the pool and returns every record its own fields do not
+exclude. Read [Open-source models](references/model-workflow.md) for it; you then judge the records against the task
+and retain what qualifies.
+
+Every assignment ends the same way: build the final output with `CandidateLedger()`. Pass the exact acquired Provider record in `materials`; the Ledger derives Runtime-owned paths.
+Write `work/huggingface_candidates.json` once after every retained candidate has readable material, then call
+`research_runtime.finish(provider_id="huggingface")` inside IPython.
 
 ```python
 ledger.add(

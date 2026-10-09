@@ -94,18 +94,18 @@ assert.deepEqual(primeSearchBatchContractIdentity({
 	TELOMI_PRIME_SEARCH_THINKING_LEVEL: "medium",
 }, {}), {
 	id: "prime-search-batch",
-	version: 67,
+	version: 68,
 	rootModel: "openai-codex/gpt-5.6-terra",
 	childModel: "openai-codex/gpt-5.6-luna",
 	thinkingLevel: "medium",
 	autoRefine: false,
 	autonomous: false,
 	executionAdapter: "prime-sdk-rlm-quiescence-v2",
-	candidateLedgerValidation: "hmac-python-finish-candidate-materials-v8-final-receipt",
+	candidateLedgerValidation: "hmac-python-finish-candidate-materials-v14-evidence-need-discovery-pool-audit-final-receipt",
 	providerWorkerSkills: "catalog-declared-bundled-skill-with-goal-override",
 	organizerWorkspace: "metadata-only-ipython-no-rlm",
 	promptBundle: {
-		acquisition: "root-web-native-provider-children-python-finish-v53",
+		acquisition: "root-web-native-provider-children-python-finish-v56",
 		organizer: "incremental-source-group-patch-runtime-acceptance-v8",
 	},
 	schema: {
@@ -740,7 +740,12 @@ assert.match(arxivCategoryFiltering,
 assert.match(arxivCategoryFiltering,
 	/Keep priorities[\s\S]+out of `concepts`[\s\S]+returned title[\s\S]+abstract[\s\S]+nested concept lists[\s\S]+check every proposed concept[\s\S]+research object[\s\S]+not how it is modeled[\s\S]+dimension-only terms/iu);
 assert.match(arxivCategoryFiltering,
-	/discover_papers[\s\S]+results across calendar months[\s\S]+opaque cursor[\s\S]+caches that pool[\s\S]+do not repeat taxonomy validation or monthly Provider queries[\s\S]+paper_profile\(depth="metadata"\)[\s\S]+research themes semantically[\s\S]+Regex and keyword matches[\s\S]+not[\s\S]+relevance evidence[\s\S]+next_cursor[\s\S]+unique_count[\s\S]+final page[\s\S]+saturated_lanes[\s\S]+guidance[\s\S]+rejects native search/iu);
+	/discover_papers[\s\S]+one Provider-native relevance lane per calendar month[\s\S]+caches that pool[\s\S]+`offset` continues[\s\S]+does not repeat taxonomy validation or monthly Provider queries[\s\S]+research themes semantically[\s\S]+paper_profile\(depth="metadata"\)[\s\S]+unique_count[\s\S]+Regex and keyword matches[\s\S]+not[\s\S]+relevance evidence[\s\S]+saturated_lanes[\s\S]+guidance/iu);
+assert.match(githubProviderSkill,
+	/discover_repositories[\s\S]+search_repositories\(name\)[\s\S]+`exclude`[\s\S]+`recent_share`[\s\S]+kept from pool records[\s\S]+further pages is yours to decide[\s\S]+offset=found\["next_offset"\][\s\S]+record\["full_name"\][\s\S]+how much of the pool/iu);
+assert.match(arxivProviderSkill,
+	/discover_papers\([\s\S]+queries=native_expressions[\s\S]+kept from pool records[\s\S]+further pages is yours to decide[\s\S]+offset=found\["next_offset"\][\s\S]+record\["arxiv_id"\][\s\S]+how much of the pool/iu);
+assert.doesNotMatch(`${githubProviderSkill}${arxivProviderSkill}${arxivCategoryFiltering}${arxivNativeSearch}`, /candidates\(|cover\(|next_cursor/u);
 assert.match(arxivNativeSearch,
 	/`ti:`[\s\S]+`abs:`[\s\S]+complementary expressions[\s\S]+cross-category search[\s\S]+explicit larger `limit`[\s\S]+paper_profile\(depth="metadata"\)[\s\S]+not relevance evidence[\s\S]+every expression/iu);
 assert.match(huggingFaceProviderSkill,
@@ -768,7 +773,10 @@ assert.match(huggingFaceModelDiscovery,
 assert.match(huggingFaceModelDiscovery,
 	/records[\s\S]+lane_counts[\s\S]+unique_count[\s\S]+discovery_lanes[\s\S]+rerank the pool[\s\S]+hand-written/iu);
 assert.match(huggingFaceModelDiscovery,
-	/start with `discover_models\(\)` without a cursor[\s\S]+returned_count[\s\S]+unique_count[\s\S]+next_cursor[\s\S]+same discovery arguments[\s\S]+until `next_cursor` is null/iu);
+	/date-range lane is ordered by likes[\s\S]+lanes take turns[\s\S]+`exclude`[\s\S]+`conversion`[\s\S]+`derived`[\s\S]+`min_likes`[\s\S]+Use offset=51 to continue[\s\S]+print it whole[\s\S]+found\["records"\][\s\S]+further pages is yours to decide[\s\S]+offset=found\["next_offset"\][\s\S]+how much of the pool/iu);
+assert.match(huggingFaceModelDiscovery,
+	/names that the pages you read do not contain[\s\S]+models\(search=name\)[\s\S]+describe the category[\s\S]+add nothing/iu);
+assert.doesNotMatch(`${huggingFaceModelDiscovery}${huggingFaceModelWorkflow}${huggingFaceProviderSkill}`, /candidates\(|cover\(/u);
 assert.match(huggingFaceModelDiscovery,
 	/discover_models\(\)[\s\S]+partial result[\s\S]+recovery details/iu);
 assert.match(huggingFaceProviderSkill,
@@ -868,6 +876,8 @@ assert.match(nativeSelectorPrompt, /Every candidate a Provider child keeps in it
 assert.doesNotMatch(nativeSelectorPrompt, /Selector|selection_contract|submit_prime_selection|selection\.json/iu);
 assert.match(nativeSelectorPrompt,
 	/Provider child prompt: `OUTPUT BUDGET: Keep each IPython cell below 8000 output characters[\s\S]+Print at most 10 compact records or a 500-character excerpt/iu);
+assert.match(nativeSelectorPrompt,
+	/Provider child prompt as well: `USER QUESTION: Before acting, read inputs\/request\.json[\s\S]+reply SCOPE CONFLICT[\s\S]+A child that replies `SCOPE CONFLICT` has submitted nothing[\s\S]+`inputs\/` for the read-only question and context/u);
 assert.match(nativeSelectorPrompt, /"provider_id": "github"[\s\S]+"prime-github-selection-skill"/u);
 assert.match(nativeSelectorPrompt, /exact `required_skill_paths`[\s\S]+Do not ask a child to discover or search for Skill paths/iu);
 assert.match(nativeSelectorPrompt, /Start all independent tasks whose prerequisites are satisfied before waiting[\s\S]+returned `rlm_child_id`[\s\S]+native child status/iu);
@@ -889,8 +899,6 @@ assert.match(primeReportWriterWorkerSource, /session\.waitForRlmQuiescence/u);
 assert.doesNotMatch(primeReportWriterWorkerSource, /session\.hasRunningRlmChildren|session\.waitForIdle/u);
 assert.match(primeReportWriterWorkerSource, /SessionManager\.create\(cwd, rootSessionDir\)/u);
 assert.doesNotMatch(primeReportWriterWorkerSource, /SessionManager\.inMemory/u);
-assert.match(arxivNativeSearch,
-	/active[\s\S]+discover_papers[\s\S]+next_cursor[\s\S]+null[\s\S]+before[\s\S]+search\(\)/iu);
 assert.match(arxivProviderSkill,
 	/preserve[\s\S]+discovery query[\s\S]+before[\s\S]+download_pdf[\s\S]+downloaded record/iu);
 
@@ -917,7 +925,7 @@ assert.doesNotMatch(huggingFaceProviderSkill,
 	/Prime Search child|Root coordination|smallest sufficient|distinct evidence contribution/iu);
 
 assert.match(arxivCategoryFiltering,
-	/bounded pool[\s\S]+calendar months[\s\S]+opaque cursor[\s\S]+exact opaque `next_cursor`/iu);
+	/bounded pool[\s\S]+calendar month[\s\S]+`offset` continues/iu);
 assert.match(arxivProviderSkill,
 	/source_unavailable: true[\s\S]+empty Ledger[\s\S]+completion reply start with `source_unavailable provider=arxiv`[\s\S]+Root, not this child/iu);
 
