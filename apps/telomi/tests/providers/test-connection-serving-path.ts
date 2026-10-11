@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import express from "express";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { GoalSnapshot } from "../../shared/types.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-connection-serving-"));
@@ -19,11 +20,17 @@ process.env.HINDSIGHT_BANK_ID = "connection-serving-test";
 
 interface ReceivedRequest { endpoint: string; authorization: string | undefined }
 const received: ReceivedRequest[] = [];
+const declaredTools: string[][] = [];
 async function startEndpoint(name: string): Promise<{ server: Server; baseUrl: string }> {
 	const server = createServer((request, response) => {
 		received.push({ endpoint: name, authorization: request.headers.authorization });
-		request.resume();
+		let body = "";
+		request.on("data", (chunk) => { body += chunk; });
 		request.on("end", () => {
+			if (body) {
+				const payload = JSON.parse(body);
+				declaredTools.push((payload.tools ?? []).map((tool: { function: { name: string } }) => tool.function.name));
+			}
 			const chunk = (delta: unknown, finish: string | null) => `data: ${JSON.stringify({
 				id: "serve", object: "chat.completion.chunk", created: 1, model: "local-1",
 				choices: [{ index: 0, delta, finish_reason: finish }],
@@ -97,7 +104,8 @@ async function activate(baseUrl: string, apiKey?: string): Promise<void> {
 	assert.equal(response.status, 200, await response.text());
 }
 
-async function serveTurn(): Promise<GoalSnapshot> {
+async function serveTurn(selectedGoalId = goalId): Promise<GoalSnapshot> {
+	const goalId = selectedGoalId;
 	const goal = goals.getGoal(goalId);
 	assert.ok(goal);
 	const runner = await goals.getRunner(goal);
@@ -130,6 +138,10 @@ try {
 	assert.equal(first.errorMessage, undefined);
 	assert.equal(runners[0].getPreview(), "original");
 	assert.deepEqual(received.at(-1), { endpoint: "original", authorization: "Bearer unused" });
+	const expectedTools = ["research_history", "investigate", "deliver_investigation", "generate_podcast", "wiki_update",
+		"research_schedule", "read", "write", "edit", "bash", "ls", "find", "grep", "search_user_memory"].sort();
+	assert.deepEqual(declaredTools.at(-1)?.slice().sort(), expectedTools,
+		"a fresh Main Session must declare its complete loadout to its first model request");
 
 	// A Goal lifecycle event goes straight into the Pi session: once, persisted, and never shown in chat.
 	const lifecycleEvent = "[EVENT:TEST]\nrecorded through the Goal session";
@@ -145,6 +157,21 @@ try {
 	assert.equal(runners.length, 1, "the existing Goal keeps its Runner");
 	assert.equal(runners[0].getPreview(), "replacement");
 	assert.deepEqual(received.at(-1), { endpoint: "replacement", authorization: "Bearer unused" });
+	assert.deepEqual(declaredTools.at(-1)?.slice().sort(), expectedTools, "a continued Main Session retains its complete loadout");
+
+	// A first turn affected by Pi 1.1 could persist only the extension's tool declaration.
+	const restoredGoalId = "goal_partial_tool_history";
+	goals.ensureImportedGoal(restoredGoalId, "Restore a partial tool history");
+	const contextFile = join(workspaceDir, restoredGoalId, "context.jsonl");
+	const history = SessionManager.open(contextFile, join(workspaceDir, restoredGoalId));
+	history.appendMessage({ role: "system", content: "Historical Main Prompt", timestamp: 1,
+		toolsAdded: [{ name: "search_user_memory", description: "Historical memory tool", parameters: { type: "object", properties: {} } }] });
+	history.appendMessage({ role: "user", content: "Historical user request", timestamp: 2 });
+	const frozenHistory = readFileSync(contextFile, "utf8");
+	assert.equal((await serveTurn(restoredGoalId)).errorMessage, undefined);
+	assert.deepEqual(declaredTools.at(-1)?.slice().sort(), expectedTools,
+		"restoring a partial history recovers the complete loadout before the first model request");
+	assert.ok(readFileSync(contextFile, "utf8").startsWith(frozenHistory), "tool recovery appends without rewriting historical messages");
 
 	const requestsBeforeDeletion = received.length;
 	markProviderCredentialDeleted("anthropic", {});

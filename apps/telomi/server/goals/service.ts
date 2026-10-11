@@ -742,6 +742,7 @@ export class GoalService {
 		const goal = this.getGoal(goalId);
 		if (!goal) throw new Error(`Unknown goal: ${goalId}`);
 		const runner = await this.getRunner(goal);
+		this.topicPlanGenerations.delete(goalId);
 		runner.abort();
 	}
 
@@ -1056,9 +1057,21 @@ export class GoalService {
 		if (model && (outcome?.rejection || !snapshot.errorMessage)) recordModelVerdict(model, outcome?.rejection);
 		const generation = this.topicPlanGenerations.get(goalId);
 		if (!generation) return;
-		const error = outcome?.rejection ?? snapshot.errorMessage;
-		if (error) this.topicPlanGenerations.set(goalId, { ...generation, failedAt: new Date().toISOString(), error });
-		else this.topicPlanGenerations.delete(goalId);
+		let error = outcome?.rejection ?? snapshot.errorMessage;
+		if (!error) {
+			try {
+				const store = new GoalTopicPlanStore(goalId, this.workspaceDir);
+				if (store.readActive() || store.listProposals().some((proposal) => proposal.status === "proposed" && proposal.base_revision === null)) {
+					this.topicPlanGenerations.delete(goalId);
+					return;
+				}
+				error = generation.error ?? "The generation turn did not produce a valid Topic Plan draft.";
+			} catch (failure) {
+				error = toErrorMessage(failure);
+			}
+		}
+		if (generation.failedAt) return;
+		this.topicPlanGenerations.set(goalId, { ...generation, failedAt: generation.failedAt ?? new Date().toISOString(), error });
 	}
 
 	private updateFromSnapshot(snapshot: GoalSnapshot): void {

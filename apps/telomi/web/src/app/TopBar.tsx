@@ -59,7 +59,7 @@ export function TopBar({
 	const pulseRoute = goalPage ? "goal" : route;
 	const backLabel = route === "wiki" ? t("topbar.backFromWiki") : route === "memory" ? t("topbar.backFromMemory") : t("topbar.backToGoal");
 	const topicGenerating = Boolean(selectedGoal && !topicPlan && (
-		selectedGoal.fresh || selectedGoal.isStreaming || snapshot?.isStreaming
+		selectedGoal.isStreaming || (snapshot?.goalId === selectedGoal.id && snapshot.isStreaming)
 	));
 	const openActivity = () => {
 		const onlyGoal = activitySummary?.goals.length === 1 ? activitySummary.goals[0] : null;
