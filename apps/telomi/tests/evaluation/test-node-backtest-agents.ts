@@ -407,7 +407,7 @@ const frozenPrimeReplayRecipe: NodeReplayRecipe = {
 };
 
 const replayed = new Map<string, number>();
-let noteReplayFailure: "stage" | "capture" | "invalid" | "active" | "empty" | undefined;
+let noteReplayFailure: "stage" | "stage-no-index" | "stage-unsafe-index" | "stage-bad-index" | "capture" | "invalid" | "active" | "empty" | undefined;
 const replayPrompts = new Map<string, Array<{ system: string; user: string }>>();
 const runner: AgentStageRunner = {
 	async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
@@ -452,10 +452,33 @@ const runner: AgentStageRunner = {
 				writeFileSync(join(retained, "children", "child", "session.jsonl"), `${JSON.stringify({ type: "message", message: {
 					role: "assistant", usage: { input: 90, output: 9, cost: { total: 0.02 } }, content: [{ type: "toolCall" }],
 				} })}\n`);
+				for (const path of [retained, join(retained, "children", "child")]) {
+					writeFileSync(join(path, "tool-events.jsonl"), `${JSON.stringify({ type: "tool_execution_start" })}\n`);
+				}
+				writeFileSync(`${trace}.sessions.json`, JSON.stringify({ schemaVersion: 1, sessions: [
+					{ path: "reader-runtime/session.jsonl", label: "Reader Root" },
+					{ path: "reader-runtime/children/child/session.jsonl", label: "Reader child" },
+					{ path: "reader-runtime/session.jsonl", label: "Root mirror" },
+				] }));
+				if (noteReplayFailure === "stage-no-index") rmSync(`${trace}.sessions.json`);
+				if (noteReplayFailure === "stage-bad-index") writeFileSync(`${trace}.sessions.json`, "{}");
+				if (noteReplayFailure === "stage-unsafe-index") {
+					const outside = join(root, "outside-session.jsonl");
+					writeFileSync(outside, readFileSync(trace, "utf8").repeat(99));
+					const outsideTools = join(root, "outside-tool-events.jsonl");
+					writeFileSync(outsideTools, `${JSON.stringify({ type: "tool_execution_start" })}\n`.repeat(99));
+					rmSync(join(retained, "tool-events.jsonl"));
+					symlinkSync(outsideTools, join(retained, "tool-events.jsonl"));
+					writeFileSync(`${trace}.sessions.json`, JSON.stringify({ schemaVersion: 1, sessions: [
+						{ path: "reader-runtime/session.jsonl", label: "Reader Root" },
+						{ path: outside, label: "Unowned" },
+					] }));
+				}
 				writeFileSync(join(request.recordDirectory!, "runtime--research.jsonl"), `${JSON.stringify({ type: "node_execution",
 					node_type: "agent", agent: "note_agent", execution_id: "fixture", status: noteReplayFailure === "stage" ? "failed" : "succeeded",
 					trace_ref: "note_agent--fixture.jsonl", output: { metrics: {
-						input_tokens: 101, output_tokens: 11, cost_usd: noteReplayFailure === "invalid" ? -1 : 0.03, model_calls: 2, tool_calls: 2,
+						input_tokens: 101, output_tokens: 11, cost_usd: noteReplayFailure === "invalid" ? -1 : 0.03, model_calls: 2,
+						...(noteReplayFailure.startsWith("stage") ? {} : { tool_calls: 2 }),
 					} }, time: { duration_ms: 5000 },
 				})}\n`);
 				if (noteReplayFailure === "active") {
@@ -723,16 +746,17 @@ try {
 	}
 	assert.equal(heldPrimeCompleted.activeExecution, undefined);
 	const failingHarness = join(root, "failing-candidate");
-	for (noteReplayFailure of ["stage", "capture", "invalid", "active", "empty"] as const) {
+	for (noteReplayFailure of ["stage", "stage-no-index", "stage-unsafe-index", "stage-bad-index", "capture", "invalid", "active", "empty"] as const) {
 		const replay = service.enqueue(goalId, { agentId: "note-agent", cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
 			candidate: { promptMode: "observed" }, repetitions: 1, rubricId: `note-child-usage-${noteReplayFailure}` });
 		const failed = await waitForEvaluation(service, replay.id);
 		assert.equal(failed.status, "failed");
 		assert.equal(failed.executions[0]!.status, "failed");
 		assert.match(failed.executions[0]!.error!, noteReplayFailure === "capture" ? /Published Artifact directory/u : /fixture Note Agent Stage failure/u);
-		if (noteReplayFailure === "stage" || noteReplayFailure === "capture") {
+		if (noteReplayFailure.startsWith("stage") || noteReplayFailure === "capture") {
 			assert.deepEqual(failed.executions[0]!.metrics, { inputTokens: 101, outputTokens: 11, costUsd: 0.03, calls: 2,
-				turns: 0, toolCalls: 2, durationMs: 5000 }, "failed Replay keeps the terminal Root+child aggregate without adding Root mirrors");
+				turns: 0, toolCalls: noteReplayFailure === "stage" || noteReplayFailure === "capture" ? 2 : 1, durationMs: 5000 },
+				"missing tool metadata never loses complete spend; only indexed/visible tool calls are counted without mirrors or escapes");
 		} else {
 			const { durationMs, ...usage } = failed.executions[0]!.metrics;
 			assert.deepEqual(usage, noteReplayFailure === "empty"
@@ -979,7 +1003,7 @@ try {
 	assert.match(reportTraceRun.run.executions[0]?.refs?.reportInitialPrompt ?? "", /writer-report-1-execution\/initial-prompt\.md$/u);
 	assert.ok(Object.values(reportTraceRun.run.executions[0]?.refs ?? {}).every((ref) => !ref.includes("writer-report-0-previous")));
 	for (const agentId of RECORDED_STAGE_AGENT_IDS) {
-		assert.equal(replayed.get(agentId), agentId === "note-agent" ? 9 : 1);
+		assert.equal(replayed.get(agentId), agentId === "note-agent" ? 12 : 1);
 	}
 	const missingPromptResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays`, {
 		method: "POST",

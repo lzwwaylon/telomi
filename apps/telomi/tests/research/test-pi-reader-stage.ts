@@ -157,6 +157,13 @@ try {
 			assert.ok(failed);
 			assert.equal(failed.output.metrics.model_calls, calls.length, "failed Stage includes all failed-child assistant attempts");
 			assert.equal(failed.output.metrics.input_tokens, calls.reduce((sum, message) => sum + message.usage.input, 0));
+			const toolCalls = sessions.reduce((sum, session) => {
+				const path = join(dirname(session.path), "tool-events.jsonl");
+				return sum + (existsSync(path) ? readFileSync(path, "utf8").trim().split("\n")
+					.map(line => JSON.parse(line)).filter(event => event.type === "tool_execution_start").length : 0);
+			}, 0);
+			assert.ok(toolCalls > 0);
+			assert.equal(failed.output.metrics.tool_calls, toolCalls, "failed Stage retains the actual Root and child tool-start count");
 			assert.ok(calls.some(message => message.model === "child" && message.stopReason === "error"));
 			assert.ok(existsSync(work), "failed Stage preserves its workspace for diagnostics");
 			const captured = findNodeEvaluationCases(records, "note-agent");

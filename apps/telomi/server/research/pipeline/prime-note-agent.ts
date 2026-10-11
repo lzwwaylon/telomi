@@ -379,12 +379,23 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			if (existsSync(workerSessionPath)) copyFileSync(workerSessionPath, sessionPath);
 			const failedUsage = readFailedSessionUsage(workerSessionPath);
 			const children = join(runtimeRoot, "children");
-			if (piReader && existsSync(children)) for (const id of readdirSync(children)) {
+			const childIds = piReader && existsSync(children) ? readdirSync(children) : [];
+			for (const id of childIds) {
 				const child = readFailedSessionUsage(join(children, id, "session.jsonl"));
 				failedUsage.inputTokens += child.inputTokens;
 				failedUsage.outputTokens += child.outputTokens;
 				failedUsage.costUsd += child.costUsd;
 				failedUsage.calls += child.calls;
+			}
+			let failedToolCalls: number | undefined;
+			if (piReader && existsSync(join(runtimeRoot, "result.json"))) try {
+				const metadata: unknown = JSON.parse(readFileSync(join(runtimeRoot, "result.json"), "utf8"));
+				if (isRecord(metadata) && metadata.delegation === "official_pi_subagent" && metadata.child_count === childIds.length
+					&& typeof metadata.tool_calls === "number" && Number.isInteger(metadata.tool_calls) && metadata.tool_calls >= 0) {
+					failedToolCalls = metadata.tool_calls;
+				}
+			} catch {
+				// Abrupt worker exit can leave usage but no complete native tool aggregate.
 			}
 			const finishedAt = new Date().toISOString();
 			const status = request.signal.aborted ? "cancelled" : "failed";
@@ -426,6 +437,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 						output_tokens: failedUsage.outputTokens,
 						cost_usd: failedUsage.costUsd,
 						model_calls: failedUsage.calls,
+						...(failedToolCalls !== undefined ? { tool_calls: failedToolCalls } : {}),
 					},
 				},
 				time: { started_at: startedAt, finished_at: finishedAt,

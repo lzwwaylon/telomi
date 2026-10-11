@@ -23,6 +23,8 @@ import { serverRuntimeDirForGoal } from "../workspaces/server-runtime-paths.js";
 import { WORKSPACE_AGENT_IDS } from "../workspaces/agent-layout.js";
 import { materializeSkills, snapshotSkills } from "../agent-runtime/skill-registry.js";
 import { readRuntimeRecords } from "../observability/run-records.js";
+import { manifestSessionSections, safeSessionPath } from "../observability/session-traces.js";
+import type { ResearchModelUsage } from "../agent-runtime/model-usage.js";
 import { getResearchSourceServiceClient } from "../providers/source-service-client.js";
 import * as log from "../lib/log.js";
 import { createProductionResearchStageRunner } from "../research/pipeline/index.js";
@@ -1507,6 +1509,7 @@ function inspectPartialReplay(input: {
 		return { usage: summary.usage, toolCalls: summary.toolCalls!, durationMs: Date.now() - input.startedAt,
 			refs: { investigationUsage: "live-output/runtime/usage-summary.json" } };
 	}
+	let terminal: { usage: ResearchModelUsage; durationMs: number; trace?: string } | undefined;
 	if (input.agentId === "note-agent") {
 		for (const kind of ["research", "evaluation"] as const) {
 			const path = join(input.recordDirectory, `runtime--${kind}.jsonl`);
@@ -1519,32 +1522,54 @@ function inspectPartialReplay(input: {
 			// The terminal Stage aggregate includes native children; Root session mirrors do not.
 			if (current.type === "node_execution" && current.node_type === "agent"
 				&& ["succeeded", "failed", "cancelled", "interrupted"].includes(String(current.status)) && metrics
-				&& [metrics.input_tokens, metrics.output_tokens, metrics.cost_usd, metrics.model_calls, metrics.tool_calls, durationMs]
+				&& [metrics.input_tokens, metrics.output_tokens, metrics.cost_usd, metrics.model_calls, durationMs]
 					.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
-				&& Number.isInteger(metrics.model_calls) && Number.isInteger(metrics.tool_calls)) {
+				&& Number.isInteger(metrics.model_calls)) {
 				const trace = typeof current.trace_ref === "string" && basename(current.trace_ref) === current.trace_ref
 					&& existsSync(join(input.recordDirectory, current.trace_ref)) ? current.trace_ref : undefined;
-				return { usage: { inputTokens: finiteNumber(metrics.input_tokens), outputTokens: finiteNumber(metrics.output_tokens),
+				terminal = { usage: { inputTokens: finiteNumber(metrics.input_tokens), outputTokens: finiteNumber(metrics.output_tokens),
 					costUsd: finiteNumber(metrics.cost_usd), calls: finiteNumber(metrics.model_calls) },
-					toolCalls: finiteNumber(metrics.tool_calls), durationMs: finiteNumber(durationMs),
-					refs: { ...(trace ? { agentTrace: trace } : {}) } };
+					durationMs: finiteNumber(durationMs), ...(trace ? { trace } : {}) };
+				if (typeof metrics.tool_calls === "number" && Number.isInteger(metrics.tool_calls) && metrics.tool_calls >= 0) {
+					return { usage: terminal.usage, durationMs: terminal.durationMs,
+						toolCalls: metrics.tool_calls, refs: { ...(trace ? { agentTrace: trace } : {}) } };
+				}
 			}
 			break;
 		}
 	}
-	const jsonlFiles = input.agentId === "provider-child"
+	let indexedTraces: string[] | undefined;
+	// Without a usable index, the legacy tool count covers visible Root calls, not all children.
+	if (terminal?.trace) {
+		try {
+			const sections = manifestSessionSections(input.recordDirectory, `${terminal.trace}.sessions.json`);
+			if (sections?.length) indexedTraces = [...new Set(sections.map(section => section.path))];
+		} catch {
+			// An unavailable index cannot erase known spend; the legacy fallback only knows its visible tools.
+		}
+	}
+	const jsonlFiles = indexedTraces ?? (input.agentId === "provider-child"
 		? [join(input.recordDirectory, "runtime/trace.jsonl")].filter(existsSync)
 		: existsSync(input.recordDirectory)
 		? listFilesRecursive(input.recordDirectory, { absolute: true, sort: false, strict: true }).filter((path) => path.endsWith(".jsonl"))
-		: [];
-	const traces = jsonlFiles.filter((path) => (input.agentId === "provider-child" || basename(path).includes("--")) && !basename(path).startsWith("runtime--"));
+		: []);
+	const traces = indexedTraces ?? jsonlFiles.filter((path) => (input.agentId === "provider-child" || basename(path).includes("--")) && !basename(path).startsWith("runtime--"));
 	const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0 };
 	let toolCalls = 0;
 	let firstEventAt = Number.POSITIVE_INFINITY;
 	let lastEventAt = 0;
 	for (const trace of traces) {
-		const parsed = readCompleteJsonLines(trace);
-		for (const entry of parsed.entries) {
+		let entries: unknown[];
+		try { entries = readCompleteJsonLines(trace).entries; }
+		catch (error) { if (terminal) continue; throw error; }
+		const events = indexedTraces ? safeSessionPath(input.recordDirectory,
+			relative(input.recordDirectory, join(dirname(trace), "tool-events.jsonl"))) : undefined;
+		let nativeTools: number | undefined;
+		if (events && lstatSync(events).isFile()) try {
+			nativeTools = readCompleteJsonLines(events).entries.filter(isRecord).filter(event => event.type === "tool_execution_start").length;
+		} catch { /* Missing tool evidence does not invalidate terminal spend. */ }
+		if (nativeTools !== undefined) toolCalls += nativeTools;
+		for (const entry of entries) {
 			const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
 			const eventAt = timestampMs(record.timestamp);
 			if (eventAt !== undefined) {
@@ -1565,7 +1590,7 @@ function inspectPartialReplay(input: {
 			usage.outputTokens += finiteNumber(modelUsage.output);
 			usage.costUsd += finiteNumber(cost.total);
 			usage.calls += 1;
-			if (Array.isArray(message.content)) {
+			if (nativeTools === undefined && Array.isArray(message.content)) {
 				toolCalls += message.content.filter((part) => part && typeof part === "object"
 					&& (part as { type?: unknown }).type === "toolCall").length;
 			}
@@ -1575,13 +1600,13 @@ function inspectPartialReplay(input: {
 		? relative(input.recordDirectory, path).split(sep).join("/")
 		: undefined;
 	return {
-		usage,
+		usage: terminal?.usage ?? usage,
 		toolCalls,
-		durationMs: firstEventAt < Number.POSITIVE_INFINITY && lastEventAt >= firstEventAt
+		durationMs: terminal?.durationMs ?? (firstEventAt < Number.POSITIVE_INFINITY && lastEventAt >= firstEventAt
 			? Math.max(1, lastEventAt - firstEventAt)
-			: Math.max(1, Date.now() - input.startedAt),
+			: Math.max(1, Date.now() - input.startedAt)),
 		refs: {
-			...(traces[0] ? { agentTrace: ref(traces[0]) } : {}),
+			...(terminal?.trace ? { agentTrace: terminal.trace } : traces[0] ? { agentTrace: ref(traces[0]) } : {}),
 		},
 	};
 }
