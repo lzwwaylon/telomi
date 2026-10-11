@@ -117,6 +117,13 @@ export async function createAgentSession(options) {
 				[{ id: "root", path: `${basename(session, ".jsonl")}-reader-runtime/session.jsonl`, label: "Note Agent" }],
 				"the finished Reader points at its retained trace");
 			assert.match(readFileSync(join(request.controlDirectory, retained[0].path), "utf8"), /Finished reading the stable evidence/u);
+			const projection = new ObservabilityActivityProjection();
+			const ref = projection.registerOutput({ kind: "recorded-agent", goalId: "goal-reader", runId: request.runId,
+				runDirectory: request.controlDirectory, agent: "note_agent", executionId,
+				sessionFile: basename(session), lifecycle: "finished" });
+			const output = projection.readOutput("goal-reader", ref)!;
+			assert.equal(output.lines.filter(line => line.text.includes("Finished reading the stable evidence.")).length, 1,
+				"Source Root remains visible through public Activity output after successful Stage cleanup");
 			return result;
 		},
 	};
