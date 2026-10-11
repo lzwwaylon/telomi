@@ -16,15 +16,18 @@ const child = spawn(target.command, target.args, {
 	stdio: "inherit",
 });
 const terminate = () => {
-	if (!child.pid) return;
+	if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
 	try { process.kill(-child.pid, "SIGTERM"); } catch { child.kill("SIGTERM"); }
 };
-process.once("SIGTERM", terminate);
-process.once("SIGINT", terminate);
+// Repeated cancellation must keep forwarding until the detached command exits.
+process.on("SIGTERM", terminate);
+process.on("SIGINT", terminate);
 const result = await new Promise((resolve, reject) => {
 	child.once("error", reject);
 	child.once("exit", (code, signal) => resolve({ code: code ?? 1, signal }));
 });
+process.off("SIGTERM", terminate);
+process.off("SIGINT", terminate);
 if (result.signal) process.kill(process.pid, result.signal);
 process.exitCode = result.code;
 
