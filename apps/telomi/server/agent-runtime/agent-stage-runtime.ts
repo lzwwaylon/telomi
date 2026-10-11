@@ -618,7 +618,6 @@ export class SrtStageRuntime implements AgentStageRunner {
 				}
 			},
 		};
-		const submitTool = toAgentTool(submitToolDefinition);
 		const additionalToolDefinitions = additionalTools.map(toToolDefinition);
 		const toolDefinitions = [
 			...sandbox.toolDefinitions,
@@ -630,12 +629,6 @@ export class SrtStageRuntime implements AgentStageRunner {
 			conciseResponses: request.role !== "report_writer",
 		});
 		const composedSystemPromptSha256 = sha256(composedSystemPrompt);
-		const agentTools = [
-			...sandbox.tools,
-			...additionalTools,
-			submitTool,
-		];
-
 		const modelsPath = resolveAgentPath("models.json");
 		const connectionEnv = { PI_CODING_AGENT_DIR: resolveAgentDir() };
 		const definitions = new Map(researchModelCandidates(request.modelPolicy)
@@ -727,12 +720,14 @@ export class SrtStageRuntime implements AgentStageRunner {
 			appendRuntimeContext(recordDirectory, recordKind, { type: "runtime.model_switched", stage_id: request.stageId, execution_id: executionId, ...event });
 			request.onActivity?.({ stageId: request.stageId, attemptId: request.attemptId, role: request.role, status: "running", kind: "status", text: describeModelSwitch(event) });
 		};
-		const createAgent = (sessionId: string, initialSystemPrompt: string) => new Agent({
+		const createAgent = (sessionManager: SessionManager) => new Agent({
 			initialState: {
-				systemPrompt: initialSystemPrompt,
+				// AgentSession must persist the initial prompt and Tool declarations itself.
+				systemPrompt: "",
 				model,
 				thinkingLevel: normalizeResearchThinkingLevel(request.modelPolicy.reasoning),
-				tools: agentTools,
+				tools: [],
+				messages: sessionManager.buildSessionContext().messages,
 			},
 			convertToLlm: (messages) => convertToLlm(messages) as Message[],
 			streamFn: (selectedModel, context, options) => streamWithAccountFallback({
@@ -754,7 +749,7 @@ export class SrtStageRuntime implements AgentStageRunner {
 			}),
 			maxRetryDelayMs: request.modelPolicy.maxRetryDelayMs,
 			toolExecution: "sequential",
-			sessionId,
+			sessionId: sessionManager.getSessionId(),
 		});
 		const createSession = (
 			sessionAgent: Agent,
@@ -775,7 +770,7 @@ export class SrtStageRuntime implements AgentStageRunner {
 		const guestCwd = request.sandbox?.executionSpec?.guestCwd ?? "/work";
 		const promptSessionManager = SessionManager.inMemory(guestCwd);
 		const promptResourceLoader = await createResourceLoader();
-		const promptAgent = createAgent(promptSessionManager.getSessionId(), composedSystemPrompt);
+		const promptAgent = createAgent(promptSessionManager);
 		const promptSession = createSession(promptAgent, promptSessionManager, promptResourceLoader);
 		const systemPrompt = promptSession.systemPrompt;
 		promptSession.dispose();
@@ -788,16 +783,14 @@ export class SrtStageRuntime implements AgentStageRunner {
 			sessionResolution.directory,
 			guestCwd,
 		);
-		agent = createAgent(sessionManager.getSessionId(), systemPrompt);
+		agent = createAgent(sessionManager);
+		const messageCountBefore = agent.state.messages.length;
 		const resourceLoader = await createResourceLoader();
 		const session = createSession(agent, sessionManager, resourceLoader);
 		if (session.systemPrompt !== systemPrompt) {
 			session.dispose();
 			throw new Error(`Agent stage '${request.stageId}' produced a nondeterministic Pi system prompt`);
 		}
-		const loaded = sessionManager.buildSessionContext();
-		const messageCountBefore = loaded.messages.length;
-		if (messageCountBefore > 0) agent.state.messages = loaded.messages;
 		let evaluationDraft: NodeEvaluationCaseDraft | undefined;
 		let evaluationCapture: EvaluationCaseCapture | undefined;
 		if (recordKind === "research" && request.evaluation) {
@@ -1197,19 +1190,6 @@ function activityOutputPreview(value: unknown): string | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-function toAgentTool(definition: AnyToolDefinition): AgentTool {
-	return {
-		name: definition.name,
-		label: definition.label,
-		description: definition.description,
-		parameters: definition.parameters,
-		prepareArguments: definition.prepareArguments,
-		executionMode: definition.executionMode,
-		execute: async (toolCallId, params, signal, onUpdate) =>
-			definition.execute(toolCallId, params, signal, onUpdate, undefined as never),
-	};
 }
 
 function captureAdditionalTools(

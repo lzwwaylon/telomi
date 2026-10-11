@@ -228,17 +228,18 @@ try {
 	assert.ok(service.getTopicPlanGeneration(goalId)?.startedAt, "Lifecycle Topic generation is visible while the session runs");
 	snapshot.isStreaming = false;
 	onSnapshot(snapshot);
-	assert.equal(service.getTopicPlanGeneration(goalId), undefined, "Finished or aborted sessions cannot leave a running Topic Activity");
+	assert.ok(service.getTopicPlanGeneration(goalId)?.failedAt, "A finished Topic turn without a draft retains a failed Activity");
+	const failedGeneration = service.getTopicPlanGeneration(goalId);
 	await service.startRun(goalId, "ordinary question");
-	assert.equal(service.getTopicPlanGeneration(goalId), undefined, "Ordinary chat is not Topic generation");
+	assert.deepEqual(service.getTopicPlanGeneration(goalId), failedGeneration, "Ordinary chat does not restart Topic generation");
 	assert.equal((await service.startRun(goalId, "[EVENT:GOAL_UPDATED]\nRevise the Topic Plan")).queued, true);
-	assert.equal(service.getTopicPlanGeneration(goalId), undefined, "Queued Topic work is not yet running");
+	assert.deepEqual(service.getTopicPlanGeneration(goalId), failedGeneration, "Queued Topic work is not yet running");
 	snapshot.isStreaming = false;
 	onSnapshot(snapshot);
 	assert.ok(service.getTopicPlanGeneration(goalId)?.startedAt, "Queued Topic work becomes visible when execution starts");
 	snapshot.isStreaming = false;
 	onSnapshot(snapshot);
-	assert.equal(service.getTopicPlanGeneration(goalId), undefined);
+	assert.ok(service.getTopicPlanGeneration(goalId)?.failedAt);
 	const context = buildRunContextSnapshotFromHarness({ goalId, goalDir, dataDir: workspaceDir, harness });
 	const failedSetupStore = new RunStateStore(join(runRecordsDir(workspaceDir, goalId), "run_setup_failure"));
 	const failedSetup = runtime.run({

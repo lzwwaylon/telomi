@@ -551,17 +551,6 @@ export class GoalRunner {
 			);
 		}
 		const tools = availableTools.filter((tool) => promptSandbox.tools.includes(tool.name));
-		// Initial systemPrompt is a placeholder - AgentSession's constructor calls
-		// _refreshToolRegistry → setActiveToolsByName → _rebuildSystemPrompt, which
-		// pulls through buildSystemPrompt() via the ResourceLoader below and
-		// overwrites agent.state.systemPrompt before the first prompt() runs.
-		const initialSystemPrompt = this.nodeBacktestOverride?.systemPrompt ?? buildMainAgentPrompt(
-			this.workspacePath,
-			this.goalId,
-			this.title,
-			this.description,
-			this.getOutputLanguage(),
-		);
 		// ModelRegistry merges built-in providers (from pi-ai) with custom providers
 		// declared in the project's `.pi/agent/models.json`, so model
 		// lookup + auth resolution Just Works for any provider the user configured.
@@ -569,13 +558,14 @@ export class GoalRunner {
 
 		this.agent = new Agent({
 			initialState: {
-				systemPrompt: initialSystemPrompt,
+				// Session owns persisted prompt and tool declarations, including the first turn.
+				systemPrompt: "",
 				// The owner (GoalService for chats, the replay recipe for a Node Backtest) applies the
 				// user's selection through updateConfig() before the first turn; there is no built-in
 				// model to fall back to, and a turn without one fails in run().
 				model: undefined as unknown as Model<any>,
 				thinkingLevel: "off",
-				tools,
+				tools: [],
 			},
 			convertToLlm: convertMainAgentMessagesToLlm,
 			// Mirror pi-coding-agent/sdk.js: resolve {apiKey, headers} per-request
@@ -594,6 +584,7 @@ export class GoalRunner {
 
 		const contextFile = join(this.goalDir, "context.jsonl");
 		this.sessionManager = SessionManager.open(contextFile, this.goalDir, this.goalDir);
+		this.agent.state.messages = this.sessionManager.buildSessionContext().messages;
 		const settingsManager = createMainAgentSettingsManager(this.workspaceDir);
 		const memoryEnv = { ...process.env, ...this.getExtraEnv?.() };
 		this.userMemoryProjector = new UserMemoryProjector(this.workspaceDir, this.goalId, {
@@ -665,6 +656,8 @@ export class GoalRunner {
 			modelRuntime,
 			resourceLoader: this.resourceLoader,
 			baseToolsOverride: Object.fromEntries(tools.map((tool) => [tool.name, tool])),
+			// Main permissions come from the current Bundle, even if older declarations were incomplete.
+			initialActiveToolNames: tools.map((tool) => tool.name),
 		});
 
 		// Model and thinking level are not restored from the session log. The owner of the
@@ -672,11 +665,6 @@ export class GoalRunner {
 		// turn: GoalService resolves inheritance or the chat's explicit override, and a Node
 		// Backtest applies the model its Case recorded. Restoring here would let an old
 		// session record silently outrank a configuration the user has since changed.
-		const loaded = this.sessionManager.buildSessionContext();
-		if (loaded.messages.length > 0) {
-			this.agent.state.messages = loaded.messages;
-		}
-
 		this.session.subscribe(async (event) => {
 			if (event?.type === "message_start" && event.message?.role === "user") {
 				const originalQuestion = extractMessageText(event.message).trim();
