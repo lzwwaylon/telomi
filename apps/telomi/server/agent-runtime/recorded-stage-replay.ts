@@ -19,6 +19,7 @@ import {
 	type NodeEvaluationInteraction,
 } from "./node-evaluation.js";
 import { isInsideRoot } from "../lib/paths.js";
+import { isRecord } from "../lib/values.js";
 
 export const RECORDED_STAGE_AGENT_IDS = ["note-agent", "report-writer"] as const;
 export const RECORDED_STAGE_RECIPE_VERSIONS = {
@@ -29,11 +30,23 @@ export const RECORDED_STAGE_RECIPE_VERSIONS = {
 type InvestigationAnswerValidator = (value: unknown, inputRoot: string) => unknown;
 
 type NoteReadingValidator = (value: unknown, question: string, invocationId: string, corpusDir: string) => unknown;
+type SourceNoteValidator = (value: unknown, sourceDir: string, discoveryEnabled: boolean, expectedSourceId?: string) => unknown;
+
+export type RecordedStageReplayPreparation = (input: Pick<Parameters<NodeReplayRecipe["replay"]>[0],
+	"value" | "promptMode" | "promptOverride" | "recordDirectory"> & {
+	readonlyMounts: AgentStageRequest<unknown>["readonlyMounts"];
+}) => {
+	systemPrompt?: string;
+	promptConfig?: Partial<NonNullable<AgentStageRequest<unknown>["promptConfig"]>>;
+	recipeInput?: unknown;
+	executionProfile?: AgentStageRequest<unknown>["executionProfile"];
+} | undefined;
 
 export function createRecordedStageReplayRecipes(noteReadingValidator?: NoteReadingValidator,
-	answerValidator?: InvestigationAnswerValidator): readonly NodeReplayRecipe[] {
+	answerValidator?: InvestigationAnswerValidator, sourceNoteValidator?: SourceNoteValidator,
+	prepareReplay?: RecordedStageReplayPreparation): readonly NodeReplayRecipe[] {
 	return RECORDED_STAGE_AGENT_IDS.map((agentId) => createRecordedStageReplayRecipe(agentId,
-		recipeVersion(agentId), noteReadingValidator, answerValidator));
+		recipeVersion(agentId), noteReadingValidator, answerValidator, sourceNoteValidator, prepareReplay));
 }
 
 export const recordedStageReplayRecipes = createRecordedStageReplayRecipes();
@@ -105,6 +118,8 @@ function createRecordedStageReplayRecipe(
 	version: number,
 	noteReadingValidator?: NoteReadingValidator,
 	answerValidator?: InvestigationAnswerValidator,
+	sourceNoteValidator?: SourceNoteValidator,
+	prepareReplay?: RecordedStageReplayPreparation,
 ): NodeReplayRecipe {
 	return {
 		identity: { id: agentId, version },
@@ -118,6 +133,8 @@ function createRecordedStageReplayRecipe(
 			artifactStore,
 			runner,
 			candidateCase,
+			promptMode,
+			promptOverride,
 			signal,
 		}) {
 			if (value.agentId !== agentId) throw new Error(`Node Case belongs to Agent '${value.agentId}'`);
@@ -141,17 +158,18 @@ function createRecordedStageReplayRecipe(
 			if (answerMode && (output.kind !== "json_candidate" || output.entryRelativePath !== "work/answer.json")) {
 				throw new Error("Investigation Answer Replay has an invalid output contract");
 			}
+			const prepared = prepareReplay?.({ value, promptMode, promptOverride, recordDirectory, readonlyMounts });
 			const stage = await runner.runStage({
 				runId: candidateCase?.sourceRunId ?? value.runId,
 				stageId: value.nodeId,
 				attemptId: value.attemptId,
 				role: value.role,
-				promptConfig: value.request.promptConfig as NonNullable<AgentStageRequest<unknown>["promptConfig"]>,
+				promptConfig: { ...value.request.promptConfig, ...prepared?.promptConfig } as NonNullable<AgentStageRequest<unknown>["promptConfig"]>,
 				recordDirectory,
 				recordKind: candidateCase ? "research" : "evaluation",
 				session: value.request.session,
 				modelPolicy: value.request.modelPolicy,
-				systemPrompt: readNodeEvaluationFile(casePath, value.request.systemPrompt),
+				systemPrompt: prepared?.systemPrompt ?? readNodeEvaluationFile(casePath, value.request.systemPrompt),
 				userPrompt: readNodeEvaluationFile(casePath, value.request.userPrompt),
 				workDirectory,
 				readonlyMounts,
@@ -160,7 +178,7 @@ function createRecordedStageReplayRecipe(
 				evaluation: {
 					agentId: value.agentId,
 					recipe: value.recipe,
-					recipeInput: value.recipeInput,
+					recipeInput: prepared?.recipeInput ?? value.recipeInput,
 					...(candidateCase ? { capabilitySnapshotId: candidateCase.capabilitySnapshotId } : {}),
 					...(inputGuestPath ? { inputGuestPath } : {}),
 					harnessMounts: value.mounts.flatMap((mount) => mount.kind === "harness"
@@ -184,6 +202,19 @@ function createRecordedStageReplayRecipe(
 							if (!inputs) throw new Error("Investigation Answer Replay has no captured /inputs");
 							return answerValidator(JSON.parse(readFileSync(entryPath, "utf-8")) as unknown, inputs.hostPath);
 						}
+						if (agentId === "note-agent" && !noteReadingContext && output.kind === "note" && sourceNoteValidator) {
+							const context = value.recipeInput;
+							if (!isRecord(context) || typeof context.discoveryEnabled !== "boolean" || !isRecord(context.document)
+								|| typeof context.document.id !== "string" || !context.document.id.trim()) {
+								throw new Error("Source Note Replay requires frozen discoveryEnabled and document.id");
+							}
+							const source = readonlyMounts.find((mount) => mount.guestPath === "/source");
+							if (!source) throw new Error("Source Note Replay has no captured Source");
+							const normalized = sourceNoteValidator(JSON.parse(readFileSync(entryPath, "utf-8")),
+								source.hostPath, context.discoveryEnabled, context.document.id);
+							writeFileSync(entryPath, `${JSON.stringify(normalized, null, 2)}\n`);
+							return normalized;
+						}
 						if (!noteReadingContext || !noteReadingValidator) return validateRecordedOutput(output.kind, entryPath);
 						const corpus = readonlyMounts.find((mount) => mount.guestPath === "/source");
 						if (!corpus) throw new Error("Note Reading Replay has no captured Source corpus");
@@ -193,7 +224,7 @@ function createRecordedStageReplayRecipe(
 						return normalized;
 					},
 				},
-				...(value.request.executionProfile ? { executionProfile: value.request.executionProfile } : {}),
+				...((prepared?.executionProfile ?? value.request.executionProfile) ? { executionProfile: prepared?.executionProfile ?? value.request.executionProfile } : {}),
 				...(interactionReplay.tools.length > 0 ? { additionalTools: interactionReplay.tools } : {}),
 				signal,
 			});

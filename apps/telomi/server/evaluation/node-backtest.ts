@@ -43,7 +43,8 @@ import { renderCapturedCandidatePrompts } from "./candidate-prompts.js";
 import { deriveProviderChildCase } from "./provider-child-case.js";
 import { withCaseExport } from "./case-export-lock.js";
 import { assertSafeRelativePath, isFileNameSegment } from "../lib/paths.js";
-import { toErrorMessage } from "../lib/values.js";
+import { isRecord, toErrorMessage } from "../lib/values.js";
+import { resolvePrimeModel } from "../agent-runtime/model-policy.js";
 
 const RUN_SCHEMA_VERSION = 4 as const;
 const MAX_CASES = 20;
@@ -280,6 +281,11 @@ interface QueueRef {
 	runId: string;
 }
 
+interface QuestionReaderModelPolicy {
+	caseRef: NodeBacktestCaseRef;
+	modelPolicy: AgentStageRequest<unknown>["modelPolicy"];
+}
+
 export class NodeBacktestService {
 	private readonly module: NodeEvaluationModule;
 	private readonly recipeKeys: Set<string>;
@@ -411,6 +417,13 @@ export class NodeBacktestService {
 			: this.createCapabilitySnapshot(goalId, goalDirectory, caseValues.flatMap(({ value }) =>
 				value.mounts.flatMap((mount) => mount.kind === "harness" ? [mount.workspaceRelativePath] : [])));
 		const promptCandidate = resolvePromptSelection(parsed.agentId, parsed.candidate);
+		const questionCases = parsed.agentId === "note-agent" && promptCandidate.promptMode === "candidate"
+			? caseValues.filter(({ value }) => isRecord(value.recipeInput) && value.recipeInput.mode === "question-reading") : [];
+		const rootModel = questionCases.length ? resolvePrimeModel("primeRoot", process.env).selector : undefined;
+		const questionReaderModelPolicies = questionCases.map(({ ref, value }): QuestionReaderModelPolicy => {
+			if (!value.request.modelPolicy) throw new Error("Question Reader Replay requires its frozen model policy");
+			return { caseRef: ref, modelPolicy: { ...value.request.modelPolicy, preferred: [rootModel!] } };
+		});
 		const promptBundle = RECORDED_STAGE_AGENT_IDS.includes(parsed.agentId as typeof RECORDED_STAGE_AGENT_IDS[number])
 			|| parsed.agentId === "prime-investigation" || parsed.agentId === "main-agent"
 			? resolveCandidatePromptBundle(caseValues, promptCandidate)
@@ -422,6 +435,7 @@ export class NodeBacktestService {
 			workspaceContentHash: snapshot.workspaceContentHash,
 			prompt: promptBundle?.sha256 ?? promptCandidate.promptOverride ?? null,
 			promptMode: promptCandidate.promptMode,
+			...(questionReaderModelPolicies.length ? { questionReaderModelPolicies } : {}),
 		}));
 		const run: NodeBacktestRun = {
 			schemaVersion: RUN_SCHEMA_VERSION,
@@ -450,6 +464,8 @@ export class NodeBacktestService {
 			executions: [],
 			pairs: [],
 		};
+		if (questionReaderModelPolicies.length) writeFileAtomic(join(this.runDirectory(goalId, run.id), "question-reader-models.json"),
+			`${JSON.stringify({ schemaVersion: 1, policies: questionReaderModelPolicies }, null, 2)}\n`);
 		this.save(run);
 		this.queue.push({ goalId, runId: run.id });
 		this.pump();
@@ -1112,6 +1128,22 @@ export class NodeBacktestService {
 				? candidatePromptForCase(input.run.candidate.promptBundle, input.caseRef)
 				: undefined;
 			const promptOverride = bundledPrompt ?? input.run.candidate.promptOverride;
+			const questionReader = input.run.agentId === "note-agent" && input.run.candidate.promptMode === "candidate";
+			const modelPoliciesPath = join(runDirectory, "question-reader-models.json");
+			let modelPolicy: AgentStageRequest<unknown>["modelPolicy"] | undefined;
+			if (questionReader && existsSync(modelPoliciesPath)) {
+				const frozen = JSON.parse(readFileSync(modelPoliciesPath, "utf8")) as { schemaVersion: number; policies: QuestionReaderModelPolicy[] };
+				if (frozen.schemaVersion !== 1 || !Array.isArray(frozen.policies)
+					|| input.run.candidate.capabilityBundleHash !== sha256(stableJson({
+						agentId: input.run.agentId, runtimeBuild: input.run.runtimeBuild,
+						agentBundleSha256: input.run.agentBundleSha256,
+						workspaceContentHash: input.run.candidate.workspaceContentHash,
+						prompt: input.run.candidate.promptBundle?.sha256 ?? input.run.candidate.promptOverride ?? null,
+						promptMode: input.run.candidate.promptMode, questionReaderModelPolicies: frozen.policies,
+					}))) throw new Error("Frozen Question Reader model policy identity changed");
+				modelPolicy = frozen.policies.find(item => item.caseRef.sourceRunId === input.caseRef.sourceRunId
+					&& item.caseRef.caseId === input.caseRef.caseId)?.modelPolicy;
+			}
 			result = await this.module.replay({
 				casePath: input.casePath,
 				sourceRunDirectory: input.sourceRunDirectory,
@@ -1119,7 +1151,7 @@ export class NodeBacktestService {
 				recordDirectory,
 				workDirectory: join(recordDirectory, "work"),
 				artifactStore: new RunArtifactStore(recordDirectory),
-				runner: withPromptOverride(this.runner, promptOverride),
+				runner: withPromptOverride(this.runner, promptOverride, modelPolicy, questionReader),
 				candidateCase: {
 					sourceRunId: `${input.run.id}::executions::${executionId}`,
 					capabilitySnapshotId: input.run.candidate.capabilitySnapshotId,
@@ -1561,14 +1593,22 @@ function isTerminalStatus(status: NodeBacktestStatus): boolean {
 function withPromptOverride(
 	runner: AgentStageRunner,
 	override: NodeBacktestPromptOverride | undefined,
+	modelPolicy?: AgentStageRequest<unknown>["modelPolicy"],
+	requireQuestionReaderPolicy = false,
 ): AgentStageRunner {
-	if (!override?.systemPrompt && !override?.userPrompt) return runner;
+	if (!override?.systemPrompt && !override?.userPrompt && !modelPolicy && !requireQuestionReaderPolicy) return runner;
 	return {
-		runStage: <T>(request: AgentStageRequest<T>) => runner.runStage({
-			...request,
-			...(override.systemPrompt ? { systemPrompt: override.systemPrompt } : {}),
-			...(override.userPrompt ? { userPrompt: override.userPrompt } : {}),
-		}),
+		runStage: <T>(request: AgentStageRequest<T>) => {
+			if (requireQuestionReaderPolicy && request.role === "note_agent"
+				&& request.promptConfig?.systemVariant === "question-reading-pi" && !modelPolicy) {
+				throw new Error("Question Reader Candidate has no frozen Root model policy; enqueue a new Replay");
+			}
+			return runner.runStage({ ...request,
+				...(override?.systemPrompt ? { systemPrompt: override.systemPrompt } : {}),
+				...(override?.userPrompt ? { userPrompt: override.userPrompt } : {}),
+				...(modelPolicy ? { modelPolicy } : {}),
+			});
+		},
 	};
 }
 

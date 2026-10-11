@@ -7,7 +7,7 @@ import { renderCapturedCandidatePrompts } from "../../server/evaluation/candidat
 import { renderMainAgentPrompt } from "../../server/main-agent/system-prompts.js";
 import { buildNoteReadingTaskPrompt } from "../../server/research/note-reading.js";
 import { renderAgentPrompt } from "../../server/agent-runtime/prompt-registry.js";
-import { renderNoteAgentSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
+import { renderNoteAgentSystemPrompt, renderPiReaderSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
 import { wikiSelfDirectedWriterUserPrompt, notesSelfDirectedWriterUserPrompt } from "../../server/research/pipeline/report-prompts.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-candidate-prompts-"));
@@ -39,11 +39,20 @@ try {
 	assert.throws(() => renderCapturedCandidatePrompts(promptCase("main-agent", { question: "Old question" }), root), /use observed or override for older Cases/u);
 	assert.throws(() => renderCapturedCandidatePrompts(promptCase("main-agent", { promptContext: { ...mainContext, globalPreferences: undefined }, question: "Old question" }), root), /preference context/u);
 	writeFileSync(join(input, "catalog.json"), JSON.stringify({ sources: [{ ref: "S1" }, { ref: "S2" }] }));
-	const reader = renderCapturedCandidatePrompts(promptCase("note-agent", {
+	const originalChild = process.env.TELOMI_PRIME_AGENT_CHILD_MODEL;
+	process.env.TELOMI_PRIME_AGENT_CHILD_MODEL = "fixture/reader-child";
+	const readerCase = promptCase("note-agent", {
 		mode: "question-reading", question: "Verify the streaming transport", invocationId: "historical-reader",
-	}, "/source", "question-reading"), root);
-	assert.equal(reader.systemPrompt, renderNoteAgentSystemPrompt(undefined, "question-reading").content);
+	}, "/source", "question-reading");
+	const reader = renderCapturedCandidatePrompts(readerCase, root);
+	assert.equal(reader.systemPrompt, renderPiReaderSystemPrompt("fixture/reader-child"));
 	assert.equal(reader.userPrompt, buildNoteReadingTaskPrompt("Verify the streaming transport", 2));
+	writeFileSync(join(input, "reader-config.json"), JSON.stringify({ childModel: "frozen/reader-child", language: "en" }));
+	readerCase.mounts.push({ ...readerCase.mounts[0]!, guestPath: "/inputs" });
+	assert.equal(renderCapturedCandidatePrompts(readerCase, root).systemPrompt, renderPiReaderSystemPrompt("frozen/reader-child"),
+		"frozen child configuration takes precedence over current Candidate defaults");
+	if (originalChild === undefined) delete process.env.TELOMI_PRIME_AGENT_CHILD_MODEL;
+	else process.env.TELOMI_PRIME_AGENT_CHILD_MODEL = originalChild;
 	const ordinary = renderCapturedCandidatePrompts(promptCase("note-agent", {
 		question: "What changed?", goal: { title: "Transport", description: "Original evidence" },
 		discoveryEnabled: false, noteFocus: "Protocol fields",
