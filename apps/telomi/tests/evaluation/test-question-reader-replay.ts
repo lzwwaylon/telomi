@@ -6,7 +6,7 @@ import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { beginNodeEvaluationCase, finishNodeEvaluationCase, NodeEvaluationModule } from "../../server/agent-runtime/node-evaluation.js";
 import { createRecordedStageReplayRecipes } from "../../server/agent-runtime/recorded-stage-replay.js";
 import type { AgentStageRequest, AgentStageRunner, ValidatedStageArtifact } from "../../server/agent-runtime/agent-stage-runtime.js";
-import { prepareQuestionReaderReplay } from "../../server/research/pipeline/question-reader-replay.js";
+import { prepareNoteReaderReplay } from "../../server/research/pipeline/note-reader-replay.js";
 import { renderNoteAgentSystemPrompt, renderPiReaderChildPrompt, renderPiReaderSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
 
 const root = mkdtempSync(join(tmpdir(), "question-reader-replay-"));
@@ -49,7 +49,7 @@ try {
 	const capture = finishNodeEvaluationCase(draft, { status: "succeeded", workDirectory: work, result, validationErrors: [] });
 	assert.equal(capture.status, "captured");
 	if (capture.status !== "captured") throw new Error("fixture capture failed");
-	const module = new NodeEvaluationModule(createRecordedStageReplayRecipes(undefined, undefined, undefined, prepareQuestionReaderReplay));
+	const module = new NodeEvaluationModule(createRecordedStageReplayRecipes(undefined, undefined, undefined, prepareNoteReaderReplay));
 	const seen: AgentStageRequest<unknown>[] = [];
 	const runner: AgentStageRunner = { async runStage<T>(stage: AgentStageRequest<T>) {
 		seen.push(stage as AgentStageRequest<unknown>);

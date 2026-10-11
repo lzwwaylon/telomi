@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 import { beginNodeEvaluationCase, finishNodeEvaluationCase } from "../../server/agent-runtime/node-evaluation.js";
 import { createRecordedStageReplayRecipes } from "../../server/agent-runtime/recorded-stage-replay.js";
-import { prepareQuestionReaderReplay } from "../../server/research/pipeline/question-reader-replay.js";
+import { prepareNoteReaderReplay } from "../../server/research/pipeline/note-reader-replay.js";
 import type { AgentStageRequest, AgentStageRunner, ValidatedStageArtifact } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { NodeBacktestService, nodeBacktestRunsDirectory } from "../../server/evaluation/node-backtest.js";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
@@ -78,7 +78,7 @@ try {
 	} };
 	const createService = () => {
 		const service = new NodeBacktestService({ workspaceDir: workspace, applicationDir: application,
-			listGoalIds: () => [goalId], recipes: createRecordedStageReplayRecipes(undefined, undefined, undefined, prepareQuestionReaderReplay), runner });
+			listGoalIds: () => [goalId], recipes: createRecordedStageReplayRecipes(undefined, undefined, undefined, prepareNoteReaderReplay), runner });
 		services.push(service); return service;
 	};
 	const caseRef = { sourceRunId: "historical", caseId: original.caseId };

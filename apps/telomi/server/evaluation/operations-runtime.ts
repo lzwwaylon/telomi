@@ -44,7 +44,7 @@ import { OPERATIONS_PROTOCOL_VERSION, OPERATIONS_SCHEMA_HASH } from "./operation
 import { producesBrowserEvolutionEvidence } from "../evolution/targets.js";
 import { validateNoteReadingDraftFromCorpus } from "../research/note-reading.js";
 import { validateInvestigationAnswerFromInput } from "../research/investigation-answer.js";
-import { prepareQuestionReaderReplay } from "../research/pipeline/question-reader-replay.js";
+import { prepareNoteReaderReplay } from "../research/pipeline/note-reader-replay.js";
 import { validateSourceReaderDraft } from "../research/pipeline/source-reader-contract.js";
 
 export interface OperationsRuntime {
@@ -96,7 +96,7 @@ export function createOperationsRuntime(options: {
 			scheduleReviewerReplayRecipe,
 			wikiCompilationReplayRecipe,
 			evolutionReplayRecipe,
-			...createRecordedStageReplayRecipes(validateNoteReadingDraftFromCorpus, validateInvestigationAnswerFromInput, validateSourceReaderDraft, prepareQuestionReaderReplay),
+			...createRecordedStageReplayRecipes(validateNoteReadingDraftFromCorpus, validateInvestigationAnswerFromInput, validateSourceReaderDraft, prepareNoteReaderReplay),
 		],
 	});
 

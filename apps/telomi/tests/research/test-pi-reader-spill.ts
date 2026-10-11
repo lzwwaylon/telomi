@@ -58,7 +58,7 @@ const server = createServer(async (request, response) => {
 			results.push(input.messages.at(-1).content);
 			if (turn === 2) {
 				const match = /Full output: (\/[^\s\]]+)/u.exec(results[0]!);
-				assert.ok(match, "truncated native output provides a continuation path");
+				assert.ok(match, `truncated native output provides a continuation path; actual Tool result: ${results[0]}`);
 				continuation = match[1]!;
 				originalPath = join(tmpdir(), basename(continuation));
 				assert.ok(existsSync(originalPath), "the original SDK temporary file still exists");

@@ -259,6 +259,7 @@ try {
 	const cancelled = prepare("cancel", cancellation.signal);
 	const running = runPiReaderSubagents(cancelled);
 	const rejected = assert.rejects(running, /cancelled/u);
+	void rejected.catch(() => undefined);
 	let toolPids: number[] = [];
 	try {
 		const deadline = Date.now() + 30_000;
@@ -280,8 +281,7 @@ try {
 			assert.ok(Date.now() < deadline, "both native bash tools must start before cancellation");
 			await delay(25);
 		}
-	} finally { cancellation.abort(new Error("cancel delegated Reader")); }
-	await rejected;
+	} finally { cancellation.abort(new Error("cancel delegated Reader")); await rejected; }
 	assert.deepEqual(errors, []);
 	assert.ok(observedPids.every(pid => !alive(pid)), "cancellation waits for every official child process to exit");
 	const cancelledUsage = json(join(cancelled.runtimeRoot, "result.json"));

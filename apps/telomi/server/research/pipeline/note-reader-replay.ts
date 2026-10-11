@@ -7,10 +7,22 @@ import { isRecord } from "../../lib/values.js";
 import { readQuestionReaderConfiguration } from "./reader-configuration.js";
 import { renderNoteAgentSystemPrompt, renderPiReaderChildPrompt, renderPiReaderSystemPrompt } from "./note-agent-prompt.js";
 
-/** Research owns candidate Reader preparation; observed Sessions keep their captured profile and child Prompts. */
-export const prepareQuestionReaderReplay: RecordedStageReplayPreparation = ({ value, promptMode, promptOverride, recordDirectory, readonlyMounts }) => {
+/** Research owns Reader profiles; historical unsupported runtimes fail before model execution. */
+export const prepareNoteReaderReplay: RecordedStageReplayPreparation = ({ value, promptMode, promptOverride, recordDirectory, readonlyMounts }) => {
 	const context = value.recipeInput;
-	if (value.agentId !== "note-agent" || !isRecord(context) || context.mode !== "question-reading") return;
+	if (value.agentId !== "note-agent") return;
+	if (!isRecord(context) || context.mode !== "question-reading") {
+		if (promptMode !== "candidate") {
+			if (value.request.executionProfile === "pi_builtin" || value.request.promptConfig.systemVariant === "source-reading-pi") {
+				throw new Error("Historical Source Pi Reader is not supported in observed or override Replay; use candidate Replay for the current Prime Source Reader");
+			}
+			return;
+		}
+		const system = renderNoteAgentSystemPrompt();
+		return { systemPrompt: system.content, executionProfile: "prime_ipython", promptConfig: {
+			systemVariant: "default", userVariant: "prime-execution", revisions: { ...value.request.promptConfig.revisions, system: system.revision },
+		} };
+	}
 	if (promptMode !== "candidate") {
 		if (value.request.executionProfile === "pi_builtin") {
 			const inputs = readonlyMounts.find(item => item.guestPath === "/inputs")?.hostPath;

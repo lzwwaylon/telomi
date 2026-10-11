@@ -177,7 +177,8 @@ function runtimeReadPaths(): string[] {
 		...runtimeTools().readPaths,
 		fileURLToPath(new URL("./srt-target.mjs", import.meta.url)),
 		SANDBOX_RUNTIME,
-		...(report.sharedObjects ?? []).map((path) => /(?:\.dylib|\.so(?:\.\d+)*)$/u.test(path) ? dirname(path) : path),
+		// Virtual entries such as linux-vdso.so.1 are not files; dirname would grant the current directory.
+		...(report.sharedObjects ?? []).filter(isAbsolute).map((path) => /(?:\.dylib|\.so(?:\.\d+)*)$/u.test(path) ? dirname(path) : path),
 		"/bin", "/usr/bin", "/usr/lib", "/usr/lib64", "/lib", "/lib64",
 		"/usr/share/locale", "/usr/share/zoneinfo",
 		"/etc/ld.so.cache", "/etc/localtime", "/etc/hosts", "/etc/resolv.conf", "/etc/nsswitch.conf",

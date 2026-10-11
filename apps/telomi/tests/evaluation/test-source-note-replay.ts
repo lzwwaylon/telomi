@@ -8,6 +8,8 @@ import { beginNodeEvaluationCase, finishNodeEvaluationCase, readNodeEvaluationCa
 import { createRecordedStageReplayRecipes } from "../../server/agent-runtime/recorded-stage-replay.js";
 import { validateSourceReaderDraft } from "../../server/research/pipeline/source-reader-contract.js";
 import { materializeAgentSourceView } from "../../server/research/pipeline/agent-source-view.js";
+import { prepareNoteReaderReplay } from "../../server/research/pipeline/note-reader-replay.js";
+import { renderNoteAgentSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-source-note-replay-"));
 try {
@@ -47,19 +49,26 @@ try {
 	assert.equal(capture.status, "captured");
 	if (capture.status !== "captured") throw new Error("Source fixture was not captured");
 	const captured = readNodeEvaluationCase(capture.casePath, sourceRun);
-	const recipe = createRecordedStageReplayRecipes(undefined, undefined, validateSourceReaderDraft)
+	const recipe = createRecordedStageReplayRecipes(undefined, undefined, validateSourceReaderDraft, prepareNoteReaderReplay)
 		.find(item => item.identity.id === "note-agent")!;
 	let sequence = 0;
-	const replay = async (output: unknown, recipeInput: unknown = context) => {
+	const seen: AgentStageRequest<unknown>[] = [];
+	const replay = async (output: unknown, recipeInput: unknown = context, options: {
+		executionProfile?: "pi_builtin" | "prime_ipython"; systemVariant?: string; promptMode?: "candidate" | "observed" | "override";
+	} = {}) => {
 		const directory = join(root, `replay-${++sequence}`), artifactStore = new RunArtifactStore(directory);
 		mkdirSync(directory, { recursive: true });
 		const runner: AgentStageRunner = { async runStage<T>(stage: AgentStageRequest<T>) {
+			seen.push(stage as AgentStageRequest<unknown>);
 			const path = join(directory, "note.json"); writeFileSync(path, JSON.stringify(output));
 			const value = stage.output.validate({ entryPath: path, outputRoot: directory, workDirectory: directory });
 			return result(value, artifactStore.publishFile(path, "accepted/note.json"), directory);
 		} };
-		return recipe.replay({ casePath: capture.casePath, value: { ...captured, recipeInput },
+		return recipe.replay({ casePath: capture.casePath, value: { ...captured, recipeInput, request: { ...captured.request,
+			...(options.executionProfile ? { executionProfile: options.executionProfile } : {}),
+			promptConfig: { ...captured.request.promptConfig, ...(options.systemVariant ? { systemVariant: options.systemVariant } : {}) } } },
 			sourceRunDirectory: sourceRun, harnessWorkspaceDirectory: root, recordDirectory: directory,
+			...(options.promptMode ? { promptMode: options.promptMode } : {}),
 			workDirectory: directory, artifactStore, runner, signal: new AbortController().signal });
 	};
 	const note = (endLine = 3) => ({ sections: [{ section_title: "Experiment", summary: "The experiment has four steps. The score is reported by the Source.",
@@ -79,5 +88,23 @@ try {
 	assert.match(normalized.sections[0].cue_notes[0].evidence[0].content_sha256, /^[a-f0-9]{64}$/u);
 	const empty = await replay({ sections: [] });
 	assert.deepEqual(JSON.parse(readFileSync(empty.artifact.absolutePath, "utf8")).sections, []);
+	await replay(note(), context, { executionProfile: "pi_builtin", systemVariant: "source-reading-pi", promptMode: "candidate" });
+	assert.equal(seen.at(-1)!.executionProfile, "prime_ipython", "old Source Pi Cases use the current Prime Candidate profile");
+	assert.equal(seen.at(-1)!.promptConfig?.systemVariant, "default");
+	assert.equal(seen.at(-1)!.promptConfig?.userVariant, "prime-execution");
+	assert.equal(seen.at(-1)!.systemPrompt, renderNoteAgentSystemPrompt().content);
+	assert.deepEqual(seen.at(-1)!.modelPolicy, request.modelPolicy, "Source model selection stays frozen to the historical Note model");
+	assert.equal(seen.at(-1)!.userPrompt, request.userPrompt, "Source business input stays frozen");
+	for (const mode of ["observed", "override"] as const) {
+		const before = seen.length;
+		await assert.rejects(replay(note(), context, { executionProfile: "pi_builtin", systemVariant: "source-reading-pi", promptMode: mode }),
+			/Historical Source Pi Reader is not supported.*use candidate Replay/u);
+		assert.equal(seen.length, before, "unsupported historical Source Pi profiles fail before execution");
+		await replay(note(), context, { executionProfile: "prime_ipython", promptMode: mode });
+		assert.equal(seen.at(-1)!.executionProfile, "prime_ipython");
+		assert.equal(seen.at(-1)!.systemPrompt, request.systemPrompt);
+	}
+	await assert.rejects(replay(note(), null, { executionProfile: "pi_builtin", promptMode: "observed" }),
+		/Historical Source Pi Reader is not supported/u, "an unsupported profile is explicit even without Source metadata or a Source-specific system variant");
 	console.log("Source Note capture/replay uses production contract validation, preserves Source language, and rejects invalid provenance/discovery.");
 } finally { rmSync(root, { recursive: true, force: true }); }
