@@ -1507,6 +1507,31 @@ function inspectPartialReplay(input: {
 		return { usage: summary.usage, toolCalls: summary.toolCalls!, durationMs: Date.now() - input.startedAt,
 			refs: { investigationUsage: "live-output/runtime/usage-summary.json" } };
 	}
+	if (input.agentId === "note-agent") {
+		for (const kind of ["research", "evaluation"] as const) {
+			const path = join(input.recordDirectory, `runtime--${kind}.jsonl`);
+			if (!existsSync(path)) continue;
+			const current = readCompleteJsonLines(path).entries.filter(isRecord).reverse().find(record => record.agent === "note_agent"
+				&& (record.type === "node_execution" || record.type === "runtime.agent_bound"));
+			if (!current) continue;
+			const metrics = isRecord(current.output) && isRecord(current.output.metrics) ? current.output.metrics : undefined;
+			const durationMs = isRecord(current.time) ? current.time.duration_ms : undefined;
+			// The terminal Stage aggregate includes native children; Root session mirrors do not.
+			if (current.type === "node_execution" && current.node_type === "agent"
+				&& ["succeeded", "failed", "cancelled", "interrupted"].includes(String(current.status)) && metrics
+				&& [metrics.input_tokens, metrics.output_tokens, metrics.cost_usd, metrics.model_calls, metrics.tool_calls, durationMs]
+					.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
+				&& Number.isInteger(metrics.model_calls) && Number.isInteger(metrics.tool_calls)) {
+				const trace = typeof current.trace_ref === "string" && basename(current.trace_ref) === current.trace_ref
+					&& existsSync(join(input.recordDirectory, current.trace_ref)) ? current.trace_ref : undefined;
+				return { usage: { inputTokens: finiteNumber(metrics.input_tokens), outputTokens: finiteNumber(metrics.output_tokens),
+					costUsd: finiteNumber(metrics.cost_usd), calls: finiteNumber(metrics.model_calls) },
+					toolCalls: finiteNumber(metrics.tool_calls), durationMs: finiteNumber(durationMs),
+					refs: { ...(trace ? { agentTrace: trace } : {}) } };
+			}
+			break;
+		}
+	}
 	const jsonlFiles = input.agentId === "provider-child"
 		? [join(input.recordDirectory, "runtime/trace.jsonl")].filter(existsSync)
 		: existsSync(input.recordDirectory)
