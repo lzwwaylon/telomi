@@ -78,7 +78,7 @@ export function spawnSrt(options: SrtSpawnOptions): ChildProcess {
 export async function execSrt(options: SrtExecOptions): Promise<{ exitCode: number }> {
 	if (options.signal?.aborted) throw new Error("aborted");
 	const child = spawnSrt({
-		command: "/bin/sh",
+		command: "/bin/bash",
 		args: ["-c", options.command],
 		cwd: options.cwd,
 		env: options.env,

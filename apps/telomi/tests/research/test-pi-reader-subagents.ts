@@ -123,7 +123,7 @@ const server = createServer(async (request, response) => {
 			firstChild = call === 1 && (mode === "read" || mode === "cancel");
 			if (input.messages.at(-1).role === "tool") childResults.push(input.messages.at(-1).content);
 			if (mode === "cancel") {
-				assert.equal(call, 1);
+				assert.equal(call, 1, `cancellation must interrupt the still-running Bash Tool; last result: ${JSON.stringify(input.messages.at(-1))}`);
 				action = ["bash", { command: "printf started > tool-started; sleep 120; printf leaked > tool-finished" }];
 			} else if (mode === "single") {
 				assert.equal(scope, "alpha");
