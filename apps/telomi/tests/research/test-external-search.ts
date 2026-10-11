@@ -84,7 +84,7 @@ try {
 		},
 	};
 	const input = { goalDir, goalId: "goal", runDir, investigationId, sequence: 1, question,
-		signal: new AbortController().signal, env: { TELOMI_NOTE_AGENT_MODEL: "test/model" },
+		signal: new AbortController().signal, env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "test/model", TELOMI_PRIME_AGENT_CHILD_MODEL: "test/model" },
 		searchBatchExecutor: executor, sourceStatus, stageRunner };
 	const result = await readExternalSources(input);
 	assert.equal(searches, 1);

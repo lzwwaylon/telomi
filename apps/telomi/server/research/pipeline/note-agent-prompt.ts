@@ -1,6 +1,7 @@
 import { renderAgentPrompt, type RenderedAgentPrompt } from "../../agent-runtime/prompt-registry.js";
 import type { ScheduledResearchContext } from "../scheduled-research-context.js";
 import type { GoalTopicPlan } from "../../goals/topic-plan/index.js";
+import type { ResolvedOutputLanguage } from "../../../shared/languages.js";
 
 export function buildNoteAgentSystemPrompt(
 	scheduledResearch?: ScheduledResearchContext,
@@ -10,12 +11,22 @@ export function buildNoteAgentSystemPrompt(
 
 export function renderNoteAgentSystemPrompt(
 	_scheduledResearch?: ScheduledResearchContext,
-	variant: "default" | "question-reading" = "default",
+	variant: "default" | "question-reading" | "question-reading-pi" = "default",
 ): RenderedAgentPrompt {
 	const scope = renderAgentPrompt("research", "note-agent", "system-append", {}, variant);
 	const writing = renderAgentPrompt("research", "note-agent", "reference", {}, "note-writing");
-	const quality = renderAgentPrompt("research", "note-agent", "reference", {}, "evidence-reading-quality");
+	const quality = renderAgentPrompt("research", "note-agent", "reference", {},
+		variant === "default" ? "source-reading-quality" : "evidence-reading-quality");
 	return { ...scope, content: `${scope.content}\n\n${writing.content}\n\n${quality.content}` };
+}
+
+export function renderPiReaderSystemPrompt(childModel?: string): string {
+	const shared = renderNoteAgentSystemPrompt(undefined, "question-reading-pi").content;
+	return childModel ? `${shared}\n\n${renderAgentPrompt("research", "note-agent", "reference", { child_model: childModel }, "pi-reader-root").content}` : shared;
+}
+
+export function renderPiReaderChildPrompt(language: ResolvedOutputLanguage): string {
+	return renderAgentPrompt("research", "note-agent", "reference", { language }, "pi-reader-child").content;
 }
 
 export function buildNoteAgentUserPrompt(

@@ -213,7 +213,7 @@ Runtime does not replace semantic judgment with rules.
 
 Prime Search currently returns all Logical Sources together after Acquisition and the Organizer finish. Cornell Notes do not start before Provider children finish.
 
-Prime Search, Report Writer and Podcast Writer all use the Prime SDK's native `waitForRlmQuiescence()` to wait for children and their parent Session's continuation turns. Runtime does not use autonomous gates, file polling, or duplicate Traces as a waiting protocol. Note Agent delegates no RLM children and therefore does not need this interface.
+Prime Search, Report Writer and Podcast Writer all use the Prime SDK's native `waitForRlmQuiescence()` to wait for children and their parent Session's continuation turns. Runtime does not use autonomous gates, file polling, or duplicate Traces as a waiting protocol. Source-reading Note Agent delegates no RLM children and therefore does not need this interface. Question-reading Note Agent uses native Pi with its bundled subagent scheduler and Runtime-validated file delivery, as described in [Research Agents](modules/research-agents.md).
 
 ## Models and Thinking Levels
 

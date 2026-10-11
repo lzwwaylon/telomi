@@ -8,7 +8,8 @@ import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import { isRecord } from "../lib/values.js";
 import { liveInvestigationPrompts } from "./investigation-live-contract.js";
 import { buildNoteReadingTaskPrompt } from "../research/note-reading.js";
-import { renderNoteAgentSystemPrompt, renderNoteAgentUserPrompt } from "../research/pipeline/note-agent-prompt.js";
+import { renderNoteAgentSystemPrompt, renderNoteAgentUserPrompt, renderPiReaderSystemPrompt } from "../research/pipeline/note-agent-prompt.js";
+import { readQuestionReaderConfiguration } from "../research/pipeline/reader-configuration.js";
 import { buildWikiReportWriterSystemPrompt, buildNotesReportWriterSystemPrompt,
 	notesSelfDirectedWriterUserPrompt, wikiSelfDirectedWriterUserPrompt } from "../research/pipeline/report-prompts.js";
 
@@ -40,7 +41,10 @@ export function renderCapturedCandidatePrompts(value: CandidatePromptInput, sour
 			if (typeof context.question !== "string" || !context.question.trim() || !Array.isArray(catalog.sources)) {
 				throw new Error("Candidate Note Reading Prompt requires its frozen question and Source catalog");
 			}
-			return { systemPrompt: renderNoteAgentSystemPrompt(undefined, "question-reading").content,
+			const inputs = value.mounts.some((mount) => mount.kind === "run" && mount.guestPath === "/inputs")
+				? inputRoot(value, sourceRunDirectory, "/inputs") : undefined;
+			const configuration = readQuestionReaderConfiguration(inputs, context.question, process.env, inputRoot(value, sourceRunDirectory, "/source"));
+			return { systemPrompt: renderPiReaderSystemPrompt(configuration.childModel),
 				userPrompt: buildNoteReadingTaskPrompt(context.question, catalog.sources.length) };
 		}
 		if (typeof context.question !== "string" || !isRecord(context.goal)

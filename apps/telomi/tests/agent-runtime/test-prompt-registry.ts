@@ -100,8 +100,9 @@ assert.doesNotMatch(mainAgentPrompt, /rebuild=true|research\.schedule|recurring 
 assert.doesNotMatch(mainAgentPrompt, /topic_plan_activate/u);
 assert.equal(loadAgentPromptConfig("research", "note-agent").sandbox?.network, "deny");
 const noteWriting = renderAgentPrompt("research", "note-agent", "reference", {}, "note-writing").content;
-const readingQuality = renderAgentPrompt("research", "note-agent", "reference", {}, "evidence-reading-quality").content;
-for (const variant of ["default", "question-reading"] as const) {
+for (const variant of ["default", "question-reading", "question-reading-pi"] as const) {
+	const readingQuality = renderAgentPrompt("research", "note-agent", "reference", {},
+		variant === "default" ? "source-reading-quality" : "evidence-reading-quality").content;
 	const scope = renderAgentPrompt("research", "note-agent", "system-append", {}, variant);
 	const composed = renderNoteAgentSystemPrompt(undefined, variant);
 	assert.equal(composed.content, `${scope.content}\n\n${noteWriting}\n\n${readingQuality}`,

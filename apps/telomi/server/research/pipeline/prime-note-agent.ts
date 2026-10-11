@@ -2,9 +2,11 @@ import { isRecord } from "../../lib/values.js";
 import { copyTaskContext, writeTaskContext } from "../task-context.js";
 import {
 	copyFileSync,
+	cpSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -40,6 +42,8 @@ import { snapshotSourceDirectory } from "./source-bundle.js";
 import { spawnPrimeWorker } from "../../agent-runtime/prime-worker.js";
 import { ResearchNodeError } from "../../agent-runtime/retry-policy.js";
 import { renderPrimeNoteAgentUserPrompt } from "./note-agent-prompt.js";
+import { runPiReaderSubagents } from "./note-reader-pi-subagents.js";
+import { readQuestionReaderConfiguration } from "./reader-configuration.js";
 import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../../agent-runtime/workspace-snapshot.js";
 import { toErrorMessage } from "../../lib/values.js";
 import { writeJsonAtomic } from "../../lib/fs.js";
@@ -52,6 +56,7 @@ interface PrimeEvidenceWorkerResult {
 	model: string;
 	usage: { input_tokens: number; output_tokens: number; cost_usd: number; model_calls: number };
 	tool_calls: number;
+	tool_counts?: Record<string, number>;
 	turns: number;
 }
 
@@ -82,7 +87,22 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 		if (!model?.includes("/")) throw new Error("Note Agent requires a provider/model selector");
 		const [provider, ...modelParts] = model.split("/");
 		const modelId = modelParts.join("/");
+		if (!provider || !modelId) throw new Error("Note Agent requires a nonempty provider/model selector");
 		const env = this.options.env ?? process.env;
+		const piReader = request.executionProfile === "pi_builtin" && request.promptConfig?.userVariant === "question-reading";
+		if (request.executionProfile === "pi_builtin" && (!piReader || request.promptConfig?.systemVariant !== "question-reading-pi")) {
+			throw new Error("Unsupported Pi Reader profile; replay this historical Case in candidate mode");
+		}
+		const frozenInputs = request.readonlyMounts.find(mount => mount.guestPath === "/inputs");
+		const recipe = request.evaluation?.recipeInput;
+		const question = isRecord(recipe) && typeof recipe.question === "string" ? recipe.question : undefined;
+		const reader = piReader ? readQuestionReaderConfiguration(frozenInputs?.hostPath, question, env, source.hostPath) : undefined;
+		if (piReader) for (const name of ["reader-child-system.md", "reader-child-prompt.md"]) {
+			if (!frozenInputs || !existsSync(join(frozenInputs.hostPath, name))) {
+				throw new Error("Pi Reader requires frozen child Prompts; replay this historical Case in candidate mode");
+			}
+		}
+		const executionProfile = piReader ? "pi_builtin" : "prime_ipython";
 		const recordDirectory = request.recordDirectory ?? request.controlDirectory;
 		const recordKind = request.recordKind ?? "research";
 		const executionId = `${request.session.key}-${request.attemptId}`;
@@ -103,6 +123,29 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 		let finalized: FinalizedStageOutput<T> | undefined;
 		let evaluationDraft: NodeEvaluationCaseDraft | undefined;
 		let evaluationCapture: EvaluationCaseCapture | undefined;
+		const readerSessions: Array<{ id: string; path: string; label: string }> = [];
+		const updateReaderSessions = () => writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1,
+			sessions: readerSessions.map(item => ({ ...item, path: relative(recordDirectory, item.path) })) });
+		let retainedRuntimeRoot: string | undefined;
+		const retainReaderTrace = () => {
+			if (retainedRuntimeRoot) return retainedRuntimeRoot;
+			const target = join(recordDirectory, `${basename(sessionPath, ".jsonl")}-reader-runtime`);
+			mkdirSync(target, { recursive: true });
+			for (const name of ["sessions", "session.jsonl", "result.json", "root-result.json", "failure.json", "stdout.txt", "stderr.txt", "conditions.json", "effective-system-prompt.md",
+				"tool-events.jsonl", "tool-output", "logical-workspaces", "children", "reader-delivery.jsonl", "reader-assembly.json",
+				"reader-assembly-errors.jsonl", "official-subagent.json", "root-note.json"]) {
+				const source = join(runtimeRoot, name);
+				if (existsSync(source)) cpSync(source, join(target, name), { recursive: true });
+			}
+			const receipts = join(agentRoot, "inputs", "reader-results");
+			if (existsSync(receipts)) cpSync(receipts, join(target, "reader-results"), { recursive: true });
+			if (existsSync(join(agentRoot, "reader-plan.json"))) copyFileSync(join(agentRoot, "reader-plan.json"), join(target, "reader-plan.json"));
+			writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1, sessions: readerSessions.map(item => ({
+				...item, path: relative(recordDirectory, join(target, relative(runtimeRoot, item.path))),
+			})) });
+			retainedRuntimeRoot = target;
+			return target;
+		};
 		mkdirSync(stageRoot, { recursive: true });
 		if (workspace) await snapshotWorkspaceTree(workspace, "input", stageRoot);
 		mkdirSync(runtimeRoot, { recursive: true });
@@ -117,14 +160,20 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			const noteFocus = isRecord(recipeInput) ? recipeInput.noteFocus : undefined;
 			writeTaskContext(inputRoot, typeof noteFocus === "string" ? noteFocus : "");
 		}
+		if (piReader && frozenInputs && existsSync(join(frozenInputs.hostPath, "reader-config.json"))) {
+			copyFileSync(join(frozenInputs.hostPath, "reader-config.json"), join(inputRoot, "reader-config.json"));
+		}
+		if (piReader) for (const name of ["reader-child-system.md", "reader-child-prompt.md"]) {
+			copyFileSync(join(frozenInputs!.hostPath, name), join(inputRoot, name));
+		}
 		writeFileSync(join(runtimeRoot, "system-prompt.md"), request.systemPrompt);
-		writeFileSync(join(runtimeRoot, "user-prompt.md"), `${renderPrimeNoteAgentUserPrompt(request.userPrompt,
+		writeFileSync(join(runtimeRoot, "user-prompt.md"), piReader ? request.userPrompt : `${renderPrimeNoteAgentUserPrompt(request.userPrompt,
 			request.promptConfig?.userVariant === "question-reading" ? "question-reading" : "prime-execution")}\n`);
 		writeFileSync(join(runtimeRoot, "repair-prompt.md"),
 			renderAgentPrompt("research", "note-agent", "user", {},
 				request.promptConfig?.userVariant === "question-reading" ? "question-reading-repair" : "repair").content);
 		const workerPath = join(runtimeRoot, "worker.mjs");
-		copyFileSync(WORKER, workerPath);
+		if (!piReader) copyFileSync(WORKER, workerPath);
 		const systemPromptFile = writeAgentSystemPrompt(
 			recordDirectory,
 			request.role,
@@ -156,21 +205,21 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				reason: toErrorMessage(error),
 			};
 		}
-		writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1,
-			sessions: [{ path: relative(recordDirectory, join(runtimeRoot, "session.jsonl")), label: "Note Agent" }] });
+		readerSessions.push({ id: "root", path: join(runtimeRoot, "session.jsonl"), label: piReader ? "Reader Root" : "Note Agent" });
+		updateReaderSessions();
 		appendRuntimeContext(recordDirectory, recordKind, {
 			type: "runtime.agent_bound",
 			stage_id: request.stageId,
 			execution_id: executionId,
 			attempt: request.attempt ?? 1,
 			agent: request.role,
-			session_id: `prime:${request.runId}:${request.stageId}`,
+			session_id: `${piReader ? "pi" : "prime"}:${request.runId}:${request.stageId}`,
 			session_file: basename(sessionPath),
 			system_prompt_file: basename(systemPromptFile),
 			session_mode: "fresh",
 			message_count_before: 0,
 			model,
-			execution_profile: "prime_ipython",
+			execution_profile: executionProfile,
 		});
 		request.onActivity?.({
 			stageId: request.stageId,
@@ -178,19 +227,44 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			role: request.role,
 			status: "running",
 			kind: "status",
-			text: `Prime Agent ${model} is reviewing the Source`,
+			text: `${piReader ? "Pi Reader" : "Prime Agent"} ${model} is reviewing the Source`,
 		});
+
+		const validateOutput = async () => {
+			submissionCount += 1;
+			try {
+				request.signal.throwIfAborted();
+				const entryPath = join(stageRoot, "note.json");
+				const candidatePath = join(agentRoot, "note.json");
+				if (!existsSync(candidatePath)) throw new Error("note.json is missing; create the complete fixed output file");
+				copyFileSync(candidatePath, entryPath);
+				finalized = await finalizeStageOutput({ artifactStore: request.artifactStore, output: request.output,
+					workDirectory: request.workDirectory });
+			} catch (error) {
+				const validationError = toErrorMessage(error);
+				validationErrors.push(validationError);
+				appendRuntimeContext(recordDirectory, recordKind, { type: "runtime.stage_output_rejected",
+					stage_id: request.stageId, execution_id: executionId, submission: submissionCount,
+					submission_mode: piReader ? "pi_file" : "prime_file", validation_error: validationError });
+				throw error;
+			}
+		};
 
 		try {
 			let validationQueue = Promise.resolve();
-			let outcome!: Awaited<ReturnType<typeof spawnPrimeWorker>>;
+			let outcome!: { usage: ResearchModelUsage };
 			try {
-				outcome = await spawnPrimeWorker({
+				outcome = reader ? await runPiReaderSubagents({ work: agentRoot, runtimeRoot, provider, modelId,
+					thinking: request.modelPolicy.reasoning ?? "off", systemPrompt: request.systemPrompt,
+					userPrompt: request.userPrompt, childModel: reader.childModel, language: reader.language,
+					env, signal: request.signal, validate: validateOutput,
+					onSession: item => { readerSessions.push(item); updateReaderSessions(); },
+				}) : await spawnPrimeWorker({
 					name: "Note Agent",
 					worker: workerPath,
 					agentRoot,
 					runtimeRoot,
-					readonlyRoots: [inputRoot, ...skillMounts.map((mount) => mount.hostPath), ...skillPythonPaths],
+					readonlyRoots: [join(agentRoot, "source"), inputRoot, ...skillMounts.map((mount) => mount.hostPath), ...skillPythonPaths],
 					env,
 					extraEnv: {
 						PRIME_AGENT_EVIDENCE_CWD: agentRoot,
@@ -211,37 +285,11 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 					onMessage: (message, reply) => {
 						if (!isStageOutputCandidate(message)) return;
 						validationQueue = validationQueue.then(async () => {
-							submissionCount += 1;
 							try {
-								const entryPath = join(stageRoot, "note.json");
-								const candidatePath = join(agentRoot, "note.json");
-								if (!existsSync(candidatePath)) {
-									throw new Error("note.json is missing; create the complete fixed output file");
-								}
-								copyFileSync(candidatePath, entryPath);
-								finalized = await finalizeStageOutput({
-									artifactStore: request.artifactStore,
-									output: request.output,
-									workDirectory: request.workDirectory,
-								});
+								await validateOutput();
 								reply({ type: "stage_output_validation", submission: message.submission, accepted: true });
 							} catch (error) {
-								const validationError = toErrorMessage(error);
-								validationErrors.push(validationError);
-								appendRuntimeContext(recordDirectory, recordKind, {
-									type: "runtime.stage_output_rejected",
-									stage_id: request.stageId,
-									execution_id: executionId,
-									submission: submissionCount,
-									submission_mode: "prime_file",
-									validation_error: validationError,
-								});
-								reply({
-									type: "stage_output_validation",
-									submission: message.submission,
-									accepted: false,
-									error: validationError,
-								});
+								reply({ type: "stage_output_validation", submission: message.submission, accepted: false, error: toErrorMessage(error) });
 							}
 						});
 					},
@@ -252,6 +300,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			if (!finalized) throw new Error("Note Agent exited without Runtime validation");
 			copyFileSync(join(runtimeRoot, "session.jsonl"), sessionPath);
 			const worker = readWorkerResult(join(runtimeRoot, "result.json"));
+			const toolCounts = worker.tool_counts ?? { ipython: worker.tool_calls };
 			const usage = outcome.usage;
 			const finishedAt = new Date().toISOString();
 			appendRuntimeContext(recordDirectory, recordKind, {
@@ -259,7 +308,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				stage_id: request.stageId,
 				execution_id: executionId,
 				submission: submissionCount,
-				submission_mode: "prime_file",
+				submission_mode: piReader ? "pi_file" : "prime_file",
 				output_source: finalized.source,
 				output_ref: finalized.artifact.relativePath,
 				output_sha256: finalized.artifact.sha256,
@@ -270,7 +319,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				execution_id: executionId,
 				session_file: basename(sessionPath),
 				output_ref: finalized.artifact.relativePath,
-				metrics: { turns: worker.turns, tool_calls: worker.tool_calls, tool_counts: { ipython: worker.tool_calls },
+				metrics: { turns: worker.turns, tool_calls: worker.tool_calls, tool_counts: toolCounts,
 					input_tokens: usage.inputTokens, output_tokens: usage.outputTokens, cost_usd: usage.costUsd,
 					model_calls: usage.calls },
 			});
@@ -284,7 +333,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				group_id: groupId,
 				depends_on: dependencies,
 				input: { stage_id: request.stageId, role: request.role, session_policy: "fresh", model,
-					execution_profile: "prime_ipython", input_mounts: [{ path: "/source", access: "read-only" }] },
+					execution_profile: executionProfile, input_mounts: [{ path: "/source", access: "read-only" }] },
 				output: { artifact_ref: finalized.artifact.relativePath, artifact_sha256: finalized.artifact.sha256,
 					submission_count: submissionCount, validation_errors: validationErrors, metrics: { turns: worker.turns,
 						tool_calls: worker.tool_calls, input_tokens: usage.inputTokens, output_tokens: usage.outputTokens,
@@ -300,17 +349,21 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				artifact: finalized.artifact,
 				submissionCount,
 				validationErrors,
-				session: { id: `prime:${request.runId}:${request.stageId}`, file: basename(sessionPath), mode: "fresh" },
+				session: { id: `${piReader ? "pi" : "prime"}:${request.runId}:${request.stageId}`, file: basename(sessionPath), mode: "fresh" },
 				turns: worker.turns,
 				toolCalls: worker.tool_calls,
-				toolCounts: { ipython: worker.tool_calls },
+				toolCounts,
 				usage,
 				sessionPath,
 			};
 			if (workspace) await snapshotWorkspaceTree(workspace, "output", stageRoot);
 			if (evaluationDraft) {
+				// Case references must point at the retained Trace before the successful Stage is cleaned up.
+				const traceRoot = piReader ? retainReaderTrace() : runtimeRoot;
 				evaluationCapture = finishNodeEvaluationCase(evaluationDraft, {
 					status: "succeeded",
+					...(piReader ? { traceDirectories: [join(traceRoot, "sessions"), join(traceRoot, "children")],
+						composedSystemPrompt: readFileSync(join(runtimeRoot, "effective-system-prompt.md"), "utf8") } : {}),
 					workDirectory: request.workDirectory,
 					result: result as ValidatedStageArtifact<unknown>,
 					validationErrors,
@@ -325,12 +378,21 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			const workerSessionPath = join(runtimeRoot, "session.jsonl");
 			if (existsSync(workerSessionPath)) copyFileSync(workerSessionPath, sessionPath);
 			const failedUsage = readFailedSessionUsage(workerSessionPath);
+			const children = join(runtimeRoot, "children");
+			if (piReader && existsSync(children)) for (const id of readdirSync(children)) {
+				const child = readFailedSessionUsage(join(children, id, "session.jsonl"));
+				failedUsage.inputTokens += child.inputTokens;
+				failedUsage.outputTokens += child.outputTokens;
+				failedUsage.costUsd += child.costUsd;
+				failedUsage.calls += child.calls;
+			}
 			const finishedAt = new Date().toISOString();
 			const status = request.signal.aborted ? "cancelled" : "failed";
 			if (workspace) await snapshotWorkspaceTree(workspace, "output", stageRoot);
 			if (evaluationDraft) {
 				evaluationCapture = finishNodeEvaluationCase(evaluationDraft, {
 					status,
+					...(piReader ? { traceDirectories: [runtimeRoot] } : {}),
 					workDirectory: request.workDirectory,
 					validationErrors,
 					error: toErrorMessage(error),
@@ -354,7 +416,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				group_id: groupId,
 				depends_on: dependencies,
 				input: { stage_id: request.stageId, role: request.role, session_policy: "fresh", model,
-					execution_profile: "prime_ipython" },
+					execution_profile: executionProfile },
 				output: {
 					error: toErrorMessage(error),
 					submission_count: submissionCount,
@@ -376,8 +438,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				? new AgentStageExecutionError(error.message, error.failureClass, { cause: error })
 				: error;
 		} finally {
-			if (existsSync(sessionPath)) writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1,
-				sessions: [{ path: basename(sessionPath), label: "Note Agent" }] });
+			retainReaderTrace();
 			// 会话轨迹已经另存到 Run 记录里；成功后回收体积大的 Source 快照与 Agent 现场，
 			// 失败或中断则整体保留，供排查。
 			if (completed) rmSync(stageRoot, { recursive: true, force: true });

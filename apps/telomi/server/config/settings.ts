@@ -69,7 +69,7 @@ export const TASK_MODEL_ROLE_INFO = {
 	},
 	primeRoot: {
 		label: TASK_MODEL_ROLE_LABELS.primeRoot,
-		description: "搜索、报告、Podcast 文稿与调度审核共享的主 Agent",
+		description: "搜索、问题阅读、报告、Podcast 文稿与调度审核共享的主 Agent",
 		modelEnvVar: "TELOMI_PRIME_AGENT_ROOT_MODEL",
 		stages: {
 			searchAcquisition: {
@@ -90,7 +90,7 @@ export const TASK_MODEL_ROLE_INFO = {
 	},
 	primeChild: {
 		label: TASK_MODEL_ROLE_LABELS.primeChild,
-		description: "搜索、报告与 Podcast 文稿共享的 RLM child；thinking 跟随对应 Root 环节",
+		description: "搜索、问题阅读、报告与 Podcast 文稿共享的子 Agent；thinking 跟随对应 Root 环节",
 		modelEnvVar: "TELOMI_PRIME_AGENT_CHILD_MODEL",
 		stages: {},
 	},

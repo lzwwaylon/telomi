@@ -73,6 +73,8 @@ export interface SrtAgentSandboxOptions {
 	readonlyMounts: SandboxMountSpec[];
 	writableMounts?: SandboxMountSpec[];
 	activeTools: readonly SandboxToolName[];
+	nativeBash?: boolean;
+	readToolFactory?: (cwd: string, operations: ReadOperations, resolveGuestPath: (path: string) => string) => AnyToolDefinition;
 	network?: "deny" | "allow";
 	executionSpec?: SandboxExecutionSpec;
 	fileToolPolicy?: SrtAgentFileToolPolicy;
@@ -217,10 +219,10 @@ export function createSrtAgentSandbox(options: SrtAgentSandboxOptions): SrtAgent
 			baseBashDefinition.execute(toolCallId, { command: (params as { command: string }).command }, signal, onUpdate, context),
 	};
 	const definitionsByName: Record<SandboxToolName, AnyToolDefinition> = {
-		read: createReadToolDefinition(guestCwd, { operations: readOperations }),
+		read: options.readToolFactory?.(guestCwd, readOperations, path => workspace.guestPath(path)) ?? createReadToolDefinition(guestCwd, { operations: readOperations }),
 		write: createWriteToolDefinition(guestCwd, { operations: writeOperations }),
 		edit: createEditToolDefinition(guestCwd, { operations: editOperations }),
-		bash: bashDefinition,
+		bash: options.nativeBash ? baseBashDefinition : bashDefinition,
 		ls: createLsToolDefinition(guestCwd, { operations: lsOperations }),
 		find: createFindToolDefinition(guestCwd, { operations: findOperations }),
 		grep: grepDefinition,

@@ -110,6 +110,7 @@ assert.deepEqual(childProcessPrimeMentions, [
 	"agent-runtime/python-environment.ts", // 用 Kernel Python 准备 Skill 依赖，不启动 Prime
 	"evaluation/node-backtest.ts", // 回放 Prime Search 记录，不启动 Prime
 	"providers/browser/session-registry.ts", // Browser 会话，不启动 Prime
+	"research/pipeline/note-reader-pi-subagents.ts", // Native Pi subprocesses reuse the shared output-validation IPC channel.
 	"research/pipeline/prime-report-writer.ts", // 用 Kernel Python 跑 prose lint，不启动 Prime
 	"research/provider-sdk-assets.ts", // Provider Python SDK 资产，不启动 Prime
 ], "a file that spawns processes and mentions Prime must be registered here or launch through spawnPrimeWorker");

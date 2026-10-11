@@ -4,14 +4,18 @@ import { join } from "node:path";
 import { copyTaskContext } from "./task-context.js";
 import { sha256 } from "../lib/hash.js";
 import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
-import { renderNoteAgentSystemPrompt } from "./pipeline/note-agent-prompt.js";
+import { renderNoteAgentSystemPrompt, renderPiReaderChildPrompt, renderPiReaderSystemPrompt } from "./pipeline/note-agent-prompt.js";
+import { readQuestionReaderConfiguration } from "./pipeline/reader-configuration.js";
+import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
+import { resolvePrimeModel } from "../agent-runtime/model-policy.js";
+import { resolveStageThinkingLevel } from "../agent-runtime/model-config/resolve.js";
+import { writeJsonAtomic } from "../lib/fs.js";
 import type { AgentStageActivity, AgentStageRunner } from "../agent-runtime/agent-stage-runtime.js";
 import type { ThinkingLevel } from "../agent-runtime/model-config/resolve.js";
 import { createProductionResearchStageRunner } from "./pipeline/production-stage-runner.js";
 import { loadOrganizedSources } from "./pipeline/organized-sources.js";
 import { materializeAgentSourceView, isReadableTextContent } from "./pipeline/agent-source-view.js";
 import type { SourceFileRecord } from "./pipeline/source-bundle.js";
-import { researchConfigFromEnv } from "./config.js";
 import { findLogicalSourceInRun } from "../workspaces/source-view.js";
 import { caseCapture } from "../observability/case-capture.js";
 import { inspectAgentSourceView } from "./pipeline/agent-source-view.js";
@@ -85,6 +89,7 @@ export async function executeNoteReading(input: {
 	knownCues?: readonly InvestigationCitationCue[];
 	signal: AbortSignal;
 	model?: string;
+	childModel?: string;
 	thinkingLevel?: ThinkingLevel;
 	env?: NodeJS.ProcessEnv;
 	stageRunner?: AgentStageRunner;
@@ -109,8 +114,15 @@ export async function executeNoteReading(input: {
 	writeReaderContext(corpusDir, sources, input.originalQuestion?.trim() || question,
 		input.knownCues ?? [], input.preferredSourceRunId);
 	const env = input.env ?? process.env;
-	const config = input.model && input.thinkingLevel ? undefined : researchConfigFromEnv(env);
-	const system = renderNoteAgentSystemPrompt(undefined, "question-reading");
+	if (input.childModel !== undefined && !/^[^\s/]+\/\S+$/u.test(input.childModel)) {
+		throw new Error("Question Reader childModel requires a provider/model");
+	}
+	const configuration = readQuestionReaderConfiguration(undefined, input.originalQuestion?.trim() || question,
+		input.childModel ? { ...env, TELOMI_PRIME_AGENT_CHILD_MODEL: input.childModel } : env, corpusDir);
+	writeJsonAtomic(join(inputRoot, "reader-config.json"), configuration);
+	writeFileSync(join(inputRoot, "reader-child-system.md"), renderNoteAgentSystemPrompt(undefined, "question-reading-pi").content);
+	writeFileSync(join(inputRoot, "reader-child-prompt.md"), renderPiReaderChildPrompt(configuration.language));
+	const system = renderAgentPrompt("research", "note-agent", "system-append", {}, "question-reading-pi");
 	const userPrompt = buildNoteReadingTaskPrompt(question, sources.length);
 	const runner = input.stageRunner ?? createProductionResearchStageRunner({ env });
 	const capturedRunner = caseCapture()?.noteAgent?.(runner,
@@ -121,11 +133,12 @@ export async function executeNoteReading(input: {
 		attemptId: "attempt-1",
 		role: "note_agent",
 		promptConfig: { domain: "research", id: "note-agent", sandboxRole: "report.note_agent",
-			systemVariant: "question-reading", userVariant: "question-reading", revisions: { system: system.revision } },
+			systemVariant: "question-reading-pi", userVariant: "question-reading", revisions: { system: system.revision } },
 		session: { key: `note-reading/${input.invocationId}`, policy: "fresh" },
-		modelPolicy: { preferred: [input.model ?? config!.noteAgentModel],
-			reasoning: input.thinkingLevel ?? config!.noteAgentThinkingLevel },
-		systemPrompt: system.content,
+		modelPolicy: { preferred: [input.model ?? resolvePrimeModel("primeRoot", env).selector],
+			reasoning: input.thinkingLevel ?? resolveStageThinkingLevel("noteAgent", "evidenceNote", env).thinkingLevel },
+		systemPrompt: renderPiReaderSystemPrompt(configuration.childModel),
+		executionProfile: "pi_builtin",
 		userPrompt,
 		workDirectory: join(controlDir, "stage"),
 		readonlyMounts: [{ hostPath: corpusDir, guestPath: "/source", access: "read-only" },

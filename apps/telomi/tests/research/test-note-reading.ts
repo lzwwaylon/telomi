@@ -7,7 +7,8 @@ import type { AgentStageRequest, AgentStageRunner, ValidatedStageArtifact } from
 import { withNoteAgentCapture } from "../../server/agent-runtime/recorded-stage-replay.js";
 import { beginNodeEvaluationCase } from "../../server/agent-runtime/node-evaluation.js";
 import { installCaseCapture } from "../../server/observability/case-capture.js";
-import { renderNoteAgentSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
+import { renderNoteAgentSystemPrompt, renderPiReaderChildPrompt, renderPiReaderSystemPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
+import { inferOutputLanguage } from "../../shared/languages.js";
 import { sha256 } from "../../server/lib/hash.js";
 import { writeTaskContext } from "../../server/research/task-context.js";
 import { executeNoteReading, resolveNoteReadingCue, searchSavedNoteReadingCues,
@@ -40,21 +41,30 @@ try {
 	const taskContext = "Focus on the loss formula and tensor dimensions.\n用户熟悉深度学习。\n";
 	const taskContextFile = writeTaskContext(join(root, "task-inputs"), taskContext);
 	const run = async (candidate: unknown, invocationId: string,
-		options: Pick<Parameters<typeof executeNoteReading>[0], "knownCues" | "originalQuestion" | "preferredSourceRunId" | "taskContextFile"> = {}) => executeNoteReading({
+		options: Pick<Parameters<typeof executeNoteReading>[0], "knownCues" | "originalQuestion" | "preferredSourceRunId" | "taskContextFile" | "model" | "childModel" | "thinkingLevel" | "env"> = {}) => executeNoteReading({
 		goalDir, goalId: "goal", question: "How is the loss computed?", invocationId,
+		model: "test/model", childModel: "test/child", thinkingLevel: "medium",
 		...options,
 		signal: new AbortController().signal,
-		model: "test/model", thinkingLevel: "medium",
 		stageRunner: {
 			async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
 				calls++;
-				assert.equal(request.systemPrompt, renderNoteAgentSystemPrompt(undefined, "question-reading").content,
-					"question reading receives the same shared quality rules as Source reading");
-				assert.equal(request.promptConfig?.revisions?.system?.variant, "question-reading");
+				const expectedChild = options.childModel ?? options.env?.TELOMI_PRIME_AGENT_CHILD_MODEL ?? "test/child";
+				assert.equal(request.systemPrompt, renderPiReaderSystemPrompt(expectedChild));
+				assert.equal(request.promptConfig?.revisions?.system?.variant, "question-reading-pi");
+				assert.equal(request.promptConfig?.userVariant, "question-reading");
+				assert.equal(request.executionProfile, "pi_builtin");
+				assert.deepEqual(request.modelPolicy.preferred, [options.model ?? options.env?.TELOMI_PRIME_AGENT_ROOT_MODEL ?? "test/model"]);
+				assert.equal(request.modelPolicy.reasoning, options.thinkingLevel ?? options.env?.TELOMI_NOTE_AGENT_THINKING_LEVEL ?? "medium");
 				assert.deepEqual(request.readonlyMounts.map((mount) => ({ guestPath: mount.guestPath, access: mount.access })),
 					[{ guestPath: "/source", access: "read-only" }, { guestPath: "/inputs", access: "read-only" }],
 					"task context receives a separate read-only mount without granting a Goal mount");
 				const taskInputs = request.readonlyMounts.find((mount) => mount.guestPath === "/inputs")!;
+				const readerConfiguration = { childModel: expectedChild,
+					language: inferOutputLanguage(options.originalQuestion || "How is the loss computed?") };
+				assert.deepEqual(JSON.parse(readFileSync(join(taskInputs.hostPath, "reader-config.json"), "utf8")), readerConfiguration);
+				assert.equal(readFileSync(join(taskInputs.hostPath, "reader-child-system.md"), "utf8"), renderNoteAgentSystemPrompt(undefined, "question-reading-pi").content);
+				assert.equal(readFileSync(join(taskInputs.hostPath, "reader-child-prompt.md"), "utf8"), renderPiReaderChildPrompt(readerConfiguration.language));
 				const expectedTaskContext = options.taskContextFile ? taskContext : "";
 				assert.equal(readFileSync(join(taskInputs.hostPath, "context.md"), "utf8"), expectedTaskContext);
 				assert.match(request.userPrompt, /source\/reader-context\.json/u);
@@ -70,8 +80,10 @@ try {
 					"navigation is frozen alongside the original Source bytes");
 				const capturedContext = captured.base.mounts.find((mount) => mount.guestPath === "/inputs")!;
 				assert.equal(capturedContext.kind, "run", "task context is frozen as Case input rather than bundled harness data");
-				if (capturedContext.kind === "run") assert.equal(readFileSync(join(captured.runDirectory,
-					capturedContext.directory.ref, "context.md"), "utf8"), expectedTaskContext);
+				if (capturedContext.kind === "run") {
+					assert.equal(readFileSync(join(captured.runDirectory, capturedContext.directory.ref, "context.md"), "utf8"), expectedTaskContext);
+					assert.deepEqual(JSON.parse(readFileSync(join(captured.runDirectory, capturedContext.directory.ref, "reader-config.json"), "utf8")), readerConfiguration);
+				}
 				const catalog = JSON.parse(readFileSync(join(request.readonlyMounts[0]!.hostPath, "catalog.json"), "utf-8"));
 				assert.equal(catalog.sources.length, options.preferredSourceRunId ? 3 : 1);
 				assert.equal(catalog.sources[0].source_id, "source:one");
@@ -133,6 +145,10 @@ try {
 	assert.equal(contexts.at(-1)!.known_cues[2]!.status, "recheck_required", "unsafe paths never resolve outside declared Source files");
 	assert.equal(contexts.at(-1)!.known_cues[3]!.status, "verified", "the original line hash verifies an existing formatted Cornell display excerpt");
 	assert.equal(resolveNoteReadingCue(goalDir, "deep-search:unknown:cue-1"), null);
+	await run(draft, "configured-reader", { model: undefined, childModel: undefined, thinkingLevel: undefined,
+		originalQuestion: "请根据原文解释训练流程。", env: { TELOMI_PRIME_AGENT_ROOT_MODEL: "configured/root",
+			TELOMI_PRIME_AGENT_CHILD_MODEL: "configured/child", TELOMI_NOTE_AGENT_MODEL: "unused/note-model",
+			TELOMI_NOTE_AGENT_THINKING_LEVEL: "high" } });
 	const absent = await run({ status: "not_found", summary: "No matching implementation was found.",
 		gaps: ["The saved Source has no data loader."], sections: [] }, "absent-1");
 	assert.equal(absent.cues.length, 0);
