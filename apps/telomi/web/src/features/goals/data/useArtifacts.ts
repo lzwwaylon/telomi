@@ -9,15 +9,6 @@ export interface ReactArtifact {
 	updatedAt: number;
 }
 
-interface ArtifactsArgs {
-	command: "create" | "update" | "rewrite" | "get" | "delete" | "logs";
-	filename: string;
-	content?: string;
-	encoding?: "utf-8" | "base64";
-	old_str?: string;
-	new_str?: string;
-}
-
 /**
  * Replay every `artifacts` tool call in message order to derive the current
  * artifacts state. HTML sandbox execution is delegated to SandboxedIframe at view time.
@@ -29,10 +20,10 @@ export function useArtifacts(messages: AgentMessage[]): Map<string, ReactArtifac
 			if (msg.role !== "assistant") continue;
 			for (const block of msg.content) {
 				if (block.type !== "toolCall" || block.name !== "artifacts") continue;
-				const args = (block.arguments ?? {}) as ArtifactsArgs;
+				const args = block.arguments ?? {};
 				const now = msg.timestamp ?? Date.now();
 				const filename = args.filename;
-				if (!filename) continue;
+				if (typeof filename !== "string" || !filename) continue;
 				const prev = map.get(filename);
 				const encoding: "utf-8" | "base64" = args.encoding === "base64" ? "base64" : "utf-8";
 				switch (args.command) {

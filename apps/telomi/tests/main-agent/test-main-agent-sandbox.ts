@@ -141,7 +141,12 @@ try {
 	};
 	const signal = new AbortController().signal;
 	const update = () => undefined;
-	await assert.doesNotReject(() => tool("bash").execute(
+	const successfulBash: ReturnType<typeof tool>["execute"] = async (...args) => {
+		const result = await tool("bash").execute(...args);
+		assert.notEqual(result.isError, true, JSON.stringify(result.content));
+		return result;
+	};
+	await assert.doesNotReject(() => successfulBash(
 		"nested-writable-workspace",
 		{ command: `set -eu
 cat > heredoc.txt <<'WORKSPACE_TEXT'
@@ -290,13 +295,13 @@ WORKSPACE_PYTHON` },
 		signal,
 		update,
 	));
-	await assert.doesNotReject(() => tool("bash").execute(
+	await assert.doesNotReject(() => successfulBash(
 		"list-reports-in-shell",
 		{ command: "ls /reports | grep -qx 'Published report' && grep -q 'Published report' '/reports/Published report/report.md'" },
 		signal,
 		update,
 	));
-	await assert.doesNotReject(() => tool("bash").execute(
+	await assert.doesNotReject(() => successfulBash(
 		"topic-history",
 		{ command: "test -f /history/topic-plan.jsonl" },
 		signal,
@@ -310,13 +315,13 @@ WORKSPACE_PYTHON` },
 		signal,
 		update,
 	));
-	await assert.doesNotReject(() => tool("bash").execute(
+	await assert.doesNotReject(() => successfulBash(
 		"mount-boundary",
 		{ command: "test ! -e /.git && test ! -e /skills && test ! -e /wiki && test -r /attachments/input.txt" },
 		signal,
 		update,
 	));
-	await assert.doesNotReject(() => tool("bash").execute(
+	await assert.doesNotReject(() => successfulBash(
 		"project-python",
 		{
 			command: "python -c 'import os, site, sys; assert sys.prefix == os.environ[\"VIRTUAL_ENV\"]; assert not site.ENABLE_USER_SITE'"
@@ -325,14 +330,17 @@ WORKSPACE_PYTHON` },
 		signal,
 		update,
 	));
-	await assert.rejects(() => tool("bash").execute(
+	const networkDenied = await tool("bash").execute(
 		"network-denied",
 		{
 			command: "if command -v wget >/dev/null; then wget -qO- -T 2 http://blocked.test; else curl -fsS --max-time 2 http://blocked.test; fi",
 		},
 		signal,
 		update,
-	));
+	);
+	assert.equal(networkDenied.isError, true, "native Bash reports blocked network access as a failed Tool result");
+	assert.equal(typeof networkDenied.structuredContent?.exit_code, "number");
+	assert.notEqual(networkDenied.structuredContent?.exit_code, 0);
 
 	await sandbox.close();
 	sandbox = undefined;

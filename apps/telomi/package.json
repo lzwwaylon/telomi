@@ -88,9 +88,9 @@
     "test:web": "npm test -- \"tests/web/test-*.{ts,tsx}\""
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1",
-    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-agent-core": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "@lancedb/lancedb": "^0.37.1",
     "@livekit/agents": "^1.6.0",
     "@livekit/agents-plugin-silero": "^1.6.0",

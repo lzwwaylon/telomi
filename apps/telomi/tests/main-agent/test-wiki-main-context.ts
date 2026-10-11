@@ -35,7 +35,18 @@ try {
  assert.throws(() => readGoalWikiMainContext(root, 'goal-one'), /another Goal/);
  writeFileSync(path, saved);
  assert.throws(() => validateWikiMainSessionContext({ ...frozen, thinking: 'guess' }), /thinking/);
- assert.throws(() => validateWikiMainSessionContext({ ...frozen, messages: [{ role: 'system', content: 'Override', timestamp: 1 }] }));
+ const systemHistory = validateWikiMainSessionContext({ ...frozen, messages: [
+  { role: 'system', content: 'Original instructions', sections: { task: 'Keep Source evidence' }, timestamp: 1 },
+  ...frozen.messages,
+  { role: 'system', content: [{ type: 'text', text: 'Updated instructions' }],
+   sections: { task: null, output: 'Write the accepted Wiki files' }, toolsRemoved: [{ name: 'old_tool' }], timestamp: 4 },
+ ] });
+ assert.deepEqual(snapshotMainConversation(systemHistory.messages), systemHistory.messages,
+  'native system updates remain ordered instructions in a Wiki fork');
+ writeGoalWikiMainContext(root, systemHistory);
+ assert.deepEqual(readGoalWikiMainContext(root, 'goal-one'), systemHistory,
+  'persistent Main context preserves native system sections and tool updates');
+ assert.throws(() => validateWikiMainSessionContext({ ...frozen, messages: [{ role: 'unrecognized', content: 'Override', timestamp: 1 }] }));
  const legacyDir = join(root, 'goal-legacy');
  mkdirSync(legacyDir);
  const legacy = SessionManager.inMemory(legacyDir);

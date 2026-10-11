@@ -1,4 +1,4 @@
-import type { Api, Model } from '@earendil-works/pi-ai';
+import type { AnyModel } from '@earendil-works/pi-ai';
 import { ModelRegistry, ModelRuntime, type ModelRuntimeAuthOverrides } from '@earendil-works/pi-coding-agent';
 import { join } from 'node:path';
 import { modelDefinitionHash } from '../agent-runtime/model-policy.js';
@@ -37,7 +37,7 @@ export async function createWikiModelRuntime(env: NodeJS.ProcessEnv, signal: Abo
  const model = modelRuntime.getModel(selection.provider, selection.modelId);
  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) throw new Error(`Pi model is unavailable: ${selection.selector}`);
  // Every native model turn resolves current keys and secret headers, including tool-loop turns.
- modelRuntime.getAuth = async (selected: string | Model<Api>, options?: ModelRuntimeAuthOverrides) => {
+ modelRuntime.getAuth = async (selected: string | AnyModel, options?: ModelRuntimeAuthOverrides) => {
   assertConnection();
   const live = await ModelRuntime.create({ ...paths, refreshOnCreate: false });
   await refreshConnectionRuntime(live);
