@@ -9,6 +9,7 @@ prompts:
   reference:
     note-writing: reference.note-writing.md.njk
     evidence-reading-quality: reference.evidence-reading-quality.md.njk
+    source-reading-quality: reference.source-reading-quality.md.njk
     pi-reader-root: reference.pi-reader-root.md.njk
     pi-reader-child: reference.pi-reader-child.md.njk
   user:

@@ -133,7 +133,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			mkdirSync(target, { recursive: true });
 			for (const name of ["sessions", "session.jsonl", "result.json", "root-result.json", "failure.json", "stdout.txt", "stderr.txt", "conditions.json", "effective-system-prompt.md",
 				"tool-events.jsonl", "tool-output", "logical-workspaces", "children", "reader-delivery.jsonl", "reader-assembly.json",
-				"reader-assembly-errors.jsonl", "official-subagent.json", "root-note.json", "reader_read.py"]) {
+				"reader-assembly-errors.jsonl", "official-subagent.json", "root-note.json"]) {
 				const source = join(runtimeRoot, name);
 				if (existsSync(source)) cpSync(source, join(target, name), { recursive: true });
 			}
@@ -165,12 +165,6 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 		}
 		if (piReader) for (const name of ["reader-child-system.md", "reader-child-prompt.md"]) {
 			copyFileSync(join(frozenInputs!.hostPath, name), join(inputRoot, name));
-		}
-		if (!piReader && request.promptConfig?.userVariant !== "question-reading") {
-			const helper = fileURLToPath(new URL("./reader_read.py", import.meta.url));
-			mkdirSync(join(inputRoot, "reader-tools"), { recursive: true });
-			copyFileSync(helper, join(inputRoot, "reader-tools", "reader_read.py"));
-			copyFileSync(helper, join(runtimeRoot, "reader_read.py"));
 		}
 		writeFileSync(join(runtimeRoot, "system-prompt.md"), request.systemPrompt);
 		writeFileSync(join(runtimeRoot, "user-prompt.md"), piReader ? request.userPrompt : `${renderPrimeNoteAgentUserPrompt(request.userPrompt,

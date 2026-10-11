@@ -33,7 +33,6 @@ export async function runPiReader(args: {
 	work: string; runtimeRoot: string; provider: string; modelId: string; thinking: ThinkingLevel;
 	systemPrompt: string; userPrompt: string; env: NodeJS.ProcessEnv; signal: AbortSignal;
 	validate: () => Promise<void>;
-	sourceReading?: { expectedSourceId: string };
 	sessionRole?: "root" | "child";
 	extensions?: Pick<NonNullable<ConstructorParameters<typeof DefaultResourceLoader>[0]>, "additionalExtensionPaths" | "extensionsOverride">;
 	onEvent?: (event: AgentSessionEvent) => void;
@@ -91,7 +90,6 @@ export async function runPiReader(args: {
 		}
 		writeFileSync(join(runtimeRoot, "effective-system-prompt.md"), session.systemPrompt);
 		writeJsonAtomic(join(runtimeRoot, "conditions.json"), { framework: "pi", execution_profile: "pi_builtin",
-			...(args.sourceReading ? { reading_mode: "source-reading", source_id: args.sourceReading.expectedSourceId, child_count: 0 } : {}),
 			pi_version: VERSION, cache_warming: "off",
 			spill_publication: "readonly_session_files",
 			read_format: "auto_numbered_source_text",
@@ -136,7 +134,6 @@ export async function runPiReader(args: {
 		throw new ResearchNodeError(message, error instanceof AgentOutputValidationError ? "validation" : "provider", true);
 	} finally {
 		try { writeJsonAtomic(join(runtimeRoot, "result.json"), { schema_version: 1, framework: "pi", model: selector,
-			...(args.sourceReading ? { reading_mode: "source-reading", source_id: args.sourceReading.expectedSourceId } : {}),
 			pi_version: VERSION, cache_warming: "off",
 			read_format: "auto_numbered_source_text",
 			effective_model: session?.model ? `${session.model.provider}/${session.model.id}` : selector,

@@ -16,7 +16,7 @@ import { assembleReaderNote } from "./reader-assembly.js";
 import { snapshotSourceDirectory } from "./source-bundle.js";
 
 type ReaderArgs = Parameters<typeof runPiReader>[0];
-type RootConfig = Omit<ReaderArgs, "signal" | "validate" | "env" | "extensions" | "onEvent" | "sourceReading"> & {
+type RootConfig = Omit<ReaderArgs, "signal" | "validate" | "env" | "extensions" | "onEvent"> & {
 	childModel: string; language: ResolvedOutputLanguage;
 };
 interface ChildConfig { id: string; work: string; runtimeRoot: string; task: string }
@@ -24,7 +24,7 @@ const WORKER = fileURLToPath(new URL("./note-reader-pi-worker.mjs", import.meta.
 export const officialReaderSubagentPath = join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))), "../examples/extensions/subagent/index.ts");
 
 /** The upstream tool relaunches the current executable; keep that entry point outside the server. */
-export async function runPiReaderSubagents(args: Omit<ReaderArgs, "sourceReading"> & { childModel: string; language: ResolvedOutputLanguage;
+export async function runPiReaderSubagents(args: ReaderArgs & { childModel: string; language: ResolvedOutputLanguage;
 	onSession?: (session: { id: string; path: string; label: string }) => void }) {
 	args.signal.throwIfAborted();
 	const configPath = join(args.runtimeRoot, "pi-root-config.json");
