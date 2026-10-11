@@ -32,7 +32,7 @@ try {
 		settingsManager, resourceLoader: loader, sessionManager: manager,
 		tools: ["read", "write", "edit"], customTools: sandbox.toolDefinitions }));
 	const checkNamespace = () => {
-		assert.match(session!.systemPrompt, /\nCurrent working directory: \/work\n$/u);
+		assert.match(session!.systemPrompt, /<cwd>\s*\/work\s*<\/cwd>/u);
 		assert.ok(!session!.systemPrompt.includes(work), "the SDK footer must not advertise its host storage directory");
 		assert.equal(manager.getCwd(), work);
 		assert.equal(manager.getSessionDir(), sessions);

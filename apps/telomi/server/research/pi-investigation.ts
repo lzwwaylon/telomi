@@ -1,4 +1,4 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { AnyModel } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 	type ModelRuntimeAuthOverrides, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
@@ -166,7 +166,7 @@ export async function runPiInvestigation(args: {
 		assertConnection();
 		const model = modelRuntime.getModel(args.provider, args.model);
 		if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) throw new Error(`Pi model is unavailable: ${selector}`);
-		modelRuntime.getAuth = async (selected: string | Model<Api>, options?: ModelRuntimeAuthOverrides) => {
+		modelRuntime.getAuth = async (selected: string | AnyModel, options?: ModelRuntimeAuthOverrides) => {
 			assertConnection();
 			const live = await ModelRuntime.create({ ...paths, refreshOnCreate: false });
 			await refreshConnectionRuntime(live);

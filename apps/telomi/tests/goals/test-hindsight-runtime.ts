@@ -16,7 +16,12 @@ const { saveSettings } = await import("../../server/config/settings.js");
 const { writeStoredCredential } = await import("../../server/accounts/stored-credentials.js");
 // Memory roles inherit the global LLM default; the legacy service environment never selects a model.
 // The embedding model is the user's choice too; these tests choose the local one the service runs itself.
-saveSettings({ defaultProvider: "deepseek", defaultModel: "deepseek-v4-flash",
+const lifecycleModel = "memory-lifecycle-fixture";
+// Lifecycle tests declare their model instead of depending on a changing upstream catalog.
+writeFileSync(join(configurationRoot, "models.json"), JSON.stringify({ providers: { deepseek: {
+	baseUrl: "http://127.0.0.1:1/v1", api: "openai-completions", models: [{ id: lifecycleModel, name: "Memory lifecycle fixture" }],
+} } }));
+saveSettings({ defaultProvider: "deepseek", defaultModel: lifecycleModel,
 	embedding: { memory: { connection: "hindsight-local", model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" } } });
 writeStoredCredential(join(configurationRoot, "auth.json"), "deepseek", { type: "api_key", key: "settings-key" });
 test.after(() => rmSync(configurationRoot, { recursive: true, force: true }));
@@ -82,7 +87,7 @@ test("Hindsight starts once even when legacy automatic-startup settings are disa
 			assert.match(args[0], /telomi_configuration\.py$/u);
 			assert.deepEqual(args.slice(1), ["--host", "127.0.0.1", "--port", "18888"]);
 			assert.match(options.env?.HINDSIGHT_API_DATABASE_URL ?? "", /^pg0:\/\/telomi-[0-9a-f]{12}$/u, "each installation gets its own pg0 instance");
-			assert.equal(options.env?.HINDSIGHT_API_LLM_MODEL, "deepseek-v4-flash", "the global LLM default serves; legacy service variables are ignored");
+			assert.equal(options.env?.HINDSIGHT_API_LLM_MODEL, lifecycleModel, "the global LLM default serves; legacy service variables are ignored");
 			assert.ok(options.env?.HINDSIGHT_API_LLM_API_KEY);
 			assert.notEqual(options.env?.HINDSIGHT_API_LLM_API_KEY, "secret", "the child receives a local transport token, not the upstream credential");
 			assert.equal(options.env?.HINDSIGHT_API_EMBEDDINGS_PROVIDER, "local", "the managed embedding selection replaces legacy embedding values");

@@ -9,8 +9,8 @@ import { codexAccountManager } from "../../server/accounts/manager.js";
 import { SrtStageRuntime } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 
-const require = createRequire(import.meta.url);
-const lockfile = require("../../node_modules/@earendil-works/pi-coding-agent/node_modules/proper-lockfile") as {
+const require = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
+const lockfile = require("proper-lockfile") as {
 	lock(path: string, options: Record<string, unknown>): Promise<() => Promise<void>>;
 };
 

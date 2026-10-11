@@ -31,7 +31,7 @@ export const WikiMainSessionContextSchema = Type.Object({
  model: Type.String({ pattern: '^[^/]+/.+$' }),
  thinking: Type.String(),
  messages: Type.Array(Type.Object({
-  role: Type.Union([Type.Literal('user'), Type.Literal('assistant'), Type.Literal('toolResult')]),
+  role: Type.Union([Type.Literal('system'), Type.Literal('user'), Type.Literal('assistant'), Type.Literal('toolResult')]),
   content: Type.Union([Type.String(), Type.Array(Type.Unknown())]),
   timestamp: Type.Number(),
  }, { additionalProperties: true })),
