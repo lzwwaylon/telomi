@@ -37,7 +37,7 @@ write(".topic-index.json", index);
 write(".object-first-relations.json", [edge]);
 const app = express();
 app.use(createWikiRouter(workspace, { getGoal: (id: string) => id === goalId ? { id } : undefined } as unknown as GoalService));
-const server = app.listen(0);
+const server = app.listen(0, "127.0.0.1");
 await new Promise<void>(resolve => server.once("listening", resolve));
 const api = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/goals/${goalId}/wiki`;
 try {

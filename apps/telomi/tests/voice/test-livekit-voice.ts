@@ -66,7 +66,7 @@ test("LiveKit token API returns a short-lived room token without exposing its se
 			telomiUrl: "http://127.0.0.1:8787",
 		})),
 	);
-	const server = app.listen(0);
+	const server = app.listen(0, "127.0.0.1");
 	await once(server, "listening");
 	try {
 		const address = server.address();

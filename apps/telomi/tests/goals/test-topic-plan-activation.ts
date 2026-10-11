@@ -161,7 +161,7 @@ try {
 		getGoal: (id) => id === goalId ? goal : undefined,
 		activation,
 	}));
-	const server = app.listen(0);
+	const server = app.listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => server.once("listening", () => resolve()));
 	const port = (server.address() as AddressInfo).port;
 	try {
@@ -210,7 +210,7 @@ try {
 		.find((item) => item.sourceRef === `topic-plan:${proposalId}`);
 	const recoveryApp = express();
 	recoveryApp.use(createTopicPlanRouter({ getGoal: (id) => id === goalId ? goal : undefined, activation: recovering }));
-	const recoveryServer = recoveryApp.listen(0);
+	const recoveryServer = recoveryApp.listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => recoveryServer.once("listening", () => resolve()));
 	const recoveryPort = (recoveryServer.address() as AddressInfo).port;
 	const post = (href: string) => fetch(`http://127.0.0.1:${recoveryPort}${href}`, { method: "POST" });

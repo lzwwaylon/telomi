@@ -71,7 +71,7 @@ const goals = {
 } as unknown as GoalService;
 const app = express();
 app.use(createWikiRouter(workspaceDir, goals));
-const server = app.listen(0);
+const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve, reject) => {
 	server.once("listening", resolve);
 	server.once("error", reject);
