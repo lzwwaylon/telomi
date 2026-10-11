@@ -206,6 +206,23 @@ try {
 		answer: "The feature exists. <cite>N1</cite>", citation_refs: ["N1"], gaps: [],
 		coverage: [{ requirement_id: "Q1", citation_refs: ["N1"], gap: "" }],
 	});
+	const withGapCoverage = { ...writer, result: { ...writer.result,
+		gap_coverage: [{ gap_id: "G1", citation_refs: writer.result.citation_refs, gap: "" }] } };
+	const gapTools = createFrozenInvestigationTools([withGapCoverage], true, () => {}, externalResponse.cues);
+	const gapAnswer = gapTools.replayCall("write_answer", { evidence_refs: ["N1"], requirements: ["Explain implementation"] }) as InvestigationAnswer;
+	assert.deepEqual(gapAnswer.gap_coverage, [{ gap_id: "G1", citation_refs: ["N1"], gap: "" }],
+		"Frozen Writer gap evidence uses the same invocation-local handles as its answer");
+	gapTools.assertMatched();
+	const groupedWriter = { ...writer, arguments: { ...writer.arguments, evidence_refs: [externalResponse.cues[0]!.ref, "C1"] },
+		result: { ...writer.result, answer: `Joint evidence <cite>${externalResponse.cues[0]!.ref}, C1</cite>`,
+			citation_refs: [externalResponse.cues[0]!.ref, "C1"],
+			coverage: [{ requirement_id: "Q1", citation_refs: [externalResponse.cues[0]!.ref, "C1"], gap: "" }] } };
+	const groupedTools = createFrozenInvestigationTools([citedWikiPage, groupedWriter], true, () => {}, externalResponse.cues);
+	groupedTools.replayCall("wiki_read_page", citedWikiPage.arguments);
+	const projectedGroup = groupedTools.replayCall("write_answer", { evidence_refs: ["N1", "C1"], requirements: ["Explain implementation"] }) as InvestigationAnswer;
+	assert.equal(projectedGroup.answer, "Joint evidence <cite>N1,C1</cite>", "Replay projects every ref in a grouped citation");
+	assert.deepEqual(projectedGroup.citation_refs, ["N1", "C1"]);
+	groupedTools.assertMatched();
 	answerTools.assertMatched();
 	const workspace = join(root, "file-replay");
 	const receipt = publishInvestigationHandoff(workspace, "write_answer", delegatedAnswer);

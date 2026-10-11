@@ -299,7 +299,7 @@ try {
 	assert.deepEqual(arxivCatalog?.workerPython, { module: "tools.arxiv", files: ["links.py"] });
 	assert.deepEqual(arxivCatalog?.workerSkills, ["prime-arxiv-selection-skill"]);
 	const huggingFaceCatalog = registry.catalog().find((entry) => entry.id === "huggingface");
-	assert.equal(huggingFaceCatalog?.implementationVersion, "huggingface-hub-http-v5");
+	assert.equal(huggingFaceCatalog?.implementationVersion, "huggingface-hub-http-v6");
 	assert.equal(huggingFaceCatalog?.queryContract?.input, "provider_syntax");
 	assert.deepEqual(huggingFaceCatalog?.workerPython, { module: "tools.huggingface" });
 	assert.deepEqual(huggingFaceCatalog?.workerSkills, ["prime-huggingface-selection-skill"]);

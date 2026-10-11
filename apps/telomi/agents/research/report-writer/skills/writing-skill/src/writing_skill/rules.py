@@ -171,7 +171,9 @@ BANNED_WORD_RE = re.compile("|".join(re.escape(w) for w in BANNED_WORDS))
 BEI_RE = re.compile(r"被[\u4e00-\u9fff]{1,12}")
 MD_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)]+)\)")
 MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
-CITATION_MARKER_RE = re.compile(r"<cite>[NC]\d+</cite>")
+CITATION_MARKER_RE = re.compile(
+    r"<cite>\s*(?:(?i:https?://)[^<>\s]+|[^<>,\s]+(?:\s*,\s*[^<>,\s]+)*)\s*</cite>"
+)
 BARE_URL_RE = re.compile(r"(?<!\()(?<!\]\()https?://[^\s)\]>\"']+")
 H1_RE = re.compile(r"^#\s+(.+)$", re.M)
 H2_RE = re.compile(r"^##\s+(.+)$", re.M)

@@ -238,6 +238,11 @@ try {
 	}]);
 	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/frozen", 5)?.clues[0]?.cue,
 		"Exact local detail", "different Cue numbers sharing a URL keep their exact evidence");
+	const legacyCrossMember = JSON.parse(readFileSync(join(reportRoot, "final.json"), "utf-8"));
+	legacyCrossMember.citations[0].cue.evidence[0].url = "https://example.com/member";
+	writeFileSync(join(reportRoot, "final.json"), JSON.stringify(legacyCrossMember));
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/frozen", 4)?.clues[0]?.cue,
+		"Exact Cornell detail", "legacy single-Cue reports retain previews under their original Logical Source locator");
 	const localPreview = resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 6);
 	assert.equal(localPreview?.url, "", "a local Source does not get an invented URL");
 	assert.equal(localPreview?.clues[0]?.note, "Preserved Note Reading Note.");
@@ -264,6 +269,44 @@ try {
 		assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 6), null,
 			"corrupt frozen Cue identity, hash or range must fail closed");
 	}
+	const mergedCues = [frozenNote, { ...frozenDeep, evidence: [{ ...frozenAnchor, url: "https://example.com/frozen" }] }];
+	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [{
+		number: 1, url: "https://example.com/frozen", refs: [noteRef, readingRef], cues: mergedCues,
+	}] }));
+	assert.deepEqual(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/frozen", 1)?.clues.map(clue => clue.cue),
+		["Exact Cornell detail", "Exact local detail"], "one Source previews all explicitly cited frozen Cues without live artifacts");
+	for (const cues of [mergedCues.slice(0, 1), [mergedCues[0], mergedCues[0]],
+		[mergedCues[0], { ...mergedCues[1], evidence: [{ ...frozenAnchor, url: "https://example.com/unrelated" }] }]]) {
+		writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [{
+			number: 1, url: "https://example.com/frozen", refs: [noteRef, readingRef], cues,
+		}] }));
+		assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/frozen", 1), null,
+			"missing, duplicate or wrong-Source merged Cues never borrow unrelated evidence");
+	}
+	const extraWiki = structuredClone(currentWikiCitation.wiki[0]);
+	extraWiki.entry.source.url = "https://example.com/frozen";
+	for (const [refs, wiki] of [[ [noteRef, readingRef], [extraWiki] ],
+		[ ["C7", noteRef, readingRef], [extraWiki, extraWiki] ]] as const) {
+		writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [{
+			number: 1, url: "https://example.com/frozen", refs, wiki, cues: mergedCues,
+		}] }));
+		assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "https://example.com/frozen", 1), null,
+			"merged previews reject uncited or duplicate Wiki evidence even when it shares the Source URL");
+	}
+	const parenthesesUrl = "https://example.com/paper_(2026)";
+	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [{
+		number: 1, url: "https://example.com/paper_%282026%29", refs: [readingRef],
+		cues: [{ ...frozenDeep, evidence: [{ ...frozenAnchor, url: parenthesesUrl }] }],
+	}] }));
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), parenthesesUrl, 1)?.clues[0]?.cue,
+		"Exact local detail", "encoded Markdown targets and raw Source URLs resolve the same preview identity");
+	const ipv6Url = "https://[2001:db8::1]/paper_(2026)";
+	writeFileSync(join(reportRoot, "final.json"), JSON.stringify({ citations: [{
+		number: 1, url: "https://[2001:db8::1]/paper_%282026%29", refs: [readingRef],
+		cues: [{ ...frozenDeep, evidence: [{ ...frozenAnchor, url: ipv6Url }] }],
+	}] }));
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), ipv6Url, 1)?.clues[0]?.cue,
+		"Exact local detail", "IPv6 Source URLs retain the same evidence identity through citation links and previews");
 	console.log("Citation preview test passed");
 } finally {
 	rmSync(root, { recursive: true, force: true });

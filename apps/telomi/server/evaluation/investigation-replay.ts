@@ -1,5 +1,6 @@
 import { writeTaskContext } from "../research/task-context.js";
 import { validateInvestigationResult, type InvestigationResult } from "../citations/contracts.js";
+import { replaceInlineCitations } from "../citations/inline-cites.js";
 import { appendFileSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -359,9 +360,11 @@ export function createFrozenInvestigationTools(
 			nextInteraction++;
 			const answer = observed.result as InvestigationAnswer;
 			const projected = { ...answer,
-				answer: answer.answer.replace(/<cite>([^<>\s]+)<\/cite>/gu, (_tag, ref: string) => `<cite>${citationsScope.project(ref)}</cite>`),
+				answer: replaceInlineCitations(answer.answer, refs => `<cite>${refs.map(ref => citationsScope.project(ref)).join(",")}</cite>`),
 				citation_refs: answer.citation_refs.map((ref) => citationsScope.project(ref)),
-				coverage: answer.coverage.map((row) => ({ ...row, citation_refs: row.citation_refs.map((ref) => citationsScope.project(ref)) })) };
+				coverage: answer.coverage.map((row) => ({ ...row, citation_refs: row.citation_refs.map((ref) => citationsScope.project(ref)) })),
+				...(answer.gap_coverage ? { gap_coverage: answer.gap_coverage.map(row => ({ ...row,
+					citation_refs: row.citation_refs.map(ref => citationsScope.project(ref)) })) } : {}) };
 			recordInteraction(name, observed.arguments, answer);
 			return projected;
 		}

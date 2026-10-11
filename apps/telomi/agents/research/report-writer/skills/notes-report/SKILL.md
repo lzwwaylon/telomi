@@ -48,7 +48,7 @@ none remain. Omitted Notes have not been shown and must not be cited as if alrea
   looked at cannot be judged irrelevant.
 - Treat each Note as one partial Source review, not a complete answer.
 - A Source may serve more than one Section; each Section reads the cues it needs and the editorial plan names the primary one.
-- Cite Notes as `<cite>N123</cite>` using refs returned by `notes_report.get()`. Runtime resolves
+- Cite Notes as `<cite>N123</cite>` or `<cite>N123, N124</cite>` using complete refs returned by `notes_report.get()`. Comma-separated refs may have surrounding whitespace; place them immediately after the specific conclusion they support. Runtime resolves
   each ref to its Source's canonical URL deterministically; a hand-typed URL can be wrong, a ref
   cannot. Use only claims returned by `notes_report.get()`.
 - Child Agents retrieve Notes only from the Source handles assigned by Root, using Source filters to discover the Note refs their Section needs.

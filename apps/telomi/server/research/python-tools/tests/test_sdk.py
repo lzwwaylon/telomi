@@ -1402,6 +1402,59 @@ class HuggingFaceApiTests(unittest.TestCase):
         huggingface._BASE_TASKS.clear()
         huggingface._DISCOVERY_POOLS.clear()
 
+    def test_hub_sdk_rejects_stale_publication_alias_but_preserves_paper_dates(self) -> None:
+        for resource_type, operation in (
+            ("model", lambda: huggingface.models(search="speech")),
+            ("dataset", lambda: huggingface.dataset_info("example/data")),
+            ("space", lambda: huggingface.spaces(search="speech")),
+            ("model_card", lambda: huggingface.model_card("example/model")),
+        ):
+            with self.subTest(resource_type=resource_type):
+                original = {"id": "example", "url": "https://huggingface.co/example/model",
+                            "published_at": "2026-01-21", "metadata": {"resource_type": resource_type,
+                            "repo_id": "example/model", "created_at": "2026-01-21", "updated_at": "2026-01-29",
+                            "published_at": "2026-01-21"}}
+                with patch.object(huggingface, "search_source", return_value=[original]):
+                    record = operation()[0]
+                self.assertNotIn("published_at", record)
+                self.assertNotIn("published_at", record["metadata"])
+                self.assertEqual(record["created_at"], "2026-01-21")
+                self.assertEqual(record["updated_at"], "2026-01-29")
+                self.assertEqual(original["published_at"], "2026-01-21", "SDK projection must not mutate archived input")
+                self.assertEqual(original["metadata"]["published_at"], "2026-01-21")
+        with patch.object(huggingface, "search_source", return_value=[{
+            "id": "2601.01234", "published_at": "2026-01-22", "metadata": {"resource_type": "paper"},
+        }]):
+            self.assertEqual(huggingface.paper_info("2601.01234")[0]["published_at"], "2026-01-22")
+
+    def test_model_discovery_and_ledger_keep_creation_dates_without_publication_alias(self) -> None:
+        def rows(requests, *, source):
+            self.assertEqual(source, "huggingface")
+            return [{"url": f"https://huggingface.co/example/{name}", "published_at": publication,
+                     "metadata": {"resource_type": "model", "repo_id": f"example/{name}", "created_at": created,
+                                  "likes": 200, "pipeline_tag": "text-to-speech", "tags": []}}
+                    for name, created, publication in [("current", "2026-01-21", "2024-01-21"),
+                                                       ("older", "2024-01-21", "2026-01-21")]]
+
+        with (patch.object(huggingface, "search_source", side_effect=rows),
+              patch.object(huggingface, "model_tags", return_value=[{"tag_id": "text-to-speech"}])):
+            discovery = huggingface.discover_models("text-to-speech", start_date="2026-01-01", end_date="2026-08-20")
+            model = huggingface.model_info("example/current")[0]
+            card = huggingface._public_record({"metadata": {"resource_type": "model_card",
+                                                           "published_at": "2026-01-21", "sha": "pinned"}})
+        self.assertEqual([record["repo_id"] for record in discovery["records"]], ["example/current"],
+                         "the date-range filter uses repository creation, not a stale publication alias")
+        self.assertEqual(discovery["records"][0]["created_at"], "2026-01-21")
+        self.assertNotIn("published_at", discovery["records"][0])
+        ledger = candidate_ledger.CandidateLedger()
+        for record, query in [(model, discovery["query"]), (card, "model_card=example/current")]:
+            ledger.add(title="Example", url="https://huggingface.co/example/current", query=query, summary="A model",
+                       metadata=record["metadata"], materials=[{"artifact_path": "work/materials/README.md"}])
+        metadata = ledger.as_dict()["candidates"][0]["metadata"]
+        self.assertEqual(metadata["created_at"], "2026-01-21")
+        self.assertEqual(metadata["sha"], "pinned")
+        self.assertNotIn("published_at", metadata, "merging downloaded card metadata does not reintroduce the alias")
+
     def test_public_api_is_self_describing(self) -> None:
         signature = inspect.signature(huggingface.models)
         self.assertIn("search", signature.parameters)
@@ -1617,8 +1670,8 @@ class HuggingFaceApiTests(unittest.TestCase):
         self.assertEqual(discovery["query"], "discover_models(pipeline_tags=['text-to-speech'], start_date='2026-01-01', end_date='2026-08-20')")
         self.assertEqual(discovery["listing"].splitlines(), [
             "2 models in discovery rank order. Excluded by their own fields: none.",
-            "1. org/trending | 120 likes | 2026-08-20",
-            "2. org/created | 120 likes | 2026-07-01",
+            "1. org/trending | 120 likes | created 2026-08-20",
+            "2. org/created | 120 likes | created 2026-07-01",
         ])
         self.assertEqual(
             [record["repo_id"] for record in discovery["records"]],
@@ -1747,13 +1800,13 @@ class HuggingFaceApiTests(unittest.TestCase):
         self.assertEqual((kept["unique_count"], kept["returned_count"], kept["excluded"], kept["beyond_limit"], kept["next_offset"], rest["next_offset"]), (3, 2, {}, 10, 3, None))
         head = "3 models in discovery rank order. Excluded by their own fields: none. 10 more passed these checks and rank below these in every lane; narrow the dates or filters to reach them."
         self.assertEqual(kept["listing"].splitlines(), [
-            head, "1. org/trending-0 | 150 likes | 2026-06-01", "2. lab/quiet-hit | 900 likes | 2026-06-01", "", "[Showing models 1-2 of 3. Use offset=3 to continue.]"])
-        self.assertEqual(rest["listing"].splitlines(), [head, "3. org/trending-1 | 150 likes | 2026-06-01", "", "[Showing models 3-3 of 3.]"])
+            head, "1. org/trending-0 | 150 likes | created 2026-06-01", "2. lab/quiet-hit | 900 likes | created 2026-06-01", "", "[Showing models 1-2 of 3. Use offset=3 to continue.]"])
+        self.assertEqual(rest["listing"].splitlines(), [head, "3. org/trending-1 | 150 likes | created 2026-06-01", "", "[Showing models 3-3 of 3.]"])
         for arguments, message in (({"exclude": ["age"]}, "exclude holds any of: conversion, derived"), ({"min_likes": -1}, "min_likes must be a non-negative integer")):
             with self.assertRaisesRegex(ValueError, message):
                 huggingface.discover_models("text-to-speech", **arguments)
 
-    def test_discover_models_uses_release_evidence_not_ordinary_updates(self) -> None:
+    def test_discover_models_keeps_associated_papers_as_candidates_not_verified_releases(self) -> None:
         released = {
             "repo_id": "org/current-release",
             "created_at": "2025-11-01",
@@ -1782,8 +1835,14 @@ class HuggingFaceApiTests(unittest.TestCase):
             )
 
         self.assertEqual([record["repo_id"] for record in discovery["records"]], ["org/current-release"])
-        self.assertEqual(discovery["listing"].splitlines()[1], "1. org/current-release | 0 likes | created 2025-11-01, released 2026-03 (arxiv:2603.25551)",
-                         "a repository created before the range says what places it inside")
+        self.assertNotIn("released", discovery["records"][0])
+        self.assertEqual(discovery["records"][0]["candidate_date_evidence"], {
+            "kind": "associated_paper_month", "month": "2026-03", "arxiv_tag": "arxiv:2603.25551",
+            "model_release_verified": False,
+        })
+        self.assertEqual(discovery["listing"].splitlines()[1],
+                         "1. org/current-release | 0 likes | created 2025-11-01, associated paper month 2026-03 (arxiv:2603.25551); model release date unverified",
+                         "a paper association remains a candidate lead without qualifying the model's release date")
 
     def test_discover_models_interleaves_multiple_task_tags(self) -> None:
         def model_rows(**kwargs) -> list[huggingface.HuggingFaceRecord]:

@@ -20,9 +20,11 @@ calls to verify important claims.
 Write one final body-only Markdown file per outline Section at
 writer-output/sections/<section-id>.md. Do not include the report title, level-1
 headings, level-2 headings, or a References Section. Preserve <cite> citations
-exactly as the drafts carry them - <cite>N123</cite> Note refs and <cite>C123</cite>
-Wiki Citation refs are both resolved by Runtime; never rewrite a ref into a URL by hand - and
-state evidence gaps and cross-source comparability limits. Avoid material expansion
+with their complete Evidence refs - single-ref and comma-separated tags such as
+<cite>N123, N124</cite> and <cite>C123</cite> are resolved by Runtime. Whitespace
+around refs is allowed. Keep each citation immediately after the specific conclusion
+its refs support. Never rewrite a ref into a URL by hand. State evidence gaps and
+cross-source comparability limits. Avoid material expansion
 beyond the child drafts, but do not target an exact character count.
 
 {% if use_chinese_lint %}

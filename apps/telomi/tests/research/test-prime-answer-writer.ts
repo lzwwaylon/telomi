@@ -93,6 +93,8 @@ try {
 			"Answer Writer output is readable once while its native execution is still running");
 		assert.doesNotMatch(JSON.stringify(live), /private.*fixture/u, "live output excludes SDK input files");
 		writeFileSync(join(args.cwd, "work", "answer.json"), JSON.stringify(answer));
+		const validation = await args.validateOutput!(1);
+		if (!validation.accepted) throw new Error(validation.error);
 		return nativeResult;
 	} });
 	assert.deepEqual(result.value, answer);
@@ -106,7 +108,7 @@ try {
 	const stale = stageRequest("stale");
 	mkdirSync(join(stale.workDirectory, "agent", "work"), { recursive: true });
 	writeFileSync(join(stale.workDirectory, "agent", "work", "answer.json"), JSON.stringify(answer));
-	await assert.rejects(runPrimeAnswerStage(stale, "stale-execution", { env, execute: async () => nativeResult }), /bounded regular/u);
+	await assert.rejects(runPrimeAnswerStage(stale, "stale-execution", { env, execute: async (args) => { const validation = await args.validateOutput!(1); throw new Error(validation.error); } }), /bounded regular/u);
 	assert.equal(existsSync(join(record, "artifacts", "stale.json")), false, "a failed attempt cannot publish an older answer");
 	await assert.rejects(runPrimeAnswerStage(stageRequest("model-error"), "model-error-execution", { env,
 		execute: async () => ({ ...nativeResult, rootError: "model balance exhausted" }) }), /model balance exhausted/u);
@@ -128,14 +130,44 @@ try {
 	writeFileSync(external, JSON.stringify(answer));
 	await assert.rejects(runPrimeAnswerStage(escape, "escape-execution", { env, execute: async (args) => {
 		symlinkSync(external, join(args.cwd, "work", "answer.json"));
+		const validation = await args.validateOutput!(1);
+		if (!validation.accepted) throw new Error(validation.error);
 		return nativeResult;
 	} }), /bounded regular/u);
 	writeFileSync(join(inputs, "answer.json"), JSON.stringify(answer));
 	await assert.rejects(runPrimeAnswerStage(stageRequest("work-link"), "work-link-execution", { env, execute: async (args) => {
 		rmSync(join(args.cwd, "work"), { recursive: true, force: true });
 		symlinkSync(join(args.cwd, "inputs"), join(args.cwd, "work"));
+		const validation = await args.validateOutput!(1);
+		if (!validation.accepted) throw new Error(validation.error);
 		return nativeResult;
 	} }), /bounded regular/u, "an input file reached through a linked work directory is not Writer output");
+
+	const publication = stageRequest("publication-error");
+	const publicationError = new Error("fixture artifact publication failed");
+	let publicationCalls = 0;
+	publication.artifactStore.publishFile = () => { publicationCalls += 1; throw publicationError; };
+	await assert.rejects(runPrimeAnswerStage(publication, "publication-error-execution", { env, execute: async (args) => {
+		writeFileSync(join(args.cwd, "work", "answer.json"), JSON.stringify(answer));
+		assert.deepEqual(await args.validateOutput!(1), { accepted: true });
+		assert.equal(publicationCalls, 0, "validation cannot publish before the Worker returns");
+		return nativeResult;
+	} }), /fixture artifact publication failed/u);
+	assert.equal(publicationCalls, 1, "publication errors are outside structural repair");
+	const transport = stageRequest("transport-after-rejection");
+	const transportError = new Error("fixture transport disconnected after rejection");
+	await assert.rejects(runPrimeAnswerStage(transport, "transport-execution", { env, execute: async (args) => {
+		mkdirSync(args.sessionDir, { recursive: true });
+		writeFileSync(join(args.sessionDir, "native.jsonl"), `${JSON.stringify({ type: "message", message: { role: "assistant",
+			usage: { input: 13, output: 7, cost: { total: 0.25 } }, content: [{ type: "toolCall", name: "ipython" }] } })}\n{"type":`);
+		writeFileSync(join(args.cwd, "work", "answer.json"), JSON.stringify({ ...answer, coverage: [] }));
+		assert.equal((await args.validateOutput!(1)).accepted, false);
+		throw transportError;
+	} }), (error: unknown) => error === transportError, "transport failure keeps its original identity");
+	const transportRecord = JSON.parse(readFileSync(runtimeContextPath(record, "research"), "utf8").trim().split("\n").at(-1)!);
+	assert.deepEqual(transportRecord.output.metrics, { input_tokens: 13, output_tokens: 7, cost_usd: 0.25, model_calls: 1, tool_calls: 1 },
+		"a partially written failed Trace cannot discard completed usage");
+	assert.equal(transportRecord.output.validation_errors.length, 1);
 
 	// Capture must freeze /inputs even within the Goal harness. Replay sees its original bytes and strict validator.
 	const captureRequest = stageRequest("capture");

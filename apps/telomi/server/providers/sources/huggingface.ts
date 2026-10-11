@@ -9,7 +9,7 @@ export const huggingface: SourceDescriptor = {
 		id: "huggingface",
 		runtime: { kind: "source_service", minIntervalMs: 750 },
 		catalog: {
-			implementationVersion: "huggingface-hub-http-v5",
+			implementationVersion: "huggingface-hub-http-v6",
 			capability: "Hugging Face Hub papers, model card README files, exact model and dataset metadata, benchmark leaderboards, and repository discovery through native HTTP APIs",
 			supportedContentTypes: ["application/json", "text/markdown", "application/pdf"],
 			workerPython: { module: "tools.huggingface" },
@@ -53,7 +53,7 @@ export const huggingface: SourceDescriptor = {
 				],
 			},
 			supportedFields: [
-				"title", "url", "authors", "summary", "publication_date", "submitted_at", "upvotes", "downloads", "likes",
+				"title", "url", "authors", "summary", "publication_date", "created_at", "updated_at", "submitted_at", "upvotes", "downloads", "likes",
 				"tags", "pipeline_tag", "library_name", "sdk", "sha", "card_data", "model_index", "document_url", "artifact_path", "pdf_url", "next_cursor",
 				"front_excerpt", "headings", "markdown_path", "metadata_path",
 				"dataset_id", "model_id", "tag_type", "tag_id", "tag_label", "rank", "score", "verified",

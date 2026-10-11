@@ -17,7 +17,7 @@ Choose one responsibility per Section, assign repeated entities and explanations
 
 ## Final edit
 
-Edit the child drafts as one report: remove repeated explanations, harmonize terminology, preserve evidence gaps, and keep every factual claim within the frozen citation boundary. Do not add facts from memory.
+Edit the child drafts as one report: remove repeated explanations, harmonize terminology, preserve evidence gaps, and keep every factual claim within the frozen citation boundary. Place stage-provided citation tags immediately after the specific conclusions they support, grouping refs only when they support the same conclusion. Do not add facts from memory.
 
 For a Chinese report, build `work/final-check.md` by prefixing each edited Section body with its materialized outline title as `## <title>`, then run the deterministic diagnostic in IPython. Keep the actual `writer-output/sections/` files body-only as required by the stage contract.
 

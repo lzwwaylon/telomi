@@ -1,4 +1,5 @@
 import { isRecord } from "../lib/values.js";
+import { parseInlineCitations } from "./inline-cites.js";
 
 export interface InvestigationResult {
 	thread_id?: string;
@@ -22,7 +23,7 @@ export function validateInvestigationResult(value: unknown, id: string, question
 	if (refs.some((ref: unknown) => typeof ref !== "string") || gaps.some((gap: unknown) => typeof gap !== "string")) {
 		throw new Error("Prime investigation refs and gaps must be strings");
 	}
-	const cited = [...value.answer.matchAll(/<cite>([^<>\s]+)<\/cite>/gu)].map((match) => match[1]!);
+	const cited = parseInlineCitations(value.answer).flatMap(citation => citation.refs);
 	if (JSON.stringify([...new Set(cited)].sort()) !== JSON.stringify([...new Set(refs)].sort())
 		|| refs.length !== new Set(refs).size) throw new Error("Prime investigation answer and citation refs disagree");
 	return value as unknown as InvestigationResult;

@@ -8,6 +8,7 @@ import { RunArtifactStore } from "../agent-runtime/artifact-store.js";
 import { renderAgentPrompt } from "../agent-runtime/prompt-registry.js";
 import { sha256 } from "../lib/hash.js";
 import { isRecord } from "../lib/values.js";
+import { parseInlineCitations } from "../citations/inline-cites.js";
 import { caseCapture } from "../observability/case-capture.js";
 import { findLogicalSourceInRun } from "../workspaces/source-view.js";
 import { materializeAgentSourceView } from "./pipeline/agent-source-view.js";
@@ -19,6 +20,7 @@ export interface InvestigationAnswer {
 	citation_refs: string[];
 	gaps: string[];
 	coverage: Array<{ requirement_id: string; citation_refs: string[]; gap: string }>;
+	gap_coverage?: Array<{ gap_id: string; citation_refs: string[]; gap: string }>;
 }
 
 export interface InvestigationAnswerRequest {
@@ -28,6 +30,7 @@ export interface InvestigationAnswerRequest {
 	language: string;
 	requirements: Array<{ id: string; question: string }>;
 	evidence_refs: string[];
+	reading_gaps?: Array<{ id: string; question: string; gap: string }>;
 }
 
 export interface InvestigationAnswerEvidence {
@@ -115,13 +118,23 @@ export function readInvestigationAnswerRequest(inputRoot: string): Investigation
 			|| typeof item.question !== "string" || !item.question.trim()) throw new Error("Answer requirement is invalid");
 		ids.add(item.id);
 	}
+	if (value.reading_gaps !== undefined) {
+		if (!Array.isArray(value.reading_gaps)) throw new Error("Answer reading gaps are invalid");
+		const gapIds = new Set<string>();
+		for (const item of value.reading_gaps) {
+			if (!isRecord(item) || typeof item.id !== "string" || !/^G[1-9][0-9]*$/u.test(item.id) || gapIds.has(item.id)
+				|| typeof item.question !== "string" || !item.question.trim()
+				|| typeof item.gap !== "string" || !item.gap.trim()) throw new Error("Answer reading gap is invalid");
+			gapIds.add(item.id);
+		}
+	}
 	return value as unknown as InvestigationAnswerRequest;
 }
 
 /** Structural coverage and citation checks; Agents still own interpretation of the original text. */
 export function validateInvestigationAnswerFromInput(value: unknown, inputRoot: string): InvestigationAnswer {
 	const request = readInvestigationAnswerRequest(inputRoot);
-	if (!isRecord(value) || JSON.stringify(Object.keys(value).sort())
+	if (!isRecord(value) || JSON.stringify(Object.keys(value).filter(key => key !== "gap_coverage").sort())
 		!== JSON.stringify(["answer", "citation_refs", "coverage", "gaps"])
 		|| typeof value.answer !== "string" || !value.answer.trim() || value.answer.length > 32_000
 		|| !Array.isArray(value.citation_refs) || !Array.isArray(value.gaps) || !Array.isArray(value.coverage)) {
@@ -134,7 +147,12 @@ export function validateInvestigationAnswerFromInput(value: unknown, inputRoot: 
 		}
 	};
 	checkRefs(value.citation_refs);
-	const cited = [...value.answer.matchAll(/<cite>([^<>\s]+)<\/cite>/gu)].map((match) => match[1]!);
+	const cited = parseInlineCitations(value.answer).flatMap(citation => {
+		for (const ref of citation.refs) {
+			if (!refs.has(ref)) throw new Error(`Answer citation ${JSON.stringify(citation.raw.slice(0, 160))} contains unassigned evidence '${ref}'. Use only complete refs from the assigned evidence; preserve the answer and supported evidence.`);
+		}
+		return citation.refs;
+	});
 	if (JSON.stringify([...new Set(cited)].sort()) !== JSON.stringify([...value.citation_refs].sort())) {
 		throw new Error("Answer and citation refs disagree");
 	}
@@ -152,6 +170,23 @@ export function validateInvestigationAnswerFromInput(value: unknown, inputRoot: 
 		if (row.gap && !(value.gaps as unknown[]).includes(row.gap)) throw new Error("Answer omitted a coverage gap");
 	}
 	if (requirements.size) throw new Error("Answer omitted requested coverage");
+	const readingGaps = new Set((request.reading_gaps ?? []).map(item => item.id));
+	if (readingGaps.size && !Array.isArray(value.gap_coverage)) throw new Error("Answer omitted reading gap coverage");
+	if (value.gap_coverage !== undefined) {
+		if (!Array.isArray(value.gap_coverage)) throw new Error("Answer reading gap coverage is invalid");
+		for (const row of value.gap_coverage) {
+			if (!isRecord(row) || JSON.stringify(Object.keys(row).sort()) !== JSON.stringify(["citation_refs", "gap", "gap_id"])
+				|| typeof row.gap_id !== "string" || !readingGaps.delete(row.gap_id)
+				|| !Array.isArray(row.citation_refs) || typeof row.gap !== "string") throw new Error("Answer reading gap coverage is invalid");
+			checkRefs(row.citation_refs);
+			if (!row.gap.trim() && !row.citation_refs.length) throw new Error("Resolved reading gap needs evidence");
+			if (row.citation_refs.some(ref => !(value.citation_refs as unknown[]).includes(ref))) {
+				throw new Error("Reading gap evidence is absent from the answer");
+			}
+			if (row.gap && !(value.gaps as unknown[]).includes(row.gap)) throw new Error("Answer omitted an unresolved reading gap");
+		}
+	}
+	if (readingGaps.size) throw new Error("Answer omitted reading gap coverage");
 	return value as unknown as InvestigationAnswer;
 }
 

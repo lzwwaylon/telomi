@@ -116,7 +116,7 @@ class PoolTests(unittest.TestCase):
         self.assertEqual((found["excluded"], [(r["repo_id"], r["gated"]) for r in found["records"]]),
                          ({"conversion": 1, "low_interest": 1}, [("org/a", False), ("org/gated", True)]))
         self.assertEqual(found["listing"].splitlines(), ["2 models in discovery rank order. Excluded by their own fields: conversion 1, low_interest 1.",
-                                                         "1. org/a | 500 likes | 2026-02-01", "2. org/gated | 500 likes | 2026-02-01 | gated"])
+            "1. org/a | 500 likes | created 2026-02-01", "2. org/gated | 500 likes | created 2026-02-01 | gated"])
         pool = calls["pools"][0]
         self.assertEqual((pool["provider_id"], pool["definition"], pool["limit"]), ("huggingface", {"category": ["text-to-speech"], "queries": []}, 200))
         self.assertEqual(pool["records"], [

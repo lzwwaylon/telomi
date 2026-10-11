@@ -7,6 +7,7 @@ import { readWikiMessageCitations } from "./wiki-message-store.js";
 import { readJson } from "../lib/fs.js";
 import { resolveNoteReadingCue } from "../research/note-reading.js";
 import { resolveSavedNoteCue } from "../research/note-retrieval.js";
+import { citationSourceUrl } from "./cue-sources.js";
 
 interface CitationRecord {
 	number?: unknown;
@@ -18,6 +19,7 @@ interface CitationRecord {
 	wiki?: unknown;
 	/** Verified Cue and original Source excerpts frozen by investigation publication. */
 	cue?: unknown;
+	cues?: unknown;
 }
 
 type WikiPagePreview = { ref: string; path: string; title: string; type: string; content: string };
@@ -101,7 +103,7 @@ export function resolveCitationSourcePreview(
 		(requestedNumber === undefined || item.number === requestedNumber)
 		&& (reportUrl ? typeof item.url === "string" && normalizeUrl(item.url) === reportUrl : !item.url));
 	if (!citation || !isCurrentCitationRecord(citation)) return null;
-	if (citation.cue !== undefined) return frozenCuePreview(citation);
+	if (citation.cue !== undefined || citation.cues !== undefined) return frozenCuePreview(citation);
 	const wiki = wikiCitationPreview(citation, reportUrl ?? "");
 	if (wiki) return wiki;
 	if (!reportUrl) return null;
@@ -207,48 +209,50 @@ export function resolveMessageCitationSourcePreview(
 	const record = readWikiMessageCitations(goalDir, messageId);
 	const url = requestedUrl ? normalizeUrl(requestedUrl) : null;
 	if (requestedUrl && !url) return null;
-	const citation = record?.citations.find((item) =>
+	const matches = record?.citations.filter((item) =>
 		(requestedNumber === undefined || item.number === requestedNumber)
-		&& (url ? typeof item.url === "string" && normalizeUrl(item.url) === url : !item.url));
+		&& (url ? typeof item.url === "string" && normalizeUrl(item.url) === url : requestedNumber !== undefined || !item.url)) ?? [];
+	if (requestedNumber !== undefined && matches.length !== 1) return null;
+	const citation = matches[0];
 	if (!citation || !isCurrentCitationRecord(citation)) return null;
-	if (url) return wikiCitationPreview(citation, url);
-	if (requestedNumber === undefined) return null;
-	const [ref] = citationRefs(citation);
-	if (!ref || citationRefs(citation).length !== 1) return null;
-	const cue = ref.startsWith("note:")
-		? resolveSavedNoteCue(goalDir, ref)
-		: resolveNoteReadingCue(goalDir, ref);
-	if (!cue) return null;
-	const sourceUrl = "canonical_locator" in cue ? cue.canonical_locator : cue.evidence[0]?.url ?? "";
-	return {
-		title: cue.cue,
-		url: sourceUrl,
-		sourceId: cue.evidence[0]?.source_id ?? "",
-		clues: [{
-			cue: cue.cue,
-			note: cue.note,
-			excerpts: cue.evidence.map((item) => ({
-				path: item.source_path,
-				startLine: item.start_line,
-				endLine: item.end_line,
-				text: item.excerpt,
-				sourceId: item.source_id,
-				sourceRevisionSha256: item.source_revision_sha256,
-				sourceRunId: item.source_run_id,
-				contentSha256: item.content_sha256,
-			})),
-			assets: [],
-		}],
-	};
+	if (!url && requestedNumber === undefined) return null;
+	const wikiRefs = new Set((Array.isArray(citation.wiki) ? citation.wiki : []).map(item => item?.ref));
+	const refs = citationRefs(citation).filter(ref => !wikiRefs.has(ref));
+	if (!refs.length) return wikiCitationPreview(citation, url ?? (typeof citation.url === "string" ? citationSourceUrl(citation.url) : ""));
+	const cues = refs.map(ref => ref.startsWith("note:") ? resolveSavedNoteCue(goalDir, ref) : resolveNoteReadingCue(goalDir, ref));
+	if (cues.some(cue => !cue)) return null;
+	return frozenCuePreview({ ...citation, cues });
 }
 
 /** Published Cue excerpts remain readable without consulting a newer Wiki or live Cue store. */
 function frozenCuePreview(citation: CitationRecord): CitationSourcePreview | null {
-	const value = citation.cue;
-	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-	const cue = value as Record<string, unknown>;
 	const refs = citationRefs(citation);
-	if (refs.length !== 1 || cue.ref !== refs[0]) return null;
+	if (citation.cue !== undefined && citation.cues !== undefined) return null;
+	const values = citation.cues !== undefined ? citation.cues : [citation.cue];
+	if (!Array.isArray(values) || !values.length) return null;
+	const url = typeof citation.url === "string" ? citationSourceUrl(citation.url) : "";
+	const wiki = Array.isArray(citation.wiki) && citation.wiki.length ? wikiCitationPreview(citation, url) : undefined;
+	if (citation.wiki !== undefined && (!Array.isArray(citation.wiki) || citation.wiki.length && !wiki)) return null;
+	const wikiRefs = (Array.isArray(citation.wiki) ? citation.wiki : []).map(item => item?.ref);
+	if (wikiRefs.some(ref => typeof ref !== "string" || !refs.includes(ref)) || new Set(wikiRefs).size !== wikiRefs.length) return null;
+	const covered = new Set(wikiRefs);
+	const previews: CitationSourcePreview[] = [];
+	for (const value of values) {
+		if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+		const cue = value as Record<string, unknown>;
+		if (typeof cue.ref !== "string" || !refs.includes(cue.ref) || covered.has(cue.ref)) return null;
+		const preview = frozenSingleCuePreview(cue, url, citation.cue !== undefined);
+		if (!preview) return null;
+		previews.push(preview);
+		covered.add(cue.ref);
+	}
+	if (refs.some(ref => !covered.has(ref))) return null;
+	const first = wiki ?? previews[0]!;
+	return { ...first, title: typeof citation.title === "string" ? citation.title : first.title,
+		clues: [...(wiki?.clues ?? []), ...previews.flatMap(preview => preview.clues)] };
+}
+
+function frozenSingleCuePreview(cue: Record<string, unknown>, reportUrl: string, legacy: boolean): CitationSourcePreview | null {
 	if (typeof cue.cue !== "string" || typeof cue.note !== "string" || !Array.isArray(cue.evidence)
 		|| cue.evidence.length === 0) return null;
 	const excerpts: CitationSourcePreview["clues"][number]["excerpts"] = [];
@@ -262,26 +266,33 @@ function frozenCuePreview(citation: CitationRecord): CitationSourcePreview | nul
 			|| (item.content_sha256 !== undefined && (typeof item.content_sha256 !== "string"
 				|| !/^[a-f0-9]{64}$/u.test(item.content_sha256)))) return null;
 		// Cornell display excerpts omit Markdown assets; the retained hash names the verified original line bytes.
+		const sourceUrl = typeof item.url === "string" ? citationSourceUrl(item.url) : "";
 		excerpts.push({
 			path: item.source_path as string, startLine, endLine, text: item.excerpt,
 			sourceId: item.source_id as string,
 			sourceRevisionSha256: item.source_revision_sha256 as string,
 			...(typeof item.source_run_id === "string" ? { sourceRunId: item.source_run_id } : {}),
 			...(typeof item.content_sha256 === "string" ? { contentSha256: item.content_sha256 } : {}),
+			...(sourceUrl && sourceUrl !== reportUrl
+				? { sourceUrl, ...(typeof item.title === "string" ? { sourceTitle: item.title } : {}) } : {}),
 		});
 	}
-	const first = cue.evidence[0] as Record<string, unknown>;
+	const matched = cue.evidence.find(item => citationSourceUrl(item.url ?? cue.canonical_locator) === reportUrl);
+	// Older single-Cue reports used the Logical Source's primary locator for cross-member evidence.
+	if (reportUrl && !matched && !legacy) return null;
+	const first = (matched
+		?? cue.evidence[0]) as Record<string, unknown>;
 	return {
 		title: typeof cue.source_title === "string" ? cue.source_title
 			: typeof first.title === "string" ? first.title : cue.cue,
-		url: typeof cue.canonical_locator === "string" ? cue.canonical_locator
-			: typeof first.url === "string" ? first.url : "",
+		url: reportUrl || (typeof cue.canonical_locator === "string" ? cue.canonical_locator
+			: typeof first.url === "string" ? first.url : ""),
 		sourceId: first.source_id as string,
 		clues: [{ cue: cue.cue, note: cue.note, excerpts, assets: [] }],
 	};
 }
 
-const CITATION_FIELDS = new Set(["number", "title", "url", "evidenceId", "provenance", "refs", "wiki", "cue"]);
+const CITATION_FIELDS = new Set(["number", "title", "url", "evidenceId", "provenance", "refs", "wiki", "cue", "cues"]);
 
 function isCurrentCitationRecord(citation: CitationRecord): boolean {
 	return Object.keys(citation).every((field) => CITATION_FIELDS.has(field))
@@ -403,14 +414,7 @@ function safeDirectoryEntries(path: string): string[] {
 
 
 function normalizeUrl(value: string): string | null {
-	try {
-		const url = new URL(value);
-		if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-		url.hash = "";
-		return url.href;
-	} catch {
-		return null;
-	}
+	return citationSourceUrl(value) || null;
 }
 
 function positiveInteger(value: unknown): number | null {

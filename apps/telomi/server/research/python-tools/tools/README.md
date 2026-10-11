@@ -118,6 +118,15 @@ unchanged to the Ledger builder.
 
 ## huggingface
 
+Hub model, dataset and Space `created_at` and `updated_at` are repository
+creation and modification timestamps, not verified model release dates. Hub
+records do not expose these dates as `published_at`; paper records retain
+their original `published_at`. Discovery date bounds use repository creation
+dates and may retain an older repository through an associated paper month.
+Such `candidate_date_evidence` has `model_release_verified=False`: it is a lead
+for the Provider child to check against original release evidence, not proof
+that the model was publicly released within the requested interval.
+
 Import:
 
 ```python

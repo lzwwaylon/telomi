@@ -35,17 +35,22 @@ const work = join(fixture, "work"), runtimeRoot = join(fixture, "runtime"), outp
 const agentDir = join(fixture, "credentials"), hostSecret = join(fixture, "host-secret.txt");
 const original = Buffer.from("\uFEFF甲😀\r\n\rbravo\nlast", "utf8");
 const jsonText = '{"preserve":"JSON", "lines":[1,2]}';
+const metadataText = '{\n  "metadata": {\n    "created_at": "2026-01-02T03:04:05.000Z"\n  }\n}';
+const jsonlText = '{"id":1}\n{"id":2}';
 const binary = Buffer.from([0x00, 0xff, 0xc3, 0x28, 0x0d, 0x0a]);
 const secret = "HOST_SECRET_NOT_FOR_READER";
 for (const path of [join(work, "source/S1"), join(work, "inputs"), runtimeRoot, output, agentDir]) mkdirSync(path, { recursive: true });
 writeFileSync(join(work, "source/S1/paper.md"), original);
 writeFileSync(join(work, "source/S1/config.json"), jsonText);
+writeFileSync(join(work, "source/S1/acquisition-metadata.json"), metadataText);
+writeFileSync(join(work, "source/S1/records.jsonl"), jsonlText);
 writeFileSync(join(work, "source/S1/bytes.bin"), binary);
 writeFileSync(join(work, "source/S1/tail.markdown"), "tail\n");
 writeFileSync(join(work, "source/S1/empty.txt"), "");
 writeFileSync(join(work, "source/S1/image.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"));
 writeFileSync(join(work, "scratch.md"), "scratch stays native");
 writeFileSync(join(work, "inputs/context.txt"), "context stays native");
+writeFileSync(join(work, "inputs/context.json"), jsonText);
 writeFileSync(join(output, "spill.txt"), "spill stays native");
 writeFileSync(join(work, "source/S1/many.txt"), Array.from({ length: 2003 }, (_, i) => `row-${i + 1}`).join("\n"));
 writeFileSync(join(work, "source/S1/wide.txt"), Array.from({ length: 80 }, (_, i) => `${i + 1}:${"界😀".repeat(250)}`).join("\n"));
@@ -88,10 +93,14 @@ try {
 	assert.deepEqual(page(await read({ path: "source/S1/tail.markdown" }), 1, 2, 2, null), ["L1 | tail", "L2 | "]);
 	assert.deepEqual(page(await read({ path: "source/S1/empty.txt" }), 1, 1, 1, null), ["L1 | "]);
 	assert.deepEqual(page(await read({ path: "source/S1/config.json", format: "numbered" }), 1, 1, 1, null), [`L1 | ${jsonText}`]);
-	for (const path of ["source/S1/config.json", "source/S1/bytes.bin", "scratch.md", "inputs/context.txt"]) {
+	assert.deepEqual(page(await read({ path: "source/S1/config.json" }), 1, 1, 1, null), [`L1 | ${jsonText}`]);
+	assert.deepEqual(page(await read({ path: "source/S1/acquisition-metadata.json", offset: 3, limit: 1 }), 3, 3, 5, 4),
+		['L3 |     "created_at": "2026-01-02T03:04:05.000Z"']);
+	assert.deepEqual(page(await read({ path: "source/S1/records.jsonl" }), 1, 2, 2, null), ['L1 | {"id":1}', 'L2 | {"id":2}']);
+	for (const path of ["source/S1/bytes.bin", "scratch.md", "inputs/context.txt", "inputs/context.json"]) {
 		assert.deepEqual(await read({ path }), await invoke(native, "read", { path }), `auto keeps native semantics for ${path}`);
 	}
-	for (const path of ["source/S1/paper.md", "source/S1/bytes.bin"]) {
+	for (const path of ["source/S1/paper.md", "source/S1/bytes.bin", "source/S1/config.json", "source/S1/acquisition-metadata.json", "source/S1/records.jsonl"]) {
 		assert.deepEqual(await read({ path, format: "raw" }), await invoke(native, "read", { path }), `raw is byte-for-byte native output for ${path}`);
 	}
 	const image = await invoke(native, "read", { path: "source/S1/image.png" });

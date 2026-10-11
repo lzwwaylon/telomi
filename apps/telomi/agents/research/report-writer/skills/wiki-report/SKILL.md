@@ -20,7 +20,7 @@ Topic refs belong to this frozen Wiki execution. Inspect the returned titles, in
 Rules:
 
 - Search before reading. Read only P-number Page refs returned by Wiki search.
-- Cite only C-number refs returned in `read_page()["evidence"]`, using `<cite>C12</cite>`.
+- Cite only C-number refs returned in `read_page()["evidence"]`, using `<cite>C12</cite>` or `<cite>C12, C13</cite>`. Comma-separated complete refs may have surrounding whitespace; place them immediately after the specific conclusion they support.
 - Never copy Page paths, Entry hashes, or source URLs into Agent output. Runtime resolves short refs.
 - Do not use web search, raw Sources, Cornell Notes, prior reports, or filesystem
   discovery as factual inputs.

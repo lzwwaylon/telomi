@@ -111,7 +111,7 @@ try {
 	assert.equal(records[0]?.node_id, "prime-search-batch-1");
 	assert.equal(records[0]?.request.query, "shared query");
 	assert.deepEqual(records[0]?.response.doc_ids, ["doc-1"]);
-	assert.deepEqual(records[0]?.response.docs, [{ id: "doc-1", url: "https://example.com/recorded", title: "Recorded", published_at: "2026-03-01", updated_at: "2026-03-02T00:00:00Z" }]);
+	assert.deepEqual(records[0]?.response.docs, [{ id: "doc-1", url: "https://example.com/recorded", title: "Recorded", created_at: "2026-03-01", updated_at: "2026-03-02T00:00:00Z" }]);
 	assert.deepEqual(records[2]?.response.docs, []);
 	assert.deepEqual(records[0]?.response.material_sha256, [sha256(readFileSync(materialFile))]);
 	assert.equal(records[2]?.response.error, "upstream down");

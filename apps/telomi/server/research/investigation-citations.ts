@@ -1,3 +1,5 @@
+import { replaceInlineCitations } from "../citations/inline-cites.js";
+
 export interface InvestigationCitationCue {
 	ref: string;
 	cue: string;
@@ -62,8 +64,7 @@ export function createInvestigationCitationScope() {
 		},
 		restore<T extends { answer: string; citation_refs: string[] }>(result: T): T {
 			return { ...result,
-				answer: result.answer.replace(/<cite>([^<>\s]+)<\/cite>/gu,
-					(_tag, ref: string) => `<cite>${resolve(ref)}</cite>`),
+				answer: replaceInlineCitations(result.answer, refs => `<cite>${refs.map(resolve).join(",")}</cite>`),
 				citation_refs: result.citation_refs.map(resolve),
 			};
 		},

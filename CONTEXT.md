@@ -361,7 +361,7 @@ A Runtime-validated retained Evidence record used to support report content.
 _Avoid_: arbitrary URL, final citation number
 
 **Citation Compilation**:
-The deterministic Runtime transformation from validated inline Evidence URLs into linked citations numbered once per Source URL and one References section that lists each Source once.
+The deterministic Runtime transformation from validated inline Evidence references into linked citations numbered once per Source URL and one References section that lists each Source once.
 _Avoid_: citation writing Agent, semantic review
 
 **Canonical Report**:

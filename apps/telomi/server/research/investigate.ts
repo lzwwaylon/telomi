@@ -32,7 +32,7 @@ import { resolveSavedNoteCue } from "./note-retrieval.js";
 import { resolveNoteReadingCue } from "./note-reading.js";
 import { readExternalSources } from "./external-search.js";
 import { createInvestigationCitationScope, type InvestigationCitationCue } from "./investigation-citations.js";
-import { executeInvestigationAnswer, writeInvestigationAnswerInput, type InvestigationAnswer,
+import { executeInvestigationAnswer, writeInvestigationAnswerInput, type InvestigationAnswer, type InvestigationAnswerRequest,
 	type InvestigationAnswerEvidence } from "./investigation-answer.js";
 import { readLatestInvestigationWriter } from "./investigation-handoff.js";
 import { writeTaskContext } from "./task-context.js";
@@ -136,6 +136,14 @@ export async function executeInvestigation(input: {
 	let externalSearchCount = 0;
 	let answerCount = 0;
 	const writerState: { lastAnswer?: InvestigationAnswer } = {};
+	const readingGaps: NonNullable<InvestigationAnswerRequest["reading_gaps"]> = [];
+	const rememberReadingGaps = (readingQuestion: string, gaps: readonly string[]) => {
+		for (const gap of gaps) {
+			if (!readingGaps.some(item => item.question === readingQuestion && item.gap === gap)) {
+				readingGaps.push({ id: `G${readingGaps.length + 1}`, question: readingQuestion, gap });
+			}
+		}
+	};
 	const availableCues = new Map<string, InvestigationCitationCue>();
 	const projectCues = (cues: readonly InvestigationCitationCue[]) => {
 		const projected = citationsScope.projectCues(cues);
@@ -262,6 +270,7 @@ export async function executeInvestigation(input: {
 					invocationId: `${id}-${++noteReadingCount}`, signal, env, onActivity });
 				if (reading.cues.length) input.onCuesPersisted?.({ invocationId: `${id}-${noteReadingCount}`, investigationId: id, threadId: thread.threadId });
 				const note = { ...reading, cues: enrichInvestigationCues(input.goalDir, reading.cues) };
+				rememberReadingGaps(readingQuestion, note.gaps);
 				recordInteraction("read_sources", { question: readingQuestion }, note);
 				return { ...note, cues: projectCues(note.cues) };
 			},
@@ -275,6 +284,7 @@ export async function executeInvestigation(input: {
 					signal, env, onActivity });
 				if (acquired.cues.length) input.onCuesPersisted?.({ invocationId: `${id}-external-${externalSearchCount}`, investigationId: id, threadId: thread.threadId });
 				const result = { ...acquired, cues: enrichInvestigationCues(input.goalDir, acquired.cues) };
+				rememberReadingGaps(externalQuestion, result.gaps);
 				recordInteraction("external_search", { question: externalQuestion }, result);
 				return { ...result, cues: projectCues(result.cues),
 					sources: result.sources.map(({ title, url }) => ({ title, url })) };
@@ -314,13 +324,16 @@ export async function executeInvestigation(input: {
 				const inputRoot = join(writerDir, "input");
 				writeInvestigationAnswerInput({ inputRoot, goalDir: input.goalDir, evidence,
 					request: { schema_version: 1, question, context, language,
-						requirements: requirements.map((part, index) => ({ id: `Q${index + 1}`, question: part })), evidence_refs: refs } });
+						requirements: requirements.map((part, index) => ({ id: `Q${index + 1}`, question: part })), evidence_refs: refs,
+						reading_gaps: readingGaps } });
 				writerState.lastAnswer = await executeInvestigationAnswer({ inputRoot, goalDir: input.goalDir,
 					recordDirectory: runDir, invocationId: `${id}-answer-${answerCount}`, env, signal, onActivity });
 				const recorded = citationsScope.restore(writerState.lastAnswer);
 				recordInteraction("write_answer", { evidence_refs: refs.map((ref) => citationsScope.resolve(ref)), requirements },
 					{ ...recorded, coverage: writerState.lastAnswer.coverage.map((row) => ({ ...row,
-						citation_refs: row.citation_refs.map((ref) => citationsScope.resolve(ref)) })) });
+						citation_refs: row.citation_refs.map((ref) => citationsScope.resolve(ref)) })),
+						...(writerState.lastAnswer.gap_coverage ? { gap_coverage: writerState.lastAnswer.gap_coverage.map(row => ({ ...row,
+							citation_refs: row.citation_refs.map(ref => citationsScope.resolve(ref)) })) } : {}) });
 				return writerState.lastAnswer;
 			},
 		},

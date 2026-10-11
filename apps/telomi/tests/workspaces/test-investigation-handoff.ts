@@ -55,11 +55,11 @@ try {
 		goalId, getOutputLanguage: () => "en",
 		exposeInvestigationResult: (artifact) => runtime.exposeInvestigationResult(session.id, artifact),
 	});
-	assert.equal(Value.Check(tool.parameters, { question: result.question, thread_id: "1".repeat(24), title: "Follow up" }), true);
+	assert.equal(Value.Check(tool.parameters, { question: result.question, source_scope: "local_only", thread_id: "1".repeat(24), title: "Follow up" }), true);
 	for (const invalid of [
 		{ thread_id: "invented-id" }, { thread_id: "../outside" }, { title: "" }, { title: "x".repeat(121) },
-	]) assert.equal(Value.Check(tool.parameters, { question: result.question, ...invalid }), false);
-	const response = await tool.execute(invocationId, { question: result.question });
+	]) assert.equal(Value.Check(tool.parameters, { question: result.question, source_scope: "local_only", ...invalid }), false);
+	const response = await tool.execute(invocationId, { question: result.question, source_scope: "local_only" });
 	const text = response.content.find((item) => item.type === "text");
 	assert.equal(text?.type, "text");
 	if (text?.type !== "text") throw new Error("Expected a text receipt");

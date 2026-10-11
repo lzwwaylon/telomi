@@ -362,7 +362,7 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 				const traceRoot = piReader ? retainReaderTrace() : runtimeRoot;
 				evaluationCapture = finishNodeEvaluationCase(evaluationDraft, {
 					status: "succeeded",
-					...(piReader ? { traceDirectories: [join(traceRoot, "sessions"), join(traceRoot, "children")],
+					...(piReader ? { traceDirectories: [traceRoot],
 						composedSystemPrompt: readFileSync(join(runtimeRoot, "effective-system-prompt.md"), "utf8") } : {}),
 					workDirectory: request.workDirectory,
 					result: result as ValidatedStageArtifact<unknown>,

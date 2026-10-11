@@ -4,6 +4,8 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { writeWikiMessageCitations } from "../citations/wiki-message-store.js";
+import { citationSourceUrl, cueCitationEntries } from "../citations/cue-sources.js";
+import { parseInlineCitations } from "../citations/inline-cites.js";
 import { resolveNoteReadingCue } from "../research/note-reading.js";
 import { resolveSavedNoteCue } from "../research/note-retrieval.js";
 import { resolveWikiEdition } from "../wiki/editions.js";
@@ -17,9 +19,6 @@ import {
 	createWikiReferenceAdapterFromRoot,
 	type WikiReportReferenceAdapter,
 } from "../research/pipeline/wiki-report-references.js";
-
-const CITE = /<cite>([^<>\s]+)<\/cite>/gu;
-const HAS_CITE = /<cite>/u;
 
 /** Compile before AgentSession persists the finalized assistant message. */
 export function registerMainWikiCitationCompiler(
@@ -57,21 +56,24 @@ export class MainWikiCitationSession {
 					? [{ text: block.text, write: (text: string) => { message.content[index] = { ...block, text }; } }]
 					: [])
 				: [];
-		const cited = blocks.filter((block) => HAS_CITE.test(block.text));
+		const cited = blocks.map(block => ({ ...block, citations: parseInlineCitations(block.text) }))
+			.filter(block => block.citations.length > 0);
 		if (cited.length === 0) return false;
-		const refs = [...new Set<string>(cited.flatMap((block) => [...block.text.matchAll(CITE)].map((match) => match[1]!)))];
+		const refs = [...new Set(cited.flatMap(block => block.citations.flatMap(citation => citation.refs)))];
 		const wikiRefs = refs.filter((ref) => /^C[1-9][0-9]*$/u.test(ref));
 		const adapter = wikiRefs.length > 0 ? this.currentAdapter() : undefined;
 		if (adapter) await adapter.hydrateCitationRefs(wikiRefs);
 		const registry: KnowledgeCitationRegistry = {
 			schemaVersion: 1,
 			knowledgeSha256: this.knowledgeSha256 ?? "",
-			entries: refs.map((ref) => {
+			entries: refs.flatMap((ref) => {
 				if (adapter && /^C[1-9][0-9]*$/u.test(ref)) {
 					const citation = adapter.resolveCitationRef(ref);
+					const url = citationSourceUrl(citation.entry.source.url);
 					return {
 						ref,
-						url: citation.entry.source.url,
+						url,
+						...(!url ? { numberKey: citation.entry.source.id } : {}),
 						title: citation.entry.source.title,
 						provenance: citation.entry.source.id,
 						fileRefs: [citation.page.path],
@@ -83,14 +85,7 @@ export class MainWikiCitationSession {
 					? resolveSavedNoteCue(this.options.goalDir, ref)
 					: resolveNoteReadingCue(this.options.goalDir, ref);
 				if (!cue) throw new Error(`Unknown saved Cue citation '${ref}'`);
-				return {
-					ref,
-					url: "",
-					title: cue.cue,
-					provenance: ref,
-					fileRefs: cue.evidence.map((item) => item.source_path),
-					numberKey: ref,
-				};
+				return cueCitationEntries(cue);
 			}),
 		};
 		const citations: ReturnType<typeof compileStandaloneCitationMarkdown>["citations"] = [];

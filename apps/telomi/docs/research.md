@@ -137,7 +137,7 @@ await notes_report.get(["N1", "N2"])
 
 A Notes snapshot contains only the index and Cornell Note JSON. A Wiki Report snapshot pins the current Wiki, corresponding Cornell Notes, Sources, and citation mappings, but Report Writer Root accesses the current Wiki only through the read-only `wiki_report` material Adapter.
 
-The Root first reads the complete compact Source roster, chooses sections and an editorial plan, then starts exactly one Prime child per Section. Children deeply read the Notes of assigned Sources and cite them as `<cite>N123</cite>`; Runtime deterministically resolves Note refs to frozen Source URLs.
+The Root first reads the complete compact Source roster, chooses sections and an editorial plan, then starts exactly one Prime child per Section. Children deeply read the Notes of assigned Sources and cite their assigned Note refs using the [inline citation contract](modules/research-agents.md), either individually or grouped. Runtime deterministically resolves each Note ref to frozen Source URLs.
 
 Writer Root also loads the progressive `writing-skill`. Its structure and prose guidance has one English version that applies to every report language. Chinese reports invoke the deterministic `writing_skill` scanner during final editing. Runtime reruns the same scanner on final Section bodies and publishes its actual output as `prose-lint.txt` alongside Writer artifacts. Other report languages skip Chinese lint. The report language written by the Orchestrator to read-only `inputs/request.json` determines whether the report is Chinese; Runtime does not parse language from Prompt text. Inputs without that file have unknown language and skip lint.
 

@@ -65,7 +65,7 @@ import { emptyWorkspaceSnapshot, snapshotWorkspaceTree } from "../../agent-runti
 import { listFilesRecursive, writeJsonAtomic } from "../../lib/fs.js";
 import { toErrorMessage } from "../../lib/values.js";
 
-import { runPrimeAnswerStage } from "./prime-answer-writer.js";
+import { answerWriterFailureDetails, runPrimeAnswerStage } from "./prime-answer-writer.js";
 import { wikiToolArguments } from "../../wiki/tools.js";
 
 const WORKER = new URL("./prime-report-writer-worker.ts", import.meta.url);
@@ -211,7 +211,7 @@ export class PrimeReportWriterStageRunner implements AgentStageRunner {
 			if (draft) finishNodeEvaluationCase(draft, {
 				status: request.signal.aborted ? "cancelled" : "failed",
 				workDirectory: request.workDirectory,
-				validationErrors: [],
+				validationErrors: answer ? answerWriterFailureDetails(error)?.validationErrors ?? [] : [],
 				...(answer ? { sessionPath: answerSession, traceDirectories: answerTraces } : {}),
 				logicalWorkspaces,
 				error: toErrorMessage(error),

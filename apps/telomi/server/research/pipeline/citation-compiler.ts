@@ -1,4 +1,5 @@
 import { validateCanonicalMarkdown } from "../../citations/contracts.js";
+import { replaceInlineCitations } from "../../citations/inline-cites.js";
 import { readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
@@ -7,9 +8,8 @@ import type { ExecutableReportPlan, ExecutableReportSection } from "./report-pla
 import type { PublishedArtifactDirectoryRef } from "../../agent-runtime/artifact-store.js";
 import type { ResolvedWikiReportCitation } from "./wiki-report-references.js";
 import { normalizeGfmTables } from "./gfm-tables.js";
+import { toErrorMessage } from "../../lib/values.js";
 
-const INLINE_CITE = /<cite>([^<>\s]+)<\/cite>/gu;
-const ANY_CITE = /<\/?cite\b/iu;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"'`，。；：！？、]+/giu;
 const AUTHORED_CITATION = /\[(?:\d+(?:\s*,\s*\d+)*)\](?:\([^)]*\))?/u;
 
@@ -62,13 +62,14 @@ export function compileStandaloneCitationMarkdown(args: {
 }): CompiledCitationReport {
 	const sources: NumberedSources = new Map();
 	let citationCount = 0;
-	const body = normalizeGfmTables(args.markdown.trim()).replace(INLINE_CITE, (_citation, value: string) => {
-		const source = resolveRegisteredCitation(args.citationRegistry, value);
-		if (!source) throw new Error(`Citation '${value}' is not present in the frozen Knowledge Snapshot`);
-		citationCount += 1;
-		return renderInlineCitation(numberSource(sources, source), source.url);
-	});
-	if (ANY_CITE.test(body)) throw new Error("Main Agent answer contains a malformed Wiki citation");
+	const body = replaceInlineCitations(normalizeGfmTables(args.markdown.trim()), refs => refs.map(value => {
+			const byRef = args.citationRegistry.entries.filter((entry) => entry.ref === value);
+			const fallback = byRef.length ? undefined : resolveRegisteredCitation(args.citationRegistry, value);
+			const cited = byRef.length ? byRef : fallback ? [fallback] : [];
+			if (!cited.length) throw new Error(`Citation '${value}' is not present in the frozen Knowledge Snapshot`);
+			citationCount += 1;
+			return cited.map(source => renderInlineCitation(numberSource(sources, source), source.url)).join("");
+	}).join(""));
 	const markdown = [
 		collapseAdjacentCitations(body),
 		...referencesSection(sources),
@@ -124,10 +125,12 @@ export function validateChapterCandidate(
 		throw new Error(`Chapter '${section.section_id}' must contain exactly its own Section heading '## ${section.title}'`);
 	}
 	if (AUTHORED_CITATION.test(markdown)) throw new Error(`Chapter '${section.section_id}' contains an Agent-authored citation number`);
-	const matches = [...markdown.matchAll(INLINE_CITE)];
-	const markdownWithoutCitations = markdown.replace(INLINE_CITE, "");
-	if (ANY_CITE.test(markdownWithoutCitations)) {
-		throw new Error(`Chapter '${section.section_id}' contains a malformed inline Evidence citation`);
+	const refs: string[] = [];
+	let markdownWithoutCitations: string;
+	try {
+		markdownWithoutCitations = replaceInlineCitations(markdown, cited => { refs.push(...cited); return ""; });
+	} catch (error) {
+		throw new Error(`Chapter '${section.section_id}' contains a malformed inline Evidence citation: ${toErrorMessage(error)}`, { cause: error });
 	}
 	if (extractExternalUrls(markdownWithoutCitations).length > 0) {
 		throw new Error(`Chapter '${section.section_id}' contains an external URL outside an inline Evidence citation`);
@@ -138,8 +141,7 @@ export function validateChapterCandidate(
 		const evidence = requireEvidence(evidenceById, evidenceId);
 		for (const locator of sourceLocators(evidence)) assignedEvidenceBySource.set(normalizeCitationSource(locator), evidence);
 	}
-	for (const match of matches) {
-		const source = match[1]!;
+	for (const source of refs) {
 		const registered = citationRegistry ? resolveRegisteredCitation(citationRegistry, source) : undefined;
 		const normalized = registered?.url
 			?? normalizedCitationOrThrow(source, `Chapter '${section.section_id}' contains a malformed inline Evidence citation`);
@@ -269,12 +271,12 @@ function compileChapter(args: {
 	}
 	validateChapterCandidate(args.section, args.chapter.markdown, args.sourceNotes, args.citationRegistry,
 		args.outlineEvidenceIds);
-	const body = normalizeGfmTables(args.chapter.markdown.trim()).replace(INLINE_CITE, (_citation, source: string) => {
-		const citation = resolveRegisteredCitation(args.citationRegistry, source);
-		if (!citation) throw new Error(`Citation URL '${source}' is not present in the frozen Knowledge Snapshot`);
-		args.onCitation();
-		return renderInlineCitation(numberSource(args.sources, citation), citation.url);
-	});
+	const body = replaceInlineCitations(normalizeGfmTables(args.chapter.markdown.trim()), refs => refs.map(source => {
+			const citation = resolveRegisteredCitation(args.citationRegistry, source);
+			if (!citation) throw new Error(`Citation URL '${source}' is not present in the frozen Knowledge Snapshot`);
+			args.onCitation();
+			return renderInlineCitation(numberSource(args.sources, citation), citation.url);
+	}).join(""));
 	return collapseAdjacentCitations(body);
 }
 
@@ -329,7 +331,7 @@ function citationRecords(sources: NumberedSources): CompiledCitationReport["cita
 	return [...sources.values()].map(({ number, entries }) => {
 		const source = entries[0]!;
 		const url = safeMarkdownTarget(source.url);
-		const refs = entries.flatMap((entry) => entry.ref ? [entry.ref] : []);
+		const refs = [...new Set(entries.flatMap((entry) => entry.ref ? [entry.ref] : []))];
 		const wiki = entries.flatMap((entry) => entry.wiki ? [entry.wiki] : []);
 		return {
 			number,
@@ -346,10 +348,14 @@ function citationRecords(sources: NumberedSources): CompiledCitationReport["cita
 function safeMarkdownTarget(value: string): string | undefined {
 	try {
 		const url = new URL(value);
-		return url.protocol === "http:" || url.protocol === "https:" ? url.href : undefined;
+		return url.protocol === "http:" || url.protocol === "https:" ? encodeMarkdownTarget(url.href) : undefined;
 	} catch {
 		return undefined;
 	}
+}
+
+function encodeMarkdownTarget(url: string): string {
+	return url.replace(/[()]/gu, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 function escapeMarkdownText(value: string): string {
@@ -370,7 +376,7 @@ export function normalizeCitationSource(value: string): string {
 		throw new Error(`Evidence citation source must use http:// or https://: '${value}'`);
 	}
 	url.hash = "";
-	return url.href;
+	return encodeMarkdownTarget(url.href);
 }
 
 function normalizedCitationOrThrow(value: string, message: string): string {

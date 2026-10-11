@@ -26,9 +26,9 @@ assert.deepEqual(mainToolNames, [
 ]);
 assert.deepEqual(MAIN_TERMINAL_ACTIONS, ["deliver_investigation", "generate_podcast"]);
 assert.deepEqual(mainToolNames.filter((name) => ["wiki_search", "wiki_read_page", "wiki_graph_search"].includes(name)), []);
-assert.equal(validateToolArguments(investigateTool, {
+assert.throws(() => validateToolArguments(investigateTool, {
 	type: "toolCall", id: "missing-scope", name: "investigate", arguments: { question: "Check saved materials." },
-}).source_scope, undefined);
+}), /source_scope/u, "A follow-up cannot silently lose external acquisition permission");
 assert.equal(validateToolArguments(investigateTool, {
 	type: "toolCall", id: "local-scope", name: "investigate",
 	arguments: { question: "Check saved materials.", source_scope: "local_only" },
