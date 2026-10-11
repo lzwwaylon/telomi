@@ -407,6 +407,7 @@ const frozenPrimeReplayRecipe: NodeReplayRecipe = {
 };
 
 const replayed = new Map<string, number>();
+let noteReplayFailure: "stage" | "stage-no-index" | "stage-unsafe-index" | "stage-bad-index" | "capture" | "invalid" | "active" | "empty" | undefined;
 const replayPrompts = new Map<string, Array<{ system: string; user: string }>>();
 const runner: AgentStageRunner = {
 	async runStage<T>(request: AgentStageRequest<T>): Promise<ValidatedStageArtifact<T>> {
@@ -435,6 +436,57 @@ const runner: AgentStageRunner = {
 		if (agentId === "note-agent") {
 			writeFileSync(join(request.recordDirectory!, "note_agent--fixture.jsonl"), "{}\n");
 			writeFileSync(join(request.recordDirectory!, "runtime--evaluation.jsonl"), "{}\n");
+			if (noteReplayFailure) {
+				const trace = join(request.recordDirectory!, "note_agent--fixture.jsonl");
+				if (noteReplayFailure === "empty") {
+					rmSync(trace);
+					rmSync(join(request.recordDirectory!, "runtime--evaluation.jsonl"));
+					throw new Error("fixture Note Agent Stage failure");
+				}
+				writeFileSync(trace, `${JSON.stringify({ type: "message", timestamp: "2026-01-01T00:00:00.000Z", message: {
+					role: "assistant", usage: { input: 11, output: 2, cost: { total: 0.01 } }, content: [{ type: "toolCall" }],
+				} })}\n`);
+				const retained = join(request.recordDirectory!, "reader-runtime");
+				mkdirSync(join(retained, "children", "child"), { recursive: true });
+				cpSync(trace, join(retained, "session.jsonl"));
+				writeFileSync(join(retained, "children", "child", "session.jsonl"), `${JSON.stringify({ type: "message", message: {
+					role: "assistant", usage: { input: 90, output: 9, cost: { total: 0.02 } }, content: [{ type: "toolCall" }],
+				} })}\n`);
+				for (const path of [retained, join(retained, "children", "child")]) {
+					writeFileSync(join(path, "tool-events.jsonl"), `${JSON.stringify({ type: "tool_execution_start" })}\n`);
+				}
+				writeFileSync(`${trace}.sessions.json`, JSON.stringify({ schemaVersion: 1, sessions: [
+					{ path: "reader-runtime/session.jsonl", label: "Reader Root" },
+					{ path: "reader-runtime/children/child/session.jsonl", label: "Reader child" },
+					{ path: "reader-runtime/session.jsonl", label: "Root mirror" },
+				] }));
+				if (noteReplayFailure === "stage-no-index") rmSync(`${trace}.sessions.json`);
+				if (noteReplayFailure === "stage-bad-index") writeFileSync(`${trace}.sessions.json`, "{}");
+				if (noteReplayFailure === "stage-unsafe-index") {
+					const outside = join(root, "outside-session.jsonl");
+					writeFileSync(outside, readFileSync(trace, "utf8").repeat(99));
+					const outsideTools = join(root, "outside-tool-events.jsonl");
+					writeFileSync(outsideTools, `${JSON.stringify({ type: "tool_execution_start" })}\n`.repeat(99));
+					rmSync(join(retained, "tool-events.jsonl"));
+					symlinkSync(outsideTools, join(retained, "tool-events.jsonl"));
+					writeFileSync(`${trace}.sessions.json`, JSON.stringify({ schemaVersion: 1, sessions: [
+						{ path: "reader-runtime/session.jsonl", label: "Reader Root" },
+						{ path: outside, label: "Unowned" },
+					] }));
+				}
+				writeFileSync(join(request.recordDirectory!, "runtime--research.jsonl"), `${JSON.stringify({ type: "node_execution",
+					node_type: "agent", agent: "note_agent", execution_id: "fixture", status: noteReplayFailure === "stage" ? "failed" : "succeeded",
+					trace_ref: "note_agent--fixture.jsonl", output: { metrics: {
+						input_tokens: 101, output_tokens: 11, cost_usd: noteReplayFailure === "invalid" ? -1 : 0.03, model_calls: 2,
+						...(noteReplayFailure.startsWith("stage") ? {} : { tool_calls: 2 }),
+					} }, time: { duration_ms: 5000 },
+				})}\n`);
+				if (noteReplayFailure === "active") {
+					const runtime = join(request.recordDirectory!, "runtime--research.jsonl");
+					writeFileSync(runtime, `${readFileSync(runtime, "utf8")}${JSON.stringify({ type: "runtime.agent_bound", agent: "note_agent", execution_id: "new-attempt" })}\n`);
+				}
+				if (noteReplayFailure !== "capture") throw new Error("fixture Note Agent Stage failure");
+			}
 		}
 		if (agentId === "report-writer") {
 			const runtimeRoot = join(request.recordDirectory!, "work", "runtime", "writer-report-1-execution");
@@ -474,13 +526,18 @@ const runner: AgentStageRunner = {
 				actualModel: request.modelPolicy.preferred[0]!,
 			});
 			assert.ok(draft);
+			const transientTrace = noteReplayFailure === "capture" && agentId === "note-agent"
+				? join(request.workDirectory, "runtime", "children") : undefined;
+			if (transientTrace) { mkdirSync(transientTrace, { recursive: true }); writeFileSync(join(transientTrace, "child.jsonl"), "{}\n"); }
 			result.evaluationCapture = finishNodeEvaluationCase(draft!, {
 				status: "succeeded",
 				workDirectory: request.workDirectory,
 				result,
 				validationErrors: [],
 				workspace: { input_tree_sha: "1".repeat(64), output_tree_sha: "2".repeat(64), exclude: ["node_modules"] },
+				...(transientTrace ? { traceDirectories: [transientTrace] } : {}),
 			});
+			if (transientTrace) rmSync(transientTrace, { recursive: true });
 		}
 		return result;
 	},
@@ -689,6 +746,28 @@ try {
 	}
 	assert.equal(heldPrimeCompleted.activeExecution, undefined);
 	const failingHarness = join(root, "failing-candidate");
+	for (noteReplayFailure of ["stage", "stage-no-index", "stage-unsafe-index", "stage-bad-index", "capture", "invalid", "active", "empty"] as const) {
+		const replay = service.enqueue(goalId, { agentId: "note-agent", cases: [{ sourceRunId, caseId: cases.get("note-agent")! }],
+			candidate: { promptMode: "observed" }, repetitions: 1, rubricId: `note-child-usage-${noteReplayFailure}` });
+		const failed = await waitForEvaluation(service, replay.id);
+		assert.equal(failed.status, "failed");
+		assert.equal(failed.executions[0]!.status, "failed");
+		assert.match(failed.executions[0]!.error!, noteReplayFailure === "capture" ? /Published Artifact directory/u : /fixture Note Agent Stage failure/u);
+		if (noteReplayFailure.startsWith("stage") || noteReplayFailure === "capture") {
+			assert.deepEqual(failed.executions[0]!.metrics, { inputTokens: 101, outputTokens: 11, costUsd: 0.03, calls: 2,
+				turns: 0, toolCalls: noteReplayFailure === "stage" || noteReplayFailure === "capture" ? 2 : 1, durationMs: 5000 },
+				"missing tool metadata never loses complete spend; only indexed/visible tool calls are counted without mirrors or escapes");
+		} else {
+			const { durationMs, ...usage } = failed.executions[0]!.metrics;
+			assert.deepEqual(usage, noteReplayFailure === "empty"
+				? { inputTokens: 0, outputTokens: 0, costUsd: 0, calls: 0, turns: 0, toolCalls: 0 }
+				: { inputTokens: 11, outputTokens: 2, costUsd: 0.01, calls: 1, turns: 0, toolCalls: 1 },
+				"missing, invalid or previous-attempt aggregate retains the trace fallback");
+			assert.ok(durationMs >= 1);
+		}
+		if (noteReplayFailure !== "empty") assert.match(failed.executions[0]!.refs!.agentTrace!, /note_agent--fixture\.jsonl$/u);
+	}
+	noteReplayFailure = undefined;
 	cpSync(harnesses.candidate, failingHarness, { recursive: true });
 	const failingSkill = join(failingHarness, "skills", "prime-search", "fixture");
 	mkdirSync(failingSkill, { recursive: true });
@@ -924,7 +1003,7 @@ try {
 	assert.match(reportTraceRun.run.executions[0]?.refs?.reportInitialPrompt ?? "", /writer-report-1-execution\/initial-prompt\.md$/u);
 	assert.ok(Object.values(reportTraceRun.run.executions[0]?.refs ?? {}).every((ref) => !ref.includes("writer-report-0-previous")));
 	for (const agentId of RECORDED_STAGE_AGENT_IDS) {
-		assert.equal(replayed.get(agentId), agentId === "note-agent" ? 4 : 1);
+		assert.equal(replayed.get(agentId), agentId === "note-agent" ? 12 : 1);
 	}
 	const missingPromptResponse = await fetch(`${baseUrl}/operations/v1/goals/${goalId}/replays`, {
 		method: "POST",
