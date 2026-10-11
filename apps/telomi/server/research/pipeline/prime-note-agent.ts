@@ -126,7 +126,9 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 		const readerSessions: Array<{ id: string; path: string; label: string }> = [];
 		const updateReaderSessions = () => writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1,
 			sessions: readerSessions.map(item => ({ ...item, path: relative(recordDirectory, item.path) })) });
+		let retainedRuntimeRoot: string | undefined;
 		const retainReaderTrace = () => {
+			if (retainedRuntimeRoot) return retainedRuntimeRoot;
 			const target = join(recordDirectory, `${basename(sessionPath, ".jsonl")}-reader-runtime`);
 			mkdirSync(target, { recursive: true });
 			for (const name of ["sessions", "session.jsonl", "result.json", "root-result.json", "failure.json", "stdout.txt", "stderr.txt", "conditions.json", "effective-system-prompt.md",
@@ -138,8 +140,11 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			const receipts = join(agentRoot, "inputs", "reader-results");
 			if (existsSync(receipts)) cpSync(receipts, join(target, "reader-results"), { recursive: true });
 			if (existsSync(join(agentRoot, "reader-plan.json"))) copyFileSync(join(agentRoot, "reader-plan.json"), join(target, "reader-plan.json"));
-			for (const item of readerSessions) item.path = join(target, relative(runtimeRoot, item.path));
-			updateReaderSessions();
+			writeJsonAtomic(`${sessionPath}.sessions.json`, { schemaVersion: 1, sessions: readerSessions.map(item => ({
+				...item, path: relative(recordDirectory, join(target, relative(runtimeRoot, item.path))),
+			})) });
+			retainedRuntimeRoot = target;
+			return target;
 		};
 		mkdirSync(stageRoot, { recursive: true });
 		if (workspace) await snapshotWorkspaceTree(workspace, "input", stageRoot);
@@ -359,9 +364,11 @@ export class PrimeNoteAgentStageRunner implements AgentStageRunner {
 			};
 			if (workspace) await snapshotWorkspaceTree(workspace, "output", stageRoot);
 			if (evaluationDraft) {
+				// Case references must point at the retained Trace before the successful Stage is cleaned up.
+				const traceRoot = piReader ? retainReaderTrace() : runtimeRoot;
 				evaluationCapture = finishNodeEvaluationCase(evaluationDraft, {
 					status: "succeeded",
-					...(piReader ? { traceDirectories: [join(runtimeRoot, "sessions"), join(runtimeRoot, "children")],
+					...(piReader ? { traceDirectories: [join(traceRoot, "sessions"), join(traceRoot, "children")],
 						composedSystemPrompt: readFileSync(join(runtimeRoot, "effective-system-prompt.md"), "utf8") } : {}),
 					workDirectory: request.workDirectory,
 					result: result as ValidatedStageArtifact<unknown>,

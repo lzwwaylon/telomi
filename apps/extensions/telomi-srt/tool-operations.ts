@@ -44,7 +44,7 @@ export class SrtWorkspace {
 			.entries()) {
 			const alias = path.join(this.aliasesRoot, `m${index}`);
 			symlinkSync(realpathSync(mount.hostPath), alias, "dir");
-			this.aliases.set(mount.guestPath, alias);
+			this.aliases.set(mount.guestPath, statSync(mount.hostPath).isDirectory() ? `${alias}/.` : alias);
 		}
 		const home = path.join(this.aliasesRoot, "home");
 		const temp = path.join(this.aliasesRoot, "tmp");
@@ -63,9 +63,17 @@ export class SrtWorkspace {
 
 	guestPath(value: string): string {
 		const trimmed = value.trim().replace(/^@/u, "");
-		return canonicalGuestPath(this.spec, trimmed
+		let absolute = trimmed
 			? path.posix.resolve(this.spec.guestCwd, trimmed.split(path.sep).join("/"))
-			: this.spec.guestCwd);
+			: this.spec.guestCwd;
+		for (const [guest, alias] of this.aliases) {
+			const root = path.resolve(alias);
+			if (isInside(root, absolute)) {
+				absolute = path.posix.join(guest, path.relative(root, absolute).split(path.sep).join("/"));
+				break;
+			}
+		}
+		return canonicalGuestPath(this.spec, absolute);
 	}
 
 	hostPath(value: string, operation: "read" | "write" = "read"): string {

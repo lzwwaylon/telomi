@@ -13,6 +13,7 @@ import { isRecord, toErrorMessage } from "../../lib/values.js";
 import { runPiReader } from "./note-reader-pi.js";
 import { publishReaderFile, validateReaderFile, type ReaderFileAcceptanceOptions } from "./reader-delivery.js";
 import { assembleReaderNote } from "./reader-assembly.js";
+import { snapshotSourceDirectory } from "./source-bundle.js";
 
 type ReaderArgs = Parameters<typeof runPiReader>[0];
 type RootConfig = Omit<ReaderArgs, "signal" | "validate" | "env" | "extensions" | "onEvent" | "sourceReading"> & {
@@ -193,7 +194,9 @@ export async function runPiReaderWorker(signal: AbortSignal) {
 	writeJsonAtomic(join(childRoot, "assignment.json"), { child_id: child.id, task: task.slice(6), original_task: child.task });
 	// Mounts are supplied by the same SRT tool operations as the standalone Pi Reader.
 	const { symlinkSync } = await import("node:fs");
-	for (const name of ["source", "inputs"]) symlinkSync(join(config.work, name), join(child.work, name), "dir");
+	// A real Source tree lets native find/grep traverse it without special symlink flags.
+	snapshotSourceDirectory(join(config.work, "source"), join(child.work, "source"));
+	symlinkSync(join(config.work, "inputs"), join(child.work, "inputs"), "dir");
 	let submissions = 0;
 	let options: ReaderFileAcceptanceOptions | undefined;
 	let candidate: Awaited<ReturnType<typeof validateReaderFile>> | undefined;

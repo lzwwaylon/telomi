@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,53 @@ import test from "node:test";
 import { parseSandboxExecutionSpec } from "../sandbox-spec.js";
 import { execSrt, policyFromSpec } from "../runtime.js";
 import { runtimeTools } from "../runtime-tools.js";
+import { createSrtBashOps, createSrtReadOps, createSrtWriteOps, SrtWorkspace } from "../tool-operations.js";
+
+test("directory mount aliases support ordinary find while file mounts remain files", async (t) => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "srt-directory-alias-")));
+	const work = join(root, "work"), input = join(root, "input");
+	mkdirSync(work); mkdirSync(input);
+	const file = join(input, "frozen.txt");
+	writeFileSync(file, "frozen\n");
+	const workspace = new SrtWorkspace(parseSandboxExecutionSpec({
+		version: 1, id: "directory-alias", role: "main.goal_agent", sessionLabel: "directory-alias",
+		hostCwd: work, guestCwd: "/work", mounts: [
+			{ hostPath: work, guestPath: "/work", access: "read-write" },
+			{ hostPath: input, guestPath: "/input", access: "read-only" },
+			{ hostPath: file, guestPath: "/frozen.txt", access: "read-only" },
+		], activeTools: ["bash"], env: { SOURCE_TREE: "/input", SOURCE_FILE: "/frozen.txt" },
+		network: { mode: "deny" }, writablePaths: [{ guestPath: "/work", kind: "tree" }],
+	}));
+	t.after(() => { workspace.close(); rmSync(root, { recursive: true, force: true }); });
+	const bash = createSrtBashOps(workspace);
+	const execute = async (command: string) => {
+		let output = "";
+		const result = await bash.exec(command, "/work", { onData: chunk => { output += chunk.toString(); },
+			signal: new AbortController().signal, timeout: 10 });
+		return { ...result, output };
+	};
+	for (const command of ["find /input -type f", 'find "$SOURCE_TREE" -type f']) {
+		const result = await execute(command);
+		assert.equal(result.exitCode, 0, result.output);
+		assert.match(result.output, /frozen\.txt/u, "directory mounts behave like directories without symlink flags");
+		const found = result.output.trim();
+		assert.equal((await createSrtReadOps(workspace).readFile(found)).toString(), "frozen\n", "native tools can use the exact path returned by Bash");
+		await assert.rejects(createSrtWriteOps(workspace).writeFile(found, "changed"), /read-only/u);
+	}
+	for (const command of ["cat /frozen.txt", 'cat "$SOURCE_FILE"']) {
+		const result = await execute(command);
+		assert.equal(result.exitCode, 0, result.output);
+		assert.equal(result.output, "frozen\n");
+	}
+	assert.equal((await createSrtReadOps(workspace).readFile(workspace.env().SOURCE_FILE!)).toString(), "frozen\n");
+	await assert.rejects(createSrtWriteOps(workspace).writeFile(workspace.env().SOURCE_FILE!, "changed"), /read-only/u);
+	const other = new SrtWorkspace(workspace.spec);
+	t.after(() => other.close());
+	assert.throws(() => workspace.hostPath(other.env().SOURCE_FILE!), /outside/u, "only this Workspace's registered aliases are accepted");
+	assert.notEqual((await execute("printf changed > /input/frozen.txt")).exitCode, 0);
+	assert.notEqual((await execute("printf changed > /frozen.txt")).exitCode, 0);
+	assert.equal(readFileSync(file, "utf8"), "frozen\n");
+});
 
 test("unsupported optional tool wrappers are not executed or granted", (t) => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "srt-tool-wrapper-")));

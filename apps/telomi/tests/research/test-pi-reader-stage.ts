@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { AgentStageRequest } from "../../server/agent-runtime/agent-stage-runtime.js";
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
+import { findNodeEvaluationCases, readNodeEvaluationCase } from "../../server/agent-runtime/node-evaluation.js";
 import { agentSessionPath, runtimeContextPath } from "../../server/observability/run-records.js";
 import { manifestSessionSections } from "../../server/observability/session-traces.js";
+import { getResearchSourceServiceManager } from "../../server/providers/source-service-client.js";
 import { PrimeNoteAgentStageRunner } from "../../server/research/pipeline/prime-note-agent.js";
 import { renderPiReaderSystemPrompt, renderNoteAgentSystemPrompt, renderPiReaderChildPrompt } from "../../server/research/pipeline/note-agent-prompt.js";
 import { sha256 } from "../../server/lib/hash.js";
@@ -95,7 +97,9 @@ try {
 		writeFileSync(join(inputs, "reader-config.json"), JSON.stringify({ childModel: "stage-fixture/child", language: "en" }));
 		trace = agentSessionPath(records, "note_agent", "reader-attempt-1");
 		const request: AgentStageRequest<typeof note> = { runId: mode, stageId: "reader", attemptId: "attempt-1", role: "note_agent",
-			recordKind: "evaluation", session: { key: "reader", policy: "fresh" }, executionProfile: "pi_builtin",
+			recordKind: "research", session: { key: "reader", policy: "fresh" }, executionProfile: "pi_builtin",
+			evaluation: { agentId: "note-agent", recipe: { id: "note-agent", version: 1 },
+				recipeInput: { question }, inputGuestPath: "/inputs", harnessMounts: [], liveExternalState: false },
 			promptConfig: { domain: "research", id: "note-agent", sandboxRole: "report.note_agent", userVariant: "question-reading", systemVariant: "question-reading-pi" },
 			modelPolicy: { preferred: ["stage-fixture/root"], reasoning: "off" }, systemPrompt: renderPiReaderSystemPrompt("stage-fixture/child"),
 			userPrompt: question, workDirectory: work, controlDirectory: records, recordDirectory: records,
@@ -125,6 +129,13 @@ try {
 			assert.equal(result.toolCounts.ipython, undefined);
 			assert.equal(result.usage.calls, rootTurns + childTurns);
 			assert.equal(existsSync(work), false, "accepted Stage removes its transient workspace");
+			assert.equal(result.evaluationCapture?.status, "captured");
+			const captured = findNodeEvaluationCases(records, "note-agent");
+			assert.equal(captured.length, 1);
+			const value = readNodeEvaluationCase(captured[0]!.path, records);
+			assert.equal(value.status, "succeeded");
+			assert.equal(value.observed.traceDirectories?.length, 2, "Root and child directories remain hash-valid after cleanup");
+			assert.ok(value.observed.traceDirectories!.every(directory => directory.ref.includes("-reader-runtime/")));
 			const sessions = manifestSessionSections(records, `${basename(trace)}.sessions.json`)!;
 			assert.equal(sessions.length, 2);
 			assert.ok(sessions.every(session => session.path.includes("-reader-runtime/")));
@@ -141,18 +152,22 @@ try {
 			assert.equal(sessions.length, 2);
 			const messages = sessions.flatMap(session => readFileSync(session.path, "utf8").trim().split("\n").map(line => JSON.parse(line).message));
 			const calls = messages.filter(message => message?.role === "assistant");
-			const events = readFileSync(runtimeContextPath(records, "evaluation"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+			const events = readFileSync(runtimeContextPath(records, "research"), "utf8").trim().split("\n").map(line => JSON.parse(line));
 			const failed = events.find(event => event.type === "node_execution" && event.status === "failed");
 			assert.ok(failed);
 			assert.equal(failed.output.metrics.model_calls, calls.length, "failed Stage includes all failed-child assistant attempts");
 			assert.equal(failed.output.metrics.input_tokens, calls.reduce((sum, message) => sum + message.usage.input, 0));
 			assert.ok(calls.some(message => message.model === "child" && message.stopReason === "error"));
 			assert.ok(existsSync(work), "failed Stage preserves its workspace for diagnostics");
+			const captured = findNodeEvaluationCases(records, "note-agent");
+			assert.equal(captured.length, 1);
+			assert.equal(captured[0]!.value.status, "failed", "failed Stage capture remains readable with its retained workspace");
 		}
 		assert.deepEqual(errors, []);
 	}
 	console.log("Production Pi Reader Stage: routing, live/retained Trace index, immutable receipts, cleanup and failed-child usage passed");
 } finally {
+	await getResearchSourceServiceManager().close();
 	server.closeAllConnections();
 	await new Promise<void>(done => server.close(() => done()));
 	rmSync(fixture, { recursive: true, force: true });

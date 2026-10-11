@@ -23,10 +23,12 @@ const draft = (line: number, scope: string) => ({ status: "found", summary: "Ver
 const plan = (notes: string[]) => ({ status: "found", summary: "Verified combined evidence", gaps: [], notes, excluded: [] });
 const json = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 const errors: unknown[] = [];
-let mode: "read" | "cancel" | "single" | "registration-failure" = "read";
+let mode: "navigation" | "read" | "cancel" | "single" | "registration-failure" = "navigation";
 let rootTurns = 0;
 const childTurns = new Map<string, number>();
 const childResults: string[] = [];
+const navigationPaths = new Map<string, string>();
+const navigationWaiters: Array<() => void> = [];
 const firstResponses: Array<() => void> = [];
 let accepted: Array<{ child_id: string; note_path: string; session_id: string; submission: number; task: string }> = [];
 let observedPids: number[] = [];
@@ -60,6 +62,14 @@ const server = createServer(async (request, response) => {
 			assert.ok(toolNames.includes("subagent"));
 			call = ++rootTurns;
 			if (mode === "cancel" || mode === "registration-failure") { assert.equal(call, 1); action = parallel(); }
+			else if (mode === "navigation") {
+				if (call === 1) action = parallel();
+				else if (call === 2) {
+					accepted = JSON.parse(input.messages.at(-1).content).results;
+					assert.equal(accepted.length, 2);
+					action = ["write", { path: "reader-plan.json", content: JSON.stringify(plan([...accepted].reverse().map(receipt => receipt.note_path))) }];
+				} else { assert.equal(call, 3); action = null; }
+			}
 			else if (mode === "single") {
 				const subagent = input.tools.find((tool: { function: { name: string } }) => tool.function.name === "subagent");
 				assert.equal(subagent.function.parameters.properties.chain, undefined, "the Reader schema does not offer unvalidated chain text delivery");
@@ -118,13 +128,48 @@ const server = createServer(async (request, response) => {
 				const id = readdirSync(directory).find(id => json(join(directory, id, "config.json")).task === assignment(scope));
 				assert.ok(id);
 				assert.equal(registered.get(id)?.path, join(directory, id, "session.jsonl"), "live child Trace is registered before its first model request");
+				if (mode === "navigation") writeFileSync(join(directory, id, "work/private.txt"), `private ${scope}`);
 			}
 			childTurns.set(scope, call);
-			firstChild = call === 1 && (mode === "read" || mode === "cancel");
+			firstChild = call === 1 && (mode === "navigation" || mode === "read" || mode === "cancel");
 			if (input.messages.at(-1).role === "tool") childResults.push(input.messages.at(-1).content);
 			if (mode === "cancel") {
 				assert.equal(call, 1, `cancellation must interrupt the still-running Bash Tool; last result: ${JSON.stringify(input.messages.at(-1))}`);
 				action = ["bash", { command: "printf started > tool-started; sleep 120; printf leaked > tool-finished" }];
+			} else if (mode === "navigation") {
+				const directory = join(fixture, mode, "runtime/children");
+				const other = readdirSync(directory).find(id => json(join(directory, id, "config.json")).task === assignment(scope === "alpha" ? "beta" : "alpha"));
+				if (call === 1) action = ["bash", { command: "find /work/source -type f; find source -type f; if printf tampered 2>/dev/null > source/S1/paper.txt; then echo SOURCE_WRITE_ALLOWED; else echo SOURCE_WRITE_DENIED; fi" }];
+				else if (call === 2) {
+					assert.match(input.messages.at(-1).content, /S1\/paper\.txt/u, "ordinary find discovers the original Source without symlink flags");
+					assert.match(input.messages.at(-1).content, /SOURCE_WRITE_DENIED/u, "Source remains read-only to native Bash");
+					assert.equal((input.messages.at(-1).content.match(/S1\/paper\.txt/gu) ?? []).length, 2,
+						"absolute and relative find each discover the original file");
+					assert.match(input.messages.at(-1).content, /(?:^|\n)source\/S1\/paper\.txt/u, "relative find traverses the same real Source tree");
+					const discovered = input.messages.at(-1).content.split("\n").find((line: string) => line.startsWith("/") && line.endsWith("/S1/paper.txt"));
+					assert.ok(discovered);
+					navigationPaths.set(scope, discovered);
+					if (navigationPaths.size < 2) await new Promise<void>(resolve => navigationWaiters.push(resolve));
+					else for (const ready of navigationWaiters) ready();
+					assert.ok(other);
+					action = ["read", { path: join(directory, other, "work/private.txt") }];
+				} else if (call === 3) {
+					assert.match(input.messages.at(-1).content, /outside|escapes|denied/u, "another child's files remain unreadable");
+					assert.ok(other);
+					action = ["write", { path: join(directory, other, "work/private.txt"), content: "tampered" }];
+				} else if (call === 4) {
+					assert.match(input.messages.at(-1).content, /outside|escapes|denied/u, "another child's files remain unwritable");
+					action = ["read", { path: navigationPaths.get(scope), offset: 2 }];
+				} else if (call === 5) {
+					assert.match(input.messages.at(-1).content, /L2 \| Exact verified evidence/u);
+					action = ["write", { path: navigationPaths.get(scope), content: "tampered" }];
+				} else if (call === 6) {
+					assert.match(input.messages.at(-1).content, /read-only/u, "own Source alias retains read-only permissions");
+					action = ["read", { path: navigationPaths.get(scope === "alpha" ? "beta" : "alpha"), offset: 2 }];
+				} else if (call === 7) {
+					assert.match(input.messages.at(-1).content, /outside|escapes|denied/u, "another child's mount alias remains unreadable");
+					action = ["write", { path: "note.json", content: JSON.stringify(draft(2, scope)) }];
+				} else { assert.equal(call, 8); action = null; }
 			} else if (mode === "single") {
 				assert.equal(scope, "alpha");
 				assert.ok(call <= 2);
@@ -202,6 +247,11 @@ try {
 				}, "Runtime preserves complete child sections in plan order");
 			} };
 	};
+	const navigation = prepare("navigation", new AbortController().signal);
+	await runPiReaderSubagents(navigation);
+	assert.deepEqual(errors, []);
+	assert.equal(readFileSync(join(navigation.work, "source/S1/paper.txt"), "utf8"), paper);
+	mode = "read"; rootTurns = 0; childTurns.clear(); firstResponses.length = 0; registered.clear(); childResults.length = 0;
 	const args = prepare("read", new AbortController().signal);
 	const result = await runPiReaderSubagents(args);
 	assert.deepEqual(errors, []);
