@@ -11,7 +11,7 @@ import { noteWikiEntries } from "../../server/wiki/note-entries.js";
 import { listSavedNoteCues, rankSavedNoteCues, resolveSavedNoteCue } from "../../server/research/note-retrieval.js";
 import { MainWikiCitationSession } from "../../server/main-agent/wiki-citations.js";
 import { resolveMessageCitationSourcePreview } from "../../server/citations/preview.js";
-import { writeWikiMessageCitations } from "../../server/citations/wiki-message-store.js";
+import { readWikiMessageCitations, writeWikiMessageCitations } from "../../server/citations/wiki-message-store.js";
 import { createArtifactsRouter } from "../../server/media/artifacts-api.js";
 import type { GoalService } from "../../server/goals/service.js";
 
@@ -81,7 +81,10 @@ try {
 		content: [{ type: "text", text: `The vendor reports 71.4 and 60.8. <cite>${cue!.ref}</cite>` }] };
 	assert.equal(await session.compileMessage(message), true);
 	assert.match(message.content[0]!.text, /\[\[1\]\]/u);
+	const stored = readWikiMessageCitations(goalDir, (message as typeof message & { citationMessageId: string }).citationMessageId);
+	assert.equal(stored?.citations[0]?.title, "Gemini Flash TTS", "the displayed title names the Source, while preview retains the Cue");
 	const preview = resolveMessageCitationSourcePreview(goalDir, (message as typeof message & { citationMessageId: string }).citationMessageId, "", 1);
+	assert.equal(preview?.clues[0]?.cue, cue!.cue);
 	assert.equal(preview?.clues[0]?.excerpts[0]?.text, sourceText.trim());
 	assert.equal(preview?.clues[0]?.excerpts[0]?.sourceRevisionSha256, revision);
 	writeFileSync(document, "The score changed.\n");

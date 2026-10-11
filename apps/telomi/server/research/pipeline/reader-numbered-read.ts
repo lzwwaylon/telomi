@@ -11,7 +11,7 @@ export function createReaderNumberedRead(cwd: string, operations: ReadOperations
 	const { renderCall: _renderCall, renderResult: _renderResult, ...definition } = native;
 	return {
 		...definition,
-		description: `${native.description} Reader evidence view: format=auto (default) adds L123 | labels to .md, .markdown and .txt files under /work/source; other files use native raw reading. format=numbered adds labels to UTF-8 text; format=raw preserves native output for JSON and programmatic parsing. Displayed lines use original 1-based citation positions (CRLF/CR normalized, UTF-8 BOM removed). Pages contain complete lines, at most 2000 lines and 32 KiB including labels and footer. The footer gives the displayed range, total lines and next_offset; continue where relevant. An oversized single line is reported without skipping it; use bash/Python to inspect bounded character ranges. Images retain native handling.`,
+		description: `${native.description} Reader evidence view: format=auto (default) adds L123 | labels to .md, .markdown, .txt, .json and .jsonl files under /work/source; other files use native raw reading. format=numbered adds labels to UTF-8 text. format=raw preserves native output for programmatic parsing; before citing raw-read content, use format=numbered to confirm original line positions instead of estimating them. Displayed lines use original 1-based citation positions (CRLF/CR normalized, UTF-8 BOM removed). Pages contain complete lines, at most 2000 lines and 32 KiB including labels and footer. The footer gives the displayed range, total lines and next_offset; continue where relevant. An oversized single line is reported without skipping it; use bash/Python to inspect bounded character ranges. Images retain native handling.`,
 		parameters: Type.Object({
 			path: Type.String({ description: "File path, relative to /work or absolute" }),
 			offset: Type.Optional(Type.Integer({ minimum: 1, description: "Original 1-based starting line" })),
@@ -30,7 +30,7 @@ export function createReaderNumberedRead(cwd: string, operations: ReadOperations
 			}
 			if (!["auto", "numbered", "raw"].includes(format)) throw new Error("Unknown read format");
 			const absolutePath = resolveGuestPath(path);
-			const sourceText = absolutePath.startsWith("/work/source/") && [".md", ".markdown", ".txt"].includes(posix.extname(absolutePath).toLowerCase());
+			const sourceText = absolutePath.startsWith("/work/source/") && [".md", ".markdown", ".txt", ".json", ".jsonl"].includes(posix.extname(absolutePath).toLowerCase());
 			const view = format === "auto" ? (sourceText ? "numbered" : "raw") : format;
 			if (view === "raw") return native.execute(callId, input, signal, onUpdate, context);
 			await abortable(operations.access(absolutePath), signal);

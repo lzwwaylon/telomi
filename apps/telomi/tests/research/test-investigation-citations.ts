@@ -9,6 +9,7 @@ import { enrichInvestigationCues } from "../../server/research/investigate.js";
 import { materializeOrganizedSources } from "../../server/research/pipeline/organized-sources.js";
 
 import { createInvestigationCitationScope } from "../../server/research/investigation-citations.js";
+import { validateInvestigationResult } from "../../server/citations/contracts.js";
 
 const refs = createInvestigationCitationScope();
 const cue = {
@@ -44,6 +45,13 @@ assert.deepEqual(refs.restore({ answer: "Evidence <cite>N1</cite> and context <c
 assert.throws(() => refs.resolve(cue.ref), /unknown evidence/u);
 assert.throws(() => refs.resolve("N3"), /unknown evidence/u);
 assert.throws(() => refs.allowWikiRef("C0"), /Invalid Wiki citation/u);
+const groupedResult = refs.restore({ answer: "Together <cite>N1, C1,N2,N1</cite>.", citation_refs: ["N1", "C1", "N2"] });
+assert.equal(groupedResult.answer, `Together <cite>${cue.ref},C1,note:run:other-long-id</cite>.`);
+assert.deepEqual(groupedResult.citation_refs, [cue.ref, "C1", "note:run:other-long-id"]);
+const validatedGroup = { ...groupedResult, id: "grouped", question: "Explain both", wiki_sha256: "", gaps: [] };
+assert.deepEqual(validateInvestigationResult(validatedGroup, "grouped", "Explain both"), validatedGroup);
+assert.throws(() => validateInvestigationResult({ ...validatedGroup, answer: "Broken <cite>N1,,N2</cite>" }, "grouped", "Explain both"), /citation/u);
+assert.throws(() => refs.restore({ answer: "Unknown <cite>N1,N999</cite>", citation_refs: ["N1"] }), /N999/u);
 
 const root = mkdtempSync(join(tmpdir(), "telomi-cue-provenance-"));
 try {

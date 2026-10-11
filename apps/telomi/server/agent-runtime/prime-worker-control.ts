@@ -52,9 +52,11 @@ export async function requestPrimeOutputValidation(submission: number, signal: A
 	if (!process.send || !process.connected) throw new Error("Prime Worker requires a Runtime validation channel");
 	const replies = on(process, "message", { signal, close: ["disconnect"] });
 	try {
-		process.send({ type: "stage_output_candidate", submission });
+		await new Promise<void>((resolve, reject) => process.send!({ type: "stage_output_candidate", submission },
+			(error: Error | null) => error ? reject(error) : resolve()));
 		for await (const [message] of replies) {
 			if (!isRecord(message) || message.type !== "stage_output_validation" || message.submission !== submission) continue;
+			if (message.fatal === true) throw new Error(typeof message.error === "string" ? message.error : "Runtime output validation failed");
 			return { accepted: message.accepted === true, ...(typeof message.error === "string" ? { error: message.error } : {}) };
 		}
 		throw new Error("Runtime validation channel closed");

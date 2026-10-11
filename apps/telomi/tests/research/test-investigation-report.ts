@@ -16,6 +16,8 @@ import { listPublishedReports, publishedInvestigationReportMetadata, publishedRe
 import { publishInvestigationReport } from "../../server/research/investigation-report.js";
 import { reportPublishedResponse, reportReference } from "../../server/research/reports/delivery.js";
 import { serverRuntimeDirForGoalDir } from "../../server/workspaces/server-runtime-paths.js";
+import { resolveCitationSourcePreview } from "../../server/citations/preview.js";
+import { compileStandaloneCitationMarkdown } from "../../server/research/pipeline/citation-compiler.js";
 
 const workspace = mkdtempSync(join(tmpdir(), "telomi-investigation-report-"));
 const goalId = "goal_publication";
@@ -29,7 +31,7 @@ const citations = [
 	{ ref: "C1", wiki: { ref: "C1", page: { ref: "P1", path: "wiki/implementation.md", title: "Frozen Wiki",
 		type: "entity", content: "Frozen Wiki text" }, entry: { id: "entry:wiki", index: 1, section: "Implementation",
 			cue: "Frozen Wiki cue", note: "Frozen Wiki finding", source: { id: "source:wiki", title: "Wiki source", url: "https://example.com/wiki" },
-			anchors: [{ path: "wiki-source/content.md", startLine: 1, endLine: 1, format: "markdown", content: "Frozen Wiki evidence", assets: [] }] },
+			anchors: [{ path: "wiki-source/content.md", startLine: 1, endLine: 1, format: "markdown" as const, content: "Frozen Wiki evidence", assets: [] }] },
 		evidence: [] } },
 	{ ref: deepRef, cue: { ref: deepRef, section_title: "New reading", cue: "New detail", note: "Newly read finding",
 		evidence: [{ ...anchor, title: "New source", url: "https://example.com/new" }] } },
@@ -66,8 +68,10 @@ try {
 	assert.equal(structured.markdown, markdown);
 	assert.deepEqual(structured.investigation, result, "preserve original answer bytes, citation identities and gaps");
 	assert.deepEqual(structured.citations[0].wiki, [citations[0]!.wiki]);
-	assert.deepEqual(structured.citations[1].cue, citations[1]!.cue);
-	assert.deepEqual(structured.citations[2].cue, citations[2]!.cue);
+	assert.deepEqual(structured.citations[1].cues, [citations[1]!.cue]);
+	assert.deepEqual(structured.citations[2].cues, [citations[2]!.cue]);
+	assert.equal(resolveCitationSourcePreview(join(reportRoot, "final.md"), "", 3)?.clues[0]?.cue, "Saved detail",
+		"new local reports preserve exact number-only previews");
 	assert.match(markdown, /Frozen Wiki \[\[1\]\]\(https:\/\/example.com\/wiki\)/u);
 	assert.match(markdown, /New detail \[\[2\]\]\(https:\/\/example.com\/new\)/u);
 	assert.match(markdown, /Saved detail \[\[3\]\]/u);
@@ -175,6 +179,87 @@ try {
 	assert.deepEqual(checklistJson.markdown.match(/^#{1,6} Saved checklist$/gmu), ["# Saved checklist"],
 		"an existing answer title must not become a duplicate heading in the report or its table of contents");
 	assert.equal(checklistJson.investigation.answer, checklist.answer);
+	const groupedId = sha256("source-grouped-citations").slice(0, 24);
+	const secondRef = "deep-search:reader-1:cue-2";
+	const groupedCues = [
+		{ ref: deepRef, cue: { ref: deepRef, cue: "Two Source finding", note: "Both Sources support this finding",
+			evidence: [{ ...anchor, title: "Wiki source", url: "https://example.com/wiki#one" },
+				{ ...anchor, source_id: "source:second", title: "Second source", url: "https://example.com/second" }] } },
+		{ ref: secondRef, cue: { ref: secondRef, cue: "Another exact finding", note: "Another detail from the same Source",
+			evidence: [{ ...anchor, title: "Wiki source", url: "https://example.com/wiki#two" }] } },
+	];
+	seed(groupedId, `Together <cite>C1, ${deepRef},${secondRef},C1</cite>.`,
+		["C1", deepRef, secondRef], [citations[0], ...groupedCues]);
+	const groupedReport = publishInvestigationReport(goalDir, groupedId, "Grouped evidence report");
+	const groupedRoot = join(goalDir, "wiki/runs", groupedReport.runId, "report");
+	const groupedJson = JSON.parse(readFileSync(join(groupedRoot, "final.json"), "utf-8"));
+	assert.deepEqual(groupedJson.citations.map((citation: { url: string; refs: string[] }) => [citation.url, citation.refs]),
+		[["https://example.com/wiki", ["C1", deepRef, secondRef]], ["https://example.com/second", [deepRef]]],
+		"URLs are numbered once across Wiki and multiple Cues, while a multi-Source Cue cites each Source");
+	assert.deepEqual(resolveCitationSourcePreview(join(groupedRoot, "final.md"), "https://example.com/wiki", 1)?.clues.map(clue => clue.cue),
+		["Frozen Wiki cue", "Two Source finding", "Another exact finding"], "merged report preview retains all cited evidence");
+	assert.equal(resolveCitationSourcePreview(join(groupedRoot, "final.md"), "https://example.com/second", 2)?.clues[0]?.cue,
+		"Two Source finding");
+	assert.equal(resolveCitationSourcePreview(join(groupedRoot, "final.md"), "https://example.com/wiki", 1)?.clues[1]?.excerpts[1]?.sourceUrl,
+		"https://example.com/second", "a Cue's other supporting Source keeps its own identity in the merged preview");
+	assert.deepEqual(publishInvestigationReport(goalDir, groupedId, "Grouped evidence report"), groupedReport);
+	const localWikiId = sha256("distinct-local-wiki-sources").slice(0, 24);
+	const localWiki = [1, 2].map(number => ({ ref: `C${number}`, wiki: {
+		...citations[0]!.wiki!, ref: `C${number}`, entry: { ...citations[0]!.wiki!.entry,
+			source: { id: `source:local-${number}`, title: `Local Source ${number}`, url: `file:///saved/local-${number}.md` } },
+	} }));
+	seed(localWikiId, "First <cite>C1</cite>. Second <cite>C2</cite>.", ["C1", "C2"], localWiki);
+	const localWikiReport = publishInvestigationReport(goalDir, localWikiId, "Local Wiki report");
+	const localWikiJson = JSON.parse(readFileSync(join(goalDir, "wiki/runs", localWikiReport.runId, "report/final.json"), "utf-8"));
+	assert.deepEqual(localWikiJson.citations.map((citation: { number: number; url?: string; refs: string[] }) =>
+		[citation.number, citation.url, citation.refs]), [[1, undefined, ["C1"]], [2, undefined, ["C2"]]],
+		"local Wiki Sources do not merge just because both external URLs are empty");
+	assert.equal(localWikiJson.markdown.includes("file:///"), false);
+	const legacyId = sha256("legacy-publication-retry").slice(0, 24);
+	const legacyResult = seed(legacyId);
+	const legacyCompiled = compileStandaloneCitationMarkdown({ markdown: `# Legacy report\n\n${legacyResult.answer}`,
+		citationRegistry: { schemaVersion: 1, knowledgeSha256: legacyResult.wiki_sha256,
+			entries: citations.map(citation => citation.wiki ? { ref: citation.ref, url: citation.wiki.entry.source.url,
+				title: citation.wiki.entry.source.title, provenance: citation.wiki.entry.source.id,
+				evidenceId: citation.wiki.entry.source.id, fileRefs: [citation.wiki.page.path], wiki: citation.wiki }
+				: { ref: citation.ref, url: citation.ref === deepRef ? "https://example.com/new" : "",
+					title: citation.cue!.cue, provenance: citation.ref, numberKey: citation.ref,
+					fileRefs: citation.cue!.evidence.map(anchor => anchor.source_path) }) } });
+	const legacyJson = `${JSON.stringify({ publishedAt: "2026-10-01T00:00:00.000Z", markdown: legacyCompiled.markdown,
+		citations: legacyCompiled.citations.map(citation => {
+			const cue = citations.find(frozen => frozen.ref === citation.refs?.[0])?.cue;
+			return { ...citation, ...(cue ? { cue } : {}) };
+		}), investigation: legacyResult }, null, 2)}\n`;
+	const legacyRoot = join(goalDir, "wiki/runs", `investigation-${legacyId}`, "report");
+	mkdirSync(legacyRoot, { recursive: true });
+	writeFileSync(join(legacyRoot, "final.json"), legacyJson);
+	const legacyResultPath = join(serverRuntimeDirForGoalDir(goalDir), "research/investigations", legacyId, "result.json");
+	writeFileSync(legacyResultPath, JSON.stringify({ ...legacyResult, answer: `Changed answer. ${legacyResult.answer}` }));
+	assert.throws(() => publishInvestigationReport(goalDir, legacyId, "Legacy report"), /differs/u, "a changed saved answer cannot reuse an old report");
+	writeFileSync(legacyResultPath, JSON.stringify(legacyResult));
+	const legacyEvidencePath = join(serverRuntimeDirForGoalDir(goalDir), "research/investigations", legacyId, "citations.json");
+	const legacyEvidence = readFileSync(legacyEvidencePath);
+	rmSync(legacyEvidencePath);
+	assert.throws(() => publishInvestigationReport(goalDir, legacyId, "Legacy report"),
+		"an existing report never bypasses verification of the saved investigation evidence");
+	writeFileSync(legacyEvidencePath, legacyEvidence);
+	writeFileSync(join(legacyRoot, "final.md"), legacyCompiled.markdown);
+	assert.equal(publishInvestigationReport(goalDir, legacyId, "Legacy report").runId, `investigation-${legacyId}`,
+		"retry recognizes the same validated investigation published in the previous single-Cue format");
+	assert.equal(readFileSync(join(legacyRoot, "final.json"), "utf-8"), legacyJson, "retry never rewrites immutable legacy JSON");
+	assert.equal(readFileSync(join(legacyRoot, "final.md"), "utf-8"), legacyCompiled.markdown);
+	rmSync(join(legacyRoot, "final.md"));
+	publishInvestigationReport(goalDir, legacyId, "Legacy report");
+	assert.equal(readFileSync(join(legacyRoot, "final.json"), "utf-8"), legacyJson);
+	assert.equal(readFileSync(join(legacyRoot, "final.md"), "utf-8"), legacyCompiled.markdown,
+		"half-published legacy output recovers its verified original compiled Markdown");
+	assert.throws(() => publishInvestigationReport(goalDir, legacyId, "Another title"), /differs/u);
+	const tampered = JSON.parse(legacyJson);
+	tampered.citations[1].cue.note = "Not the frozen evidence";
+	writeFileSync(join(legacyRoot, "final.json"), JSON.stringify(tampered, null, 2) + "\n");
+	assert.throws(() => publishInvestigationReport(goalDir, legacyId, "Legacy report"), /differs/u,
+		"legacy publication cannot supply altered evidence while claiming the same investigation");
+	writeFileSync(join(legacyRoot, "final.json"), legacyJson);
 	assert.match(headerMarkdown, /The remaining paragraph is unchanged\./u);
 	assert.ok(publishedInvestigationReportMetadata(goalDir, headerCitation.runId));
 

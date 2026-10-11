@@ -81,6 +81,8 @@ R = TypeVar("R")
 
 
 class HuggingFaceRecord(TypedDict, total=False):
+    """Paper ``published_at`` is distinct from Hub repository ``created_at`` and ``updated_at``."""
+
     id: str
     title: str
     url: str
@@ -132,6 +134,7 @@ class HuggingFaceRecord(TypedDict, total=False):
     identifiers: dict[str, Any]
     query_sequences: list[int]
     discovery_lanes: list[dict[str, Any]]
+    candidate_date_evidence: dict[str, Any]
 
 
 class HuggingFaceDiscovery(TypedDict):
@@ -205,6 +208,10 @@ dataset_info when an exact identifier is known. Use paginate_models,
 paginate_datasets, paginate_spaces, or paginate_daily_papers for bounded
 multi-page acquisitions. Hub cursors are opaque and are passed back to Runtime
 unchanged.
+
+Hub repositories expose ``created_at`` and ``updated_at``, not ``published_at``.
+Creation and update times do not establish a model's first public release date.
+Paper ``published_at`` retains the paper's original publication date.
 
 The Worker never receives a Hugging Face token or direct network access.
 Runtime calls the native Hugging Face HTTP APIs and records every operation.
@@ -910,7 +917,9 @@ def discover_models(
 
     For each task this runs trending, complete creation-date coverage when a date range is given,
     likes and downloads, and merges them by ``repo_id``. The date-range lane is ordered by likes,
-    so the most liked models created in the range come first. Records are excluded by their own
+    so the most liked models created in the range come first. An associated paper month can retain
+    an older repository as a candidate lead, not as a verified model release in the interval.
+    Records are excluded by their own
     fields, then the lanes take turns filling a pool of at most 200 models, returned 50 to a page
     in that order. Nothing is acquired.
 
@@ -1054,7 +1063,7 @@ def discover_models(
             start_date is not None
             and end_date is not None
             and repo_id not in timeline_ids
-            and _release_evidence(record, start_date, end_date) is None
+            and _candidate_date_evidence(record, start_date, end_date) is None
         ):
             continue
         likes = record.get("likes")
@@ -1080,8 +1089,8 @@ def discover_models(
     selected_records = [
         {**{key: record[key] for key in DISCOVERY_RECORD_FIELDS if key in record}, "url": url_of(str(record["repo_id"])),
          "gated": bool(record.get("gated") or (record.get("metadata") or {}).get("gated")),
-         # A repository created before the range is in the pool for a later release; the listing says which, or its creation date reads as out of range.
-         **({"released": _release_evidence(record, start_date, end_date)}
+         # A related paper can retain an older repository as a lead; it never verifies the model's release date.
+         **({"candidate_date_evidence": _candidate_date_evidence(record, start_date, end_date)}
             if start_date and end_date and not start_date <= str(record.get("created_at") or "")[:10] <= end_date else {})}
         for record in (records_by_id[repo_id] for repo_id in selected)
     ]
@@ -1117,8 +1126,13 @@ def _discovery_page(pool: Mapping[str, Any], offset: int, key_hash: str) -> Hugg
            if pool["beyond_limit"] else "")]
     for number, record in enumerate(selected[offset - 1:end], start=offset):
         created = str(record.get("created_at") or "")[:10]
+        lead = record.get("candidate_date_evidence")
+        date = f"created {created}" if created else "creation date unavailable"
+        if lead and lead["kind"] == "associated_paper_month":
+            date += (f", associated paper month {lead['month']} ({lead['arxiv_tag']}); "
+                     "model release date unverified")
         lines.append(f"{number}. {record['repo_id']} | {record.get('likes') or 0} likes | "
-                     + (f"created {created}, {record['released']}" if record.get("released") else created)
+                     + date
                      + (" | gated" if record["gated"] else ""))
     if len(selected) > DISCOVERY_PAGE_SIZE:
         # The notice a truncated read ends with: where this page sits and how to continue.
@@ -1173,21 +1187,21 @@ def _is_derived(record: Mapping[str, Any], pipeline_tags: Sequence[str]) -> bool
     return False
 
 
-def _release_evidence(
+def _candidate_date_evidence(
     record: Mapping[str, Any],
     start_date: str,
     end_date: str,
-) -> str | None:
-    """What places a record in the date range: one of its own dates, or a paper it declares. ``None`` when nothing does."""
-    for name in ("created_at", "published_at", "submitted_at"):
-        value = record.get(name)
-        if isinstance(value, str) and start_date <= value[:10] <= end_date:
-            return f"{name.removesuffix('_at')} {value[:10]}"
+) -> dict[str, Any] | None:
+    """A creation-date match or associated-paper lead; neither verifies a model release."""
+    created = record.get("created_at")
+    if isinstance(created, str) and start_date <= created[:10] <= end_date:
+        return {"kind": "repository_created_at", "value": created, "model_release_verified": False}
     start_month, end_month = start_date[:7], end_date[:7]
     for tag in record.get("tags", []):
         match = re.fullmatch(r"arxiv:(\d{2})(\d{2})\.\d{4,5}", tag, re.IGNORECASE)
         if match and start_month <= f"20{match.group(1)}-{match.group(2)}" <= end_month:
-            return f"released 20{match.group(1)}-{match.group(2)} ({tag.lower()})"
+            return {"kind": "associated_paper_month", "month": f"20{match.group(1)}-{match.group(2)}",
+                    "arxiv_tag": tag, "model_release_verified": False}
     return None
 
 
@@ -1387,6 +1401,13 @@ def _public_record(row: dict[str, Any]) -> HuggingFaceRecord:
     """Expose stable Hugging Face metadata as convenient top-level fields."""
     record = dict(row)
     metadata = row.get("metadata")
+    resource_type = row.get("resource_type") or (metadata.get("resource_type") if isinstance(metadata, dict) else None)
+    if resource_type in ("model", "dataset", "space", "model_card"):
+        # Older Provider responses aliased repository creation as publication; never carry that alias into a new Ledger.
+        record.pop("published_at", None)
+        if isinstance(metadata, dict):
+            metadata = {key: value for key, value in metadata.items() if key != "published_at"}
+            record["metadata"] = metadata
     if isinstance(metadata, dict):
         for key in (
             "resource_type",

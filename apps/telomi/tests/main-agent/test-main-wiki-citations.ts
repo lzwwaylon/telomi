@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import { MainWikiCitationSession } from "../../server/main-agent/wiki-citations.
 import { compileStandaloneCitationMarkdown } from "../../server/research/pipeline/citation-compiler.js";
 import { sha256 } from "../../server/lib/hash.js";
 import { createInvestigationCitationScope } from "../../server/research/investigation-citations.js";
+import { writeWikiMessageCitations } from "../../server/citations/wiki-message-store.js";
 
 const wiki = {
 	ref: "C1",
@@ -200,6 +201,17 @@ try {
 	assert.deepEqual(merged?.clues.map((clue) => clue.cue), ["Finding", "Limitation"],
 		"the shared number previews every cited Evidence of that Source");
 
+	const multiRefMessage = { role: "assistant", timestamp: 1_788_000_000_011,
+		content: [{ type: "text", text: "Both findings. <cite> C1, C2, C1 </cite>" }] };
+	assert.equal(await session.compileMessage(multiRefMessage), true);
+	assert.match(multiRefMessage.content[0]!.text, /^Both findings\. \[\[1\]\]\(https:\/\/example\.test\/paper\)\n/u);
+	const groupedPreview = resolveMessageCitationSourcePreview(goalDir, multiRefMessage.citationMessageId, "https://example.test/paper", 1);
+	assert.deepEqual(groupedPreview?.clues.map(clue => clue.cue), ["Finding", "Limitation"], "grouped chat cites hydrate and retain both Wiki Evidence anchors");
+	await assert.rejects(session.compileMessage({ role: "assistant", content: "Bad. <cite>C1,C99</cite>" }), /C99/u);
+	for (const malformed of ["<cite C1>C1</cite>", "</cite>", "<cite>C1"]) {
+		await assert.rejects(session.compileMessage({ role: "assistant", content: malformed }), /malformed.*citation/iu);
+	}
+
 	const deepSearchDir = join(goalDir, "artifacts", "deep-search");
 	mkdirSync(deepSearchDir, { recursive: true });
 	const deepRef = "deep-search:run1:cue-1";
@@ -240,7 +252,8 @@ try {
 	};
 	assert.equal(await session.compileMessage(deepMessage), true);
 	assert.match(deepMessage.content[0]!.text, /\[\[1\]\]/u);
-	const deepPreview = resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 1);
+	assert.match(deepMessage.content[0]!.text, /\[\[1\]\]\(https:\/\/example\.test\/paper\)/u);
+	const deepPreview = resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "https://example.test/paper", 1);
 	assert.equal(deepPreview?.clues[0]?.cue, "Exact finding");
 	assert.deepEqual(deepPreview?.clues[0]?.excerpts, [{
 		path: "members/web/paper.md",
@@ -253,6 +266,10 @@ try {
 		contentSha256: sha256("Exact evidence.\n"),
 	}]);
 	assert.equal(resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 2), null);
+	writeWikiMessageCitations(goalDir, { schemaVersion: 1, goalId, messageId: "legacy-cue-message",
+		wikiRevision: "", knowledgeSha256: "", citations: [{ number: 1, title: "Exact finding", refs: [deepRef] }] });
+	assert.equal(resolveMessageCitationSourcePreview(goalDir, "legacy-cue-message", "", 1)?.clues[0]?.cue,
+		"Exact finding", "old number-only chat citations still resolve their exact Cue");
 	const mixedMessage = {
 		role: "assistant",
 		timestamp: 1_788_000_000_003,
@@ -261,14 +278,63 @@ try {
 		}).answer }],
 	};
 	assert.equal(await session.compileMessage(mixedMessage), true);
-	assert.match(mixedMessage.content[0]!.text, /Wiki context \[\[1\]\]\(https:\/\/example\.test\/paper\); original detail \[\[2\]\]/u);
-	assert.equal(resolveMessageCitationSourcePreview(goalDir, mixedMessage.citationMessageId,
-		"https://example.test/paper", 1)?.clues[0]?.cue, "Finding");
-	assert.equal(resolveMessageCitationSourcePreview(goalDir, mixedMessage.citationMessageId,
-		"", 2)?.clues[0]?.cue, "Exact finding");
+	assert.match(mixedMessage.content[0]!.text, /Wiki context \[\[1\]\]\(https:\/\/example\.test\/paper\); original detail \[\[1\]\]/u);
+	assert.deepEqual(resolveMessageCitationSourcePreview(goalDir, mixedMessage.citationMessageId,
+		"https://example.test/paper", 1)?.clues.map((clue) => clue.cue), ["Finding", "Exact finding"],
+		"Wiki and original Cue evidence under one Source number both remain in the preview");
+	const sourceManifestPath = join(sourceSequence, "manifest.json");
+	const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, "utf-8"));
+	sourceManifest.sources[0].members.push({ source_id: "source:other", title: "Other source",
+		canonical_locator: "https://example.test/other#section", path: "members/other" });
+	writeFileSync(sourceManifestPath, JSON.stringify(sourceManifest));
+	mkdirSync(join(sourceSequence, "sources/paper/members/other"), { recursive: true });
+	writeFileSync(join(sourceSequence, "sources/paper/members/other/paper.md"), "Other evidence.\n");
+	const saved = JSON.parse(readFileSync(join(deepSearchDir, "run1.json"), "utf-8"));
+	const firstCue = saved.cues[0];
+	saved.cues.push({ ...firstCue, ref: "deep-search:run1:cue-2", cue: "Second exact finding" },
+		{ ...firstCue, ref: "deep-search:run1:cue-3", cue: "Cross-source finding", evidence: [...firstCue.evidence,
+			{ ...firstCue.evidence[0], source_path: "members/other/paper.md", content_sha256: sha256("Other evidence.\n") }] },
+		{ ...firstCue, ref: "deep-search:run1:cue-4", cue: "Uncited finding" });
+	writeFileSync(join(deepSearchDir, "run1.json"), JSON.stringify(saved));
+	const groupedMessage = { role: "assistant", timestamp: 1_788_000_000_004,
+		content: [{ type: "text", text: saved.cues.slice(0, 3).map((cue: { ref: string }) => `Finding <cite>${cue.ref}</cite>.`).join(" ") }] };
+	await session.compileMessage(groupedMessage);
+	assert.deepEqual([...groupedMessage.content[0]!.text.matchAll(/^\d+\. \[([^\]]+)\]\(([^)]+)\)$/gmu)].map(match => [match[1], match[2]]),
+		[["Paper source", "https://example.test/paper"], ["Other source", "https://example.test/other"]],
+		"three Cues over two Source URLs create two source-titled References, including both Sources of one Cue");
+	assert.deepEqual(resolveMessageCitationSourcePreview(goalDir, groupedMessage.citationMessageId,
+		"https://example.test/paper", 1)?.clues.map(clue => clue.cue),
+		["Exact finding", "Second exact finding", "Cross-source finding"]);
+	assert.equal(resolveMessageCitationSourcePreview(goalDir, groupedMessage.citationMessageId,
+		"https://example.test/other", 2)?.clues[0]?.cue, "Cross-source finding");
+	sourceManifest.sources[0].members[0].canonical_locator = "";
+	writeFileSync(sourceManifestPath, JSON.stringify(sourceManifest));
+	const localMessage = { role: "assistant", timestamp: 1_788_000_000_005,
+		content: [{ type: "text", text: `<cite>${deepRef}</cite> and <cite>deep-search:run1:cue-2</cite>` }] };
+	await session.compileMessage(localMessage);
+	assert.match(localMessage.content[0]!.text, /\[\[1\]\] and \[\[2\]\]/u,
+		"Cues without Source URLs retain separate exact citation numbers");
+	assert.equal(resolveMessageCitationSourcePreview(goalDir, localMessage.citationMessageId, "", 2)?.clues[0]?.cue,
+		"Second exact finding");
+	sourceManifest.sources[0].members[0].canonical_locator = "https://example.test/paper";
+	writeFileSync(sourceManifestPath, JSON.stringify(sourceManifest));
 	writeFileSync(join(sourceSequence, "sources", "paper", "members", "web", "paper.md"), "Changed evidence.\n");
-	assert.throws(() => resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "", 1),
+	assert.throws(() => resolveMessageCitationSourcePreview(goalDir, deepMessage.citationMessageId, "https://example.test/paper", 1),
 		/Note Reading evidence changed/u);
+	const localRegistryPath = join(knowledgeRoot, ".note-registry.json");
+	const localRegistry = JSON.parse(readFileSync(localRegistryPath, "utf-8"));
+	localRegistry.entries.forEach((entry: { sourceId: string; canonicalLocator: string }, index: number) => {
+		entry.sourceId = `source:local-${index}`;
+		entry.canonicalLocator = `file:///saved/local-${index}.md`;
+	});
+	writeFileSync(localRegistryPath, JSON.stringify(localRegistry));
+	session.beginTurn();
+	const localWikiMessage = { role: "assistant", timestamp: 1_788_000_000_006,
+		content: [{ type: "text", text: "First local Source <cite>C1</cite>. Second local Source <cite>C2</cite>." }] };
+	await session.compileMessage(localWikiMessage);
+	assert.match(localWikiMessage.content[0]!.text, /First local Source \[\[1\]\]\. Second local Source \[\[2\]\]/u,
+		"different local Wiki Sources retain separate numbers without becoming file links");
+	assert.equal(localWikiMessage.content[0]!.text.includes("file:///"), false);
 } finally {
 	rmSync(workspace, { recursive: true, force: true });
 }

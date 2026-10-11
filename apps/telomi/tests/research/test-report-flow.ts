@@ -38,9 +38,14 @@ async function verifyWikiMode(): Promise<void> {
 	mkdirSync(join(knowledgeRoot, "evidence/one"), { recursive: true });
 	mkdirSync(join(knowledgeRoot, "sources/one"), { recursive: true });
 	writeFileSync(join(knowledgeRoot, "index.md"), "# Layered knowledge\n");
-	writeFileSync(join(knowledgeRoot, "wiki/index.md"), "# Selected knowledge\n\n[Evidence](../evidence/one/note.md)\n");
+	writeFileSync(join(knowledgeRoot, "wiki/index.md"), "---\ntype: entity\ntitle: Current findings\nentry_ids: [entry:one, entry:two]\n---\n# Selected knowledge\n\n[Evidence](../evidence/one/note.md)\n");
 	writeFileSync(join(knowledgeRoot, "evidence/one/note.md"), "# Evidence\n\n[Source](../../sources/one/document.md)\n");
 	writeFileSync(join(knowledgeRoot, "sources/one/document.md"), "# Source\n\nSupported fact.\n\nURL: https://example.test/source\n");
+	writeFileSync(join(knowledgeRoot, "wiki/.note-registry.json"), JSON.stringify({ entries: ["one", "two"].map(id => ({
+		id: `entry:${id}`, revisionSha256: "b".repeat(64), sourceRunId: "source-run", sourceId: "source:one",
+		sourceTitle: "Source", canonicalLocator: "https://example.test/source", members: [], section: "Finding", cue: id,
+		detail: `Supported ${id}.`, anchors: [],
+	})) }));
 	const knowledge = new RunArtifactStore(runRoot).describeDirectory("artifacts/report-run/knowledge-snapshot");
 	const previousRunId = "2026-08-07T00-00-00.000Z";
 	const previousReport = join(goalRoot, "wiki", "runs", previousRunId, "report");
@@ -64,7 +69,7 @@ async function verifyWikiMode(): Promise<void> {
 				}],
 			}));
 			writeFileSync(join(request.workDirectory, "writer-output", "sections", "section-001.md"),
-				"A supported fact. <cite>https://example.test/source</cite>");
+				"A supported fact. <cite> C1, C2, C1 </cite>");
 			writeFileSync(join(request.workDirectory, "writer-output", "manifest.json"), JSON.stringify({
 				schema_version: 1,
 				sections: [{ section_id: "section-001", title: "Current findings", path: "sections/section-001.md" }],
@@ -135,6 +140,8 @@ async function verifyWikiMode(): Promise<void> {
 	assert.equal(fetchMock.mock.callCount(), 0, "citation compilation must use stored Source URLs without probing them");
 	const published = JSON.parse(readFileSync(join(runRoot, "report/final.json"), "utf-8"));
 	assert.equal(published.citations[0]?.url, "https://example.test/source");
+	assert.deepEqual(published.citations[0]?.refs, ["C1", "C2"], "Orchestrator must hydrate every grouped Wiki ref before compilation");
+	assert.deepEqual(published.citations[0]?.wiki.map((item: { ref: string }) => item.ref), ["C1", "C2"]);
 	assert.match(published.markdown, /\[\[1\]\]\(https:\/\/example\.test\/source\)/u);
 	assert.equal(result.state.status, "published");
 	assert.equal(result.state.usage.input_tokens, 10);

@@ -19,9 +19,9 @@ const schema = Type.Object({
 		description: "Continue a saved investigation thread using its returned id or the Goal's investigation thread catalog. Omit for a new subject. Never invent an id." })),
 	title: Type.Optional(Type.String({ minLength: 1, maxLength: 120,
 		description: "A concise title describing the investigation thread. Prefer a recognizable topic over the full question." })),
-	source_scope: Type.Optional(Type.Union([Type.Literal("external_allowed"), Type.Literal("local_only")], {
-		description: "Use local_only when the user restricts the answer to saved Goal materials; otherwise use external_allowed after local evidence is checked. Omission grants local-only access.",
-	})),
+	source_scope: Type.Union([Type.Literal("external_allowed"), Type.Literal("local_only")], {
+		description: "Choose explicitly on every invocation, including follow-ups: local_only when the user restricts the answer to saved Goal materials; otherwise external_allowed. Root checks local evidence before external acquisition.",
+	}),
 }, { additionalProperties: false });
 
 export function createInvestigateTool(goalDir: string, options: CreateMainAgentToolsOptions): AgentTool<typeof schema> {
@@ -60,14 +60,14 @@ const deliverySchema = Type.Object({
 		}, { additionalProperties: false }), { maxItems: 24 }),
 	}, { additionalProperties: false, description: "Legacy editorial review input. Omit during ordinary delivery: Runtime performs evidence selection in an independent background Main branch after delivery. Historical findings remain non-evidence context and never rewrite the answer or change the Topic Plan." })),
 	report_title: Type.Optional(Type.String({ minLength: 1, maxLength: 120, pattern: "^[^\\r\\n]+$",
-		description: "Publish the reviewed saved answer as a report with this title when the user requests a report. Omit for ordinary chat delivery." })),
+		description: "Publish the reviewed saved answer as a report card for a report, detailed survey, landscape or systematic comparison request. Omit for ordinary factual chat answers." })),
 }, { additionalProperties: false });
 
 export function createDeliverInvestigationTool(goalDir: string): AgentTool<typeof deliverySchema> {
 	return {
 		name: "deliver_investigation",
 		label: "deliver_investigation",
-		description: "Deliver a reviewed investigation answer. For a requested report, include report_title to publish that same cited answer as a report card and Podcast source. Use investigate again for missing evidence; ordinary answers omit report_title.",
+		description: "Deliver a reviewed investigation answer. For a report, detailed survey, landscape or systematic comparison, include report_title to publish that same cited answer as a report card and Podcast source. Use investigate again for missing evidence; ordinary factual answers omit report_title.",
 		parameters: deliverySchema,
 		execute: async (_toolCallId, input, signal) => {
 			const result = readInvestigationResult(goalDir, input.investigation_id);

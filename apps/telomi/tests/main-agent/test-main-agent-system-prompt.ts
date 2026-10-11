@@ -30,7 +30,9 @@ assert.match(prompt, /investigate/u);
 assert.match(prompt, /result_ref/u);
 assert.match(prompt, /deliver_investigation/u);
 assert.match(prompt, /report_title.*publish that reviewed answer as a report card/u);
-assert.match(prompt, /Requests to create, regenerate or deepen a written report use `investigate`/u);
+assert.match(prompt, /detailed research[\s\S]*use `investigate`[\s\S]*report publication/u);
+assert.match(prompt, /missing factual coverage, continue the investigation[\s\S]*original request's scope and intended deliverable/u);
+assert.match(prompt, /supplementing factual coverage or correcting findings[\s\S]*publish the resulting answer as a report[\s\S]*earlier answer was delivered only in chat/u);
 assert.match(prompt, /only when the current user request asks for audio or a Podcast/u);
 assert.doesNotMatch(prompt, /`research`|generate_report|report_context|note_focus/u,
 	"Main Agent must not route current work through retired tools or fields");

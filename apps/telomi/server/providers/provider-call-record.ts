@@ -58,8 +58,10 @@ export interface ProviderCallDoc {
 	id: string;
 	url: string;
 	title: string;
-	/** First publication or creation time. */
+	/** Publication time explicitly reported by the Provider; never inferred from creation. */
 	published_at?: string;
+	/** Provider-native object or repository creation time, distinct from public release. */
+	created_at?: string;
 	/** Last change the Provider reports: arXiv version, Hub lastModified, GitHub push. */
 	updated_at?: string;
 }
@@ -154,13 +156,15 @@ export function recordProviderCall(recorder: ProviderCallRecorder, input: {
 function providerCallDoc(result: ResearchSearchResult): ProviderCallDoc {
 	const metadata = result.metadata ?? {};
 	const date = (...values: unknown[]): string | undefined => values.find((value): value is string => typeof value === "string" && value.trim() !== "");
-	const publishedAt = date(result.publishedAt, metadata.created_at);
+	const publishedAt = date(result.publishedAt);
+	const createdAt = date(metadata.created_at);
 	const updatedAt = date(metadata.pushed_at, metadata.updated_at, metadata.last_modified);
 	return {
 		id: result.id,
 		url: result.url,
 		title: result.title,
 		...(publishedAt ? { published_at: publishedAt } : {}),
+		...(createdAt ? { created_at: createdAt } : {}),
 		...(updatedAt ? { updated_at: updatedAt } : {}),
 	};
 }

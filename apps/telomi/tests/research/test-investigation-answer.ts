@@ -68,6 +68,41 @@ try {
 			{ requirement_id: "Q2", citation_refs: [], gap: "Projection dimensions remain unknown." },
 		] };
 	assert.deepEqual(validateInvestigationAnswerFromInput(answer, inputRoot), answer, "partial answers preserve explicit gaps");
+	const grouped = { ...answer, answer: "Both facts. <cite> N1, N2,N1 </cite>", citation_refs: ["N1", "N2"] };
+	assert.deepEqual(validateInvestigationAnswerFromInput(grouped, inputRoot), grouped,
+		"grouped citations preserve the authored answer and flatten refs for validation");
+	assert.throws(() => validateInvestigationAnswerFromInput({ ...grouped, answer: "Both facts. <cite>N1,N999</cite>" }, inputRoot), /N999/u);
+	assert.throws(() => validateInvestigationAnswerFromInput({ ...grouped, citation_refs: ["N1"] }, inputRoot), /refs disagree/u);
+	for (const malformed of ["<cite>N1,,N2</cite>", "<cite>N1 N2</cite>", "<cite>N1</cite><cite>N2", '<cite ref="N1">N1</cite>']) {
+		assert.throws(() => validateInvestigationAnswerFromInput({ ...answer, answer: `Evidence ${malformed}` }, inputRoot),
+			(error: unknown) => error instanceof Error && error.message.includes("citation") && error.message.includes(malformed.includes("<cite>N2") ? "<cite>N2" : malformed.includes("ref=") ? "ref=" : malformed.slice(0, 30)),
+			`Runtime gives precise structural feedback for ${malformed}`);
+	}
+
+	const readingGapInput = join(root, "reading-gaps");
+	writeInvestigationAnswerInput({ inputRoot: readingGapInput, request: { ...request,
+		reading_gaps: [{ id: "G1", question: "Check the projection.", gap: "Projection dimensions remain unknown." }],
+	}, evidence: [{ ...evidence,
+		evidence: [{ ...evidence.evidence[0]!, excerpt: "  value = speech_tokens" }] }] });
+	assert.throws(() => validateInvestigationAnswerFromInput(answer, readingGapInput), /reading gap/u,
+		"Reader gaps cannot vanish when Root narrows the Writer requirements");
+	const unresolved = { ...answer, gap_coverage: [{ gap_id: "G1", citation_refs: [], gap: answer.gaps[0]! }] };
+	assert.deepEqual(validateInvestigationAnswerFromInput(unresolved, readingGapInput), unresolved);
+	assert.throws(() => validateInvestigationAnswerFromInput({ ...unresolved, gaps: [],
+		coverage: answer.coverage.map(row => ({ ...row, citation_refs: ["N1"], gap: "" })) }, readingGapInput), /unresolved reading gap/u);
+	const resolved = { ...answer, gap_coverage: [{ gap_id: "G1", citation_refs: ["N1"], gap: "" }] };
+	assert.deepEqual(validateInvestigationAnswerFromInput(resolved, readingGapInput), resolved,
+		"A later reading can resolve an earlier gap with evidence; Runtime does not perpetuate old gaps");
+	const complete = { ...resolved, answer: "Both requested points are supported. <cite>N1</cite>", gaps: [],
+		coverage: request.requirements.map(item => ({ requirement_id: item.id, citation_refs: ["N1"], gap: "" })) };
+	assert.deepEqual(validateInvestigationAnswerFromInput(complete, readingGapInput), complete,
+		"Resolved earlier gaps may disappear from a fully covered final answer");
+	assert.throws(() => validateInvestigationAnswerFromInput({ ...resolved,
+		gap_coverage: [{ gap_id: "G1", citation_refs: [], gap: "" }] }, readingGapInput), /needs evidence/u);
+	assert.throws(() => validateInvestigationAnswerFromInput({ ...resolved,
+		gap_coverage: [{ gap_id: "G2", citation_refs: ["N1"], gap: "" }] }, readingGapInput), /reading gap coverage is invalid/u);
+	assert.throws(() => validateInvestigationAnswerFromInput({ ...resolved,
+		gap_coverage: [...resolved.gap_coverage, ...resolved.gap_coverage] }, readingGapInput), /reading gap coverage is invalid/u);
 	const legacyEvidence = JSON.parse(readFileSync(join(legacy, "evidence", "N1.json"), "utf-8"));
 	legacyEvidence.evidence[0].context = { kind: "original_source", ref: "S1", path: "sources/S1", files: ["model.py"] };
 	writeFileSync(join(legacy, "evidence", "N1.json"), JSON.stringify(legacyEvidence));

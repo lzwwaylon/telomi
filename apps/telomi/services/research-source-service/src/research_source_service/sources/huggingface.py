@@ -1087,7 +1087,10 @@ def paper_result(row: Mapping[str, Any], endpoint: str, page: Mapping[str, objec
         or ""
     )
     authors = author_names(paper.get("authors") or row.get("authors"))
-    published_at = string_value(paper.get("publishedAt")) or string_value(row.get("publishedAt"))
+    published_at = string_value(paper.get("publishedAt")) or None
+    # Daily Papers' outer date belongs to the feed item, not the original paper.
+    if published_at is None and page.get("operation") != "papers_list":
+        published_at = string_value(row.get("publishedAt")) or None
     landing_url = f"{endpoint}/papers/{paper_id}"
     metadata: dict[str, Any] = {
         "resource_type": "paper",
@@ -1199,7 +1202,6 @@ def hub_result(
         title=repo_id,
         url=landing_url,
         snippet=description or hub_snippet(row, resource_type),
-        published_at=string_value(row.get("createdAt")),
         authors=[string_value(row.get("author")) or repo_id.split("/", 1)[0]],
         metadata=metadata,
     )

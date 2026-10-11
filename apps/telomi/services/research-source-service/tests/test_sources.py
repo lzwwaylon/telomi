@@ -1472,6 +1472,9 @@ def test_huggingface_models_list_maps_filters_cursor_and_pinned_document(tmp_pat
     result = response.json()["results"][0]
     assert result["url"] == "https://huggingface.co/example/agent-model"
     assert result["metadata"]["resource_type"] == "model"
+    assert result["published_at"] is None
+    assert result["metadata"]["created_at"] == "2026-07-01T00:00:00Z"
+    assert result["metadata"]["updated_at"] == "2026-07-18T00:00:00Z"
     assert result["metadata"]["document_url"] == "https://huggingface.co/example/agent-model/raw/abc123/README.md"
     assert result["metadata"]["huggingface_page"]["next_cursor"] == "opaque=="
 

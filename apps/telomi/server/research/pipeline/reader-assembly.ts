@@ -14,8 +14,9 @@ export async function assembleReaderNote(options: { work: string; runtimeRoot: s
 	}
 	if (!Array.isArray(plan.notes) || !Array.isArray(plan.excluded)) throw new Error("reader-plan.json notes and excluded must be arrays");
 	const notePaths = plan.notes;
+	const gaps = readGaps(plan.gaps, "reader-plan.json gaps");
 	if (plan.include_root_note !== undefined && typeof plan.include_root_note !== "boolean") throw new Error("include_root_note must be boolean");
-	const accepted = new Map<string, { sections: unknown[]; sha256: string }>();
+	const accepted = new Map<string, { sections: unknown[]; sha256: string; status: unknown; summary: unknown; gaps: string[] }>();
 	const latest = new Map<string, { revision: number; path: string }>();
 	for (const event of readJsonl<unknown>(join(options.runtimeRoot, "reader-delivery.jsonl"))) {
 		if (!isRecord(event) || event.type !== "reader_delivery_accepted") continue;
@@ -27,7 +28,8 @@ export async function assembleReaderNote(options: { work: string; runtimeRoot: s
 		if (sha256(bytes) !== event.note_sha256) throw new Error(`Accepted Reader file integrity mismatch: ${path}`);
 		const draft: unknown = JSON.parse(bytes);
 		if (!isRecord(draft) || !Array.isArray(draft.sections)) throw new Error(`Accepted Reader file has no sections: ${path}`);
-		accepted.set(path, { sections: draft.sections, sha256: sha256(bytes) });
+		accepted.set(path, { sections: draft.sections, sha256: sha256(bytes), status: draft.status, summary: draft.summary,
+			gaps: readGaps(draft.gaps, `Accepted Reader gaps: ${path}`) });
 		if ((latest.get(event.child_id)?.revision ?? 0) < Number(event.revision)) latest.set(event.child_id, { revision: Number(event.revision), path });
 	}
 	const latestPaths = new Set([...latest.values()].map(value => value.path));
@@ -41,29 +43,50 @@ export async function assembleReaderNote(options: { work: string; runtimeRoot: s
 		used.add(path);
 		return accepted.get(path)!;
 	};
-	const sections = notePaths.flatMap(path => take(path).sections);
+	const sections = notePaths.flatMap(path => {
+		const note = take(path);
+		gaps.push(...note.gaps);
+		return note.sections;
+	});
+	const exclusions = new Map<string, { reason: string; gaps: string[] }>();
 	for (const excluded of plan.excluded) {
-		if (!isRecord(excluded) || Object.keys(excluded).some(key => key !== "note_path" && key !== "reason")
-			|| typeof excluded.reason !== "string" || !excluded.reason.trim()) throw new Error("Each excluded file needs note_path and a nonempty reason");
+		if (!isRecord(excluded) || typeof excluded.note_path !== "string" || Object.keys(excluded).some(key => !["note_path", "reason", "gaps"].includes(key))
+			|| typeof excluded.reason !== "string" || !excluded.reason.trim()) throw new Error("Each excluded file needs note_path, a nonempty reason and gaps");
 		take(excluded.note_path);
+		const excludedGaps = readGaps(excluded.gaps, `Excluded Reader gaps: ${String(excluded.note_path)}`);
+		exclusions.set(excluded.note_path, { reason: excluded.reason, gaps: excludedGaps });
+		gaps.push(...excludedGaps);
 	}
 	const missing = [...accepted.keys()].filter(path => !used.has(path));
 	if (missing.length) throw new Error(`reader-plan.json has unaccounted accepted files; include them in notes or excluded with a reason: ${missing.join(", ")}`);
 	let rootNoteSha256: string | undefined;
+	let rootNoteBytes: string | undefined;
+	const { validateNoteReadingDraftFromCorpus } = await import("../note-reading.js");
 	if (plan.include_root_note) {
 		const bytes = readReaderFile(join(options.work, "root-note.json"));
 		const draft: unknown = JSON.parse(bytes);
-		const { validateNoteReadingDraftFromCorpus } = await import("../note-reading.js");
-		validateNoteReadingDraftFromCorpus(draft, "Root supplementary reading", "reader-root", join(options.work, "source"));
+		const validated = validateNoteReadingDraftFromCorpus(draft, "Root supplementary reading", "reader-root", join(options.work, "source"));
 		sections.push(...(draft as { sections: unknown[] }).sections);
+		gaps.push(...validated.gaps);
 		rootNoteSha256 = sha256(bytes);
-		writeFileAtomic(join(options.runtimeRoot, "root-note.json"), bytes);
+		rootNoteBytes = bytes;
 	}
-	const note = { status: plan.status, summary: plan.summary, gaps: plan.gaps, sections };
+	const note = { status: plan.status, summary: plan.summary, gaps: [...new Set(gaps)], sections };
+	validateNoteReadingDraftFromCorpus(note, "Assembled Reader result", "reader-assembly", join(options.work, "source"));
 	options.signal.throwIfAborted();
+	if (rootNoteBytes !== undefined) writeFileAtomic(join(options.runtimeRoot, "root-note.json"), rootNoteBytes);
 	writeJsonAtomic(join(options.work, "note.json"), note);
 	writeJsonAtomic(join(options.runtimeRoot, "reader-assembly.json"), { schema_version: 1, plan,
 		superseded,
-		sources: [...accepted].map(([note_path, value]) => ({ note_path, note_sha256: value.sha256, included: notePaths.includes(note_path) })),
+		sources: [...accepted].map(([note_path, value]) => ({ note_path, note_sha256: value.sha256, included: notePaths.includes(note_path),
+			status: value.status, summary: value.summary, gaps: value.gaps,
+			...(exclusions.has(note_path) ? { exclusion: exclusions.get(note_path) } : {}) })),
 		...(rootNoteSha256 ? { root_note_sha256: rootNoteSha256 } : {}), assembled_note_sha256: sha256(`${JSON.stringify(note, null, 2)}\n`) });
+}
+
+function readGaps(value: unknown, label: string): string[] {
+	if (!Array.isArray(value) || value.some(gap => typeof gap !== "string" || !gap.trim())) {
+		throw new Error(`${label} must be an explicit array of nonempty strings; use [] when there is no unresolved point`);
+	}
+	return value.map(gap => gap.trim());
 }

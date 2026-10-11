@@ -141,6 +141,9 @@ def scan_text(text: str, path: str = "<stdin>") -> Report:
     body = _strip_front_matter(raw)
     fm_offset_lines = raw[: len(raw) - len(body)].count("\n") if body != raw else 0
     scan = _mask_fenced_code(body)
+    citation_markers = list(CITATION_MARKER_RE.finditer(scan))
+    # Citation identities are Runtime metadata, not prose. Keep original line positions.
+    scan = CITATION_MARKER_RE.sub(lambda match: "\n" * match.group().count("\n"), scan)
 
     def adj_line(line_in_body: int) -> int:
         return line_in_body + fm_offset_lines
@@ -323,7 +326,6 @@ def scan_text(text: str, path: str = "<stdin>") -> Report:
 
     # links
     md_links = list(MD_LINK_RE.finditer(scan))
-    citation_markers = list(CITATION_MARKER_RE.finditer(scan))
     images = list(MD_IMAGE_RE.finditer(scan))
     bare = list(BARE_URL_RE.finditer(scan))
     bare_filtered: list[re.Match[str]] = []
@@ -370,7 +372,9 @@ def scan_text(text: str, path: str = "<stdin>") -> Report:
         )
     )
 
-    cjk_count = len(CJK_RE.findall(body))
+    cjk_count = len(CJK_RE.findall(body)) - sum(
+        len(CJK_RE.findall(marker.group())) for marker in citation_markers
+    )
 
     stats: dict[str, int | float] = {
         "cjk_chars": cjk_count,

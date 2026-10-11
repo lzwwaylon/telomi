@@ -41,14 +41,15 @@ try {
 	for (const [bad, error] of [
 		[{ ...plan, notes: [beta] }, /unaccounted/],
 		[{ ...plan, notes: [beta, beta, alpha] }, /Duplicate/],
-		[{ ...plan, excluded: [{ note_path: alpha, reason: "Duplicate" }] }, /Duplicate/],
-		[{ ...plan, notes: [beta], excluded: [{ note_path: alpha, reason: " " }] }, /nonempty reason/],
+		[{ ...plan, excluded: [{ note_path: alpha, reason: "Duplicate", gaps: [] }] }, /Duplicate/],
+		[{ ...plan, notes: [beta], excluded: [{ note_path: alpha, reason: " ", gaps: [] }] }, /nonempty reason/],
+		[{ ...plan, notes: [beta], excluded: [{ note_path: alpha, reason: "Outside the question" }] }, /explicit array/],
 		[{ ...plan, notes: ["../outside.json", alpha] }, /Unknown accepted/],
 		[{ ...plan, notes: [beta, "inputs/reader-results/sub-alpha/2/note.json"] }, /Unknown accepted/],
 		[{ ...plan, sections: draft("rewritten").sections }, /Cue text belongs/],
 		[{ ...plan, include_root_note: "yes" }, /boolean/],
 	] as const) { await assert.rejects(assemble(bad), error); assert.equal(readFileSync(output, "utf8"), original); }
-	await assemble({ ...plan, notes: [beta], excluded: [{ note_path: alpha, reason: "Superseded by this selected result" }] });
+	await assemble({ ...plan, notes: [beta], excluded: [{ note_path: alpha, reason: "Superseded by this selected result", gaps: [] }] });
 	assert.deepEqual(json(output).sections, draft("beta").sections);
 	assert.equal(json(join(runtimeRoot, "reader-assembly.json")).sources.find((s: { note_path: string }) => s.note_path === alpha).included, false);
 	writeFileSync(join(work, "root-note.json"), JSON.stringify(draft("supplement")));
@@ -82,6 +83,38 @@ try {
 	assert.deepEqual(json(join(runtimeRoot, "reader-assembly.json")).superseded, [alpha]);
 	assert.deepEqual(json(output).sections, [...draft("beta").sections, ...draft("alpha").sections]);
 	assert.equal(readFileSync(acceptedPath, "utf8"), acceptedBytes);
+	// A selected child's supported Cues survive an unresolved condition; only accepted
+	// Root supplements contribute gaps, while the plan owns the full-question handoff.
+	const partial = { ...draft("gamma"), status: "partial", gaps: ["The release date is not disclosed."] };
+	const gammaWork = join(fixture, "gamma"); mkdirSync(gammaWork);
+	writeFileSync(join(gammaWork, "note.json"), JSON.stringify(partial));
+	const gamma = await acceptReaderFile({ root: work, runtimeRoot, workspace: gammaWork, identity: {
+		child_id: "sub-gamma", session_id: "gamma", revision: 1, task: "Read gamma" }, submission: 1, language: "en", signal });
+	appendFileSync(join(runtimeRoot, "reader-delivery.jsonl"), `${JSON.stringify({ type: "reader_delivery_accepted", ...gamma })}\n`);
+	writeFileSync(join(work, "root-note.json"), JSON.stringify({ ...draft("supplement"), status: "partial",
+		gaps: ["An additional Source could not be inspected."] }));
+	const partialPlan = { ...plan, status: "partial", notes: [beta, replacement.note_path, gamma.note_path], include_root_note: false };
+	await assemble(partialPlan);
+	assert.deepEqual(json(output).gaps, partial.gaps);
+	assert.deepEqual(json(output).sections, [...draft("beta").sections, ...draft("alpha").sections, ...partial.sections]);
+	await assemble({ ...partialPlan, include_root_note: true, gaps: partial.gaps });
+	assert.deepEqual(json(output).gaps, [...partial.gaps, "An additional Source could not be inspected."]);
+	const beforeInvalidStatus = readFileSync(output, "utf8");
+	await assert.rejects(assemble({ ...partialPlan, status: "found" }), /found requires Cues and no gaps/);
+	assert.equal(readFileSync(output, "utf8"), beforeInvalidStatus, "status conflicts are repaired before replacing a valid output");
+	const excludedGaps = ["The release date still needs verification."];
+	await assemble({ ...partialPlan, notes: [beta, replacement.note_path], excluded: [{ note_path: gamma.note_path,
+		reason: "The requested release condition is unresolved", gaps: excludedGaps }] });
+	assert.deepEqual(json(output).gaps, excludedGaps);
+	assert.deepEqual(json(output).sections, [...draft("beta").sections, ...draft("alpha").sections], "Root retains the choice to exclude Cues");
+	const excludedIndex = json(join(runtimeRoot, "reader-assembly.json")).sources.find((item: { note_path: string }) => item.note_path === gamma.note_path);
+	assert.deepEqual(excludedIndex, { note_path: gamma.note_path, note_sha256: gamma.note_sha256, included: false,
+		status: partial.status, summary: partial.summary, gaps: partial.gaps,
+		exclusion: { reason: "The requested release condition is unresolved", gaps: excludedGaps } });
+	assert.equal(readFileSync(join(work, gamma.note_path), "utf8"), JSON.stringify(partial), "excluded accepted private Notes remain intact");
+	writeFileSync(join(work, "root-note.json"), "unfinished Root file");
+	await assemble({ ...partialPlan, gaps: ["Root records its unresolved question here."] });
+	assert.deepEqual(json(output).gaps, ["Root records its unresolved question here.", ...partial.gaps], "include_root_note=false ignores an unaccepted draft");
 	// A model-created FIFO must not block the host event loop before it can reject the file.
 	rmSync(file); execFileSync("mkfifo", [file]);
 	const helper = new URL("../../server/research/pipeline/reader-delivery.ts", import.meta.url).href;

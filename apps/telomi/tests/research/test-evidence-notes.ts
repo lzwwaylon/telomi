@@ -202,7 +202,7 @@ try {
 					}],
 				}));
 				writeFileSync(join(stageRequest.workDirectory, "writer-output", "sections", "section-001.md"),
-					"The available Source supports this finding. <cite>https://example.test/run-a</cite>\n\nOne Source Note was unavailable, so coverage is incomplete.\n");
+					"The available Source supports this finding. <cite> N1, N2, N1 </cite>\n\nOne Source Note was unavailable, so coverage is incomplete.\n");
 				writeFileSync(join(stageRequest.workDirectory, "writer-output", "manifest.json"), JSON.stringify({
 					schema_version: 1,
 					sections: [{ section_id: "section-001", path: "sections/section-001.md", title: "Available evidence" }],
@@ -276,6 +276,10 @@ try {
 									note: "The available Source supports the finding.",
 									evidence: [{ source_path: "document.md", start_line: 1, end_line: 1,
 										content_sha256: "5".repeat(64) }],
+								}, {
+									cue: "Second finding + support", note: "The same Source supports a second finding.",
+									evidence: [{ source_path: "document.md", start_line: 1, end_line: 1,
+										content_sha256: "5".repeat(64) }],
 								}],
 							}] },
 							title: runSources[0]!.title,
@@ -321,6 +325,9 @@ try {
 		signal: new AbortController().signal,
 	};
 	const degradedResult = await degradedRun.run(degradedRequest as never);
+	const noteReport = JSON.parse(readFileSync(join(runWorkspace, "report/final.json"), "utf8"));
+	assert.deepEqual(noteReport.citations[0]?.refs, ["N1", "N2"], "Notes-mode Orchestrator resolves every grouped Note ref");
+	assert.equal(noteReport.citations.length, 1, "grouped Notes from the same Source share one URL reference");
 	assert.ok(wikiEnvironment, "Research must use the default Wiki compilation compiler through formal Case Capture");
 	assert.equal(wikiEnvironment.TELOMI_PRIME_AGENT_CHILD_MODEL, undefined, "Wiki must resolve current child configuration");
 	assert.equal(wikiEnvironment.TELOMI_PRIME_AGENT_ROOT_MODEL, undefined);

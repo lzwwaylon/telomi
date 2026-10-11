@@ -72,7 +72,7 @@ if (mode === "ok") {
 		control.registerSession(session);
 		if (mode === "cooperative-failure-after-dispose") throw new Error("bad output after cleanup");
 		control.signal.throwIfAborted();
-		if (mode === "cooperative-validation") {
+		if (mode.startsWith("cooperative-validation")) {
 			await requestPrimeOutputValidation(1, control.signal);
 		} else {
 			events.push("prompt");
@@ -185,6 +185,15 @@ if (mode === "ok") {
 			await new Promise<void>((resolve) => setImmediate(resolve));
 		}
 	}
+
+	// Fatal host validation failures do not become another model prompt.
+	const fatalValidation = launch("cooperative-validation-fatal", undefined, (_message, reply) => {
+		reply({ type: "stage_output_validation", submission: 1, accepted: false, fatal: true, error: "host validation infrastructure failed" });
+	});
+	await assert.rejects(fatalValidation.run, (error: unknown) => error instanceof ResearchNodeError
+		&& error.failureClass === "provider" && error.message.includes("host validation infrastructure failed"));
+	assert.deepEqual(JSON.parse(readFileSync(join(fatalValidation.runtimeRoot, "cleanup.json"), "utf8")),
+		["abort", "dispose:start", "dispose:end", "finally"], "fatal host failures escape without a repair prompt and await cleanup");
 
 	// Wiki reports validation failures from its outer catch, after the inner finally finishes native disposal.
 	const disposedFailure = launch("cooperative-failure-after-dispose");

@@ -45,6 +45,7 @@ import {
 	type SkillSnapshot,
 } from "../../agent-runtime/skill-registry.js";
 import { inspectAgentSourceView, materializeAgentSourceView } from "./agent-source-view.js";
+import { writeSourceAcquisitionMetadata } from "./source-acquisition-metadata.js";
 import {
 	PRIME_AUTONOMOUS_CONFIG,
 	PRIME_AUTO_REFINE_ENABLED,
@@ -829,6 +830,7 @@ export function materializePrimeSources(
 			summary: candidate.summary,
 			metadata: candidate.metadata,
 		}, null, 2)}\n`);
+		writeSourceAcquisitionMetadata(destination, candidate);
 		return {
 			provider_execution_id: candidate.provider_execution_id,
 			provider_id: candidate.provider_id,
@@ -1209,6 +1211,8 @@ export async function runPrime(args: {
 	childReplayId?: string;
 	serviceTier?: "default" | "priority" | "flex";
 	onChildEvent?: (event: unknown) => void;
+	/** Host-owned fixed-file validation; never serialized into the Worker input. */
+	validateOutput?: (submission: number) => Promise<{ accepted: boolean; error?: string }>;
 	logicalWorkspaceCapture?: { root: string; key: "root" | "organizer" };
 }): Promise<{ usage: ResearchModelUsage; toolCalls: number; agentStages: number; rootError?: string; validationError?: string }> {
 	mkdirSync(args.sessionDir, { recursive: true });
@@ -1228,6 +1232,7 @@ export async function runPrime(args: {
 		...(args.contractTools ? { contractTools: true } : {}),
 		...(args.generalWeb ? { generalWeb: args.generalWeb } : {}),
 		...(args.organizerTools ? { organizerTools: true } : {}),
+		...(args.validateOutput ? { validateOutput: true } : {}),
 		...(args.browserTools ? { browserTools: true } : {}),
 		scopedModels: args.scopedModels,
 		rlmMaxDepth: args.rlmMaxDepth,
@@ -1240,6 +1245,7 @@ export async function runPrime(args: {
 	let liveText = "";
 	let rootError: string | undefined;
 	let validationError: string | undefined;
+	let outputValidationFailure: unknown;
 	let lastTextEmissionAt = 0;
 	const emit = (
 		status: AgentStageActivity["status"],
@@ -1260,6 +1266,17 @@ export async function runPrime(args: {
 			env: args.env,
 			extraEnv: { ...args.extraEnv, PRIME_SEARCH_SDK_INPUT: inputPath },
 			signal: args.signal,
+			onMessage: (message, reply) => {
+				if (!args.validateOutput || !isRecord(message) || message.type !== "stage_output_candidate"
+					|| typeof message.submission !== "number") return;
+				const submission = message.submission;
+				void args.validateOutput(submission).then(result => {
+					reply({ type: "stage_output_validation", submission, ...result });
+				}).catch(error => {
+					outputValidationFailure = error;
+					reply({ type: "stage_output_validation", submission, accepted: false, fatal: true, error: toErrorMessage(error) });
+				});
+			},
 			onStdoutLine: (line) => {
 				let event: Record<string, unknown>;
 				try {
@@ -1306,12 +1323,12 @@ export async function runPrime(args: {
 		});
 	} catch (error) {
 		emit(args.signal.aborted ? "cancelled" : "failed", "status", { text: liveText });
-		throw error;
+		throw outputValidationFailure ?? error;
 	}
 	emit(validationError ? "failed" : "succeeded", validationError ? "status" : liveText ? "text" : "status", { text: validationError ?? liveText });
 	if (rootError) observeModelFailureText(rootError);
 	return {
-		...readPrimeUsage([args.sessionDir, join(dirname(args.sessionDir), "session-artifacts")]),
+		...readPrimeSessionUsage([args.sessionDir, join(dirname(args.sessionDir), "session-artifacts")]),
 		agentStages: 1,
 		...(rootError ? { rootError } : {}),
 		...(validationError ? { validationError } : {}),
@@ -1386,13 +1403,15 @@ function fileCondition(path: string): { name: string; sha256: string } {
 	return { name: basename(path), sha256: sha256(readFileSync(path)) };
 }
 
-function readPrimeUsage(sessionRoots: readonly string[]): { usage: ResearchModelUsage; toolCalls: number } {
+export function readPrimeSessionUsage(sessionRoots: readonly string[]): { usage: ResearchModelUsage; toolCalls: number } {
 	const usage = emptyUsage();
 	let toolCalls = 0;
 	for (const path of sessionRoots.flatMap((root) => listFilesRecursive(root).map((rel) => join(root, rel))).filter((value) => value.endsWith(".jsonl"))) {
 		for (const line of readFileSync(path, "utf-8").split("\n")) {
 			if (!line.trim()) continue;
-			const event = JSON.parse(line) as unknown;
+			let event: unknown;
+			try { event = JSON.parse(line) as unknown; }
+			catch { continue; } // Preserve completed usage if a failed Worker left a partial final line.
 			if (!isRecord(event) || !isRecord(event.message) || event.message.role !== "assistant") continue;
 			if (isRecord(event.message.usage)) {
 				usage.inputTokens += finiteNumber(event.message.usage.input);

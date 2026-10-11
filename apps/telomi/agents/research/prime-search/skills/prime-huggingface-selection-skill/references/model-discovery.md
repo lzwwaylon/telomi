@@ -34,8 +34,12 @@ Define the category from the assignment:
 
 Nothing is acquired or submitted, and no model has read the records. The first line of `listing` says how many models
 the pool holds and what each exclusion removed; each line after it is one model with its likes and creation date.
-A repository created before the range is in the pool for a release inside it, and its line says which, for example
-`created 2025-11-01, released 2026-03 (arxiv:2603.25551)`: it belongs to the range.
+A repository created before the range may remain in the pool because it links an associated paper in that month,
+for example `created 2025-11-01, associated paper month 2026-03 (arxiv:2603.25551); model release date unverified`.
+Its `candidate_date_evidence` identifies the paper association with `model_release_verified=False`. This is a
+candidate lead, not proof that the model was publicly released within the range. Repository creation, repository
+updates and associated paper publication dates retain their separate meanings; verify the model's actual public
+release from original material when the assignment has a release-date requirement.
 When the pool is longer than a page the listing ends with a notice of where the page sits, for example
 `[Showing models 1-50 of 163. Use offset=51 to continue.]`. A page fits one cell: print it whole and read every line
 before you choose. `found["records"]` holds the page's models with their task, downloads and tags, `lane_counts` what each lane

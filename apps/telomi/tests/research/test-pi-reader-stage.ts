@@ -17,12 +17,13 @@ import { sha256 } from "../../server/lib/hash.js";
 const fixture = realpathSync(mkdtempSync(join(tmpdir(), "pi-reader-stage-")));
 const agentDir = join(fixture, "credentials");
 const question = "Original question: find the exact saved evidence.";
-const note = { status: "found", summary: "Complete saved evidence", gaps: [], sections: [{ section_title: "Saved evidence", cue_notes: [{
+const note = { status: "partial", summary: "The saved evidence is verified; its release date remains unresolved", gaps: ["The publication date is not disclosed."], sections: [{ section_title: "Saved evidence", cue_notes: [{
 	cue: "The Source contains saved evidence", note: "Exact saved evidence.", evidence: [{ source_ref: "S1", source_path: "paper.txt", start_line: 1, end_line: 1 }],
 }] }] };
 const json = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 let mode: "success" | "child-failure" = "success";
 let rootTurns = 0, childTurns = 0;
+let acceptedNotePath = "";
 let records = "", trace = "";
 const errors: unknown[] = [];
 const server = createServer(async (request, response) => {
@@ -38,9 +39,14 @@ const server = createServer(async (request, response) => {
 			if (call === 1) action = ["subagent", { agent: "reader", task: "Find the exact saved evidence." }];
 			else if (mode === "success" && call === 2) {
 				const receipt = JSON.parse(input.messages.at(-1).content).results[0];
+				acceptedNotePath = receipt.note_path;
 				action = ["write", { path: "reader-plan.json", content: JSON.stringify({ status: "found", summary: note.summary,
 					gaps: [], notes: [receipt.note_path], excluded: [] }) }];
-			} else assert.ok(call <= (mode === "success" ? 3 : 4), "Root receives only bounded same-Session repairs");
+			} else if (mode === "success" && call === 4) {
+				assert.match(JSON.stringify(input.messages), /found requires Cues and no gaps/u, "The assembly conflict is returned to the producing Root Session");
+				action = ["write", { path: "reader-plan.json", content: JSON.stringify({ status: "partial", summary: note.summary,
+					gaps: [], notes: [acceptedNotePath], excluded: [] }) }];
+			} else assert.ok(call <= (mode === "success" ? 5 : 4), "Root receives only bounded same-Session repairs");
 		} else {
 			assert.equal(input.model, "child");
 			assert.ok(JSON.stringify(input.messages).includes("stage-frozen-child-system-marker"));
@@ -125,6 +131,7 @@ try {
 			assert.equal(rootTurns + childTurns, 0, "rejected profiles never start a model");
 			assert.equal(existsSync(`${trace}.sessions.json`), false, "rejected profiles do not register phantom sessions");
 			const result = await runner.runStage(request);
+			assert.equal(rootTurns, 5, "Root repairs status after the first assembled partial result");
 			assert.match(result.session.id, /^pi:/u);
 			assert.equal(result.toolCounts.ipython, undefined);
 			assert.equal(result.usage.calls, rootTurns + childTurns);
@@ -134,8 +141,8 @@ try {
 			assert.equal(captured.length, 1);
 			const value = readNodeEvaluationCase(captured[0]!.path, records);
 			assert.equal(value.status, "succeeded");
-			assert.equal(value.observed.traceDirectories?.length, 2, "Root and child directories remain hash-valid after cleanup");
-			assert.ok(value.observed.traceDirectories!.every(directory => directory.ref.includes("-reader-runtime/")));
+			assert.equal(value.observed.traceDirectories?.length, 1, "The allowlisted Reader runtime, assembly and receipts remain hash-valid after cleanup");
+			assert.ok(value.observed.traceDirectories![0]!.ref.endsWith("-reader-runtime"));
 			const sessions = manifestSessionSections(records, `${basename(trace)}.sessions.json`)!;
 			assert.equal(sessions.length, 2);
 			assert.ok(sessions.every(session => session.path.includes("-reader-runtime/")));
@@ -145,7 +152,19 @@ try {
 			const bytes = readFileSync(join(retained, "reader-results", childId, "1/note.json"), "utf8");
 			assert.equal(sha256(bytes), receipt.note_sha256);
 			assert.deepEqual(JSON.parse(bytes), note);
+			const assembly = json(join(retained, "reader-assembly.json"));
+			assert.deepEqual(assembly.sources[0].gaps, note.gaps, "The accepted child's unresolved condition survives retained assembly evidence");
+			assert.equal(assembly.sources[0].included, true, "The remaining verified Cues are still selected");
+			assert.match(readFileSync(join(retained, "reader-assembly-errors.jsonl"), "utf8"), /found requires Cues and no gaps/u);
+			assert.equal(json(`${trace}.sessions.json`).sessions.filter((session: { id: string }) => session.id === "root").length, 1,
+				"Structural assembly repair does not create another Root Session");
 			assert.ok(readFileSync(sessions[1]!.path, "utf8").includes(question), "retained child Trace remains readable after cleanup");
+			const assemblyPath = join(retained, "reader-assembly.json"), assemblyBytes = readFileSync(assemblyPath);
+			writeFileSync(assemblyPath, `${assemblyBytes.toString("utf8")}\n`);
+			assert.throws(() => readNodeEvaluationCase(captured[0]!.path, records), /hash mismatch|hash changed|integrity/u,
+				"Replay rejects changed assembly decisions instead of accepting a complete Session-only trace");
+			writeFileSync(assemblyPath, assemblyBytes);
+			assert.equal(readNodeEvaluationCase(captured[0]!.path, records).status, "succeeded");
 		} else {
 			await assert.rejects(runner.runStage(request), /invalid after 3 attempts/u);
 			const sessions = manifestSessionSections(records, `${basename(trace)}.sessions.json`)!;

@@ -96,6 +96,46 @@ def test_citations_and_urls_are_statistics_not_findings() -> None:
     assert report.stats["bare_urls"] == 1
 
 
+def test_grouped_citations_do_not_become_prose() -> None:
+    plain = "# 标题\n\n事实有出处。\n\nSupported. Still supported.\n"
+    long_group = ", ".join(f"N{i}" for i in range(1, 61))
+    cited = (
+        "# 标题\n\n事实有出处。<cite> N1 , C3 </cite>\n\n"
+        f"<cite>{long_group}</cite>\n\n"
+        "Supported.<cite>deep-search:run:cue-1, deep-search:run:cue-2</cite> Still supported.\n"
+    )
+    baseline = cli.scan_text(plain)
+    report = cli.scan_text(cited)
+    assert report.stats["citation_markers"] == 3
+    assert report.stats["prose_paragraphs"] == baseline.stats["prose_paragraphs"]
+    assert report.stats["single_sentence_paragraphs"] == baseline.stats["single_sentence_paragraphs"]
+    assert report.stats["cjk_chars"] == baseline.stats["cjk_chars"]
+    assert {check.id: check.count for check in report.checks} == {
+        check.id: check.count for check in baseline.checks
+    }
+
+
+def test_legacy_url_citation_keeps_embedded_commas() -> None:
+    report = cli.scan_text("# 标题\n\n事实。<cite> https://example.com/中文,,b?x=1,2 </cite>\n")
+    assert report.stats["citation_markers"] == 1
+    assert report.stats["bare_urls"] == 0
+    assert report.stats["cjk_chars"] == cli.scan_text("# 标题\n\n事实。\n").stats["cjk_chars"]
+
+
+def test_legacy_url_citation_scheme_is_case_insensitive() -> None:
+    plain = "# 标题\n\n事实。\n"
+    report = cli.scan_text("# 标题\n\n事实。<cite>HTTPS://example.org/中文,,b?x=1,2</cite>\n")
+    assert report.stats["citation_markers"] == 1
+    assert report.stats["cjk_chars"] == cli.scan_text(plain).stats["cjk_chars"]
+
+
+def test_masked_citations_keep_original_finding_lines() -> None:
+    report = cli.scan_text("# 标题\n\n<cite>N1,\n N2</cite>\n\n内容值得关注。\n")
+    assert report.stats["citation_markers"] == 1
+    finding = next(check for check in report.checks if check.id == "banned_word")
+    assert finding.hits[0].line == 6
+
+
 def test_bracket_gloss_skips_year_parens() -> None:
     text = "活动在夏季举行（2024）。\n\n可观测能力（observability）不该出现。\n"
     report = cli.scan_text(text)

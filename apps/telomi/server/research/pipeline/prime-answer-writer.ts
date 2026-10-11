@@ -2,7 +2,7 @@ import { writeTaskContext } from "../task-context.js";
 import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, delimiter, join, relative } from "node:path";
 
-import { finalizeStageOutput, type AgentStageRequest, type ValidatedStageArtifact } from "../../agent-runtime/agent-stage-runtime.js";
+import { finalizeStageOutput, validateStageOutputCandidate, type AgentStageRequest, type ValidatedStageArtifact } from "../../agent-runtime/agent-stage-runtime.js";
 import { primeAgentModulePath } from "../../agent-runtime/prime-agent-paths.js";
 import { parseResearchModelRef } from "../../agent-runtime/models/model-policy.js";
 import { bundledAgentSkillPaths, materializeSkills, snapshotSkills } from "../../agent-runtime/skill-registry.js";
@@ -13,8 +13,18 @@ import { listFilesRecursive, writeJsonAtomic } from "../../lib/fs.js";
 import { toErrorMessage } from "../../lib/values.js";
 import { agentSessionPath, appendNodeExecutionRecord, appendRuntimeContext, latestNodeDependencyIds,
 	writeAgentSystemPrompt } from "../../observability/run-records.js";
-import { runPrime } from "./prime-search-batch.js";
+import { readPrimeSessionUsage, runPrime } from "./prime-search-batch.js";
 import { snapshotSourceDirectory } from "./source-bundle.js";
+
+interface AnswerWriterFailureDetails {
+	submissionCount: number;
+	validationErrors: string[];
+}
+// Preserve the original error identity and classification across the outer Capture boundary.
+const failureDetails = new WeakMap<object, AnswerWriterFailureDetails>();
+export function answerWriterFailureDetails(error: unknown): AnswerWriterFailureDetails | undefined {
+	return typeof error === "object" && error !== null ? failureDetails.get(error) : undefined;
+}
 
 /** One independently captured Writer Session over frozen investigation evidence. */
 export async function runPrimeAnswerStage<T>(
@@ -62,6 +72,10 @@ export async function runPrimeAnswerStage<T>(
 		session_mode: "fresh", model: `${model.provider}/${model.modelId}`, execution_profile: "prime_ipython" });
 	let status: "succeeded" | "failed" | "cancelled" = "failed";
 	let output: Record<string, unknown> = {};
+	let submissionCount = 0;
+	const validationErrors: string[] = [];
+	let outputAccepted = false;
+	let completedRun: Awaited<ReturnType<typeof runPrime>> | undefined;
 	try {
 		const run = await (options.execute ?? runPrime)({
 			module: primeAgentModulePath(env), cwd: agentRoot, runtimeRoot,
@@ -75,32 +89,65 @@ export async function runPrimeAnswerStage<T>(
 			env, signal: request.signal, onActivity: request.onActivity,
 			activity: { stageId: request.stageId, attemptId: request.attemptId, role: request.role },
 			tracePath, conditionsPath: join(runtimeRoot, "execution-conditions.jsonl"), launchKind: "standalone_answer_writer",
+			validateOutput: async (submission) => {
+				request.signal.throwIfAborted();
+				if (!Number.isSafeInteger(submission) || submission !== submissionCount + 1 || submission > 3 || outputAccepted) {
+					throw new Error("Answer Writer submitted an invalid validation sequence");
+				}
+				submissionCount = submission;
+				const reject = (error: unknown) => {
+					const message = toErrorMessage(error);
+					validationErrors.push(message);
+					appendRuntimeContext(recordRoot, recordKind, { type: "runtime.output_validation_rejected", stage_id: request.stageId,
+						execution_id: executionId, submission, error: message });
+					return { accepted: false, error: message };
+				};
+				const answerPath = join(agentRoot, "work", "answer.json");
+				const outputDirectory = lstatSync(join(agentRoot, "work"), { throwIfNoEntry: false });
+				const stat = lstatSync(answerPath, { throwIfNoEntry: false });
+				if (!outputDirectory?.isDirectory() || outputDirectory.isSymbolicLink()
+					|| !stat?.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 128_000
+					|| !isInsideRoot(realpathSync(agentRoot), realpathSync(answerPath))) {
+					return reject(new Error("Answer Writer did not write a bounded regular work/answer.json"));
+				}
+				// Copying is host infrastructure. Its errors must not spend model repair turns.
+				mkdirSync(join(request.workDirectory, "work"), { recursive: true });
+				const entryPath = join(request.workDirectory, "work", "answer.json");
+				copyFileSync(answerPath, entryPath);
+				try {
+					await validateStageOutputCandidate(request, { entryPath, outputRoot: join(request.workDirectory, request.output.rootRelativePath ?? "work/answer.json") });
+				} catch (error) {
+					request.signal.throwIfAborted();
+					return reject(error);
+				}
+				request.signal.throwIfAborted();
+				outputAccepted = true;
+				return { accepted: true };
+			},
 			...(logicalWorkspaceCaptureRoot ? { logicalWorkspaceCapture: { root: logicalWorkspaceCaptureRoot, key: "root" } } : {}),
 		});
+		completedRun = run;
 		if (run.rootError) throw new Error(run.rootError);
 		request.signal.throwIfAborted();
-		const answerPath = join(agentRoot, "work", "answer.json");
-		const outputDirectory = lstatSync(join(agentRoot, "work"), { throwIfNoEntry: false });
-		const stat = lstatSync(answerPath, { throwIfNoEntry: false });
-		if (!outputDirectory?.isDirectory() || outputDirectory.isSymbolicLink()
-			|| !stat?.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || stat.size > 128_000
-			|| !isInsideRoot(realpathSync(agentRoot), realpathSync(answerPath))) {
-			throw new Error("Answer Writer did not write a bounded regular work/answer.json");
-		}
-		mkdirSync(join(request.workDirectory, "work"), { recursive: true });
-		copyFileSync(answerPath, join(request.workDirectory, "work", "answer.json"));
+		if (!outputAccepted) throw new Error("Answer Writer finished without an accepted output submission");
+		// Publication happens after acceptance and Worker shutdown, outside the repair loop.
 		const finalized = await finalizeStageOutput({ artifactStore: request.artifactStore, output: request.output,
 			workDirectory: request.workDirectory });
 		status = "succeeded";
 		output = { artifact_ref: finalized.artifact.relativePath, artifact_sha256: finalized.artifact.sha256,
+			submission_count: submissionCount, validation_errors: validationErrors,
 			metrics: { input_tokens: run.usage.inputTokens, output_tokens: run.usage.outputTokens,
 				cost_usd: run.usage.costUsd, model_calls: run.usage.calls, tool_calls: run.toolCalls } };
-		return { value: finalized.value, artifact: finalized.artifact, submissionCount: 1, validationErrors: [],
+		return { value: finalized.value, artifact: finalized.artifact, submissionCount, validationErrors,
 			session: { id: `prime:${request.runId}:${request.stageId}`, mode: "fresh" },
 			turns: run.usage.calls, toolCalls: run.toolCalls, toolCounts: { ipython: run.toolCalls }, usage: run.usage, sessionPath: tracePath };
 	} catch (error) {
 		status = request.signal.aborted ? "cancelled" : "failed";
-		output = { error: toErrorMessage(error) };
+		const run = completedRun ?? readPrimeSessionUsage([join(runtimeRoot, "session", "session"), join(runtimeRoot, "session", "session-artifacts")]);
+		output = { error: toErrorMessage(error), submission_count: submissionCount, validation_errors: validationErrors,
+			metrics: { input_tokens: run.usage.inputTokens, output_tokens: run.usage.outputTokens,
+				cost_usd: run.usage.costUsd, model_calls: run.usage.calls, tool_calls: run.toolCalls } };
+		if (typeof error === "object" && error !== null) failureDetails.set(error, { submissionCount, validationErrors: [...validationErrors] });
 		throw error;
 	} finally {
 		// Archive native sessions before the shared Stage Capture removes a successful workspace.
@@ -133,6 +180,9 @@ export async function runPrimeAnswerStage<T>(
 			input: { model: `${model.provider}/${model.modelId}`, session_policy: "fresh", rlm_max_depth: 0, mode: "investigation-answer" },
 			output, time: { started_at: startedAt, finished_at: finishedAt, duration_ms: Date.parse(finishedAt) - Date.parse(startedAt) },
 			trace_ref: basename(tracePath) });
-		if (archiveError !== undefined) throw archiveError;
+		if (archiveError !== undefined) {
+			if (typeof archiveError === "object" && archiveError !== null) failureDetails.set(archiveError, { submissionCount, validationErrors: [...validationErrors] });
+			throw archiveError;
+		}
 	}
 }

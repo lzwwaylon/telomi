@@ -12,6 +12,7 @@ import { readInvestigationResult } from "./investigate.js";
 import { compileStandaloneCitationMarkdown, type KnowledgeCitationRegistry } from "./pipeline/citation-compiler.js";
 import type { ResolvedWikiReportCitation } from "./pipeline/wiki-report-references.js";
 import type { resolveSavedNoteCue } from "./note-retrieval.js";
+import { citationSourceUrl, cueCitationEntries } from "../citations/cue-sources.js";
 
 type FrozenCue = NonNullable<ReturnType<typeof resolveNoteReadingCue> | ReturnType<typeof resolveSavedNoteCue>>;
 type FrozenCitation = { ref: string; wiki?: ResolvedWikiReportCitation; cue?: FrozenCue };
@@ -49,7 +50,8 @@ export function publishInvestigationReport(goalDir: string, investigationId: str
 			if (wiki.ref !== citation.ref || !wiki.entry?.source || typeof wiki.entry.source.url !== "string"
 				|| typeof wiki.entry.source.title !== "string" || typeof wiki.entry.source.id !== "string"
 				|| typeof wiki.page?.path !== "string") throw new Error("Investigation report Wiki citation is invalid");
-			entries.push({ ref: citation.ref, url: webUrl(wiki.entry.source.url), title: wiki.entry.source.title,
+			const url = citationSourceUrl(wiki.entry.source.url);
+			entries.push({ ref: citation.ref, url, ...(!url ? { numberKey: wiki.entry.source.id } : {}), title: wiki.entry.source.title,
 				provenance: wiki.entry.source.id, evidenceId: wiki.entry.source.id, fileRefs: [wiki.page.path], wiki });
 		} else {
 			const cue = citation.cue!;
@@ -70,9 +72,7 @@ export function publishInvestigationReport(goalDir: string, investigationId: str
 				}
 				assertSafeRelativePath(anchor.source_path, "Investigation report Source path");
 			}
-			const url = "canonical_locator" in cue ? cue.canonical_locator : cue.evidence[0]!.url;
-			entries.push({ ref: citation.ref, url: webUrl(url), title: cue.cue,
-				provenance: citation.ref, numberKey: citation.ref, fileRefs: cue.evidence.map((anchor) => anchor.source_path) });
+			entries.push(...cueCitationEntries(cue));
 			cues.set(citation.ref, cue);
 		}
 	}
@@ -101,14 +101,44 @@ export function publishInvestigationReport(goalDir: string, investigationId: str
 		const latest = Math.max(0, ...listPublishedReports(goalDir).map((report) => report.publishedAt ? Date.parse(report.publishedAt) : 0));
 		publishedAt = new Date(Math.max(Date.now(), latest + 1)).toISOString();
 	}
-	const structured = `${JSON.stringify({ publishedAt, markdown: compiled.markdown,
-		citations: compiled.citations.map((citation) => {
-			const cue = citation.refs?.length === 1 ? cues.get(citation.refs[0]!) : undefined;
-			return { ...citation, ...(cue ? { cue } : {}) };
-		}),
-		investigation: result,
-	}, null, 2)}\n`;
-	const artifacts = [["report/final.json", structured], ["report/final.md", compiled.markdown]] as const;
+	const serialize = (value: typeof compiled, legacy: boolean) => `${JSON.stringify({ publishedAt, markdown: value.markdown,
+		citations: value.citations.map((citation) => {
+			const citedCues = (citation.refs ?? []).flatMap(ref => cues.has(ref) ? [cues.get(ref)!] : []);
+			return { ...citation, ...(legacy
+				? citation.refs?.length === 1 && citedCues[0] ? { cue: citedCues[0] } : {}
+				: citedCues.length ? { cues: citedCues } : {}) };
+		}), investigation: result }, null, 2)}\n`;
+	let structured = serialize(compiled, false);
+	let markdown = compiled.markdown;
+	if (previous !== undefined) {
+		const previousBytes = readFileSync(store.describeFile("report/final.json").absolutePath, "utf-8");
+		if (previousBytes !== structured) {
+			// Verify the old format against the same validated evidence; never trust or rewrite a saved report.
+			const legacyEntries = [...new Map(entries.map(entry => [entry.ref!, entry])).values()].map(entry => {
+				const cue = cues.get(entry.ref!);
+				return cue ? { ref: entry.ref, url: legacyWebUrl("canonical_locator" in cue ? cue.canonical_locator : cue.evidence[0]!.url),
+					title: cue.cue, provenance: entry.ref!, numberKey: entry.ref, fileRefs: cue.evidence.map(anchor => anchor.source_path) }
+					: { ...entry, numberKey: undefined, url: legacyWebUrl(entry.wiki!.entry.source.url) };
+			});
+			const legacy = compileStandaloneCitationMarkdown({ markdown: `# ${reportTitle}\n\n${body}`,
+				citationRegistry: { schemaVersion: 1, knowledgeSha256: result.wiki_sha256, entries: legacyEntries } });
+			// Historical targets predate Markdown delimiter encoding. Restore them only for exact-byte verification.
+			const referencesAt = legacy.markdown.lastIndexOf("\n## References\n\n");
+			let legacyBody = legacy.markdown.slice(0, referencesAt);
+			let references = legacy.markdown.slice(referencesAt);
+			for (const citation of legacy.citations) {
+				const url = legacyEntries.find(entry => entry.ref === citation.refs?.[0])!.url;
+				if (!citation.url || citation.url === url) continue;
+				legacyBody = legacyBody.replaceAll(`[[${citation.number}]](${citation.url})`, `[[${citation.number}]](${url})`);
+				references = references.replaceAll(`](${citation.url})`, `](${url})`);
+				citation.url = url;
+			}
+			legacy.markdown = legacyBody + references;
+			const legacyBytes = serialize(legacy, true);
+			if (previousBytes === legacyBytes) { structured = legacyBytes; markdown = legacy.markdown; }
+		}
+	}
+	const artifacts = [["report/final.json", structured], ["report/final.md", markdown]] as const;
 	// Check both existing products before writing either; retries never overwrite another report.
 	for (const [path, content] of artifacts) {
 		if (existsSync(join(store.root, path)) && readFileSync(store.describeFile(path).absolutePath, "utf-8") !== content) {
@@ -122,9 +152,9 @@ export function publishInvestigationReport(goalDir: string, investigationId: str
 	return { runId, reportTitle, stableFinalReportPath: `/workspace/wiki/runs/${runId}/report/final.md` };
 }
 
-function webUrl(value: string | undefined): string {
+function legacyWebUrl(value: string | undefined): string {
 	try {
 		const url = new URL(value ?? "");
-		return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
+		return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
 	} catch { return ""; }
 }

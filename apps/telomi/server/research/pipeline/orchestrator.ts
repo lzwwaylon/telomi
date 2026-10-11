@@ -1,4 +1,5 @@
 import { validateCanonicalMarkdown } from "../../citations/contracts.js";
+import { parseInlineCitations } from "../../citations/inline-cites.js";
 import type { ResolvedOutputLanguage } from "../../../shared/languages.js";
 import {
 	existsSync,
@@ -1425,11 +1426,11 @@ function reportWriterFileToolPolicy() {
 }
 
 function wikiCitationRefs(markdown: string): string[] {
-	return [...new Set([...markdown.matchAll(/<cite>\s*(C[1-9][0-9]*)\s*<\/cite>/gu)].map((match) => match[1]!))];
+	return [...new Set(parseInlineCitations(markdown).flatMap(citation => citation.refs).filter(ref => /^C[1-9][0-9]*$/u.test(ref)))];
 }
 
 function noteCitationRefs(markdown: string): string[] {
-	return [...new Set([...markdown.matchAll(/<cite>\s*(N[1-9][0-9]*)\s*<\/cite>/gu)].map((match) => match[1]!))];
+	return [...new Set(parseInlineCitations(markdown).flatMap(citation => citation.refs).filter(ref => /^N[1-9][0-9]*$/u.test(ref)))];
 }
 
 // Literal key order is fixed at both call sites; stableJson would change persisted discovery ids.

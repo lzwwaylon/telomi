@@ -26,6 +26,7 @@ interface Input {
 	tools?: string[];
 	contractTools?: boolean;
 	organizerTools?: boolean;
+	validateOutput?: boolean;
 	scopedModels: string[];
 	rlmMaxDepth: number;
 	logicalWorkspaceCaptureRoot?: string;
@@ -33,7 +34,7 @@ interface Input {
 	serviceTier?: "default" | "priority" | "flex";
 }
 
-const { createPrimeWorkerControl } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH")) as typeof import("../../agent-runtime/prime-worker-control.js");
+const { createPrimeWorkerControl, requestPrimeOutputValidation } = await import(required("PRIME_WORKER_CONTROL_MODULE_PATH")) as typeof import("../../agent-runtime/prime-worker-control.js");
 const control = createPrimeWorkerControl();
 
 const input = JSON.parse(readFileSync(required("PRIME_SEARCH_SDK_INPUT"), "utf-8")) as Input;
@@ -121,7 +122,31 @@ session.subscribe((event: unknown) => {
 
 try {
 	control.signal.throwIfAborted();
-	if (input.organizerTools) {
+	if (input.validateOutput) {
+		let submission = 0;
+		let validation: { accepted: boolean; error?: string } | undefined;
+		try {
+			await acceptAgentOutput({
+				initialPrompt: input.prompt,
+				promptTurn: async (text, repair) => {
+					await session.prompt(text, { signal: control.signal, ...(repair ? { streamingBehavior: "followUp", expandPromptTemplates: false } : {}) });
+					control.signal.throwIfAborted();
+					await session.waitForRlmQuiescence();
+					control.signal.throwIfAborted();
+					assertPrimeModelAnswered(session);
+					// IPC/cancellation/infrastructure failures escape promptTurn, never enter the repair catch.
+					validation = await requestPrimeOutputValidation(++submission, control.signal);
+				},
+				validate: () => {
+					if (!validation?.accepted) throw new Error(validation?.error ?? "Runtime rejected the output file");
+				},
+				onRejected: (attempt, error) => appendFileSync(eventLog, `${JSON.stringify({ type: "output_validation_rejected", attempt, error })}\n`),
+			});
+		} catch (error) {
+			if (error instanceof AgentOutputValidationError) process.send?.({ type: "stage_worker_failure", failure_class: "validation", error: error.message });
+			throw error;
+		}
+	} else if (input.organizerTools) {
 		try {
 			const accepted = await acceptAgentOutput({
 				initialPrompt: input.prompt,

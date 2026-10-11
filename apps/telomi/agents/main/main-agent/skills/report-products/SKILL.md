@@ -1,13 +1,13 @@
 ---
 name: report-products
-description: Request a report-style investigation answer, read a published report or its Podcast, or generate a Podcast from a Canonical Report.
+description: Deliver detailed research, a landscape, a systematic comparison or a report; read a published report or its Podcast; generate a Podcast from a Canonical Report.
 ---
 
 # Report products
 
 ## Request a report
 
-Use `investigate` with the complete question and a self-contained context describing the audience, format, depth, language and evidence priorities. Restrict it to `local_only` when the user requests saved Goal material; otherwise allow external evidence. Read its `result_ref`, review coverage and gaps, then publish the saved answer with `deliver_investigation` using its `investigation_id` and a concise `report_title`, or continue the thread for missing evidence.
+Detailed research, landscapes and systematic comparisons are report requests even when the user does not name a file format. Use `investigate` with the complete question and a self-contained context describing the audience, format, depth, language and evidence priorities. Explicitly select `source_scope` each time: `local_only` when the user requests saved Goal material; otherwise `external_allowed`. Read its `result_ref`, review coverage and gaps, then publish the saved answer with `deliver_investigation` using its `investigation_id` and a concise `report_title`, or continue the thread for missing evidence.
 
 Publication compiles the reviewed Writer answer and its frozen evidence into a Canonical Report. The report card, `/reports` file and Podcast all use that same published content. Do not repeat investigation or writing merely to publish an answer already reviewed: recover its returned `investigation_id`, read its saved result and publish it. Never invent an id or reconstruct the answer from memory. Generate audio only when the user requests it.
 
