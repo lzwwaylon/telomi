@@ -66,7 +66,7 @@ async function fakeHindsight(documents: FakeDocument[], units: FakeUnit[]) {
 		if (req.body.text) { unit.text = req.body.text; unit.edited_at = "2026-09-25T10:00:00Z"; }
 		res.json(unit);
 	});
-	const server = app.listen(0);
+	const server = app.listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => server.once("listening", resolve));
 	return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, requests, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
@@ -79,7 +79,7 @@ async function serve(router: express.Router) {
 	const app = express();
 	app.use(express.json());
 	app.use(router);
-	const server = app.listen(0);
+	const server = app.listen(0, "127.0.0.1");
 	await new Promise<void>((resolve) => server.once("listening", resolve));
 	const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 	const call = async (method: string, path: string, body?: unknown) => {

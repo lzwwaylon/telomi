@@ -37,7 +37,10 @@ npm run worktree -- check -- env TELOMI_TEST_CONCURRENCY=4 npm test
 
 This controls test files within one run; the cross-Worktree heavy-check lock still
 serializes complete checks. Tests must allocate their own writable paths and use
-dynamic service ports rather than depending on serial execution.
+dynamic service ports rather than depending on serial execution. Node TCP test listeners
+bind `127.0.0.1` explicitly: macOS permits wildcard and loopback listeners on the same
+port, so a test's loopback request can reach another process. The runner rejects wildcard
+listeners in test-file processes.
 
 `--shard index/count` runs one slice of the matched files: after sorting, a file belongs
 to the shard matching its position, so the shards of one count partition the list exactly

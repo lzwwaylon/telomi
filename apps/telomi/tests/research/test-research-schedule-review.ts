@@ -261,7 +261,7 @@ try {
 		retained.push(...((req.body as { items: typeof retained }).items ?? []));
 		res.json({ accepted: true });
 	});
-	const hindsightServer = hindsightApp.listen(0);
+	const hindsightServer = hindsightApp.listen(0, "127.0.0.1");
 	await new Promise<void>((resolve, reject) => {
 		hindsightServer.once("listening", resolve);
 		hindsightServer.once("error", reject);
@@ -300,7 +300,7 @@ try {
 	const app = express();
 	app.use(express.json());
 	app.use(createResearchSchedulesRouter(workspaceDir, goals, service));
-	const server = app.listen(0);
+	const server = app.listen(0, "127.0.0.1");
 	await new Promise<void>((resolve, reject) => {
 		server.once("listening", resolve);
 		server.once("error", reject);
@@ -529,7 +529,7 @@ try {
 		});
 		const slowApp = express();
 		slowApp.use(createResearchSchedulesRouter(workspaceDir, goals, slow));
-		const slowServer = slowApp.listen(0);
+		const slowServer = slowApp.listen(0, "127.0.0.1");
 		await new Promise<void>((resolve, reject) => {
 			slowServer.once("listening", resolve);
 			slowServer.once("error", reject);

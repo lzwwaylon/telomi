@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { globSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { Server, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -96,4 +96,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 	await new Promise<void>((done, reject) => listener.close((error) => error ? reject(error) : done()));
 	if (!address || typeof address === "string") throw new Error("Unable to allocate the test Source Service port");
 	process.env.TELOMI_RESEARCH_SOURCE_PORT = String(address.port);
+	// macOS permits wildcard and loopback listeners on the same TCP port; a test's loopback
+	// request can reach the other process. Reject wildcard listeners in test-file processes.
+	const listen = Server.prototype.listen as (this: Server, ...args: unknown[]) => Server;
+	Server.prototype.listen = function (this: Server, ...args: unknown[]) {
+		this.once("listening", () => {
+			const bound = this.address();
+			if (bound && typeof bound === "object" && (bound.address === "::" || bound.address === "0.0.0.0")) {
+				throw new Error(`Test listener bound to ${bound.address}:${bound.port}; bind 127.0.0.1 so no other loopback listener can answer its requests`);
+			}
+		});
+		return listen.apply(this, args);
+	} as Server["listen"];
 }

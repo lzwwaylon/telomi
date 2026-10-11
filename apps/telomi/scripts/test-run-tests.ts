@@ -147,6 +147,23 @@ assert.equal(readFileSync(join(data, 'state.json'), 'utf8'), ${JSON.stringify(na
 	assert.notEqual(failed.status, 0, failed.stdout + failed.stderr);
 	assert.match(failed.stdout + failed.stderr, /Expected failure/);
 	assert.equal(existsSync(readFileSync(env.TELOMI_TEST_FAILURE_DATA, "utf8")), false, "failed runs must also remove their test data");
+	// A wildcard listener can share its port with another process's 127.0.0.1 listener on macOS.
+	for (const host of [undefined, "0.0.0.0"]) {
+		fixture("tests/new-module/test-wildcard.ts", `import { createServer } from "node:http"; createServer().listen(0, ${host ? JSON.stringify(host) + ", " : ""}() => process.exit(0));`);
+		const wildcard = run("tests/new-module/test-wildcard.ts");
+		assert.notEqual(wildcard.status, 0, wildcard.stdout + wildcard.stderr);
+		assert.match(wildcard.stdout + wildcard.stderr, /Test listener bound to (?:0\.0\.0\.0|::):\d+; bind 127\.0\.0\.1/u);
+	}
+	fixture("tests/new-module/test-loopback.ts", `import assert from "node:assert/strict";
+import { createServer } from "node:http";
+const server = createServer((_req, res) => res.end("owned-test-response"));
+await new Promise(ready => server.listen(0, "127.0.0.1", ready));
+try {
+ const response = await fetch("http://127.0.0.1:" + server.address().port);
+ assert.equal(await response.text(), "owned-test-response");
+} finally { await new Promise(done => server.close(done)); }`);
+	const loopback = run("tests/new-module/test-loopback.ts");
+	assert.equal(loopback.status, 0, loopback.stdout + loopback.stderr);
 	assert.notEqual(run("tests/missing/*.ts").status, 0);
 	assert.notEqual(run("tests/new-module/test-provider-live.ts").status, 0);
 	fixture("tests/new-module/test-failure.ts", 'import test from "node:test"; test("fails", () => { throw new Error("Expected node:test failure"); });');
