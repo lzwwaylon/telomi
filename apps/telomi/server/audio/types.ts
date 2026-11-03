@@ -26,8 +26,16 @@ export interface SpliceClip {
 
 export interface SpeakOptions {
 	format?: AudioFormat;
-	outPath?: string;
 	signal?: AbortSignal;
+}
+
+export interface SpokenAudio {
+	provider: string;
+	model?: string;
+	/** Absent when the server's own default voice spoke. */
+	voice?: string;
+	format: AudioFormat;
+	audio: Buffer;
 }
 
 export interface SpeakResult {

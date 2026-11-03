@@ -1,4 +1,3 @@
-import { rm } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import type { Express } from "express";
 import type { AudioGenerationConfiguration, AudioGenerationConsumer, AudioGenerationResponse, AudioGenerationSelection } from "../../shared/audio-generation.js";
@@ -221,10 +220,9 @@ export function mountAudioGenerationApi(app: Express): void {
         // A typed voice outside the list is proven by speaking one sentence with it; only the endpoint can refuse it.
         if (selected.voice && speech.voices.length && !speech.voices.includes(selected.voice)) {
           // Imported here: the speech provider itself imports this module.
-          const { speak } = await import("./providers/tts.js");
-          const spoken = await speak({ text: "Telomi voice check.", format: "mp3", signal: AbortSignal.timeout(60_000), audio: selected });
+          const { synthesizeSpeech } = await import("./providers/tts.js");
+          const spoken = await synthesizeSpeech({ text: "Telomi voice check.", format: "mp3", signal: AbortSignal.timeout(60_000), audio: selected });
           if (!spoken.ok) throw new Error(`Unsupported voice for selected audio model: ${spoken.reason}`);
-          await rm(spoken.outPath, { force: true }).catch(() => undefined);
         }
         if ((await audioServiceHealth(selected.baseUrl, key)).capabilities.includes("warmup")) {
           phase = "applying";

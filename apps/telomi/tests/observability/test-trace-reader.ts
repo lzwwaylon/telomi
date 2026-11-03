@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -16,6 +16,7 @@ import { createTraceRouter } from "../../server/observability/trace-api.js";
 import { listTraceRuns, readTraceRun, resolveTraceFile, type TraceFileRef } from "../../server/observability/trace-reader.js";
 
 const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-trace-reader-"));
+process.once("exit", () => rmSync(workspaceDir, { recursive: true, force: true }));
 const goalId = "goal_trace_reader";
 mkdirSync(join(workspaceDir, goalId), { recursive: true });
 

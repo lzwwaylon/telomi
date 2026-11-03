@@ -18,6 +18,7 @@ import { BrowserSessionRegistry } from "../../server/providers/browser/session-r
  */
 
 const root = mkdtempSync(join(tmpdir(), "telomi-browser-ns-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const daemonHome = join(root, "home");
 const namespace = "telomi-unit";
 const runDir = join(daemonHome, "namespaces", namespace, "run");

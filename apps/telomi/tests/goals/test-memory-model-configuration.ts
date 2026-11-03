@@ -6,6 +6,7 @@ import test from "node:test";
 import express from "express";
 
 const root = mkdtempSync(join(tmpdir(), "memory-config-"));
+test.after(() => rmSync(root, { recursive: true, force: true }));
 process.env.PI_CODING_AGENT_DIR = root;
 mkdirSync(root, { recursive: true });
 writeFileSync(join(root, "models.json"), JSON.stringify({ providers: {

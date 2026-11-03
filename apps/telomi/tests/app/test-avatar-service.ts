@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -47,6 +47,7 @@ assert.ok(!taken.slice(0, 5).some((avatar) => avatarKey(avatar) === avatarKey(re
 
 // Goals saved by retired renderers or catalogs are migrated once and validated strictly afterwards.
 const workspace = mkdtempSync(join(tmpdir(), "telomi-avatar-"));
+process.once("exit", () => rmSync(workspace, { recursive: true, force: true }));
 const timestamp = "2026-09-18T00:00:00.000Z";
 const legacy = (id: string) => ({
 	id, title: id, description: "", createdAt: timestamp, updatedAt: timestamp, preview: "", messageCount: 0,

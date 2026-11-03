@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { GoalWorkspacePublicationLock } from "../../server/workspaces/publication-lock.js";
 
 const dataDir = mkdtempSync(join(tmpdir(), "pi-workspace-publication-lock-"));
+process.once("exit", () => rmSync(dataDir, { recursive: true, force: true }));
 const goalId = "goal_workspace_publication_lock";
 const lock = new GoalWorkspacePublicationLock(goalId, dataDir);
 const secondLock = new GoalWorkspacePublicationLock(goalId, dataDir);

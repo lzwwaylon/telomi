@@ -149,6 +149,8 @@ const BROWSER_REFS = [1, 2, 3].map((index) => ({
 		const next = trigger.observe(GOAL_ID);
 		assert.ok(next, "a recovered Goal no longer blocks the next Browser batch");
 		assert.deepEqual(next.evidenceRefs.map((ref) => ref.caseId), ["case-4", "case-5", "case-6"]);
+		// Its hung inner loop never writes again, so removing the workspace below cannot race it.
+		await waitForStatus(after, next.id, ["replaying"]);
 		after.stop();
 		console.log("Evolution recovery settles an interrupted Run and unblocks the next Browser batch");
 	} finally {

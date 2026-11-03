@@ -14,7 +14,7 @@ import { loadSettings, TASK_MODEL_ROLES } from "../config/settings.js";
 import { testConfiguredModel } from "../agent-runtime/model-connectivity.js";
 import { connectionEntry, resolveAudioGeneration } from "../audio/configuration.js";
 import { resolveSelfHostedSttEndpoint } from "../audio/providers/self-hosted-stt.js";
-import { speak } from "../audio/providers/tts.js";
+import { synthesizeSpeech } from "../audio/providers/tts.js";
 import { transcribe } from "../audio/providers/stt.js";
 import { embedTexts } from "../embedding/client.js";
 import { DEFAULT_MEMORY_LOCAL_MODEL, embeddingApiKey, embeddingEndpointFor, resolveEmbedding } from "../embedding/configuration.js";
@@ -182,10 +182,9 @@ export async function testConnectionCapability(probe: ConnectionProbe): Promise<
 				if (!entry) return fail(`audio connection '${probe.connection}' is unknown`);
 				const baseUrl = new URL(entry.baseUrl).toString().replace(/\/+$/, "");
 				// The format playback asks for; gateways accept fewer formats than a local server does.
-				const result = await speak({ text: PROBE_TEXT, format: "mp3", signal, audio: { connection: probe.connection, model: probe.model, voice: probe.voice ?? "", rate: 1, baseUrl } });
+				const result = await synthesizeSpeech({ text: PROBE_TEXT, format: "mp3", signal, audio: { connection: probe.connection, model: probe.model, voice: probe.voice ?? "", rate: 1, baseUrl } });
 				if (!result.ok) return fail(result.reason);
-				await import("node:fs/promises").then((fs) => fs.rm(result.outPath, { force: true })).catch(() => undefined);
-				return pass([result.voice, `${Math.max(1, Math.round(result.bytes / 1024))} KB mp3`].filter(Boolean).join(" · "));
+				return pass([result.voice, `${Math.max(1, Math.round(result.audio.length / 1024))} KB mp3`].filter(Boolean).join(" · "));
 			}
 			case "stt": {
 				const entry = connectionEntry(probe.connection);

@@ -1,9 +1,8 @@
-import { mkdtempSync, statSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureDirFor, hasFfmpeg, transcodeRawPcmSync, transcodeSync } from "../ffmpeg.js";
-import type { AudioFormat, ProviderResult, SpeakOptions, SpeakResult } from "../types.js";
+import type { AudioFormat, ProviderResult, SpeakOptions, SpeakResult, SpokenAudio } from "../types.js";
 import { audioEnv } from "../environment.js";
 import { acquireAudioSlot, audioServiceHealth } from "./health.js";
 import { getAudioLocalRuntimeManager } from "../local-runtime.js";
@@ -139,36 +138,45 @@ async function fetchSpeech(audio: AudioGenerationOperation, req: SpeakRequest, f
 	}
 }
 
-/** One utterance written to a file, through whichever OpenAI-compatible endpoint the connection names. */
-export async function speak(req: SpeakRequest): Promise<ProviderResult<SpeakResult>> {
+/** One utterance in memory, in the requested format. A transcode's scratch files are removed before it returns, also on failure. */
+export async function synthesizeSpeech(req: SpeakRequest): Promise<ProviderResult<SpokenAudio>> {
 	const audio = req.audio ?? captureAudioGeneration();
 	const provider = audio.connection;
 	const format: AudioFormat = req.format || "mp3";
 	const fetched = await fetchSpeech(audio, req, format);
 	if (!fetched.ok) return { ok: false, provider, reason: fetched.reason };
 	const { target, wireFormat, bytes } = fetched;
-	const outPath = req.outPath || tmpFile(`speech-${Date.now()}.${format}`);
-	ensureDirFor(outPath);
-	const spoken = (size: number): ProviderResult<SpeakResult> => ({ ok: true, provider, model: target.model, voice: target.voice, format, outPath, bytes: size });
+	const spoken = (data: Buffer): ProviderResult<SpokenAudio> => ({ ok: true, provider, model: target.model, voice: target.voice, format, audio: data });
 
-	if (wireFormat === format) {
-		writeFileSync(outPath, bytes);
-		return spoken(bytes.length);
-	}
+	if (wireFormat === format) return spoken(bytes);
 	if (!hasFfmpeg()) {
 		return { ok: false, provider, reason: `ffmpeg required to convert ${wireFormat} to ${format}` };
 	}
-	const tmpInput = tmpFile(`speech-${Date.now()}.${wireFormat}`);
-	writeFileSync(tmpInput, bytes);
-	const ok = wireFormat === "pcm"
-		? transcodeRawPcmSync(tmpInput, outPath, speechPcmSampleRate(), 1)
-		: transcodeSync(tmpInput, outPath);
-	if (!ok) {
-		return { ok: false, provider, reason: `ffmpeg transcoding ${wireFormat} -> ${format} failed` };
+	const scratch = mkdtempSync(join(tmpdir(), "telomi-audio-"));
+	try {
+		const input = join(scratch, `speech.${wireFormat}`);
+		const output = join(scratch, `speech.${format}`);
+		writeFileSync(input, bytes);
+		const ok = wireFormat === "pcm"
+			? transcodeRawPcmSync(input, output, speechPcmSampleRate(), 1)
+			: transcodeSync(input, output);
+		if (!ok) {
+			return { ok: false, provider, reason: `ffmpeg transcoding ${wireFormat} -> ${format} failed` };
+		}
+		return spoken(readFileSync(output));
+	} finally {
+		rmSync(scratch, { recursive: true, force: true });
 	}
-	let size = 0;
-	try { size = statSync(outPath).size; } catch { /* ignore */ }
-	return spoken(size);
+}
+
+/** One utterance written to the caller's file. */
+export async function speak(req: SpeakRequest & { outPath: string }): Promise<ProviderResult<SpeakResult>> {
+	const spoken = await synthesizeSpeech(req);
+	if (!spoken.ok) return spoken;
+	const { audio, ...result } = spoken;
+	ensureDirFor(req.outPath);
+	writeFileSync(req.outPath, audio);
+	return { ...result, outPath: req.outPath, bytes: audio.length };
 }
 
 /** Speech as it arrives. A file the model cannot return directly is synthesized whole and transcoded first. */
@@ -177,8 +185,8 @@ export async function* speakStream(req: SpeakRequest): AsyncIterable<Uint8Array>
 	const format: AudioFormat = req.format || "mp3";
 	const wireFormat = speechWireFormat(await resolveSpeechModel(audio, audioGenerationKey(audio)), format);
 	if (wireFormat !== format) {
-		const r = await speak({ ...req, audio });
-		if (r.ok) yield new Uint8Array(await readFile(r.outPath));
+		const r = await synthesizeSpeech({ ...req, audio });
+		if (r.ok) yield new Uint8Array(r.audio);
 		return;
 	}
 	yield* streamSpeech(audio, req, wireFormat, "end");
@@ -217,11 +225,6 @@ async function* speechBody(response: Response, endpoint: string, onReject: Speec
 		if (done) break;
 		if (value) yield value;
 	}
-}
-
-function tmpFile(name: string): string {
-	const dir = mkdtempSync(join(tmpdir(), "telomi-audio-"));
-	return join(dir, name);
 }
 
 // ---------- batch synthesis ----------

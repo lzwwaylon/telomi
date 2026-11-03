@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import { awaitStageRepairPrompt, finalizeStageOutput } from "../../server/agent-
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-stage-completion-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const workDirectory = join(root, "work");
 const artifactStore = new RunArtifactStore(join(root, "published"));
 const capturedFinalText = JSON.stringify({

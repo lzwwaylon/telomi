@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -104,6 +105,7 @@ class PrimeBridgeClientTests(unittest.TestCase):
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.workspace = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.workspace, ignore_errors=True)
         self.env = patch.dict("os.environ", {
             "PRIME_AGENT_SOURCE_URL": f"http://127.0.0.1:{self.server.server_port}",
             "PRIME_AGENT_SOURCE_TOKEN": "bridge-token",

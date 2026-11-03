@@ -222,6 +222,6 @@ try {
 	console.log("Browser Evolution triggers once per settled batch of three and never reuses an execution");
 } finally {
 	releaseEvidence();
-	service.stop();
+	await service.stop();
 	rmSync(root, { recursive: true, force: true });
 }

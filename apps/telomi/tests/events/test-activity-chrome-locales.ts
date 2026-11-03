@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -123,6 +123,7 @@ assert.equal(render(donePodcast.summary), "Podcast 已生成");
 
 // An interrupted or partial Wiki update stores fixed Chinese in its Job record; the UI renders facts.
 const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-activity-chrome-"));
+process.once("exit", () => rmSync(workspaceDir, { recursive: true, force: true }));
 const goalId = "goal_locale";
 const topicPlan = {
 	schema_version: 1 as const,

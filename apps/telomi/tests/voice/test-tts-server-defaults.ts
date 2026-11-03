@@ -12,7 +12,7 @@ process.env.TELOMI_DATA_DIR = home;
 // Batch retries keep their attempt count; only the wait between attempts is removed.
 process.env.TELOMI_AUDIO_TTS_RETRY_BASE_MS = "0";
 
-const { speak, speakMany } = await import("../../server/audio/providers/tts.js");
+const { synthesizeSpeech, speakMany } = await import("../../server/audio/providers/tts.js");
 const { configureManagedAudioGeneration } = await import("./managed-speech.js");
 const { loadCustomProviders, saveCustomProviders } = await import("../../server/providers/custom-models.js");
 const { mountAudioConfigApi } = await import("../../server/voice/config-api.js");
@@ -116,12 +116,12 @@ test("a selection naming no model or voice speaks with what the server reports, 
 	});
 	try {
 		await configureManagedAudioGeneration({ connection: "reporting-tts", model: "", voice: "", rate: 1, baseUrl: upstream.baseUrl, apiKey: "reporting-key" });
-		const reported = await speak({ text: "Server defaults", format: "wav" });
+		const reported = await synthesizeSpeech({ text: "Server defaults", format: "wav" });
 		assert.equal(reported.ok, true, reported.ok ? "" : reported.reason);
 		assert.deepEqual([upstream.speech.at(-1)?.model, upstream.speech.at(-1)?.voice], ["reported-speaker", "reported-voice"]);
 
 		await configureManagedAudioGeneration({ connection: "reporting-tts", model: "", voice: "chosen-voice", rate: 1, baseUrl: upstream.baseUrl, apiKey: "reporting-key" });
-		assert.equal((await speak({ text: "Explicit voice", format: "wav" })).ok, true);
+		assert.equal((await synthesizeSpeech({ text: "Explicit voice", format: "wav" })).ok, true);
 		assert.deepEqual([upstream.speech.at(-1)?.model, upstream.speech.at(-1)?.voice], ["reported-speaker", "chosen-voice"]);
 	} finally {
 		await upstream.close();
@@ -294,23 +294,45 @@ test("output format and prompt wrapping follow model metadata, not the model's b
 	try {
 		// The server says what the model can return: an mp3 is made from the wav it can send.
 		await configureManagedAudioGeneration({ connection: "format-tts", model: "wav-speaker", voice: "one", rate: 1, baseUrl: upstream.baseUrl, apiKey: "format-key" });
-		const transcoded = await speak({ text: "Needs mp3", format: "mp3" });
+		const transcoded = await synthesizeSpeech({ text: "Needs mp3", format: "mp3" });
 		assert.equal(transcoded.ok, true, transcoded.ok ? "" : transcoded.reason);
 		assert.equal(upstream.speech.at(-1)?.response_format, "wav");
 
 		// A server silent about formats gets the format asked for.
 		await configureManagedAudioGeneration({ connection: "format-tts", model: "plain-speaker", voice: "one", rate: 1, baseUrl: upstream.baseUrl, apiKey: "format-key" });
-		assert.equal((await speak({ text: "Plain", format: "wav" })).ok, true);
+		assert.equal((await synthesizeSpeech({ text: "Plain", format: "wav" })).ok, true);
 		assert.equal(upstream.speech.at(-1)?.response_format, "wav");
 		assert.equal(upstream.speech.at(-1)?.input, "Plain");
 
 		// A well-known model the server says nothing about: the static metadata supplies PCM-only output and the language instruction.
 		await configureManagedAudioGeneration({ connection: "format-tts", model: "google/gemini-3.1-flash-tts-preview", voice: "Kore", rate: 1, baseUrl: upstream.baseUrl, apiKey: "format-key" });
-		await speak({ text: "你好，世界", format: "wav" });
+		await synthesizeSpeech({ text: "你好，世界", format: "wav" });
 		assert.equal(upstream.speech.at(-1)?.response_format, "pcm");
 		const wrapped = String(upstream.speech.at(-1)?.input);
 		assert.ok(wrapped !== "你好，世界" && wrapped.endsWith("你好，世界"), "the language instruction precedes the text");
 	} finally {
+		await upstream.close();
+	}
+});
+
+test("speech leaves nothing in the temporary directory, transcoded or not", async () => {
+	// Only wav comes back, so the mp3 a preview asks for and the voice check's mp3 are both transcoded.
+	const upstream = await startUpstream({ models: [{ id: "wav-only", modality: "tts", response_formats: ["wav"], supported_voices: ["listed"] }] });
+	const origin = generationUrl.replace("/api/audio-config/generation", "");
+	const scratch = mkdtempSync(join(home, "tmp-"));
+	const previousTmp = process.env.TMPDIR;
+	try {
+		await configureManagedAudioGeneration({ connection: "scratch-tts", model: "wav-only", voice: "listed", rate: 1, baseUrl: upstream.baseUrl, apiKey: "scratch-key" });
+		process.env.TMPDIR = scratch;
+		const preview = await fetch(`${origin}/api/audio-config/voice-preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ connection: "scratch-tts", model: "wav-only", voice: "listed", rate: 1, text: "Scratch" }) });
+		assert.equal(preview.status, 200, await preview.clone().text());
+		assert.equal((await apply("scratch-tts", "wav-only", "typed-voice")).status, 200, "a typed voice is proven by speaking");
+		assert.equal(upstream.speech.at(-1)?.voice, "typed-voice");
+		assert.equal((await speakMany({ segments: [{ id: "flac", text: "Batch", outPath: join(home, "scratch.flac") }] })).ok, true);
+		assert.deepEqual(readdirSync(scratch), []);
+	} finally {
+		if (previousTmp === undefined) delete process.env.TMPDIR;
+		else process.env.TMPDIR = previousTmp;
 		await upstream.close();
 	}
 });

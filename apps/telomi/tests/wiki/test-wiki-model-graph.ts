@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildWikiGraph } from "../../server/wiki/model/graph.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-wiki-graph-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 mkdirSync(join(root, "concepts"));
 writeFileSync(join(root, "concepts", "alpha.md"), page("Alpha", "beta.md") + `
 [Missing local page](missing.md)

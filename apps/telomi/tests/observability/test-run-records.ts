@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,6 +21,7 @@ import {
 import { readRuntimeStageReports } from "../../server/research/workspace-adapter.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-run-records-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const runDir = runRecordDir(root, "goal_123", "Run:123");
 const plannerPath = agentSessionPath(runDir, "Note Agent", "A001");
 const plannerPromptPath = agentSystemPromptPath(runDir, "Note Agent", "Note Agent 1", "Attempt:1");

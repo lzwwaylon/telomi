@@ -1,6 +1,7 @@
 """Real Hindsight storage semantics for the embedding migration, with a deterministic embedder in place of a model."""
 import asyncio
 import hashlib
+import math
 import os
 import sys
 import uuid
@@ -55,6 +56,11 @@ class FakeEmbeddings(Embeddings):
 
 def parse_vector(value) -> list[float]:
     return [float(item) for item in str(value).strip("[]").split(",")]
+
+
+def same_vector(stored: list[float], expected: list[float]) -> bool:
+    # pgvector keeps float32, so a stored value can round to the other side of a 6th-decimal boundary.
+    return len(stored) == len(expected) and all(math.isclose(a, b, rel_tol=1e-6, abs_tol=1e-6) for a, b in zip(stored, expected))
 
 
 def main() -> None:
@@ -172,13 +178,12 @@ def main() -> None:
             assert [row[0] for row in after["units"]] == sorted([*ids, late_id], key=lambda item: {ids[0]: "Ada moved to Lisbon", ids[1]: "Ada prefers tea", ids[2]: "Ada tends to relocate in summer", late_id: "Ada adopted a cat"}[item])
             assert vector_index_count(conn) == 3, "per-bank vector indexes are rebuilt"
             stored = parse_vector(conn.execute(text("SELECT embedding FROM memory_units WHERE id = :id"), {"id": ids[0]}).scalar())
-            assert stored == [round(value, 6) for value in new.vector("Ada moved to Lisbon (happened in June 2024) [Ada]")] or \
-                [round(value, 6) for value in stored] == [round(value, 6) for value in new.vector("Ada moved to Lisbon (happened in June 2024) [Ada]")], \
+            assert same_vector(stored, new.vector("Ada moved to Lisbon (happened in June 2024) [Ada]")), \
                 "world facts embed with the same date and entity augmentation retain uses"
             observation = parse_vector(conn.execute(text("SELECT embedding FROM memory_units WHERE id = :id"), {"id": ids[2]}).scalar())
-            assert [round(value, 6) for value in observation] == [round(value, 6) for value in new.vector("Ada tends to relocate in summer")]
+            assert same_vector(observation, new.vector("Ada tends to relocate in summer"))
             model_vector = parse_vector(conn.execute(text("SELECT embedding FROM mental_models")).scalar())
-            assert [round(value, 6) for value in model_vector] == [round(value, 6) for value in new.vector("Ada profile Ada lives in Lisbon and drinks tea")]
+            assert same_vector(model_vector, new.vector("Ada profile Ada lives in Lisbon and drinks tea"))
         # Hindsight's own startup check accepts the migrated dimension on populated tables.
         ensure_embedding_dimension(url, 6)
 
@@ -190,7 +195,7 @@ def main() -> None:
             assert dimension(conn) == 6 and snapshot(conn) == after
             replaced = parse_vector(conn.execute(text("SELECT embedding FROM memory_units WHERE id = :id"), {"id": ids[1]}).scalar())
             mentioned = conn.execute(text("SELECT mentioned_at FROM memory_units WHERE id = :id"), {"id": ids[1]}).scalar()
-            assert [round(value, 6) for value in replaced] == [round(value, 6) for value in same.vector(f"Ada prefers tea (happened in {mentioned.strftime('%B %Y')})")], \
+            assert same_vector(replaced, same.vector(f"Ada prefers tea (happened in {mentioned.strftime('%B %Y')})")), \
                 "experience facts without an occurrence date embed with their mentioned-at month, as retain does"
         assert events and events[-1]["event"] == "progress" and events[-1]["done"] == events[-1]["total"] == 5, events[-1]
         print("memory embedding migration storage check passed")

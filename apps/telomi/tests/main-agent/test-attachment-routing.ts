@@ -240,6 +240,6 @@ try {
 	console.log("attachment routing test passed");
 } finally {
 	releaseHang?.();
-	service.stop();
+	await service.stop();
 	rmSync(root, { recursive: true, force: true });
 }
