@@ -48,7 +48,7 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
   const endpoint = `http://127.0.0.1:${address.port}/v1`;
   const { mountAudioConfigApi } = await import("../../server/voice/config-api.js");
   const { mountCustomProvidersApi } = await import("../../server/providers/api.js");
-  const { speak, speakMany, speakPcm16Stream } = await import("../../server/audio/providers/tts.js");
+  const { synthesizeSpeech, speakMany, speakPcm16Stream } = await import("../../server/audio/providers/tts.js");
   const { renderPodcastBundle } = await import("../../server/media/podcast/runtime.js");
   const app = express(); app.use(express.json()); mountAudioConfigApi(app); mountCustomProvidersApi(app);
   const server = app.listen(0, "127.0.0.1");
@@ -71,7 +71,7 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     assert.equal(nothing.sources.playback, null);
     await connection("12345");
     assert.equal((await post("apply", { default: { connection: "telomi-audio", model: "voice-one", voice: "", rate: 1 } })).status, 200);
-    assert.equal((await speak({ text: "First operation", format: "wav" })).ok, true);
+    assert.equal((await synthesizeSpeech({ text: "First operation", format: "wav" })).ok, true);
     assert.equal(requests.at(-1)?.model, "voice-one");
     const { loadCustomProviders, saveCustomProviders } = await import("../../server/providers/custom-models.js");
     const catalog = loadCustomProviders();
@@ -86,11 +86,11 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     assert.equal((await post("apply", { ...draft, local: draft.default, default: { connection: "recognition-only", model: "tts-1", voice: "alloy", rate: 1 } })).status, 422,
       "Known TTS models cannot bypass an explicit recognition-only declaration");
     assert.equal((await post("pending", draft)).status, 200);
-    await speak({ text: "Before", format: "wav" }); assert.equal(requests.at(-1)?.model, "voice-one");
+    await synthesizeSpeech({ text: "Before", format: "wav" }); assert.equal(requests.at(-1)?.model, "voice-one");
     assert.equal((await post("apply", draft)).status, 200);
     assert.equal((await get()).consumers.find(item => item.id === "playback")?.status, "pending");
     process.env.TELOMI_AUDIO_TTS_MODEL = "stale-environment-model";
-    await speak({ text: "After", format: "wav" });
+    await synthesizeSpeech({ text: "After", format: "wav" });
     assert.deepEqual([requests.at(-1)?.model, requests.at(-1)?.voice, requests.at(-1)?.speed], ["voice-two", "serena", 1.2]);
     assert.equal((await get()).consumers.find(item => item.id === "playback")?.status, "active");
     assert.ok((await get()).consumers.filter(item => item.id !== "playback").every(item => item.status === "pending"));
@@ -108,18 +108,18 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     assert.equal((await get()).active.default.model, "voice-two"); rejectValidation = false;
     draft = { ...draft, playback: { ...draft.default, model: "voice-one" } };
     assert.equal((await post("apply", draft)).status, 200);
-    await speak({ text: "Override", format: "wav" }); assert.equal(requests.at(-1)?.model, "voice-one");
+    await synthesizeSpeech({ text: "Override", format: "wav" }); assert.equal(requests.at(-1)?.model, "voice-one");
     assert.equal((await get()).sources.playback, "override");
     delete draft.playback;
     assert.equal((await post("apply", draft)).status, 200);
-    await speak({ text: "Inherited", format: "wav" }); assert.equal(requests.at(-1)?.model, "voice-two");
+    await synthesizeSpeech({ text: "Inherited", format: "wav" }); assert.equal(requests.at(-1)?.model, "voice-two");
     assert.equal((await get()).sources.playback, "default");
     const savedForLater = { ...draft, default: { ...draft.default, model: "voice-one" } };
     assert.equal((await post("pending", savedForLater)).status, 200);
     assert.equal((await post("apply", { ...draft, default: { ...draft.default, voice: "serena" } })).status, 200);
     assert.equal((await get()).pending?.default.model, "voice-one");
     await connection("key-next", endpoint, "pending");
-    await speak({ text: "Pending key", format: "wav" }); assert.equal(requests.at(-1)?.authorization, "Bearer 12345");
+    await synthesizeSpeech({ text: "Pending key", format: "wav" }); assert.equal(requests.at(-1)?.authorization, "Bearer 12345");
     holdNext = true;
     const firstStarted = new Promise<void>(resolve => { started = resolve; });
     const batchStart = requests.length;
@@ -168,7 +168,7 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     release!();
     await assert.rejects(affinityBatch, /connection changed/);
     assert.equal(requests.length, affinityStart + 1);
-    await speak({ text: "New endpoint", format: "wav" }); assert.equal(requests.at(-1)?.authorization, "Bearer key-replacement");
+    await synthesizeSpeech({ text: "New endpoint", format: "wav" }); assert.equal(requests.at(-1)?.authorization, "Bearer key-replacement");
 
     // A cloud connection uses its own declared endpoint and current credential.
     const localSelection = { ...draft.default };
@@ -176,7 +176,7 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     const cloudSelection = { connection: "cloud-audio", model: "voice-two", voice: "alloy", rate: 1.1 };
     for (const format of ["wav", "mp3"] as const) {
       assert.equal((await post("apply", { ...draft, local: localSelection, default: cloudSelection })).status, 200);
-      assert.equal((await speak({ text: "Cloud adapter", format })).ok, true);
+      assert.equal((await synthesizeSpeech({ text: "Cloud adapter", format })).ok, true);
       assert.deepEqual([requests.at(-1)?.model, requests.at(-1)?.voice, requests.at(-1)?.speed, requests.at(-1)?.authorization], ["voice-two", "alloy", 1.1, "Bearer cloud-key"]);
     }
     assert.equal((await post("apply", draft)).status, 200);
@@ -202,7 +202,7 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     const anonymous = { ...draft, local: localSelection, default: { ...draft.default, connection: "anonymous-audio" } };
     assert.equal((await post("apply", anonymous)).status, 200);
     assert.equal(validationAuth.at(-1), undefined);
-    assert.equal((await speak({ text: "Anonymous transport", format: "wav" })).ok, true);
+    assert.equal((await synthesizeSpeech({ text: "Anonymous transport", format: "wav" })).ok, true);
     assert.equal(requests.at(-1)?.authorization, undefined);
     // Every consumer, the Local Worker included, may speak through the anonymous connection.
     assert.equal((await post("apply", { ...anonymous, local: anonymous.default })).status, 200);
@@ -225,7 +225,7 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     `], { cwd: join(import.meta.dirname, "../.."), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
     const writerExit = once(writer, "exit");
     await once(writer.stdout!, "data");
-    await speak({ text: "Coherent connection pair", format: "wav" });
+    await synthesizeSpeech({ text: "Coherent connection pair", format: "wav" });
     assert.equal(requests.at(-1)?.authorization, "Bearer key-coherent");
     assert.equal((await writerExit)[0], 0);
 
@@ -233,9 +233,9 @@ test("configuration reaches playback, Local Worker and Podcast boundaries with s
     const persisted = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "import { resolveAudioGeneration } from './server/audio/configuration.ts'; console.log(resolveAudioGeneration().model)"], { cwd: join(import.meta.dirname, "../.."), env: { ...process.env, TELOMI_AUDIO_TTS_MODEL: "stale-environment-model" }, encoding: "utf8" });
     assert.equal(persisted.trim(), "voice-two");
     assert.equal((await fetch(`${origin}/api/custom-providers/telomi-audio`, { method: "DELETE" })).status, 200);
-    await assert.rejects(speak({ text: "Deleted connection", format: "wav" }), /unavailable|deleted/);
+    await assert.rejects(synthesizeSpeech({ text: "Deleted connection", format: "wav" }), /unavailable|deleted/);
     assert.ok((await get()).consumers.every(item => item.status === "unavailable"), "every consumer of a deleted connection is unavailable");
-    const deleted = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "import { speak } from './server/audio/providers/tts.ts'; try { await speak({ text: 'No resurrection' }); process.exitCode = 1; } catch { console.log('unavailable'); }"], { cwd: join(import.meta.dirname, "../.."), env: process.env, encoding: "utf8" });
+    const deleted = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", "import { synthesizeSpeech } from './server/audio/providers/tts.ts'; try { await synthesizeSpeech({ text: 'No resurrection' }); process.exitCode = 1; } catch { console.log('unavailable'); }"], { cwd: join(import.meta.dirname, "../.."), env: process.env, encoding: "utf8" });
     assert.equal(deleted.trim(), "unavailable");
   } finally {
     release?.(); server.closeAllConnections(); upstream.closeAllConnections();
@@ -249,9 +249,9 @@ test("without an applied configuration no speech model is chosen and environment
   try {
     const output = execFileSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
       import { resolveAudioGeneration } from './server/audio/configuration.ts';
-      import { speak } from './server/audio/providers/tts.ts';
+      import { synthesizeSpeech } from './server/audio/providers/tts.ts';
       import { loadSettings } from './server/config/settings.ts';
-      const spoken = await speak({ text: "hello", format: "wav" }).catch((error) => ({ ok: false, reason: error.message }));
+      const spoken = await synthesizeSpeech({ text: "hello", format: "wav" }).catch((error) => ({ ok: false, reason: error.message }));
       console.log(JSON.stringify({ selected: resolveAudioGeneration() ?? null, spoken, saved: loadSettings().audioGeneration ?? null }));
     `], { cwd: join(import.meta.dirname, "../.."), env: { ...process.env, TELOMI_DATA_DIR: home, TELOMI_AUDIO_TTS_PROVIDER: "openrouter-tts", TELOMI_AUDIO_TTS_MODEL: "env-model", TELOMI_AUDIO_TTS_VOICE: "env-voice", OPENROUTER_API_KEY: "env-key" }, encoding: "utf8" });
     const { selected, spoken, saved } = JSON.parse(output) as { selected: unknown; spoken: { ok: boolean; reason?: string }; saved: unknown };
