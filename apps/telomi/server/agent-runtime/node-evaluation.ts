@@ -33,6 +33,8 @@ import { assertAgentDescriptor, describeEvaluationAgent, type AgentDescriptor } 
 
 const CASE_SCHEMA_VERSION = 1;
 const CASES_DIRECTORY = "node-evaluation/cases";
+/** Where a Case keeps its Observed output; a Recipe may build it there itself. */
+export const NODE_EVALUATION_OBSERVED_OUTPUT = "observed-output";
 
 export interface NodeReplayRecipeIdentity {
 	id: string;
@@ -450,13 +452,16 @@ export function finishNodeEvaluationCase(
 		let output: NodeEvaluationArtifactRef | undefined;
 		if (input.result) {
 			const caseStore = new RunArtifactStore(draft.caseDirectory);
-			const artifact = "files" in input.result.artifact
+			const inPlace = join(draft.caseDirectory, NODE_EVALUATION_OBSERVED_OUTPUT);
+			const artifact = existsSync(inPlace) && realpathSync(inPlace) === realpathSync(input.result.artifact.absolutePath)
+				? caseStore.describeDirectory(NODE_EVALUATION_OBSERVED_OUTPUT)
+				: "files" in input.result.artifact
 				? caseStore.publishDirectory(
 						input.result.artifact.absolutePath,
-						"observed-output",
+						NODE_EVALUATION_OBSERVED_OUTPUT,
 						input.result.artifact.absolutePath,
 					)
-				: caseStore.publishFile(input.result.artifact.absolutePath, "observed-output");
+				: caseStore.publishFile(input.result.artifact.absolutePath, NODE_EVALUATION_OBSERVED_OUTPUT);
 			output = {
 				ref: artifact.relativePath,
 				sha256: artifact.sha256,
