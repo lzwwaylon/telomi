@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { materializedSkillIdentity, materializeSkills, snapshotSkills } from "../../server/agent-runtime/skill-registry.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-skills-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const builtin = join(root, "builtin", "example");
 mkdirSync(join(builtin, "scripts"), { recursive: true });
 writeFileSync(join(builtin, "SKILL.md"), "---\nname: example\ndescription: Example Skill.\n---\n\nUse it.\n");

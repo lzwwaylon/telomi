@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -95,6 +95,7 @@ async function serve(router: express.Router) {
 
 test("the Memory page lists, curates and scopes Episodes through Hindsight only", async (context) => {
 	const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-user-memory-api-"));
+	context.after(() => rmSync(workspaceDir, { recursive: true, force: true }));
 	const schedules = new ResearchScheduleStore("goal_a", workspaceDir);
 	const schedule = schedules.create({
 		title: "Weekly TTS releases",
@@ -238,6 +239,7 @@ test("the Memory page lists, curates and scopes Episodes through Hindsight only"
 
 test("the Memory page exposes scoped valid observations as read-only complete text", async (context) => {
 	const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-memory-observations-"));
+	context.after(() => rmSync(workspaceDir, { recursive: true, force: true }));
 	const units = [
 		unit("observation-z", null, ["goal:goal_a"], "Summary | meaningful detail", { fact_type: "observation" }),
 		unit("observation-a", "unlisted-document", ["goal:goal_a"], "Another summary", { fact_type: "observation" }),
@@ -278,6 +280,7 @@ test("the Memory page exposes scoped valid observations as read-only complete te
 
 test("the Memory page reports User Memory as unavailable while it is down", async (context) => {
 	const workspaceDir = mkdtempSync(join(tmpdir(), "telomi-user-memory-down-"));
+	context.after(() => rmSync(workspaceDir, { recursive: true, force: true }));
 	const goals = { getGoal: () => ({ id: "goal_a", title: "A", isStreaming: false }) } as never;
 	const api = await serve(createUserMemoryRouter(workspaceDir, goals, new HindsightClient("http://127.0.0.1:9/v1/default", "bank")));
 	context.after(() => api.close());
@@ -288,6 +291,7 @@ test("the Memory page reports User Memory as unavailable while it is down", asyn
 
 test("deferred User Memory migrations run once each, in order, and survive a failure", async (context) => {
 	const dataDir = mkdtempSync(join(tmpdir(), "telomi-memory-migrations-"));
+	context.after(() => rmSync(dataDir, { recursive: true, force: true }));
 	const documents: FakeDocument[] = [
 		{ id: "pi-task-a", created_at: "", tags: ["goal:goal_a", "scope:global"], original_text: "" },
 		{ id: "pi-turn-b", created_at: "", tags: ["goal:goal_b", "scope:global"], original_text: "" },

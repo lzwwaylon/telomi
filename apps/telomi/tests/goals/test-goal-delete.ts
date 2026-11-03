@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +11,9 @@ import { GoalService, type GoalLifecycleFs } from "../../server/goals/service.js
 import { unusedGoalExecution } from "./unused-execution.js";
 import { serverRuntimeDirForGoal } from "../../server/workspaces/server-runtime-paths.js";
 
-const dataDir = mkdtempSync(join(tmpdir(), "telomi-goal-delete-"));
+const root = mkdtempSync(join(tmpdir(), "telomi-goal-delete-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
+const dataDir = mkdtempSync(join(root, "transaction-"));
 const cleanupError = new Error("simulated cleanup failure");
 const lifecycleFs: GoalLifecycleFs = {
 	rename,
@@ -37,11 +39,11 @@ assert.equal(
 	"the deleted Harness path must disappear atomically",
 );
 
-const invalidDataDir = mkdtempSync(join(tmpdir(), "telomi-goal-invalid-"));
+const invalidDataDir = mkdtempSync(join(root, "invalid-"));
 writeFileSync(join(invalidDataDir, "goals.json"), "{\"invalid\":true}\n");
 assert.throws(() => new GoalService(invalidDataDir, unusedGoalExecution), /goals.json must contain an array/u);
 
-const oldGoalDataDir = mkdtempSync(join(tmpdir(), "telomi-goal-old-schema-"));
+const oldGoalDataDir = mkdtempSync(join(root, "old-schema-"));
 writeFileSync(join(oldGoalDataDir, "goals.json"), `${JSON.stringify([{
 	id: "goal_old_schema",
 	title: "Old schema",
@@ -53,14 +55,14 @@ writeFileSync(join(oldGoalDataDir, "goals.json"), `${JSON.stringify([{
 }], null, 2)}\n`);
 assert.throws(() => new GoalService(oldGoalDataDir, unusedGoalExecution), /discoveryEnabled must be a boolean/u);
 
-const missingLanguageDir = mkdtempSync(join(tmpdir(), "telomi-goal-missing-language-"));
+const missingLanguageDir = mkdtempSync(join(root, "missing-language-"));
 seedGoal(missingLanguageDir, "goal_missing_language");
 const missingLanguageRecords = JSON.parse(readFileSync(join(missingLanguageDir, "goals.json"), "utf-8"));
 delete missingLanguageRecords[0].outputLanguage;
 writeFileSync(join(missingLanguageDir, "goals.json"), JSON.stringify(missingLanguageRecords));
 assert.throws(() => new GoalService(missingLanguageDir, unusedGoalExecution), /outputLanguage is invalid/u);
 
-const rollbackDir = mkdtempSync(join(tmpdir(), "telomi-goal-delete-rollback-"));
+const rollbackDir = mkdtempSync(join(root, "rollback-"));
 let renameCount = 0;
 const stagingError = new Error("simulated staging failure");
 const rollbackFs: GoalLifecycleFs = {
@@ -84,7 +86,7 @@ assert.equal(
 	"an unstaged Harness path must remain available",
 );
 
-const processDataDir = mkdtempSync(join(tmpdir(), "telomi-goal-delete-process-"));
+const processDataDir = mkdtempSync(join(root, "process-"));
 const processGoals = new GoalService(processDataDir, unusedGoalExecution);
 const processGoal = seedGoal(processDataDir, "goal_delete_processes");
 const processHarness = serverRuntimeDirForGoal(processGoal.id, processDataDir);
@@ -106,7 +108,7 @@ try {
 	if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
 }
 
-const memoryDataDir = mkdtempSync(join(tmpdir(), "telomi-goal-delete-memory-"));
+const memoryDataDir = mkdtempSync(join(root, "memory-"));
 const memoryRequests: string[] = [];
 let failNextMemoryDeletion = false;
 const hindsight = createServer((request, response) => {

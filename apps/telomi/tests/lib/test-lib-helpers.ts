@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 
@@ -30,6 +30,7 @@ import { clipSummary, isRecord, toErrorMessage } from "../../server/lib/values.j
 import * as log from "../../server/lib/log.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-lib-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 // Existing serialized identities keep their exact ordering and JSON conventions.
 const mixedKeys = { z: [{ Z: 1, a: 2 }], a: 3, A: 4, "10": 5, "2": 6, omitted: undefined };

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import { loadOrganizedSources, materializeOrganizedSources } from "../../server/
 import { RunArtifactStore } from "../../server/agent-runtime/artifact-store.js";
 
 const root = mkdtempSync(join(tmpdir(), "telomi-find-out-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const inputs = join(root, "inputs");
 const store = new RunArtifactStore(join(root, "run"));
 const members = [

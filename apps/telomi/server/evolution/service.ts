@@ -213,6 +213,7 @@ function evolutionRunStore(directory: string): JsonDocumentStore<EvolutionRun> {
 export class EvolutionService {
 	private readonly targets: Map<string, EvolutionTarget>;
 	private readonly active = new Map<string, { controller: AbortController; targetId: string }>();
+	private readonly executions = new Set<Promise<void>>();
 	private readonly settledListeners = new Set<(run: EvolutionRun) => void>();
 
 	constructor(private readonly options: {
@@ -392,7 +393,11 @@ export class EvolutionService {
 		this.save(run);
 		const controller = new AbortController();
 		this.active.set(this.key(goalId, id), { controller, targetId });
-		void this.execute(run, target, controller.signal).finally(() => this.active.delete(this.key(goalId, id)));
+		const execution = this.execute(run, target, controller.signal).finally(() => {
+			this.active.delete(this.key(goalId, id));
+			this.executions.delete(execution);
+		});
+		this.executions.add(execution);
 		return run;
 	}
 
@@ -436,8 +441,10 @@ export class EvolutionService {
 		return this.active.size > 0;
 	}
 
-	stop(): void {
+	/** Aborts every running Run; resolves once they have settled, so nothing writes after it. */
+	async stop(): Promise<void> {
 		for (const { controller } of this.active.values()) controller.abort("evolution_service_stopped");
+		await Promise.allSettled(this.executions);
 	}
 
 	private async execute(initial: EvolutionRun, target: EvolutionTarget, signal: AbortSignal): Promise<void> {

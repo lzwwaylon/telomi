@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,7 @@ import { runtimeContextPath } from "../../server/observability/run-records.js";
 
 const childMode = process.argv[2] === "--child";
 const workspaceDir = childMode ? process.argv[3]! : mkdtempSync(join(tmpdir(), "telomi-process-resume-"));
+if (!childMode) process.once("exit", () => rmSync(workspaceDir, { recursive: true, force: true }));
 const markerPath = join(workspaceDir, "interrupted-run.json");
 const goalId = "goal_process_resume";
 const goalDir = join(workspaceDir, goalId);

@@ -109,6 +109,6 @@ try {
 	console.log("file ingest terminal-state wait tests passed");
 } finally {
 	releaseHang?.();
-	service.stop();
+	await service.stop();
 	rmSync(root, { recursive: true, force: true });
 }

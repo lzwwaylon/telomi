@@ -140,6 +140,6 @@ try {
 
 	console.log("Browser Evolution returns a batch no Candidate Replay ever saw, at most once");
 } finally {
-	service.stop();
+	await service.stop();
 	rmSync(root, { recursive: true, force: true });
 }

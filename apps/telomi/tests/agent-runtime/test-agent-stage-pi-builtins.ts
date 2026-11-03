@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,7 @@ assert.equal(abortedAcceptedPrompt, true,
 	"An accepted Stage must become authoritative even when the Agent prompt never settles");
 
 const root = mkdtempSync(join(tmpdir(), "pi-agent-stage-tools-"));
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 	assert.equal(sandboxSkillPath(
 		join(root, "goal-skills", "example", "SKILL.md"),
 		[{ hostPath: join(root, "goal-skills"), guestPath: "/workspace/skills", access: "read-only" }],

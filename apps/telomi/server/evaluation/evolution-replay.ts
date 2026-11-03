@@ -290,7 +290,7 @@ export function createEvolutionReplayRecipe(options: {
 			} finally {
 				// Strict lifecycle: both queues stop and the reconstructed Goal disappears even when
 				// the Replay threw, so nothing outlives the Replay that created it.
-				evolution.stop();
+				await evolution.stop();
 				nodeBacktests.stop();
 				rmSync(isolated, { recursive: true, force: true });
 				rmSync(inputDirectory, { recursive: true, force: true });

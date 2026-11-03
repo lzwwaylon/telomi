@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import { sha256 } from "../../server/lib/hash.js";
 import { createWikiRuntime } from "../../server/wiki/model/index.js";
 
 const goalRoot = mkdtempSync(join(tmpdir(), "telomi-wiki-evidence-"));
+process.once("exit", () => rmSync(goalRoot, { recursive: true, force: true }));
 const knowledgeRoot = join(goalRoot, "wiki", "knowledge");
 const sourceRoot = join(
 	goalRoot,

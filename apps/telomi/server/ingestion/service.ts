@@ -159,10 +159,12 @@ export class FileIngestService {
 		this.pump();
 	}
 
-	stop(): void {
+	/** Starts nothing new; resolves once the jobs already running have settled. */
+	async stop(): Promise<void> {
 		this.stopped = true;
 		// Release waiters rather than leaving them pending until their own timeout.
 		for (const release of [...this.waiters]) release();
+		await Promise.allSettled(this.active.values());
 	}
 
 	/**
