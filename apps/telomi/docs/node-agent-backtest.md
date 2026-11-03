@@ -184,6 +184,8 @@ Replay continues to execute production `PrimeSearchBatchExecutor`, Prime Root, n
 
 Prime Search blind-evaluation Artifacts include sanitized Search Execution Records, Source Bundles, Logical Sources, available decision records, and the Agent Bundle's Rubric. The Rubric requires assessment of Evidence Requirement coverage, relevance, Primary Sources, material completeness, temporal correctness, duplication, omissions, and consistency between evidence and decisions, not merely Source counts.
 
+These Artifacts are written once per batch, directly as the Case's Observed output; the run keeps no separate evaluation copy. The Case stays self-contained for Bundle export, so it holds copy-on-write clones of the run's Source Bundles and organized Sources, and the captured logical Workspaces move into it. A Candidate Replay's execution Artifact is its Candidate Case's Observed output, not another copy, so both sides of a blind pair carry the same file set, logical Workspaces included.
+
 ### Main Agent Topic Plan Recovery
 
 Main Replay starts from the captured pre-turn Goal tree and rejects Cases without that tree. Candidate Skills may change, but later Wiki contents in the capability workspace never replace the captured Wiki. Before deleting the isolated Replay workspace, Runtime archives the Goal's Sources and artifacts and successful or failed Search, Reader and Writer evidence, with a content-hash manifest. SDK credentials and private runtime bootstrap files are excluded. Retained absolute workspace paths are historical provenance, not live file locations. Main's existing metrics still describe Main alone and must not be presented as complete investigation cost.

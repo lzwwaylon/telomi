@@ -6,10 +6,12 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	renameSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { cloneDirectoryContents } from "../lib/cow.js";
 import { listFilesRecursive } from "../lib/fs.js";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +22,9 @@ import { loadResearchHarnessSnapshot } from "../research/harness/snapshot.js";
 import { createHarnessResearchSourceRegistry } from "../research/sources/builtin-registry.js";
 import {
 	beginNodeEvaluationCase,
+	findNodeEvaluationCases,
 	finishNodeEvaluationCase,
+	NODE_EVALUATION_OBSERVED_OUTPUT,
 	type NodeEvaluationCaseDraft,
 	type NodeReplayRecipe,
 } from "../agent-runtime/node-evaluation.js";
@@ -203,8 +207,7 @@ export function withPrimeSearchNodeEvaluationCapture(
 				return result;
 			}
 			try {
-				const artifact = publishPrimeSearchEvaluationOutput(result, request.controlDirectory, request.artifactStore,
-					`artifacts/node-evaluation/prime-search-${request.sequence}`, logicalWorkspaces);
+				const artifact = writePrimeSearchObservedOutput(result, request.controlDirectory, draft.caseDirectory, logicalWorkspaces);
 				const capture = finishNodeEvaluationCase(draft, {
 					status: "succeeded",
 					workDirectory,
@@ -294,8 +297,13 @@ async function executeProductionLivePrimeSearchReplay(
 		organizerStorageRoot: join(input.recordDirectory, "source-history"),
 		signal: input.signal,
 	});
+	// The Candidate Case that capture just wrote holds this exact output; the Replay names it
+	// instead of writing every Source Bundle a second time.
+	const cases = findNodeEvaluationCases(input.recordDirectory, "prime-search");
+	if (cases.length !== 1) throw new Error(`Prime Search Replay produced ${cases.length} Candidate Cases`);
 	return {
-		artifact: publishPrimeSearchEvaluationOutput(result, input.recordDirectory, input.artifactStore, "result"),
+		artifact: input.artifactStore.describeDirectory(
+			relative(input.artifactStore.root, join(dirname(cases[0]!.path), NODE_EVALUATION_OBSERVED_OUTPUT))),
 		usage: result.usage,
 		turns: result.usage.calls,
 		toolCalls: result.toolCalls,
@@ -364,14 +372,18 @@ function stageResult(
 	};
 }
 
-function publishPrimeSearchEvaluationOutput(
+/**
+ * Builds the Case's Observed output in place. Bundles and organized Sources are clones of the
+ * run's artifacts (the Case must stay self-contained for Bundle export); the logical Workspaces
+ * are moved, since their capture directory is discarded afterwards.
+ */
+function writePrimeSearchObservedOutput(
 	result: SearchBatchResult,
 	recordDirectory: string,
-	store: RunArtifactStore,
-	target: string,
+	caseDirectory: string,
 	logicalWorkspaces?: string,
 ): PublishedArtifactDirectoryRef {
-	const staging = mkdtempSync(join(recordDirectory, ".prime-search-evaluation-"));
+	const staging = mkdtempSync(join(caseDirectory, ".observed-output-"));
 	try {
 		writeFileSync(join(staging, "result.json"), `${JSON.stringify({
 			schema_version: 1,
@@ -392,9 +404,9 @@ function publishPrimeSearchEvaluationOutput(
 			agent_stages: result.agentStages,
 		}, null, 2)}\n`);
 		for (const [index, bundle] of result.sourceBundles.entries()) {
-			cpSync(bundle.absolutePath, join(staging, "source-bundles", String(index + 1)), { recursive: true });
+			cloneTree(bundle.absolutePath, join(staging, "source-bundles", String(index + 1)));
 		}
-		cpSync(result.organizedSources.absolutePath, join(staging, "find-out-sources"), { recursive: true });
+		cloneTree(result.organizedSources.absolutePath, join(staging, "find-out-sources"));
 		for (const [index, execution] of result.executionRecords.entries()) {
 			mkdirSync(join(staging, "search-executions"), { recursive: true });
 			cpSync(execution.artifact.absolutePath, join(staging, "search-executions", `${index + 1}.json`));
@@ -402,14 +414,21 @@ function publishPrimeSearchEvaluationOutput(
 		const decisions = findPrimeDecisions(recordDirectory);
 		if (decisions) cpSync(decisions, join(staging, "decisions"), { recursive: true });
 		if (logicalWorkspaces && existsSync(logicalWorkspaces)) {
-			cpSync(logicalWorkspaces, join(staging, "logical-workspaces"), { recursive: true });
+			renameSync(logicalWorkspaces, join(staging, "logical-workspaces"));
 		}
 		cpSync(PRIME_SEARCH_EVALUATION_RUBRIC, join(staging, "rubric.md"));
 		sanitizeEvaluationJson(staging, recordDirectory);
-		return store.publishDirectory(staging, target, staging);
+		renameSync(staging, join(caseDirectory, NODE_EVALUATION_OBSERVED_OUTPUT));
+		return new RunArtifactStore(caseDirectory).describeDirectory(NODE_EVALUATION_OBSERVED_OUTPUT);
 	} finally {
 		rmSync(staging, { recursive: true, force: true });
 	}
+}
+
+/** Copy-on-write where the volume supports it, a byte copy elsewhere. */
+function cloneTree(source: string, target: string): void {
+	mkdirSync(target, { recursive: true });
+	if (cloneDirectoryContents(source, target) !== "clone") cpSync(source, target, { recursive: true });
 }
 
 function readPrimeSearchRequest(inputDirectory: string): CapturedPrimeSearchRequest {
